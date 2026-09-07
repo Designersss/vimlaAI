@@ -1,14 +1,14 @@
 ---
-description: Cursor implementation workflow and scope-control rules
-alwaysApply: true
+description: Phase discipline, migrations, quality gate and safe change workflow
+alwaysApply: false
 ---
-# Implementation workflow
+# Development workflow rules
 
-- Before a non-trivial task, inspect the relevant docs/rules and current repository state.
-- Follow `docs/IMPLEMENTATION_PLAN.md` phase order unless the user explicitly changes scope.
-- Do not silently implement future phases.
-- Prefer small coherent commits/changes that leave the repository runnable.
-- After each phase run lint, typecheck, tests and build; fix errors introduced by the work.
-- Update implementation-plan checkboxes/status only for work actually completed.
-- Do not delete existing user code/files merely because a generated scaffold differs; migrate intentionally.
-- Summarize changed files, commands run, test results, remaining risks and the exact next phase.
+- Read `AGENTS.md` and applicable rules/docs before architectural changes.
+- Implement only the requested phase/scope; do not silently begin future roadmap items.
+- Preserve working code and historical migrations unless explicitly instructed otherwise.
+- For schema changes create new versioned migrations; do not rewrite applied migrations.
+- When a decision changes architecture/security/product behavior, update the relevant docs/ADR.
+- Before phase completion run lint, typecheck, tests/integration tests and build as applicable.
+- Report what was actually executed vs not executable in the environment.
+- List technical debt/security limitations explicitly; do not mark incomplete work complete.

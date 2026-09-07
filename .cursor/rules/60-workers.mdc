@@ -1,19 +1,17 @@
 ---
-description: BullMQ worker rules for long-running generations and agents
+description: BullMQ/background worker reliability, idempotency and long-running job rules
 alwaysApply: false
-globs:
-  - "apps/worker/**/*.ts"
-  - "apps/api/src/**/*queue*.ts"
-  - "apps/api/src/**/*generation*.ts"
+globs: "apps/worker/**/*.ts, packages/**/*queue*.ts, packages/**/*job*.ts"
 ---
 # Worker rules
 
-- Use Redis/BullMQ for execution coordination; persistent job/business state lives in PostgreSQL.
-- API creates a persistent job record before enqueuing expensive async work.
-- Queue payloads contain IDs and minimal immutable metadata, not giant documents/binaries.
-- Workers re-load authoritative state from PostgreSQL.
-- Image/video/agent runs must be idempotent/recoverable across worker restarts.
-- Use explicit retry policies by failure type. Never blindly retry costly generation after an ambiguous provider response.
-- A job must carry/correlate its usage reservation. Completion settles; definite uncharged failure releases; ambiguous provider charge goes to reconciliation/manual-safe state.
-- Store generated assets in S3-compatible object storage and metadata in PostgreSQL.
-- Concurrency is configured by queue/capability and must respect provider rate limits and cost controls.
+- Persistent job/domain status in PostgreSQL is authoritative; BullMQ/Redis is delivery/coordination.
+- Job handlers must be idempotent. A retry must not duplicate billing/provider calls/artifacts.
+- Use bounded retries/backoff only for operations proven safe to retry.
+- Provider-consuming async jobs reserve usage before external execution and settle/release safely afterward.
+- Ambiguous provider outcomes become reconciliation-required, not blind release/retry.
+- Validate queue payloads with runtime schemas.
+- Apply per-user/global concurrency and cost limits for expensive jobs.
+- Long media/files go to object storage; DB stores metadata/storage keys.
+- Worker shutdown must be graceful where possible and leave recoverable job state.
+- Never put secrets or raw sensitive content into queue names/job IDs/logs.

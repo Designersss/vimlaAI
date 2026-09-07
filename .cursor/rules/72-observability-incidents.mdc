@@ -1,0 +1,16 @@
+---
+description: Structured logging, metrics, auditability, incident and reconciliation rules
+alwaysApply: false
+globs: "apps/api/**/*.ts, apps/worker/**/*.ts, packages/billing/**/*.ts, packages/ai/**/*.ts, packages/auth/**/*.ts"
+---
+# Observability and incident rules
+
+- Use structured logs with correlation/request IDs.
+- Redact cookies, authorization, passwords, API keys, OTP/recovery tokens and sensitive content.
+- Important AI/billing operations log safe identifiers and result/status, not prompts/responses.
+- Distinguish application logs, security/admin audit logs and append-only financial ledger.
+- Financial/provider anomalies must be discoverable and reconciliation-ready.
+- Preserve provider request ID, internal request ID, model/price version, usage and provider actual cost where relevant.
+- Add metrics/alerts hooks for 5xx rate, auth failures, payment failures, provider failures, AI burn, queue backlog, DB latency and financial anomalies.
+- Do not silently swallow unexpected failures. Return stable user error and emit operator-visible diagnostic context.
+- Dangerous admin actions must record actor/target/action/result and before/after metadata where safe.

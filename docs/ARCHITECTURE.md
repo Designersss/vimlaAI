@@ -12,6 +12,7 @@ vimla/
     contracts/
     database/
     config/
+    auth/
     ai/
     billing/
     shared/
@@ -44,8 +45,22 @@ PostgreSQL   Redis      Object Storage
            ProxyAPI
 ```
 
-## Backend style
-The API starts as one deployable modular monolith. A separate worker process handles asynchronous jobs. Logical boundaries are preserved so selected workloads can be extracted later if measured scale requires it.
+## Authentication
+Phase 1 uses self-hosted Better Auth (email/password, database-backed HttpOnly cookie sessions). The API is the auth authority; the browser is not.
+
+```text
+Browser
+  -> Vimla Web (`/sign-in`, `/sign-up`, `/app`)
+  -> Vimla API `/api/auth/*`
+  -> Better Auth (`@vimla/auth`)
+  -> PostgreSQL (`user`, `session`, `account`, `verification`)
+
+Protected Vimla routes:
+  AuthGuard -> Better Auth getSession -> AuthenticatedUser.id
+  GET /v1/me
+```
+
+`User.id` is the canonical identifier for later billing, usage, conversations and generations. Public routes such as `GET /health` stay unauthenticated.
 
 ## Core synchronous chat flow
 
@@ -133,29 +148,82 @@ available = bucket total - settled charges - active reservations
 
 Reservation must be atomic across concurrent requests. Settlement converts reserved amount into actual charge and releases the difference.
 
-## AI abstraction
+## Billing and usage (Phase 2)
+
+Money is integer microRUB (`bigint` / PostgreSQL `BIGINT`). 1 RUB = 1,000,000 microRUB. JSON uses decimal strings. Redis is never authoritative for money, usage, reservations or payments.
+
+### Versioned plans
+`Plan` is stable identity (`LITE`, `START`, `PRO`). `PlanVersion` snapshots `priceMicroRub`, `providerBudgetMicroRub` and `providerCostRatioBps`. Historical subscriptions keep the version they bought.
+
+Seed (idempotent `pnpm db:seed`):
+- Lite 150 RUB / 30 RUB provider budget / 2000 bps
+- Start 300 RUB / 75 RUB / 2500 bps
+- Pro 990 RUB / 297 RUB / 3000 bps
+
+### Subscriptions and payments
+A subscription references one `PlanVersion` and a 30-day period (configurable). Statuses: `ACTIVE`, `CANCELED`, `EXPIRED`. At most one `ACTIVE` subscription per user (partial unique index).
+
+Payments are created server-side. Grants happen only after a verified `PaymentEvent`. Unique `(provider, providerEventId)` makes duplicate/replay events a no-op. Browser "I paid" is never trusted.
+
+`MockPaymentProvider` exists only for `local`/`test`. HTTP helpers `POST /dev/mock-purchases/*` are not registered when `APP_ENV` is staging or production.
+
+### Usage buckets
+Types: `MONTHLY` (expires at period end) and `TOPUP` (`expiresAt` null). CHECK constraint: `spent + reserved <= total` and all amounts `>= 0`.
+
+Top-up provider budget:
 
 ```text
-AiGateway
-  -> Router (initially simple explicit model mapping)
-  -> AiProvider
-       -> ProxyAPIProvider
+floor(amountMicroRub * 3500 / 10000)
 ```
 
-Later providers can be added without changing product/billing layers.
+Integer division truncates toward zero. Vimla never rounds up. Min/max top-up amounts are centralized config.
 
-## Model catalog
-Vimla model record should conceptually include:
-- Vimla model id/slug;
-- display name;
-- provider adapter;
-- provider model id;
-- capability flags;
-- enabled/disabled;
-- price version/reference;
-- limits;
-- usage tier/label;
-- routing metadata.
+### Reservation protocol
+`reserveUsage` → (future provider call) → `settleUsage` / `releaseUsage`.
+
+A reservation may allocate across several buckets (`UsageReservationAllocation`). Priority: active MONTHLY first, earlier `expiresAt` first, then TOPUP. Expired MONTHLY buckets are ignored.
+
+Idempotency: `(userId, requestId)` is unique. Repeat settle/release with the same outcome is safe. A second settle with a different amount is a conflict.
+
+If actual cost exceeds the estimate, the engine tries to reserve the difference in the same transaction. If that fails it settles only the reserved amount, marks the reservation `ANOMALY`, and logs a financial incident. It never creates a negative balance.
+
+### Concurrency
+Transactions use PostgreSQL `READ COMMITTED` plus `SELECT ... FOR UPDATE` on the user's buckets (and the payment/reservation row being processed). Reserve locks only unexpired buckets. Settle/release also lock buckets already allocated to that reservation, even if they expired while the reservation was active, so holds cannot get stuck. Bounded retry (3 attempts, exponential backoff + jitter) only for deadlock/serialization failures. Exhausted retries fail closed: the request is rejected, no provider call.
+
+### Ledger
+`UsageLedgerEntry` is append-only. A PostgreSQL trigger rejects `UPDATE`/`DELETE`; corrections are new `ADJUSTMENT` entries. Sign convention: grants are positive, settled usage is negative, reservation holds/releases are type-tagged with amounts in metadata. Each bucket is unique on `(sourceType, sourceId)` so a payment/subscription cannot grant twice even if application logic is retried.
+
+### Derived usage
+`GET /v1/usage` is authenticated and uses `AuthenticatedUser.id` only. Percentage uses `committed = spent + reserved` so in-flight work moves the meter.
+
+## AI abstraction (Phase 3)
+
+```text
+Chat / TextChatService
+  -> VimlaAiGateway
+  -> AiProvider
+       -> ProxyApiProvider | MockAiProvider
+  -> ProxyAPI POST /v1/chat/completions
+```
+
+The browser sends only an internal Vimla `modelId`. The API resolves `AiModel` + active `AiModelPriceVersion` and the server-owned `providerModelId`. Curated catalog seed, never auto-import from ProxyAPI `/v1/models`.
+
+Initial models (prices verified 2026-09-07, source `proxyapi-manual-2026-09-07`):
+- GPT-5.6 Luna (`openai/gpt-5.6-luna`): 60 / 360 / cache 6 / 75 RUB per 1M tokens
+- Claude Haiku 4.5 (`anthropic/claude-haiku-4-5`): 295 / 1474 / cache 30 / 369
+- Gemini 3.5 Flash Lite (`google/gemini-3.5-flash-lite`): 91 / 758, no cache prices
+
+Cost uses bigint ceiling: `ceil(tokens * priceMicroRubPerMillion / 1_000_000)`. Cached input is billed at cache-read price, not also as uncached input. Reasoning tokens are not added on top of output tokens.
+
+Reservation = estimated input + max output, plus `AI_RESERVATION_SAFETY_BPS` (default +20%), capped by `AI_MAX_RESERVATION_MICRORUB` (default 10 RUB). Provider is never called before `reserveUsage()`.
+
+`providerActualCostMicroRub` is always the full calculated COGS. `userSettledUsageMicroRub` is what buckets could cover. If actual > reserved and extra usage is unavailable, financial status is `ANOMALY` and buckets never go negative.
+
+Streaming: ProxyAPI SSE is parsed internally and rewritten as Vimla events (`start`, `delta`, `done`, `error`). Terminal usage may arrive as `{ choices: [], usage }`. ProxyAPI `X-Request-ID` is stored on `AiRequest.providerRequestId` and is not returned to the browser. Missing usage or ambiguous network failure → `RECONCILIATION_REQUIRED` and the reservation is held, never settled at 0 or blindly released. Client disconnect does not abort an in-flight provider call. No automatic retry of billable provider requests.
+
+Kill switch: `AI_TEXT_ENABLED=false` blocks new provider calls; auth/billing/conversation reads continue. Rate limit and per-user concurrency use Redis for coordination (fail closed in staging/production if Redis is down). Cookie mutating chat routes require `Origin === WEB_ORIGIN`.
+
+Default tests use `MockAiProvider`. Optional live smoke: `VIMLA_PROXYAPI_LIVE=1 pnpm test:proxyapi` (not CI).
 
 ## Payments
 Use `PaymentProvider` abstraction. Build with mock first. Real provider selection can be T-Kassa/CloudPayments/etc. Domain must not depend on a specific SDK.

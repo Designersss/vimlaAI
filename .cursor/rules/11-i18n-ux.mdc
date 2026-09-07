@@ -1,0 +1,30 @@
+---
+description: Vimla localization, user-facing validation and error UX
+alwaysApply: false
+globs: "apps/web/**/*.{ts,tsx}, apps/admin/**/*.{ts,tsx}, packages/contracts/**/*.ts, packages/auth/**/*.ts"
+---
+# Localization and UX rules
+
+Vimla supports at least Russian (`ru`) and English (`en`).
+
+## Strings
+- No user-facing hard-coded strings in components, form validators, notifications or email/SMS templates.
+- Use centralized translation keys/dictionaries.
+- Translation keys must describe meaning, not copy text (`auth.signIn`, not `sign_in_text_1`).
+- Missing translations must be detectable in development/tests.
+
+## Errors
+- Backend/domain returns stable machine-readable error codes.
+- Frontend maps codes to localized human-readable text.
+- Do not expose raw provider/DB/internal English errors to users.
+- Field-level errors appear next to fields; form-level errors appear in the form. Do not rely on browser validation popovers.
+- Validation must remain server-enforced even when frontend validates first.
+
+## Locale-sensitive formatting
+- Use locale-aware formatting for dates, times, pluralization, numbers and currencies.
+- Store timestamps in UTC; localize only at UI/email presentation.
+- Preserve locale preference in a user preference/session-compatible source, with browser locale fallback.
+
+## Product flows
+- New UI flows must be usable in both RU and EN before they are considered complete.
+- Auth emails/SMS and security notifications must use the recipient's locale when known.

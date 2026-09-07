@@ -1,18 +1,15 @@
 ---
-description: Shared API contract and validation rules
+description: API contracts, runtime validation, strict DTO and error-code conventions
 alwaysApply: false
-globs:
-  - "packages/contracts/**/*.ts"
-  - "apps/api/**/*.ts"
-  - "apps/web/**/*.ts"
-  - "apps/web/**/*.tsx"
+globs: "packages/contracts/**/*.ts, apps/api/**/*.ts, apps/web/**/*.ts, apps/admin/**/*.ts"
 ---
-# API contract rules
+# API contracts rules
 
-- Shared request/response/event schemas live in `packages/contracts` when both frontend and backend need them.
-- Use runtime validation schemas (prefer Zod unless the repository establishes another standard).
-- Infer TypeScript types from schemas where practical to avoid schema/type drift.
-- Never trust JSON purely because it satisfies a compile-time interface.
-- Serialize `bigint` monetary values explicitly as decimal strings or a dedicated money DTO; native bigint must never reach JSON serialization directly.
-- Public error contracts must use stable machine-readable codes plus safe human-readable messages.
-- Version breaking public API changes deliberately.
+- Shared external contracts live in `@vimla/contracts` when used across apps.
+- Runtime validation is mandatory for HTTP bodies/query/params, webhooks, queue payloads and provider responses where financially/security relevant.
+- Mutating financial/auth/admin/AI DTOs should be strict: unknown sensitive fields are rejected rather than silently stripped.
+- Client must not supply internal fields such as `userId`, role, price, provider cost, provider model ID, internal limits or permission grants unless a reviewed endpoint explicitly accepts them.
+- Use stable machine error codes; user-facing localization happens in clients.
+- Do not serialize native `bigint` directly. Financial integers cross JSON boundaries as validated decimal strings/money DTOs.
+- Treat all IDs from client as untrusted references; authorize ownership server-side.
+- Contract changes should be backward-compatible where practical or explicitly versioned/migrated.

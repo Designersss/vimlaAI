@@ -1,0 +1,354 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Phase 1: Better Auth. User.id is the canonical Vimla user identifier.
+// Phase 2: billing/usage. PostgreSQL is the source of truth for money.
+// Do not store money or usage in Redis.
+// Monetary columns must use BIGINT microRUB (1 RUB = 1_000_000 microRUB).
+
+model User {
+  id            String    @id
+  name          String
+  email         String
+  emailVerified Boolean   @default(false)
+  image         String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  sessions      Session[]
+  accounts      Account[]
+  subscriptions Subscription[]
+  payments      Payment[]
+  usageBuckets  UsageBucket[]
+  reservations  UsageReservation[]
+  ledgerEntries UsageLedgerEntry[]
+  conversations Conversation[]
+  aiRequests    AiRequest[]
+
+  @@unique([email])
+  @@map("user")
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime
+  token     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String?
+  userAgent String?
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([token])
+  @@index([userId])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id
+  accountId             String
+  providerId            String
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String?
+  refreshToken          String?
+  idToken               String?
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String?
+  password              String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@unique([providerId, accountId])
+  @@index([userId])
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id
+  identifier String
+  value      String
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([identifier])
+  @@map("verification")
+}
+
+model Plan {
+  id        String        @id @default(cuid())
+  code      String        @unique
+  name      String
+  active    Boolean       @default(true)
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  versions  PlanVersion[]
+
+  @@map("plan")
+}
+
+model PlanVersion {
+  id                     String         @id @default(cuid())
+  planId                 String
+  plan                   Plan           @relation(fields: [planId], references: [id], onDelete: Restrict)
+  priceMicroRub          BigInt
+  providerBudgetMicroRub BigInt
+  providerCostRatioBps   Int
+  validFrom              DateTime
+  validTo                DateTime?
+  createdAt              DateTime       @default(now())
+  subscriptions          Subscription[]
+  payments               Payment[]
+
+  @@index([planId, validFrom])
+  @@map("plan_version")
+}
+
+model Subscription {
+  id            String      @id @default(cuid())
+  userId        String
+  user          User        @relation(fields: [userId], references: [id], onDelete: Restrict)
+  planVersionId String
+  planVersion   PlanVersion @relation(fields: [planVersionId], references: [id], onDelete: Restrict)
+  status        String
+  periodStart   DateTime
+  periodEnd     DateTime
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@index([userId, status])
+  @@index([planVersionId])
+  @@map("subscription")
+}
+
+model Payment {
+  id                String       @id @default(cuid())
+  userId            String
+  user              User         @relation(fields: [userId], references: [id], onDelete: Restrict)
+  provider          String
+  providerPaymentId String
+  kind              String
+  amountMicroRub    BigInt
+  currency          String       @default("RUB")
+  status            String
+  planVersionId     String?
+  planVersion       PlanVersion? @relation(fields: [planVersionId], references: [id], onDelete: Restrict)
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+  events            PaymentEvent[]
+  ledgerEntries     UsageLedgerEntry[]
+
+  @@unique([provider, providerPaymentId])
+  @@index([userId, createdAt])
+  @@map("payment")
+}
+
+model PaymentEvent {
+  id              String   @id @default(cuid())
+  provider        String
+  providerEventId String
+  paymentId       String
+  payment         Payment  @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  eventType       String
+  processedAt     DateTime @default(now())
+
+  @@unique([provider, providerEventId])
+  @@index([paymentId])
+  @@map("payment_event")
+}
+
+model UsageBucket {
+  id               String                         @id @default(cuid())
+  userId           String
+  user             User                           @relation(fields: [userId], references: [id], onDelete: Restrict)
+  type             String
+  totalMicroRub    BigInt
+  spentMicroRub    BigInt                         @default(0)
+  reservedMicroRub BigInt                         @default(0)
+  expiresAt        DateTime?
+  sourceType       String
+  sourceId         String
+  createdAt        DateTime                       @default(now())
+  updatedAt        DateTime                       @updatedAt
+  allocations      UsageReservationAllocation[]
+  ledgerEntries    UsageLedgerEntry[]
+
+  @@index([userId, type, expiresAt])
+  @@unique([sourceType, sourceId])
+  @@map("usage_bucket")
+}
+
+model UsageReservation {
+  id                String                        @id @default(cuid())
+  userId            String
+  user              User                          @relation(fields: [userId], references: [id], onDelete: Restrict)
+  requestId         String
+  estimatedMicroRub BigInt
+  settledMicroRub   BigInt                        @default(0)
+  status            String
+  createdAt         DateTime                      @default(now())
+  settledAt         DateTime?
+  allocations       UsageReservationAllocation[]
+  ledgerEntries     UsageLedgerEntry[]
+  aiRequests        AiRequest[]
+
+  @@unique([userId, requestId])
+  @@index([userId, status])
+  @@map("usage_reservation")
+}
+
+model UsageReservationAllocation {
+  id               String            @id @default(cuid())
+  reservationId    String
+  reservation      UsageReservation  @relation(fields: [reservationId], references: [id], onDelete: Restrict)
+  bucketId         String
+  bucket           UsageBucket       @relation(fields: [bucketId], references: [id], onDelete: Restrict)
+  reservedMicroRub BigInt
+  settledMicroRub  BigInt            @default(0)
+
+  @@unique([reservationId, bucketId])
+  @@index([bucketId])
+  @@map("usage_reservation_allocation")
+}
+
+model UsageLedgerEntry {
+  id             String             @id @default(cuid())
+  userId         String
+  user           User               @relation(fields: [userId], references: [id], onDelete: Restrict)
+  bucketId       String?
+  bucket         UsageBucket?       @relation(fields: [bucketId], references: [id], onDelete: Restrict)
+  reservationId  String?
+  reservation    UsageReservation?  @relation(fields: [reservationId], references: [id], onDelete: Restrict)
+  paymentId      String?
+  payment        Payment?           @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  type           String
+  amountMicroRub BigInt
+  metadata       Json?
+  createdAt      DateTime           @default(now())
+
+  @@index([userId, createdAt])
+  @@index([bucketId])
+  @@index([reservationId])
+  @@map("usage_ledger_entry")
+}
+
+// Phase 3: curated AI catalog, conversations and metered text requests.
+// Prices are versioned. Browser never supplies providerModelId or price.
+
+model AiModel {
+  id                  String                 @id @default(cuid())
+  slug                String                 @unique
+  displayName         String
+  vendor              String
+  provider            String
+  providerModelId     String
+  active              Boolean                @default(true)
+  visible             Boolean                @default(true)
+  supportsStreaming   Boolean                @default(true)
+  contextWindowTokens Int
+  maxOutputTokens     Int
+  createdAt           DateTime               @default(now())
+  updatedAt           DateTime               @updatedAt
+  priceVersions       AiModelPriceVersion[]
+  aiRequests          AiRequest[]
+
+  @@map("ai_model")
+}
+
+model AiModelPriceVersion {
+  id                            String      @id @default(cuid())
+  modelId                       String
+  model                         AiModel     @relation(fields: [modelId], references: [id], onDelete: Restrict)
+  inputMicroRubPerMillion       BigInt
+  outputMicroRubPerMillion      BigInt
+  cacheReadMicroRubPerMillion   BigInt?
+  cacheWriteMicroRubPerMillion  BigInt?
+  effectiveFrom                 DateTime
+  effectiveTo                   DateTime?
+  verifiedAt                    DateTime
+  source                        String
+  createdAt                     DateTime    @default(now())
+  aiRequests                    AiRequest[]
+
+  @@index([modelId, effectiveFrom])
+  @@map("ai_model_price_version")
+}
+
+model Conversation {
+  id         String      @id @default(cuid())
+  userId     String
+  user       User        @relation(fields: [userId], references: [id], onDelete: Restrict)
+  title      String?
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+  messages   Message[]
+  aiRequests AiRequest[]
+
+  @@index([userId, updatedAt])
+  @@map("conversation")
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Restrict)
+  role           String
+  content        String
+  status         String
+  aiRequestId    String?
+  aiRequest      AiRequest?   @relation(fields: [aiRequestId], references: [id], onDelete: Restrict)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([conversationId, createdAt])
+  @@index([aiRequestId])
+  @@map("message")
+}
+
+model AiRequest {
+  id                         String              @id @default(cuid())
+  userId                     String
+  user                       User                @relation(fields: [userId], references: [id], onDelete: Restrict)
+  conversationId             String
+  conversation               Conversation        @relation(fields: [conversationId], references: [id], onDelete: Restrict)
+  modelId                    String
+  model                      AiModel             @relation(fields: [modelId], references: [id], onDelete: Restrict)
+  priceVersionId             String
+  priceVersion               AiModelPriceVersion @relation(fields: [priceVersionId], references: [id], onDelete: Restrict)
+  reservationId              String?
+  reservation                UsageReservation?   @relation(fields: [reservationId], references: [id], onDelete: Restrict)
+  clientRequestId            String
+  provider                   String
+  providerModelId            String
+  providerRequestId          String?
+  status                     String
+  financialStatus            String
+  estimatedInputTokens       Int
+  maxOutputTokens            Int
+  estimatedCostMicroRub      BigInt
+  actualInputTokens          Int?
+  actualOutputTokens         Int?
+  reasoningTokens            Int?
+  cacheReadTokens            Int?
+  cacheWriteTokens           Int?
+  providerActualCostMicroRub BigInt?
+  userSettledUsageMicroRub   BigInt?
+  createdAt                  DateTime            @default(now())
+  startedAt                  DateTime?
+  finishedAt                 DateTime?
+  messages                   Message[]
+
+  @@unique([userId, clientRequestId])
+  @@index([conversationId, createdAt])
+  @@index([reservationId])
+  @@index([status])
+  @@map("ai_request")
+}

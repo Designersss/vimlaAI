@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  ci:
+    name: lint-typecheck-test-build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: vimla
+          POSTGRES_PASSWORD: vimla
+          POSTGRES_DB: vimla
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U vimla -d vimla"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      NODE_ENV: test
+      APP_ENV: test
+      LOG_LEVEL: info
+      API_HOST: 127.0.0.1
+      API_PORT: 3001
+      WEB_ORIGIN: http://localhost:3000
+      DATABASE_URL: postgresql://vimla:vimla@localhost:5432/vimla
+      REDIS_URL: redis://localhost:6379
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:3001
+      BETTER_AUTH_SECRET: local-dev-only-change-me-use-32-chars-min
+      BETTER_AUTH_URL: http://localhost:3001
+      TEST_DATABASE_URL: postgresql://vimla:vimla@localhost:5432/vimla_test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.17.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      - name: Integration test
+        run: pnpm test:integration
+
+      - name: Build
+        run: pnpm build

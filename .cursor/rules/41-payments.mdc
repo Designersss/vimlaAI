@@ -1,17 +1,17 @@
 ---
-description: Payment-provider integration and webhook rules
+description: Real/mock payment provider, webhook, idempotency and refund security rules
 alwaysApply: false
-globs:
-  - "apps/api/src/**/*payment*.ts"
-  - "packages/billing/**/*payment*.ts"
+globs: "packages/billing/**/*payment*.ts, apps/api/src/**/*payment*.ts, apps/api/src/**/*purchase*.ts"
 ---
-# Payments rules
+# Payment rules
 
-- Define a Vimla `PaymentProvider` abstraction; do not couple domain logic to T-Kassa, CloudPayments, YooKassa or another processor.
-- Start development with a `MockPaymentProvider` before real acquiring.
-- Activate a plan/top-up only after verified provider confirmation/webhook, never from browser redirect alone.
-- Verify webhook signatures/authenticity according to the selected provider.
-- Store provider event/payment IDs and enforce uniqueness/idempotency.
-- Persist raw provider payload only if needed and safe; redact sensitive payment data.
-- Refunds/cancellations must create explicit domain events/ledger adjustments; do not silently mutate history.
-- Never store PAN/CVV or other card secrets.
+- Never grant subscription/top-up because browser says payment succeeded.
+- Server resolves plan/price/amount; client cannot set authoritative price/provider budget/payment status/userId.
+- Real grant occurs only after verified provider event/webhook and idempotent DB transaction.
+- Verify webhook signatures/timestamps/replay protections according to provider documentation.
+- `(provider, providerEventId)` and provider payment identity are unique where appropriate.
+- Duplicate concurrent webhooks produce one state transition/grant.
+- Mock payment routes/providers are local/test only and must not be registered in staging/production.
+- Refunds use explicit state + compensating accounting; do not mutate historical ledger entries.
+- Normalize provider errors; do not expose payment provider internals/secrets.
+- Payment/admin adjustment actions require audit events.

@@ -1,0 +1,42 @@
+{
+  "name": "@vimla/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/main.js",
+    "lint": "eslint . --max-warnings 0",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:integration": "vitest run --config vitest.integration.config.ts"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.1.6",
+    "@nestjs/core": "^11.1.6",
+    "@nestjs/platform-fastify": "^11.1.6",
+    "@vimla/ai": "workspace:*",
+    "@vimla/auth": "workspace:*",
+    "@vimla/billing": "workspace:*",
+    "@vimla/config": "workspace:*",
+    "@vimla/contracts": "workspace:*",
+    "@vimla/database": "workspace:*",
+    "@vimla/shared": "workspace:*",
+    "better-auth": "^1.7.3",
+    "fastify": "^5.11.3",
+    "ioredis": "^5.7.0",
+    "nestjs-pino": "^4.4.0",
+    "pino": "^9.9.0",
+    "pino-http": "^10.5.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.1",
+    "eslint": "^9.35.0",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}

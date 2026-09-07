@@ -1,20 +1,18 @@
 ---
-description: PostgreSQL and Prisma persistence rules
+description: PostgreSQL/Prisma persistence, migrations and integrity rules
 alwaysApply: false
-globs:
-  - "packages/database/**/*"
-  - "**/prisma/**/*"
+globs: "packages/database/**/*, **/prisma/**/*"
 ---
 # Database rules
 
-- PostgreSQL is the authoritative datastore for financial/business state.
-- Prisma is the ORM/migration layer unless deliberately replaced by an ADR.
-- Use migrations for schema changes; never rely on production `db push`.
-- Store monetary/provider-cost/usage integer values as `BIGINT` microRUB or another explicitly documented integer unit.
-- Prefer UTC timestamps and explicit lifecycle fields.
-- Use database constraints for critical invariants where possible: unique idempotency keys, foreign keys, non-negative checks where compatible with reservation logic.
-- Ledger tables are append-only. Do not update/delete historical ledger entries to "fix" balances; write compensating entries.
-- Financial mutations requiring consistency must run in database transactions.
-- Design for concurrent requests; never implement balance checks as an unlocked read followed later by a write.
-- Add indexes for actual query paths, not speculative indexes everywhere.
-- Do not store binary images/video in PostgreSQL; store object metadata/storage keys.
+- PostgreSQL is authoritative for users, sessions, payments, subscriptions, usage, AI request accounting, admin permissions and audit-grade state.
+- Use versioned Prisma migrations. Never replace production migration history with `db push`.
+- Do not edit already-applied historical migrations; add a new migration.
+- Financial values use PostgreSQL `BIGINT` and TypeScript `bigint`.
+- Add DB constraints/unique indexes/checks/partial indexes where they materially protect invariants.
+- For critical concurrency, use explicit transaction/locking/isolation patterns and integration tests.
+- Raw SQL must be parameterized. Avoid `$queryRawUnsafe`/string interpolation with untrusted values.
+- Never cascade-delete financial/audit history merely because a user/resource is removed.
+- Sensitive audit/ledger history is append-only or corrected via compensating records.
+- Test databases must be physically/configurationally separate from development/production.
+- Production migrations require backup/rollback/recovery consideration for destructive changes.

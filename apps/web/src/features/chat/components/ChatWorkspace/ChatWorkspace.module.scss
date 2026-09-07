@@ -1,0 +1,160 @@
+.shell {
+  display: grid;
+  grid-template-columns: 16rem 1fr;
+  min-height: 100vh;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  border-right: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.brand {
+  margin: 0;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  overflow: auto;
+}
+
+.item,
+.activeItem,
+.button,
+.send {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text);
+  padding: 0.5rem 0.7rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.activeItem {
+  border-color: var(--color-accent);
+}
+
+.main {
+  display: grid;
+  grid-template-rows: auto 1fr auto auto;
+  min-width: 0;
+}
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-md);
+  align-items: center;
+  padding: var(--space-md);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.model {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  color: var(--color-muted);
+}
+
+.model select {
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 0.35rem 0.5rem;
+}
+
+.usage {
+  margin: 0;
+  min-width: 10rem;
+  color: var(--color-muted);
+  font-size: 0.85rem;
+}
+
+.bar {
+  height: 0.4rem;
+  margin: 0.35rem 0;
+  background: #24313a;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.bar span {
+  display: block;
+  height: 100%;
+  background: var(--color-accent);
+}
+
+.muted,
+.user,
+.status {
+  margin: 0;
+  color: var(--color-muted);
+}
+
+.messages {
+  overflow: auto;
+  padding: var(--space-lg);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.message {
+  max-width: 48rem;
+}
+
+.role {
+  margin: 0 0 0.25rem;
+  color: var(--color-accent);
+  font-size: 0.8rem;
+}
+
+.content {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.composer {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--space-md);
+  padding: var(--space-md);
+  border-top: 1px solid var(--color-border);
+}
+
+.composer textarea {
+  resize: vertical;
+  min-height: 4.5rem;
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 0.6rem;
+  font: inherit;
+}
+
+.send {
+  background: var(--color-accent);
+  color: var(--color-accent-text);
+  align-self: end;
+}
+
+.error {
+  margin: 0 var(--space-md);
+  color: var(--color-danger);
+}
+
+.status {
+  padding: var(--space-lg);
+}

@@ -1,0 +1,20 @@
+---
+description: Production deployment, hardening, backup, WAF and incident-readiness rules
+alwaysApply: false
+globs: "infra/**/*, deploy/**/*, ops/**/*, Dockerfile*, docker-compose*.prod.*, .github/workflows/**/*"
+---
+# Production deployment rules
+
+Before public launch ensure:
+- only intended public ports/services exposed;
+- PostgreSQL/Redis/private services isolated from Internet;
+- TLS, HSTS, CSP and other security headers configured;
+- WAF/DDoS/bot controls at ingress (for example Cloudflare) plus server-side controls;
+- SSH/management uses keys, no password/root login where avoidable, and preferably private management network/VPN;
+- production containers run with least privilege and minimal images;
+- secrets can be rotated without code changes;
+- database backups + restore procedure are documented/tested;
+- monitoring/alerts exist for uptime, 5xx, auth abuse, payment/provider failures, unusual AI burn, DB/queue health;
+- dependency/security update process exists;
+- emergency switches exist for expensive AI capabilities;
+- admin/control plane receives stronger ingress/auth controls than consumer app.

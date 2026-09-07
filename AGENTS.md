@@ -69,6 +69,7 @@ packages/
   contracts/  shared schemas/contracts
   database/   Prisma schema/client/migrations
   config/     validated configuration
+  auth/       Better Auth configuration
   ai/         provider abstractions/model metadata
   billing/    framework-independent billing domain
   shared/     genuinely shared utilities

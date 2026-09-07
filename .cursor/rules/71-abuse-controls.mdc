@@ -1,0 +1,27 @@
+---
+description: Rate limiting, concurrency, anti-abuse and financial circuit-breaker rules
+alwaysApply: false
+globs: "apps/api/**/*.ts, apps/worker/**/*.ts, packages/ai/**/*.ts, packages/auth/**/*.ts, packages/billing/**/*.ts"
+---
+# Abuse-control rules
+
+Use layered controls. User allowance alone is not an abuse-control system.
+
+Apply relevant combinations of:
+- per-IP rate limits;
+- per-user/account rate limits;
+- auth/OTP resend and attempt limits;
+- per-action concurrency limits;
+- request/body/context/file size limits;
+- per-request provider-cost caps;
+- per-user rolling provider-cost caps;
+- global provider spend/burn circuit breakers;
+- queue depth/concurrency limits.
+
+Rules:
+- Limits are centralized/configurable, not scattered literals.
+- Critical AI/payment/auth limits are server-enforced.
+- Redis may coordinate counters/leases but never stores authoritative money.
+- If production rate/concurrency coordination is unavailable for expensive operations, prefer fail-closed/503 over unlimited provider spend.
+- Avoid retry storms and synchronized retries; use bounded backoff/jitter where retry is safe.
+- Log abuse/security signals without storing secrets or full sensitive payloads.

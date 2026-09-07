@@ -1,22 +1,16 @@
 ---
-description: Local infrastructure, CI/CD and observability rules
+description: Local/production infrastructure and environment separation rules
 alwaysApply: false
-globs:
-  - "Dockerfile*"
-  - "docker-compose*.yml"
-  - "docker-compose*.yaml"
-  - ".github/**/*"
-  - "infra/**/*"
-  - "**/*.config.*"
+globs: "Dockerfile*, docker-compose*.yml, docker-compose*.yaml, .github/workflows/**, **/*.config.*, packages/config/**/*"
 ---
 # Infrastructure rules
 
-- MVP local stack uses Docker Compose for PostgreSQL and Redis; apps may run locally or in containers as documented.
-- Do not add Kubernetes, Kafka or service mesh in MVP.
-- Environments: local, test, staging (when introduced), production.
-- CI baseline: install -> lint -> typecheck -> test -> build.
-- Migrations are applied deliberately during deploy; do not auto-destruct/recreate production DB.
-- Use health/readiness endpoints for API/worker dependencies as needed.
-- Structured logs use correlation IDs.
-- Add Sentry/error tracking and metrics incrementally, but provider cost/usage observability is a first-class production concern.
-- `.env.example` contains names and safe examples only, never secrets.
+- Keep local, test, staging and production configuration/credentials separate.
+- `.env.example` contains names/placeholders only; never real secrets.
+- Database/Redis should not be publicly exposed in production.
+- Production services use least privilege/non-root containers where practical.
+- Add health/readiness checks and bounded resource settings for production services.
+- TLS/public ingress terminates through reviewed reverse proxy/CDN/WAF layer.
+- Do not assume Docker Compose development settings are production-safe.
+- Backups, restore testing and migration safety are part of production readiness.
+- Production AI/payment/admin secrets are injected by secret management/runtime environment, not image/build args/client env.

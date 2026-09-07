@@ -1,20 +1,16 @@
 ---
-description: Testing rules with emphasis on financial correctness and concurrency
+description: Vimla testing, regression and production-safety quality gates
 alwaysApply: false
-globs:
-  - "**/*.test.ts"
-  - "**/*.spec.ts"
-  - "**/*.test.tsx"
-  - "**/*.spec.tsx"
-  - "packages/billing/**/*.ts"
+globs: "**/*.test.ts, **/*.spec.ts, **/*.test.tsx, **/*.spec.tsx, **/test/**/*"
 ---
 # Testing rules
 
-- Test domain invariants, not only implementation details.
-- Billing tests must cover concurrency, duplicate events, reservation/settlement/release, insufficient allowance, failed provider calls, top-up ordering and period expiry.
-- Add integration tests against PostgreSQL for transaction/locking behavior; mocks alone are insufficient for financial concurrency.
-- Payment webhook tests must prove duplicate delivery is idempotent.
-- Provider adapter tests use fixtures/fakes and never require paid live calls in the default test suite.
-- Worker tests cover retries/restarts/idempotency.
-- Each bug in billing/security should receive a regression test.
-- Keep smoke tests for `/health`, DB connectivity and Redis connectivity where appropriate.
+- Financial/security bugs always receive regression tests.
+- Unit tests cover pure domain logic; integration tests use real PostgreSQL for transactions/constraints/concurrency.
+- Default test/CI must not use production DB, production credentials or spend real AI/payment money.
+- Test duplicate/replay/concurrent cases, not only happy paths.
+- Auth tests include unauthorized access, ownership/IDOR, session invalidation, enumeration-safe responses and OTP/recovery abuse when implemented.
+- AI tests include no-usage-no-provider-call, duplicate request, malformed stream, missing usage, disconnect/ambiguous outcome, rate/concurrency limits and secret redaction.
+- Admin tests include default deny, permission boundaries, MFA/step-up policy hooks, production route isolation and audit events.
+- i18n tests should detect missing required RU/EN keys for critical flows.
+- Quality gate: lint + typecheck + tests + integration tests + build before phase completion.

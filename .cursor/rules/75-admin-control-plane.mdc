@@ -1,0 +1,34 @@
+---
+description: Owner/admin dashboard architecture, authorization and privileged-operation security
+alwaysApply: false
+globs: "apps/admin/**/*, apps/api/src/**/*admin*.ts, packages/**/*admin*.ts, packages/**/*permission*.ts, packages/**/*audit*.ts"
+---
+# Admin/control-plane rules — HIGH SECURITY
+
+Admin is a separate privileged security boundary, not merely another consumer page.
+
+## Architecture
+- Prefer a separate admin app/hostname and separate privileged API boundary where practical.
+- Do not expose admin navigation/routes in consumer UI.
+- Hidden URL is not a security control; assume attackers can discover the hostname/path.
+- Infrastructure access restrictions (Cloudflare Access/VPN/Tailscale/IP policy) are recommended defense-in-depth.
+
+## Authorization
+- Default deny. No privileged action without explicit server-side permission.
+- Do not authorize with `email === ownerEmail` alone.
+- Model roles/permissions explicitly (`OWNER`, future support/ops roles) with least privilege.
+- Owner/admin identities require mandatory strong MFA/passkey/TOTP.
+- Consider distinct privileged/admin session context from normal consumer session.
+- Sensitive actions require recent re-authentication/step-up verification.
+
+## Dangerous actions
+Examples: usage adjustment, refund, model enable/disable, feature flag, admin grant, user ban, global AI kill switch.
+- Validate input strictly.
+- Require explicit permission.
+- Record append-only admin audit event with actor, action, target, request ID, time and reason/result.
+- Prefer reversible/config-versioned changes where possible.
+
+## Visibility/privacy
+- Admin APIs must not leak user secrets/passwords/session tokens/provider keys.
+- Views should minimize personal data and require a legitimate operational purpose.
+- Production must not register local/mock admin shortcuts.

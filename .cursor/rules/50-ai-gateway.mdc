@@ -1,21 +1,19 @@
 ---
-description: AI gateway, model catalog and provider abstraction rules
+description: AI Gateway, model catalog, provider-neutral request and cost-safety rules
 alwaysApply: false
-globs:
-  - "packages/ai/**/*.ts"
-  - "apps/api/src/**/*ai*.ts"
-  - "apps/api/src/**/*chat*.ts"
-  - "apps/worker/src/**/*ai*.ts"
+globs: "packages/ai/**/*.ts, apps/api/src/**/*ai*.ts, apps/api/src/**/*chat*.ts, apps/worker/src/**/*ai*.ts"
 ---
-# AI gateway rules
+# AI Gateway rules
 
-- Vimla owns an `AiProvider` abstraction. ProxyAPI is the first adapter, not the domain API.
-- Provider model IDs must not leak throughout product code. Map Vimla model IDs to provider IDs in catalog/configuration.
-- Model metadata/capabilities/pricing must be versionable and configurable.
-- Separate capabilities: text/chat, image, video, audio, embeddings, tool use. Do not force all providers into one lossy method if capability-specific interfaces are clearer.
-- Provider credentials are server-side only.
-- Every provider call requires an existing usage reservation unless the operation is explicitly free/internal.
-- Capture request ID, provider, model/version, token/media usage, latency, status and actual/derived provider cost for accounting/observability.
-- Streaming text should stream through Vimla backend; provider streams are never exposed as raw privileged connections.
-- Add timeouts, controlled retries and retry classification. Do not retry non-idempotent expensive operations blindly.
-- Auto-routing is a later feature. Keep routing decisions separate from UI and provider adapters.
+- All provider access goes through `AiGateway -> AiProvider -> provider adapter`.
+- Frontend uses internal Vimla model IDs, never arbitrary provider model strings.
+- Model availability/capabilities/prices are curated/versioned server data.
+- Provider requests only start after successful usage reservation and security/rate/concurrency checks.
+- Server controls context, output-token cap, per-request cost cap and safety margin.
+- Browser cannot supply provider price, raw history/system prompt, provider model ID or max token value unless explicitly reviewed.
+- Record full provider actual cost separately from user-settled usage.
+- Missing/ambiguous provider usage must not become a free request; use reconciliation/anomaly states.
+- Avoid unsafe automatic retries for potentially billable requests.
+- Client disconnect after provider start is not proof of zero cost.
+- AI output is untrusted content and must be rendered safely.
+- Normal tests use mock providers/transports; CI must not spend real provider money.

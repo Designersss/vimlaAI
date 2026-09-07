@@ -1,0 +1,33 @@
+---
+description: Authentication, verification, recovery, sessions, MFA and identity security
+alwaysApply: false
+globs: "packages/auth/**/*.ts, apps/api/src/**/*auth*.ts, apps/api/src/**/*user*.ts, apps/web/src/**/*auth*.{ts,tsx}, apps/admin/**/*.{ts,tsx}"
+---
+# Auth and identity rules
+
+Authentication is a security boundary. Prefer Better Auth/core proven functionality over hand-rolled crypto/session flows.
+
+## Required product direction
+- Email/password registration and login.
+- Mandatory email verification with OTP/code before sensitive product access.
+- Phone-number sign-in/verification with SMS OTP.
+- Secure password-reset link via email.
+- Change email/phone requires re-verification.
+- Session list/revocation and sign-out-other-sessions.
+- Strong MFA/passkey/TOTP for privileged/admin identities.
+
+## Security requirements
+- Never store auth/session tokens in localStorage/sessionStorage.
+- Browser sessions use secure HttpOnly cookies; production cookies use Secure and appropriate SameSite/domain scope.
+- Prevent account enumeration in forgot-password/OTP/login-related responses where feasible.
+- OTPs/tokens have expiry, bounded attempts, one-time use/replay protection and resend cooldown/rate limits.
+- Use constant/general failure messages where detailed errors would leak account existence.
+- Password reset/change and sensitive identity changes should revoke or rotate relevant sessions.
+- Never log passwords, OTP codes, recovery tokens, cookies or session tokens.
+- Auth endpoints have dedicated abuse/rate limits.
+- Do not merge/link phone/email identities automatically based on unverified client claims. Linking requires authenticated/re-verified proof.
+- Backend remains auth authority for every protected request.
+
+## UX
+- Render localized Vimla validation/errors in UI; native browser bubbles are not primary UX.
+- Unverified users get an explicit verification flow and resend flow.

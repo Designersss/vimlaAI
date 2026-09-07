@@ -1,23 +1,41 @@
 ---
-description: Vimla security, secrets, authorization and abuse-prevention rules
-alwaysApply: false
-globs:
-  - "apps/api/**/*.ts"
-  - "apps/worker/**/*.ts"
-  - "packages/**/*.ts"
-  - "apps/web/**/*.ts"
-  - "apps/web/**/*.tsx"
+description: Global application security, privacy and hostile-traffic rules
+alwaysApply: true
 ---
-# Security rules
+# Security rules — ALWAYS APPLY
 
-- Validate all untrusted input at system boundaries.
-- Enforce authorization/ownership server-side for conversations, files, projects, generations and billing resources.
-- Use least-privilege provider/API credentials.
-- Secrets belong in validated runtime configuration/secret storage, never git or browser bundles.
-- Redact secrets, auth headers, cookies, payment data and sensitive user content from logs.
-- Add rate limits and concurrency limits independently from financial allowance.
-- File uploads require size/type validation and safe object-storage keys.
-- Do not trust client-supplied model price, provider cost, plan, allowance or role.
-- Admin endpoints require explicit admin authorization, auditing and safe defaults.
-- Avoid SSRF/path traversal when later adding web/file/agent tooling.
-- Security-sensitive changes require tests for failure/unauthorized paths, not only happy paths.
+Assume every public input and authenticated user can be malicious.
+
+## Identity/authorization
+- Authentication is not authorization. Verify ownership/permission for every protected resource/action.
+- Avoid IDOR by querying/scoping resources with authenticated owner/permission context.
+- Never authorize based only on a client-supplied role/userId/email.
+
+## Input/output
+- Strictly validate external payloads; bound body/message/file/context sizes.
+- Reject unexpected sensitive fields on mutating security/financial/AI/admin DTOs.
+- Encode/sanitize untrusted output; AI/user content is untrusted.
+- Never leak raw stack traces, SQL, internal hosts, secrets or provider errors to browser.
+
+## Secrets/privacy
+- No API keys/tokens/passwords/cookies/OTP/recovery tokens in logs or URLs.
+- Configure structured logger redaction.
+- Minimize prompt/content logging by default.
+
+## Abuse/DoS
+- Expensive endpoints need rate, concurrency, size and cost caps.
+- Fail closed for expensive/security-sensitive actions when critical coordination/security checks are unavailable.
+- Add emergency kill switches/circuit breakers for costly external capabilities.
+
+## Web security
+- Cookie-authenticated mutations require trusted-origin/CSRF-safe design.
+- Use secure headers/CSP/HSTS/etc in production deployment.
+- Do not combine wildcard CORS origin with credentials.
+
+## Data/provider security
+- Parameterize raw SQL.
+- Validate file ownership/type/size before serving/processing uploads.
+- URL-fetching/tools must defend against SSRF/private network access when introduced.
+- External provider credentials have least privilege and separate environments.
+
+Security-sensitive fixes require regression tests.

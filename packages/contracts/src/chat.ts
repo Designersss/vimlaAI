@@ -1,0 +1,63 @@
+import { z } from "zod";
+
+export const createConversationSchema = z
+  .object({
+    title: z.string().trim().min(1).max(120).optional(),
+  })
+  .strict();
+export type CreateConversation = z.infer<typeof createConversationSchema>;
+
+export const sendMessageSchema = z
+  .object({
+    clientRequestId: z.string().uuid(),
+    modelId: z.string().min(1).max(128),
+    content: z.string().min(1),
+  })
+  .strict();
+export type SendMessage = z.infer<typeof sendMessageSchema>;
+
+export const retailAiModelSchema = z.object({
+  id: z.string().min(1),
+  slug: z.string().min(1),
+  displayName: z.string().min(1),
+  vendor: z.string().min(1),
+  supportsStreaming: z.boolean(),
+});
+export type RetailAiModel = z.infer<typeof retailAiModelSchema>;
+
+export const aiModelsResponseSchema = z.object({
+  models: z.array(retailAiModelSchema),
+});
+export type AiModelsResponse = z.infer<typeof aiModelsResponseSchema>;
+
+export const conversationSummarySchema = z.object({
+  id: z.string().min(1),
+  title: z.string().nullable(),
+  updatedAt: z.string(),
+});
+export type ConversationSummary = z.infer<typeof conversationSummarySchema>;
+
+export const conversationsResponseSchema = z.object({
+  conversations: z.array(conversationSummarySchema),
+});
+export type ConversationsResponse = z.infer<typeof conversationsResponseSchema>;
+
+export const conversationCreatedSchema = conversationSummarySchema;
+export type ConversationCreated = z.infer<typeof conversationCreatedSchema>;
+
+export const chatMessageSchema = z.object({
+  id: z.string().min(1),
+  role: z.enum(["USER", "ASSISTANT"]),
+  content: z.string(),
+  status: z.enum(["COMPLETE", "STREAMING", "FAILED"]),
+  createdAt: z.string(),
+});
+export type ChatMessage = z.infer<typeof chatMessageSchema>;
+
+export const conversationDetailSchema = z.object({
+  id: z.string().min(1),
+  title: z.string().nullable(),
+  updatedAt: z.string(),
+  messages: z.array(chatMessageSchema),
+});
+export type ConversationDetail = z.infer<typeof conversationDetailSchema>;

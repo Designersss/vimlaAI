@@ -1,19 +1,18 @@
 ---
-description: ProxyAPI-specific adapter and treasury rules
+description: ProxyAPI-specific adapter, secret, streaming and treasury rules
 alwaysApply: false
-globs:
-  - "packages/ai/**/*proxyapi*.ts"
-  - "apps/api/src/**/*proxyapi*.ts"
-  - "apps/worker/src/**/*proxyapi*.ts"
+globs: "packages/ai/**/*proxyapi*.ts, apps/api/src/**/*proxyapi*.ts, apps/worker/src/**/*proxyapi*.ts"
 ---
 # ProxyAPI adapter rules
 
 - ProxyAPI integration exists only inside provider/infrastructure adapters.
-- Never expose the ProxyAPI key to frontend code.
-- Keep base URL, API key, timeout and model mapping in validated server configuration.
-- Treat ProxyAPI responses as external untrusted data and validate critical fields.
-- Prefer actual charged cost returned/reconciled from provider data when reliably available; preserve enough usage detail to audit derived cost.
-- Implement provider balance monitoring as corporate treasury/observability, separate from user allowance.
-- Low ProxyAPI balance must never be interpreted as a user's balance.
-- Design for future fallback to another provider without changing billing, chats or frontend contracts.
-- Use separate development/production credentials and provider-side budgets/IP restrictions when available.
+- Never expose or log the ProxyAPI API key.
+- Keep base URL/key/timeouts in validated server configuration; user input never controls provider host/base URL.
+- Treat streams/responses as untrusted external data and validate financially important usage fields.
+- Capture provider request IDs for support/reconciliation.
+- Streaming parser must tolerate partial chunks, multiple events, terminal usage chunks with empty choices and unexpected EOF.
+- Corporate ProxyAPI balance/key budget is treasury state, separate from user usage.
+- Provider 402/budget failures are not user-insufficient-usage errors.
+- Ambiguous timeouts/502/504/stream failures are not automatically safe to retry/release.
+- Use separate dev/staging/prod keys, provider-side budget/model restrictions and IP restrictions when operationally available.
+- Do not enable detailed prompt/response provider logging by default without explicit privacy/retention decision.

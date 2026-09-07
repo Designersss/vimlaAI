@@ -1,0 +1,42 @@
+{
+  "name": "vimla",
+  "private": true,
+  "packageManager": "pnpm@10.17.0",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "dotenv -e .env -- turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "test:integration": "dotenv -e .env -- sh -c 'pnpm --filter @vimla/database ensure-test-db && turbo run test:integration'",
+    "db:generate": "pnpm --filter @vimla/database generate",
+    "db:migrate": "pnpm db:migrate:dev",
+    "db:migrate:dev": "dotenv -e .env -- pnpm --filter @vimla/database migrate:dev",
+    "db:migrate:deploy": "dotenv -e .env -- pnpm --filter @vimla/database migrate:deploy",
+    "db:seed": "dotenv -e .env -- sh -c 'pnpm --filter @vimla/billing seed && pnpm --filter @vimla/ai seed'",
+    "test:proxyapi": "dotenv -e .env -- pnpm --filter @vimla/ai test:proxyapi",
+    "db:studio": "dotenv -e .env -- pnpm --filter @vimla/database studio"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@parcel/watcher",
+      "@prisma/client",
+      "@prisma/engines",
+      "esbuild",
+      "msgpackr-extract",
+      "prisma",
+      "unrs-resolver"
+    ]
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.35.0",
+    "dotenv-cli": "^10.0.0",
+    "eslint": "^9.35.0",
+    "turbo": "^2.5.6",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.43.0"
+  }
+}

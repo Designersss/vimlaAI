@@ -1,57 +1,48 @@
 ---
-description: Critical Vimla billing, subscriptions, top-ups and usage-ledger rules
+description: Critical Vimla billing, subscriptions, top-ups, reservation and ledger rules
 alwaysApply: false
-globs:
-  - "packages/billing/**/*.ts"
-  - "apps/api/src/**/*billing*.ts"
-  - "apps/api/src/**/*usage*.ts"
-  - "apps/api/src/**/*payment*.ts"
-  - "apps/worker/src/**/*billing*.ts"
+globs: "packages/billing/**/*.ts, apps/api/src/**/*billing*.ts, apps/api/src/**/*usage*.ts, apps/api/src/**/*payment*.ts, apps/worker/src/**/*billing*.ts"
 ---
 # Billing and Usage rules — CRITICAL
 
-Billing correctness has priority over convenience.
+Billing correctness and auditability have priority over convenience.
 
 ## Money
-- Never use JS `number` for authoritative money/provider cost.
-- Domain values use `bigint` in integer microRUB (1 RUB = 1,000,000 microRUB) unless an ADR changes the unit.
-- API boundaries serialize these values explicitly, never native bigint JSON.
+- `1 RUB = 1_000_000 microRUB`.
+- Use `bigint`/`BIGINT`; never JS floating point as authoritative money.
+- Serialize money explicitly at JSON boundaries.
 
 ## Distinct concepts
-Never conflate:
-- customer payment amount;
-- retail/top-up face value;
-- subscription provider-cost allowance;
-- actual ProxyAPI/provider cost;
-- corporate ProxyAPI balance.
-
-## Buckets
-- Subscription purchase/renewal creates a versioned monthly usage bucket.
-- Arbitrary top-up creates a separate top-up bucket.
-- Spend expiring subscription allowance before non-expiring top-up allowance.
-- Plan price and allowance are copied/versioned for the billing period; later plan edits must not retroactively change active historical periods.
+Never conflate customer payment, retail price, user allowance, actual provider COGS, user-settled usage and corporate provider balance.
 
 ## Reservation protocol
-Every provider-consuming action must follow:
-1. estimate a safe maximum cost;
-2. atomically reserve allowance in PostgreSQL;
-3. reject before provider call if allowance cannot be reserved;
+Every provider-consuming action:
+1. conservatively estimate maximum cost;
+2. atomically reserve usage in PostgreSQL;
+3. reject before provider call if reserve fails;
 4. call provider;
-5. determine actual provider cost;
-6. settle actual cost;
+5. capture actual provider cost/usage;
+6. settle actual user usage;
 7. release unused reservation;
-8. on failure, release/refund according to actual provider charge.
+8. preserve provider COGS even when user settlement enters anomaly.
 
-Never use `checkBalance(); callProvider(); deduct();` without a reservation transaction.
+Never implement `check -> provider -> deduct` without a reservation transaction.
+
+## Concurrency/idempotency
+- `spent + reserved <= total` must hold under parallel requests.
+- Payment events, reservations and settlement/release paths are idempotent.
+- Duplicate events must not grant or charge twice.
+- Ambiguous provider outcomes must not be blindly released as free usage.
 
 ## Ledger
-- Use append-only ledger entries for grants, charges, top-ups, refunds/adjustments and expirations.
-- Every mutation has an idempotency key/event identity where retries are possible.
-- Duplicate webhooks/provider callbacks must not duplicate allowance or charges.
-- Cached balance fields are allowed only as derived/transactionally maintained accelerators; ledger/buckets remain explainable and auditable.
+- Append-only financial/usage ledger.
+- Corrections via compensating entries, not destructive edits.
+- Each financial mutation must be explainable by payment/source/reservation/request identity.
 
-## Product assumptions
-Initial prices and target provider-cost ratios (150/300/990 RUB and ~20/25/30%, top-up ~35%) are configurable assumptions, never scattered literals.
+## Buckets
+- Spend expiring monthly buckets before non-expiring top-up buckets.
+- Expired buckets cannot be newly reserved but historical data stays.
+- Plan/price/allowance conditions are versioned; historical periods never silently recalc.
 
-## User UI
-The 0–100% subscription meter is derived from authoritative bucket consumption. Do not create a financial field named `usagePercent` as source of truth.
+## UI
+Usage percentage is derived presentation only, preferably from `spent + reserved`, never authoritative state.

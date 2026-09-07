@@ -1,18 +1,33 @@
 ---
-description: Global Vimla architecture, naming and TypeScript rules
+description: Core Vimla architecture, product and engineering invariants
 alwaysApply: true
 ---
-# Vimla global rules
+# Vimla core rule
 
-- The product name is **Vimla**. Do not use former working names in code, docs, UI strings or examples.
-- Read `AGENTS.md` before making cross-cutting architectural changes.
-- Use TypeScript strict mode in all TypeScript packages/apps.
-- `any` is forbidden. Prefer concrete types, generics, or `unknown` + validation/narrowing.
-- Avoid unsafe `as` assertions. If an unavoidable third-party boundary requires an assertion, isolate it in one adapter, validate first where possible, and explain the reason in code.
-- Do not use global mutable state.
-- Do not put secrets in source code, client bundles, examples, fixtures or logs.
-- Keep integrations behind adapters/interfaces.
-- Do not introduce microservices or infrastructure complexity without an explicit requirement.
-- New code must pass lint, typecheck and relevant tests.
-- Avoid hidden business constants. Pricing, usage ratios, limits and provider mappings must be configuration/versioned business data.
-- Prefer explicit domain names: `providerCost`, `retailUsage`, `reservation`, `settlement`, `usageBucket`; avoid vague names such as `credits` when the meaning is ambiguous.
+Treat Vimla as a public production SaaS with real users, money and hostile traffic.
+
+## Core invariants
+- TypeScript strict. No `any` in application/domain code.
+- Validate all external inputs and provider responses at boundaries.
+- Browser is never authoritative for identity, ownership, prices, plans, model IDs, costs, roles or limits.
+- Secrets are server-side only and must be redacted from logs/errors.
+- PostgreSQL is authoritative for persistent/financial state.
+- Redis is cache/queue/rate-limit coordination only.
+- Controllers/routes remain thin; domain/business logic lives in services/packages.
+- External integrations must be behind replaceable adapters.
+- Prefer modular monolith + separate worker until measured load justifies more complexity.
+- Use UTC internally.
+- Every public/expensive feature needs auth/ownership validation, input limits, rate/concurrency limits, stable error handling and tests.
+
+## Security review questions for each new feature
+Before considering a feature complete, answer:
+1. Who may call it?
+2. How is identity established server-side?
+3. How is resource ownership/permission enforced?
+4. Which inputs are validated and size-bounded?
+5. What rate/concurrency/cost limits apply?
+6. Is the operation idempotent under retries/duplicates?
+7. What happens on partial failure/disconnect/crash?
+8. What is logged and what must be redacted?
+9. Can the browser influence internal prices/roles/provider IDs/limits?
+10. What regression/integration tests prove the invariants?
