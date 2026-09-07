@@ -1,40 +1,39 @@
-# First prompt for Cursor Agent
+# First Cursor prompt — Vimla
 
-Ты начинаешь реализацию нового проекта **Vimla** с нуля.
+Copy the prompt below into Cursor Agent after placing this starter pack at the repository root.
 
-Vimla — глобальный consumer/prosumer AI workspace: один аккаунт, один интерфейс и единая система Usage для работы с несколькими AI-моделями и возможностями. На первом этапе AI-доступ будет идти через ProxyAPI, но архитектура не должна быть жёстко привязана к ProxyAPI.
+---
 
-Перед написанием кода сначала полностью изучи и используй как источник истины:
-- `AGENTS.md`
-- все релевантные `.cursor/rules/*.mdc`
-- `docs/PROJECT.md`
-- `docs/ARCHITECTURE.md`
-- `docs/IMPLEMENTATION_PLAN.md`
+You are starting implementation of a brand-new product called **Vimla**.
 
-Если между текущими файлами репозитория и документацией есть конфликт, не удаляй полезные файлы молча. Сначала определи конфликт и аккуратно мигрируй решение к архитектуре Vimla.
+Before writing code, read and treat as project context/source of truth:
 
-## Текущая задача
-Реализуй **только Phase 0 — Repository foundation** из `docs/IMPLEMENTATION_PLAN.md` и минимальный безопасный skeleton, необходимый для начала Phase 1.
+1. `AGENTS.md`
+2. every relevant file in `.cursor/rules/*.mdc`
+3. `docs/PROJECT.md`
+4. `docs/ARCHITECTURE.md`
+5. `docs/DOMAIN_MODEL.md`
+6. `docs/DECISIONS.md`
+7. `docs/IMPLEMENTATION_PLAN.md`
 
-Не реализуй сейчас:
-- настоящие платежи;
-- ProxyAPI вызовы;
-- OpenAI/Anthropic/Google SDK;
-- Billing/Usage Engine целиком;
-- изображения;
-- видео;
-- Auto Router;
-- проекты;
-- агентов.
+First inspect the repository. If it is not empty, preserve useful existing user code and migrate intentionally; do not blindly delete files.
 
-Не перескакивай на более поздние фазы roadmap.
+## Product context
+Vimla is a unified consumer/prosumer AI workspace. It will eventually provide multi-model chat, manual model selection and Auto routing, image/video generation, projects/files, agents, subscriptions and arbitrary top-ups. Users see simple subscription usage as 0–100%, while the backend performs exact provider-cost accounting.
 
-## Обязательный стек
+The first AI gateway is ProxyAPI, funded by the user's Russian LLC. ProxyAPI must remain behind Vimla's own `AiProvider` abstraction so it can be replaced or supplemented later.
+
+## Current task
+Implement **only Phase 0 — Repository foundation** from `docs/IMPLEMENTATION_PLAN.md`.
+
+Do not implement Phase 1+ features. In particular, do not implement real auth, real payments, ProxyAPI calls, chat, images, video, agents or the full billing engine.
+
+## Required stack
 Frontend:
 - Next.js 16 App Router
 - React 19
 - TypeScript strict
-- MobX
+- MobX foundation
 - SCSS Modules
 
 Backend:
@@ -43,26 +42,22 @@ Backend:
 - NestJS
 - Fastify adapter
 
-Worker:
-- Node.js 24 LTS
-- TypeScript strict
+Worker/infrastructure:
 - BullMQ
-
-Infrastructure:
+- Redis
 - PostgreSQL
 - Prisma
-- Redis
-- Docker Compose
 - pnpm workspaces
 - Turborepo
+- Docker Compose
 
-## Создай monorepo
+Create this monorepo structure:
+
 ```text
 apps/
   web/
   api/
   worker/
-
 packages/
   contracts/
   database/
@@ -72,119 +67,73 @@ packages/
   shared/
 ```
 
-## В рамках этого прохода
-1. Инициализируй pnpm workspace и Turborepo.
-2. Создай `apps/web` на Next.js 16 + React 19.
-3. Создай `apps/api` на NestJS + Fastify.
-4. Создай `apps/worker` с фундаментом BullMQ.
-5. Создай перечисленные shared packages.
-6. Настрой TypeScript strict для всего monorepo.
-7. Настрой PostgreSQL + Prisma foundation.
-8. Настрой Redis foundation.
-9. Создай Docker Compose для локальной разработки.
-10. Добавь typed environment configuration. Не допускай разбросанного прямого `process.env` по приложению.
-11. Создай `.env.example` без секретов.
-12. Добавь API endpoint `GET /health`.
-13. Сделай возможность web-приложению обращаться к backend health через конфигурируемый public API base URL.
-14. Добавь базовое подключение worker к Redis.
-15. Добавь структурированное логирование через Pino или совместимую NestJS-интеграцию.
-16. Добавь root-команды:
-```text
-pnpm dev
-pnpm build
-pnpm lint
-pnpm typecheck
-pnpm test
-```
-17. Создай минимальную тестовую инфраструктуру и smoke tests там, где они полезны для проверки foundation.
-18. Добавь `.gitignore`.
-19. Создай root `README.md` с точными командами установки, env setup, Docker services, запуска, тестов, lint, typecheck и build.
-20. Добавь базовый CI pipeline:
-```text
-install -> lint -> typecheck -> test -> build
-```
+## Phase 0 deliverables
+1. Initialize pnpm workspace and Turborepo.
+2. Create `apps/web` with Next.js 16/React 19/strict TS and baseline SCSS Modules/MobX setup.
+3. Create `apps/api` with NestJS + Fastify and `GET /health`.
+4. Create `apps/worker` with BullMQ/Redis connectivity foundation.
+5. Create all listed packages with clear package boundaries and build/typecheck setup.
+6. Add PostgreSQL + Prisma foundation in `packages/database`.
+7. Add Redis configuration/foundation.
+8. Add Docker Compose for local PostgreSQL and Redis.
+9. Implement centralized validated environment configuration; do not scatter raw `process.env` reads throughout the codebase.
+10. Add `.env.example` with no real secrets.
+11. Make the web app able to call the API health endpoint through a configurable API base URL.
+12. Add structured logging (Pino or suitable NestJS/Fastify integration) and request/correlation ID foundation.
+13. Add root scripts: `pnpm dev`, `pnpm build`, `pnpm lint`, `pnpm typecheck`, `pnpm test`.
+14. Add minimal test infrastructure and useful smoke tests.
+15. Add `.gitignore`.
+16. Add root `README.md` with exact local setup/run/test/build commands.
+17. Add basic CI: install -> lint -> typecheck -> test -> build.
 
-## Архитектурные ограничения
-Не создавай микросервисы.
+## Non-negotiable constraints
+- Do not create microservices.
+- Do not add Kubernetes, Kafka, RabbitMQ, CQRS framework or event-sourcing framework.
+- Do not install ProxyAPI/OpenAI/Anthropic/Google AI integrations yet.
+- Do not install a real payment provider SDK yet.
+- PostgreSQL will be the source of truth for payments/subscriptions/usage/provider-cost accounting.
+- Redis is only for queues/cache/rate limits/temporary coordination, never authoritative money/usage.
+- Never use `any`.
+- Avoid unsafe type assertions; validate external data.
+- No provider secret may ever reach browser code.
+- Follow the scoped Cursor rules in `.cursor/rules`.
 
-Используется:
-```text
-modular monolith API
-+
-separate worker process
-```
+The future critical financial flow is:
 
-Не добавляй без необходимости:
-- Kubernetes;
-- Kafka;
-- RabbitMQ;
-- event sourcing framework;
-- CQRS framework;
-- payment SDK;
-- ProxyAPI SDK;
-- OpenAI SDK;
-- Anthropic SDK;
-- Google AI SDK;
-- media-generation integration.
-
-Архитектура должна быть подготовлена к будущей критической цепочке:
 ```text
 Payment
-  -> Usage Bucket
-  -> Reservation
-  -> AI Gateway
-  -> Provider
-  -> Actual Cost
-  -> Settlement
-  -> Usage Ledger
+ -> Usage Bucket
+ -> Reservation
+ -> AI Gateway
+ -> Provider
+ -> Actual Provider Cost
+ -> Settlement
+ -> Usage Ledger
 ```
 
-Но сам billing engine в этом проходе не реализовывай.
+Do **not** implement that full flow now, but do not make architectural choices that prevent it.
 
-PostgreSQL в будущем является источником истины для:
-- payments;
-- subscriptions;
-- usage;
-- reservations;
-- ledger;
-- provider-cost accounting.
+## Completion protocol
+Before reporting Phase 0 complete, run:
 
-Redis предназначен для:
-- queues;
-- cache;
-- rate limits;
-- временной coordination.
-
-Redis не является источником истины для денег или пользовательского allowance.
-
-## Важные правила качества
-- Не используй `any`.
-- Не ослабляй TypeScript strict.
-- Не используй floating-point arithmetic для будущих денежных сущностей.
-- Не помещай backend secrets в frontend.
-- Не создавай глобальное mutable state.
-- Соблюдай scoped frontend rules из `.cursor/rules/10-frontend.mdc`.
-- Не добавляй Pixi.js или editor/constraint-layout архитектуру: она относилась к другому проекту и не является частью Vimla.
-
-## Перед завершением
-Запусти:
-```text
+```bash
 pnpm lint
 pnpm typecheck
 pnpm test
 pnpm build
 ```
 
-Исправь все ошибки, возникшие из-за текущей реализации.
+Fix errors introduced by the implementation.
 
-После этого:
-1. перечисли созданные приложения и packages;
-2. покажи итоговую структуру репозитория;
-3. перечисли Docker services;
-4. перечисли environment variables;
-5. дай точные команды локального запуска;
-6. сообщи результаты lint/typecheck/test/build;
-7. обнови `docs/IMPLEMENTATION_PLAN.md`, отметив только реально выполненные задачи Phase 0;
-8. перечисли технический долг/открытые вопросы, но не реализуй следующие фазы без отдельной команды.
+Then report:
+- apps/packages created;
+- final repository tree;
+- Docker services;
+- environment variables;
+- exact local commands;
+- lint/typecheck/test/build results;
+- technical debt/open questions;
+- files changed;
+- only the Phase 0 checkboxes actually completed in `docs/IMPLEMENTATION_PLAN.md`.
 
-Главный приоритет текущего прохода: создать чистый, типобезопасный и расширяемый фундамент Vimla, на котором затем можно безопасно реализовать Billing/Usage Engine и ProxyAPI.
+Stop after Phase 0. Do not start Phase 1 without a separate instruction.

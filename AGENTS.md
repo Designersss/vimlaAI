@@ -1,124 +1,147 @@
-# Vimla — Project Agent Guide
+# Vimla — Project Instructions
 
-## Product identity
-Vimla is a global consumer/prosumer AI workspace. Users get one account, one interface, one usage system, and access to multiple AI capabilities without needing separate subscriptions to each AI provider.
+## Product
+Vimla is a consumer/prosumer AI workspace that gives users one account and one interface for multiple AI capabilities.
 
-Vimla is the final product name. Use `Vimla` consistently in product copy, documentation, package naming, code comments, and architecture diagrams. The project domain has already been purchased; do not invent or hardcode a domain value until it is explicitly configured.
+Core product direction:
+- multi-model chat (GPT, Claude, Gemini and additional models);
+- manual model selection and future `Auto` routing;
+- image generation;
+- video generation;
+- projects and files;
+- AI agents/workflows;
+- subscription plans plus arbitrary top-ups;
+- simple usage UI for users instead of token accounting.
 
-## Product idea
-Vimla should let a user:
-- use text models such as GPT, Claude, Gemini and others;
-- explicitly select a model or use `Auto`;
-- generate images;
-- generate videos;
-- work with files and projects;
-- later run agents/workflows;
-- buy a subscription and arbitrary additional usage;
-- see simple usage as a percentage instead of token prices per prompt.
+The first AI provider/gateway is ProxyAPI. Vimla must never be architecturally coupled to ProxyAPI. All provider access goes through Vimla's own AI provider abstraction.
 
-The initial AI provider is ProxyAPI. Provider-specific code must be isolated behind adapters so ProxyAPI can later be replaced or complemented by direct OpenAI, Anthropic, Google, or other providers without changing Vimla product logic.
+## Current commercial model
+Vimla is operated by the user's Russian LLC. Customer revenue is received by the LLC. ProxyAPI is replenished from the LLC settlement account under the provider's B2B flow.
 
-## Commercial model
-Initial provisional plans are configurable business data, not hardcoded product logic:
+Initial pricing assumptions (business configuration, not hard-coded constants):
 - Lite: 150 RUB;
 - Start: 300 RUB;
 - Pro: 990 RUB;
-- arbitrary top-up: any supported amount.
+- arbitrary top-up amount.
 
-The user does not buy provider tokens. The user buys access/usage inside Vimla.
+Current target maximum AI/provider-cost ratios are assumptions and must be configurable/versioned:
+- Lite: about 20%;
+- Start: about 25%;
+- Pro: about 30%;
+- top-up: about 35%.
 
-The percentage shown to the user is only presentation. The authoritative state is stored in the billing/usage domain.
+These values can change. Code must not scatter them as literals.
 
-Initial provisional maximum provider-cost budgets:
-- Lite: up to 20% of plan price;
-- Start: up to 25%;
-- Pro: up to 30%;
-- top-up: up to 35% of top-up amount.
+## User-facing usage model
+For subscriptions, users see a simple percentage such as `62% used / 38% remaining`.
 
-These ratios must be versioned/configurable and must never be scattered as magic constants through the codebase.
+The percentage is presentation only. It is never authoritative financial state.
 
-## Business/payment context
-The product is initially operated by a Russian LLC (ООО) with a business account at T-Bank.
-- Customer acquiring must be hidden behind a `PaymentProvider` abstraction.
-- The first real acquiring provider will be selected later (T-Kassa, CloudPayments, YooKassa, or another compliant provider).
-- ProxyAPI is funded by the company and provides closing documents/business billing.
-- Vimla must maintain its own per-user usage ledger. Users never receive ProxyAPI keys or direct access to the corporate provider balance.
+The backend stores exact integer usage/billing values and derives the percentage.
 
-## Initial product scope
-MVP capabilities, in order:
-1. Repository and infrastructure foundation.
-2. Authentication and user account.
-3. Plans, subscriptions, arbitrary top-up, payment-domain foundation.
-4. Usage Engine with reservation -> provider call -> settlement -> append-only ledger.
-5. Text chat with streaming and model selection through ProxyAPI.
-6. Real payment adapter.
-7. Provider treasury/admin finance dashboard.
-8. Auto model routing.
-9. Image generation.
-10. Video generation through asynchronous jobs.
-11. Projects/files.
-12. Agents/workflows through workers.
-13. Production hardening.
+Top-ups create a separate non-expiring (unless policy changes) usage bucket. Subscription allowance is spent before top-up allowance.
 
-Do not implement later phases before earlier foundations are correct and tested.
+## Financial invariants
+These are non-negotiable:
+1. Never call an AI provider before checking and reserving sufficient user allowance.
+2. Use reservation -> provider call -> settlement/release.
+3. PostgreSQL is the source of truth for payments, subscriptions, usage and provider-cost accounting.
+4. Redis is never the source of truth for money or usage.
+5. Never use JS floating-point numbers as authoritative money values.
+6. Use integer monetary units (microRUB) in domain/storage (`BIGINT`/`bigint`).
+7. Every payment/provider webhook and ledger mutation must be idempotent.
+8. Ledger history is append-only. Corrections are compensating entries, not destructive edits.
+9. User allowance and ProxyAPI corporate balance are separate systems.
+10. A user reaching 100% must be blocked before an expensive provider request is sent.
 
-## Technology stack
-- Monorepo: pnpm workspaces + Turborepo.
-- Frontend: Next.js 16 App Router, React 19, TypeScript strict, MobX, SCSS Modules.
-- Backend: Node.js 24 LTS, TypeScript strict, NestJS with Fastify adapter.
-- Worker: Node.js 24 LTS, TypeScript strict, BullMQ.
-- Database: PostgreSQL + Prisma.
-- Cache/queues: Redis.
-- Object storage: S3-compatible.
-- AI: internal provider abstraction; ProxyAPI adapter first.
-- Shared validation/contracts: Zod where appropriate.
-- Logging: Pino structured logs.
-- Observability: Sentry-ready; OpenTelemetry later.
-- MVP deployment: Docker Compose on a VPS; no Kubernetes initially.
+## Architecture
+Start as a modular monolith plus a separate worker process.
 
-## Target repository layout
+Monorepo target:
+
 ```text
 apps/
-  web/        # Next.js frontend
-  api/        # NestJS/Fastify modular-monolith backend
-  worker/     # BullMQ background workers
+  web/        Next.js frontend
+  api/        NestJS + Fastify modular monolith
+  worker/     BullMQ workers
+
 packages/
-  contracts/  # shared schemas and API-safe types
-  database/   # Prisma schema/client/migrations
-  config/     # typed environment/configuration
-  ai/         # provider interfaces, model metadata, routing contracts
-  billing/    # framework-independent billing/usage domain helpers
-  shared/     # framework-independent utilities only
-docs/
-.cursor/rules/
+  contracts/  shared schemas/contracts
+  database/   Prisma schema/client/migrations
+  config/     validated configuration
+  ai/         provider abstractions/model metadata
+  billing/    framework-independent billing domain
+  shared/     genuinely shared utilities
 ```
 
-## Non-negotiable invariants
-1. Never expose ProxyAPI keys, payment secrets, database credentials, or private infrastructure secrets to browser code.
-2. PostgreSQL is the source of truth for money, quota, subscriptions, payments, and settlements.
-3. Redis is never the source of truth for balances or money.
-4. Never use floating-point arithmetic for money/provider cost. Use integer micro-rubles (`BIGINT`) or an equally precise integer representation.
-5. Never store displayed usage percentage as authoritative state. Calculate it from usage buckets/allocations.
-6. Every financial/usage mutation must be idempotent, traceable, and auditable.
-7. Every AI operation that can consume quota must reserve allowance before provider execution and settle afterward.
-8. Payment success is accepted only from a verified provider webhook/server-side confirmation, never from browser redirect state.
-9. Long-running image/video/agent operations run in workers, not long-lived request handlers.
-10. Provider integrations are replaceable adapters. Product/domain code must not depend on ProxyAPI-specific response shapes.
-11. Start as a modular monolith plus worker process. Do not introduce premature microservices.
-12. No Kubernetes, Kafka, event-sourcing framework, CQRS framework, or similarly heavy infrastructure without measured need.
-13. No direct mutation of financial state from frontend.
-14. Financial operations must be transactional and safe under concurrent requests.
-15. Top-up usage and subscription-period usage are separate buckets. Monthly usage is consumed first; top-up is preserved unless business rules change explicitly.
+Core path:
 
-## Cursor workflow
-Before changing architecture or financial code, read:
-- `docs/PROJECT.md`
-- `docs/ARCHITECTURE.md`
-- `docs/IMPLEMENTATION_PLAN.md`
-- relevant `.cursor/rules/*.mdc`
+```text
+Browser
+  -> Vimla Web
+  -> Vimla API
+  -> Auth / Rate Limit
+  -> Usage Reservation
+  -> AI Gateway
+  -> AiProvider
+  -> ProxyAPIProvider
+  -> ProxyAPI
+  -> model
+  -> actual cost / usage
+  -> settlement
+  -> usage ledger
+```
 
-Implement the current phase only. Do not opportunistically build later phases.
+Async path:
 
-When an implementation decision changes an important invariant, data model, public contract, or phase status, update the relevant file under `docs/`.
+```text
+API -> PostgreSQL job record -> BullMQ -> Worker -> AI Gateway -> provider
+```
 
-Never weaken type safety, financial safety, idempotency, validation, or security just to make implementation faster.
+## Stack
+Frontend:
+- Next.js 16 App Router;
+- React 19;
+- TypeScript strict;
+- MobX for client-domain UI state only;
+- SCSS Modules.
+
+Backend:
+- Node.js 24 LTS;
+- TypeScript strict;
+- NestJS;
+- Fastify adapter.
+
+Data/infrastructure:
+- PostgreSQL;
+- Prisma;
+- Redis;
+- BullMQ;
+- S3-compatible object storage;
+- pnpm workspaces;
+- Turborepo;
+- Docker Compose for local development.
+
+## General engineering rules
+- No `any`. Use explicit types, generics or `unknown` with validation/narrowing.
+- Avoid unsafe type assertions. Validate external data at boundaries.
+- Do not expose provider API keys to the browser.
+- Do not call ProxyAPI directly from frontend code.
+- Controllers/routes are transport adapters, not business logic containers.
+- Keep domain logic framework-independent where practical.
+- Do not add microservices, Kafka, Kubernetes or other distributed complexity until justified by measured load.
+- Prefer small focused modules and functions over giant files.
+- New external integrations must sit behind interfaces/adapters.
+- Validate every external input: HTTP, webhook, provider response, environment variable and queue payload.
+- Never log secrets, authorization headers, full payment data or raw sensitive file contents.
+
+## Sources of truth
+Use these documents in this order when making architectural decisions:
+1. `AGENTS.md`
+2. relevant `.cursor/rules/*.mdc`
+3. `docs/PROJECT.md`
+4. `docs/ARCHITECTURE.md`
+5. `docs/DOMAIN_MODEL.md`
+6. `docs/IMPLEMENTATION_PLAN.md`
+
+If requirements conflict, stop expanding scope and choose the safer, simpler option consistent with billing/security invariants.

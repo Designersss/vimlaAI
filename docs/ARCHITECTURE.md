@@ -1,304 +1,178 @@
 # Vimla — Architecture
 
-## High-level architecture
+## Monorepo
+
 ```text
-User
-  |
-  v
-Cloudflare / CDN
-  |
-  v
-Next.js Web
-  |
-  v
-NestJS/Fastify API
-  |
-  +-------------------- PostgreSQL
-  |
-  +-------------------- Redis
-  |                         |
-  |                         v
-  |                       BullMQ
-  |                         |
-  |                         v
-  |                       Worker
-  |
-  v
-Usage Engine
-  |
-  v
-AI Gateway
-  |
-  v
-ProxyAPI adapter
-  |
-  +---- GPT / OpenAI-family models
-  +---- Claude / Anthropic-family models
-  +---- Gemini / Google-family models
-  +---- image models
-  +---- video models
+vimla/
+  apps/
+    web/
+    api/
+    worker/
+  packages/
+    contracts/
+    database/
+    config/
+    ai/
+    billing/
+    shared/
+  .cursor/rules/
+  docs/
 ```
 
-## Architectural style
-Start with:
-- one modular-monolith API application;
-- one separate worker process;
-- one PostgreSQL database;
-- one Redis instance;
-- S3-compatible object storage when media/files are introduced.
+## Runtime components
 
-Do not start with microservices.
-
-## Backend modules
-Target modules:
 ```text
-AuthModule
-UsersModule
-PlansModule
-SubscriptionsModule
-PaymentsModule
-UsageModule
-AiModule
-ChatsModule
-FilesModule
-GenerationsModule
-AgentsModule
-AdminModule
+Client
+  |
+Cloudflare/CDN (later/production)
+  |
+Next.js web
+  |
+Node/NestJS API
+  |-----------------------|
+  |           |           |
+PostgreSQL   Redis      Object Storage
+              |
+            BullMQ
+              |
+            Worker
+              |
+          AI Gateway
+              |
+         ProxyAPIProvider
+              |
+           ProxyAPI
 ```
 
-Not all modules must exist in Phase 0.
+## Backend style
+The API starts as one deployable modular monolith. A separate worker process handles asynchronous jobs. Logical boundaries are preserved so selected workloads can be extracted later if measured scale requires it.
 
-## Money representation
-Never use JS `number` for authoritative money math.
+## Core synchronous chat flow
 
-Canonical internal representation:
-- integer micro-rubles;
-- `1 RUB = 1_000_000 microRUB`;
-- PostgreSQL `BIGINT`;
-- TypeScript `bigint` in domain/internal layers.
-
-Public JSON contracts cannot serialize native `bigint` directly. Convert deliberately to validated decimal strings or another explicit API-safe representation at boundaries.
-
-## Usage model
-The UI percentage is derived.
-
-Authoritative entities:
-- plan version;
-- subscription;
-- usage bucket;
-- usage reservation;
-- usage allocation;
-- usage ledger entry.
-
-### Subscription bucket
-A subscription creates a time-bounded provider-cost allowance.
-
-Example only:
 ```text
-Pro price: 990 RUB
-Provider-cost budget ratio: 30%
-Provider-cost allowance: 297 RUB
+1. authenticate user
+2. authorize account/resource
+3. validate request/model
+4. resolve plan/buckets
+5. estimate maximum provider cost
+6. reserve allowance transactionally
+7. create ai_request record
+8. call AI Gateway -> ProxyAPIProvider
+9. stream response through Vimla
+10. capture final usage/cost
+11. settle actual charge and release unused reservation
+12. persist message/result
+13. emit metrics/logs
 ```
+
+Provider call must never happen before step 6 succeeds.
+
+## Async generation flow
+
+```text
+HTTP request
+ -> validate/auth
+ -> estimate/reserve usage
+ -> create generation_job in PostgreSQL
+ -> enqueue BullMQ job
+ -> 202 Accepted + job id
+
+Worker
+ -> load job + reservation
+ -> invoke AI gateway
+ -> poll/await provider
+ -> persist output to object storage
+ -> settle usage
+ -> mark job completed
+```
+
+## Financial state
+PostgreSQL tables/domains will include:
+- plans + plan_versions;
+- subscriptions;
+- payments + payment_events;
+- usage_buckets;
+- usage_reservations;
+- usage_ledger;
+- ai_requests;
+- provider_cost_records;
+- provider_balance_snapshots.
+
+## Monetary representation
+Use microRUB integers:
+
+```text
+1 RUB = 1,000,000 microRUB
+```
+
+Database: `BIGINT`.
+Domain TypeScript: `bigint`.
+Public JSON: decimal string or explicit amount DTO.
+
+Do not use floats for authoritative calculations.
+
+## Usage buckets
+### Monthly subscription bucket
+- created per billing period;
+- expires at period end;
+- provider-cost allowance derived from the plan version;
+- used before top-up.
 
 ### Top-up bucket
-A top-up creates a separate non-expiring (unless business rules later change) allowance.
+- created after confirmed top-up payment;
+- separate from subscription;
+- default non-expiring unless product policy changes;
+- retail amount and provider-cost budget are distinct values.
 
-Example only:
+## Reservation/settlement
+Reservation protects against concurrency/overspend.
+
 ```text
-Top-up paid: 1000 RUB
-Provider-cost ratio: 35%
-Provider-cost allowance: 350 RUB
+available = bucket total - settled charges - active reservations
 ```
 
-Monthly buckets are consumed before top-up buckets.
+Reservation must be atomic across concurrent requests. Settlement converts reserved amount into actual charge and releases the difference.
 
-## Critical request flow
-Every billable AI operation follows:
+## AI abstraction
+
 ```text
-request
-  |
-  v
-auth + validation + rate limit
-  |
-  v
-estimate maximum provider cost
-  |
-  v
-reserve allowance atomically
-  |
-  v
-call provider
-  |
-  +---- provider succeeds -> settle actual cost + release excess reservation
-  |
-  +---- provider fails unbilled -> release reservation
-  |
-  +---- ambiguous billing state -> preserve trace and reconcile; never guess silently
+AiGateway
+  -> Router (initially simple explicit model mapping)
+  -> AiProvider
+       -> ProxyAPIProvider
 ```
 
-The provider must never be called before allowance is reserved.
-
-## Concurrency
-Reservation must be protected by a PostgreSQL transaction/locking strategy so simultaneous requests cannot overspend the same allowance.
-
-Example failure that must be impossible:
-```text
-available = 5 RUB
-10 concurrent requests each see 5 RUB
-all execute
-provider cost = 50 RUB
-```
-
-## Ledger
-Use append-only financial/usage ledger semantics.
-
-Example entry types:
-- `SUBSCRIPTION_GRANT`
-- `TOPUP_GRANT`
-- `RESERVATION_CREATED`
-- `RESERVATION_RELEASED`
-- `AI_USAGE_SETTLED`
-- `MANUAL_ADJUSTMENT`
-- `REFUND_ADJUSTMENT`
-- `EXPIRATION`
-
-Do not mutate historical ledger entries to “fix” balances. Use compensating entries.
-
-## Plan versioning
-Never mutate historical commercial terms.
-
-Use:
-```text
-plans
-plan_versions
-```
-
-A subscription references the version effective when it was purchased/renewed.
-
-Version at minimum:
-- retail price;
-- currency;
-- provider-cost budget ratio/allowance policy;
-- feature entitlements;
-- effective dates.
-
-## AI provider abstraction
-Domain code calls an internal interface, not ProxyAPI directly.
-
-Conceptual interface:
-```ts
-interface AiProvider {
-  streamText(...): ...;
-  generateImage(...): ...;
-  submitVideo(...): ...;
-  getVideoStatus(...): ...;
-}
-```
-
-Provider-specific DTOs remain inside the adapter.
+Later providers can be added without changing product/billing layers.
 
 ## Model catalog
-Vimla owns stable model IDs independent of provider model IDs.
-
-Example:
-```text
-vimlaModelId: text-fast-v1
-provider: proxyapi
-providerModelId: ...
-capabilities: [text, vision]
-status: enabled
-usageTier: low
-```
-
-The catalog must allow model availability/prices to change without frontend redeploy where practical.
-
-## Price versioning
-Provider/model pricing changes over time.
-
-Persist price versions with effective ranges. A historical request must remain explainable using the price/version active at execution.
-
-## Streaming text
-Preferred MVP flow:
-```text
-ProxyAPI stream
-  -> API server
-  -> SSE/streaming response
-  -> browser
-```
-
-The final provider usage metadata is used for settlement where available.
-
-## Long-running generations
-Images that are asynchronous, videos, and agents use jobs:
-```text
-API request
-  -> reserve
-  -> create generation/agent job
-  -> enqueue BullMQ
-  -> worker executes/polls provider
-  -> persist result
-  -> settle/release
-```
-
-Do not keep an HTTP request alive for multi-minute video jobs.
+Vimla model record should conceptually include:
+- Vimla model id/slug;
+- display name;
+- provider adapter;
+- provider model id;
+- capability flags;
+- enabled/disabled;
+- price version/reference;
+- limits;
+- usage tier/label;
+- routing metadata.
 
 ## Payments
-Use:
-```ts
-interface PaymentProvider {
-  createCheckout(...): ...;
-  verifyWebhook(...): ...;
-  refund(...): ...;
-}
-```
+Use `PaymentProvider` abstraction. Build with mock first. Real provider selection can be T-Kassa/CloudPayments/etc. Domain must not depend on a specific SDK.
 
-Start with `MockPaymentProvider`.
-Add the real acquiring adapter only after the billing domain is tested.
+## Storage
+PostgreSQL stores metadata. Files/images/video live in S3-compatible object storage. Use signed URLs or backend-mediated access as appropriate.
 
-Payment redirect is never proof of payment.
-A verified webhook/provider confirmation is authoritative.
+## Observability
+At minimum record:
+- request/correlation ID;
+- user/account id (safe internal ID);
+- Vimla model;
+- provider/model;
+- latency;
+- token/media usage;
+- actual/derived provider cost;
+- reservation/settlement ID;
+- error classification.
 
-All webhook events require idempotency.
-
-## ProxyAPI treasury
-Corporate ProxyAPI balance is not a user balance.
-
-Store periodic snapshots:
-- provider balance;
-- 24h burn;
-- 7d burn;
-- estimated runway;
-- timestamp.
-
-Admin alerts should eventually warn before the provider balance is critically low.
-
-## Reconciliation
-Vimla calculates provider cost per operation and stores provider request identifiers.
-Periodically compare internal calculated totals to provider-reported/logged costs.
-Meaningful differences must generate alerts.
-
-## Redis responsibilities
-Redis may be used for:
-- BullMQ;
-- cache;
-- rate limits;
-- ephemeral locks/coordination where safe.
-
-Redis must not be authoritative for:
-- payment state;
-- subscription state;
-- remaining financial allowance;
-- historical ledger.
-
-## Files/media
-Do not store large media blobs in PostgreSQL.
-Use object storage and persist metadata/storage keys in PostgreSQL.
-
-## Security basics
-- secrets server-side only;
-- validate every untrusted payload;
-- webhook signature verification;
-- ownership checks on every user resource;
-- redact prompts/files/secrets from logs where appropriate;
-- rate/concurrency limits;
-- provider keys scoped/budgeted/IP-restricted when supported.
+Never log secrets or sensitive raw customer content by default.

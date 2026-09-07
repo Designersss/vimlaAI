@@ -1,0 +1,19 @@
+---
+description: ProxyAPI-specific adapter and treasury rules
+alwaysApply: false
+globs:
+  - "packages/ai/**/*proxyapi*.ts"
+  - "apps/api/src/**/*proxyapi*.ts"
+  - "apps/worker/src/**/*proxyapi*.ts"
+---
+# ProxyAPI adapter rules
+
+- ProxyAPI integration exists only inside provider/infrastructure adapters.
+- Never expose the ProxyAPI key to frontend code.
+- Keep base URL, API key, timeout and model mapping in validated server configuration.
+- Treat ProxyAPI responses as external untrusted data and validate critical fields.
+- Prefer actual charged cost returned/reconciled from provider data when reliably available; preserve enough usage detail to audit derived cost.
+- Implement provider balance monitoring as corporate treasury/observability, separate from user allowance.
+- Low ProxyAPI balance must never be interpreted as a user's balance.
+- Design for future fallback to another provider without changing billing, chats or frontend contracts.
+- Use separate development/production credentials and provider-side budgets/IP restrictions when available.

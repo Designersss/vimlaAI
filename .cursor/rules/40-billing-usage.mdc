@@ -1,0 +1,57 @@
+---
+description: Critical Vimla billing, subscriptions, top-ups and usage-ledger rules
+alwaysApply: false
+globs:
+  - "packages/billing/**/*.ts"
+  - "apps/api/src/**/*billing*.ts"
+  - "apps/api/src/**/*usage*.ts"
+  - "apps/api/src/**/*payment*.ts"
+  - "apps/worker/src/**/*billing*.ts"
+---
+# Billing and Usage rules — CRITICAL
+
+Billing correctness has priority over convenience.
+
+## Money
+- Never use JS `number` for authoritative money/provider cost.
+- Domain values use `bigint` in integer microRUB (1 RUB = 1,000,000 microRUB) unless an ADR changes the unit.
+- API boundaries serialize these values explicitly, never native bigint JSON.
+
+## Distinct concepts
+Never conflate:
+- customer payment amount;
+- retail/top-up face value;
+- subscription provider-cost allowance;
+- actual ProxyAPI/provider cost;
+- corporate ProxyAPI balance.
+
+## Buckets
+- Subscription purchase/renewal creates a versioned monthly usage bucket.
+- Arbitrary top-up creates a separate top-up bucket.
+- Spend expiring subscription allowance before non-expiring top-up allowance.
+- Plan price and allowance are copied/versioned for the billing period; later plan edits must not retroactively change active historical periods.
+
+## Reservation protocol
+Every provider-consuming action must follow:
+1. estimate a safe maximum cost;
+2. atomically reserve allowance in PostgreSQL;
+3. reject before provider call if allowance cannot be reserved;
+4. call provider;
+5. determine actual provider cost;
+6. settle actual cost;
+7. release unused reservation;
+8. on failure, release/refund according to actual provider charge.
+
+Never use `checkBalance(); callProvider(); deduct();` without a reservation transaction.
+
+## Ledger
+- Use append-only ledger entries for grants, charges, top-ups, refunds/adjustments and expirations.
+- Every mutation has an idempotency key/event identity where retries are possible.
+- Duplicate webhooks/provider callbacks must not duplicate allowance or charges.
+- Cached balance fields are allowed only as derived/transactionally maintained accelerators; ledger/buckets remain explainable and auditable.
+
+## Product assumptions
+Initial prices and target provider-cost ratios (150/300/990 RUB and ~20/25/30%, top-up ~35%) are configurable assumptions, never scattered literals.
+
+## User UI
+The 0–100% subscription meter is derived from authoritative bucket consumption. Do not create a financial field named `usagePercent` as source of truth.

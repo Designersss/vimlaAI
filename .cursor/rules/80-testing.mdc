@@ -1,0 +1,20 @@
+---
+description: Testing rules with emphasis on financial correctness and concurrency
+alwaysApply: false
+globs:
+  - "**/*.test.ts"
+  - "**/*.spec.ts"
+  - "**/*.test.tsx"
+  - "**/*.spec.tsx"
+  - "packages/billing/**/*.ts"
+---
+# Testing rules
+
+- Test domain invariants, not only implementation details.
+- Billing tests must cover concurrency, duplicate events, reservation/settlement/release, insufficient allowance, failed provider calls, top-up ordering and period expiry.
+- Add integration tests against PostgreSQL for transaction/locking behavior; mocks alone are insufficient for financial concurrency.
+- Payment webhook tests must prove duplicate delivery is idempotent.
+- Provider adapter tests use fixtures/fakes and never require paid live calls in the default test suite.
+- Worker tests cover retries/restarts/idempotency.
+- Each bug in billing/security should receive a regression test.
+- Keep smoke tests for `/health`, DB connectivity and Redis connectivity where appropriate.

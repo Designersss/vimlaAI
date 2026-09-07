@@ -1,23 +1,32 @@
-# Vimla Cursor Starter Pack
+# Vimla Cursor Starter Pack v2
 
-Copy the contents of this folder into the root of the new Vimla repository and open that folder in Cursor.
+This folder is not the application implementation. It is the persistent project context/rules pack for Cursor before the first code-generation pass.
 
-## Important files
-- `AGENTS.md` — persistent project context and non-negotiable invariants.
-- `.cursor/rules/*.mdc` — scoped Cursor Project Rules.
-- `docs/PROJECT.md` — product description and MVP scope.
-- `docs/ARCHITECTURE.md` — technical architecture and core flows.
-- `docs/IMPLEMENTATION_PLAN.md` — ordered implementation roadmap.
-- `docs/START_CURSOR_PROMPT.md` — first prompt to paste into Cursor Agent.
+## Install into a new repository
+Copy the **contents** of this folder into the root of the Vimla repository so the final paths are exactly:
 
-## About the original frontend rule
-The previously supplied frontend rule contained reusable choices such as Next.js 16, React 19, TypeScript strict, MobX, SCSS Modules, feature grouping and strong type safety, but also contained Pixi.js/editor/constraint-layout rules from a different product.
+```text
+<repo>/AGENTS.md
+<repo>/.cursor/rules/00-project-core.mdc
+<repo>/.cursor/rules/10-frontend.mdc
+...
+<repo>/docs/PROJECT.md
+<repo>/docs/START_CURSOR_PROMPT.md
+```
 
-For Vimla:
-- reusable frontend conventions are preserved;
-- Pixi.js/editor-specific rules are intentionally removed;
-- frontend rules are now scoped to `apps/web/**`.
+Do not copy it as a nested `vimla-cursor-starter-v2/` folder inside the repo.
 
-## First action
-Paste the content of `docs/START_CURSOR_PROMPT.md` into Cursor Agent.
-Do not ask Cursor to implement the entire product in one pass. Follow `docs/IMPLEMENTATION_PLAN.md` phase by phase.
+## What Cursor should detect
+Cursor Project Rules are actual `.mdc` files in `.cursor/rules/` with `description`, `globs` and/or `alwaysApply` frontmatter.
+
+Global always-applied rules:
+- `00-project-core.mdc`
+- `95-git-workflow.mdc`
+
+Scoped rules automatically apply to frontend/backend/database/billing/AI/worker/security/testing/infra files as relevant.
+
+## First message
+Open `docs/START_CURSOR_PROMPT.md`, copy the prompt section into Cursor Agent and run it in the repository root.
+
+## Important
+The user's old frontend `.mdc` contained Pixi.js/editor/constraint-layout rules from another project. Vimla keeps the user's intended frontend stack and strictness, but intentionally removes those unrelated editor rules.

@@ -1,0 +1,18 @@
+---
+description: Global Vimla architecture, naming and TypeScript rules
+alwaysApply: true
+---
+# Vimla global rules
+
+- The product name is **Vimla**. Do not use former working names in code, docs, UI strings or examples.
+- Read `AGENTS.md` before making cross-cutting architectural changes.
+- Use TypeScript strict mode in all TypeScript packages/apps.
+- `any` is forbidden. Prefer concrete types, generics, or `unknown` + validation/narrowing.
+- Avoid unsafe `as` assertions. If an unavoidable third-party boundary requires an assertion, isolate it in one adapter, validate first where possible, and explain the reason in code.
+- Do not use global mutable state.
+- Do not put secrets in source code, client bundles, examples, fixtures or logs.
+- Keep integrations behind adapters/interfaces.
+- Do not introduce microservices or infrastructure complexity without an explicit requirement.
+- New code must pass lint, typecheck and relevant tests.
+- Avoid hidden business constants. Pricing, usage ratios, limits and provider mappings must be configuration/versioned business data.
+- Prefer explicit domain names: `providerCost`, `retailUsage`, `reservation`, `settlement`, `usageBucket`; avoid vague names such as `credits` when the meaning is ambiguous.

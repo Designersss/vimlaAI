@@ -1,0 +1,23 @@
+---
+description: Vimla security, secrets, authorization and abuse-prevention rules
+alwaysApply: false
+globs:
+  - "apps/api/**/*.ts"
+  - "apps/worker/**/*.ts"
+  - "packages/**/*.ts"
+  - "apps/web/**/*.ts"
+  - "apps/web/**/*.tsx"
+---
+# Security rules
+
+- Validate all untrusted input at system boundaries.
+- Enforce authorization/ownership server-side for conversations, files, projects, generations and billing resources.
+- Use least-privilege provider/API credentials.
+- Secrets belong in validated runtime configuration/secret storage, never git or browser bundles.
+- Redact secrets, auth headers, cookies, payment data and sensitive user content from logs.
+- Add rate limits and concurrency limits independently from financial allowance.
+- File uploads require size/type validation and safe object-storage keys.
+- Do not trust client-supplied model price, provider cost, plan, allowance or role.
+- Admin endpoints require explicit admin authorization, auditing and safe defaults.
+- Avoid SSRF/path traversal when later adding web/file/agent tooling.
+- Security-sensitive changes require tests for failure/unauthorized paths, not only happy paths.

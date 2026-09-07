@@ -1,0 +1,19 @@
+---
+description: BullMQ worker rules for long-running generations and agents
+alwaysApply: false
+globs:
+  - "apps/worker/**/*.ts"
+  - "apps/api/src/**/*queue*.ts"
+  - "apps/api/src/**/*generation*.ts"
+---
+# Worker rules
+
+- Use Redis/BullMQ for execution coordination; persistent job/business state lives in PostgreSQL.
+- API creates a persistent job record before enqueuing expensive async work.
+- Queue payloads contain IDs and minimal immutable metadata, not giant documents/binaries.
+- Workers re-load authoritative state from PostgreSQL.
+- Image/video/agent runs must be idempotent/recoverable across worker restarts.
+- Use explicit retry policies by failure type. Never blindly retry costly generation after an ambiguous provider response.
+- A job must carry/correlate its usage reservation. Completion settles; definite uncharged failure releases; ambiguous provider charge goes to reconciliation/manual-safe state.
+- Store generated assets in S3-compatible object storage and metadata in PostgreSQL.
+- Concurrency is configured by queue/capability and must respect provider rate limits and cost controls.

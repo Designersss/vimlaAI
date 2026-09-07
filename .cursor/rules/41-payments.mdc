@@ -1,0 +1,17 @@
+---
+description: Payment-provider integration and webhook rules
+alwaysApply: false
+globs:
+  - "apps/api/src/**/*payment*.ts"
+  - "packages/billing/**/*payment*.ts"
+---
+# Payments rules
+
+- Define a Vimla `PaymentProvider` abstraction; do not couple domain logic to T-Kassa, CloudPayments, YooKassa or another processor.
+- Start development with a `MockPaymentProvider` before real acquiring.
+- Activate a plan/top-up only after verified provider confirmation/webhook, never from browser redirect alone.
+- Verify webhook signatures/authenticity according to the selected provider.
+- Store provider event/payment IDs and enforce uniqueness/idempotency.
+- Persist raw provider payload only if needed and safe; redact sensitive payment data.
+- Refunds/cancellations must create explicit domain events/ledger adjustments; do not silently mutate history.
+- Never store PAN/CVV or other card secrets.

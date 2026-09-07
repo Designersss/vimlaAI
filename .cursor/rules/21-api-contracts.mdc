@@ -1,0 +1,18 @@
+---
+description: Shared API contract and validation rules
+alwaysApply: false
+globs:
+  - "packages/contracts/**/*.ts"
+  - "apps/api/**/*.ts"
+  - "apps/web/**/*.ts"
+  - "apps/web/**/*.tsx"
+---
+# API contract rules
+
+- Shared request/response/event schemas live in `packages/contracts` when both frontend and backend need them.
+- Use runtime validation schemas (prefer Zod unless the repository establishes another standard).
+- Infer TypeScript types from schemas where practical to avoid schema/type drift.
+- Never trust JSON purely because it satisfies a compile-time interface.
+- Serialize `bigint` monetary values explicitly as decimal strings or a dedicated money DTO; native bigint must never reach JSON serialization directly.
+- Public error contracts must use stable machine-readable codes plus safe human-readable messages.
+- Version breaking public API changes deliberately.

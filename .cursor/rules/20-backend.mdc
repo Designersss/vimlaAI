@@ -1,0 +1,23 @@
+---
+description: Backend rules for Vimla NestJS/Fastify API
+alwaysApply: false
+globs:
+  - "apps/api/**/*.ts"
+---
+# Backend rules
+
+- Use NestJS with Fastify adapter.
+- Keep the application a modular monolith.
+- Controllers are thin: validate/authorize/translate transport concerns and call application services.
+- Business logic belongs in services/use-cases/domain packages, not controllers or Prisma models.
+- External systems must be behind adapters: payments, AI providers, object storage, email, etc.
+- Dependency direction should point inward toward domain/application abstractions.
+- Validate all HTTP input and all external responses before trusting them.
+- Authentication and authorization are distinct. Always verify resource ownership for user-scoped resources.
+- Use centralized error mapping. Do not leak provider/internal stack details to clients.
+- Propagate a request/correlation ID into logs, AI request records and background jobs.
+- Prefer explicit DTO/contracts from `packages/contracts` for web/API boundaries.
+- Never perform authoritative financial calculations in controllers.
+- Never perform long-running video/agent jobs synchronously in a request lifecycle.
+
+Future logical modules include `Auth`, `Users`, `Plans`, `Subscriptions`, `Payments`, `Usage`, `Ai`, `Chats`, `Files`, `Generations`, `Agents`, `Admin`. Create modules only when their phase requires them.

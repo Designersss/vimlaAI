@@ -1,0 +1,14 @@
+---
+description: Cursor implementation workflow and scope-control rules
+alwaysApply: true
+---
+# Implementation workflow
+
+- Before a non-trivial task, inspect the relevant docs/rules and current repository state.
+- Follow `docs/IMPLEMENTATION_PLAN.md` phase order unless the user explicitly changes scope.
+- Do not silently implement future phases.
+- Prefer small coherent commits/changes that leave the repository runnable.
+- After each phase run lint, typecheck, tests and build; fix errors introduced by the work.
+- Update implementation-plan checkboxes/status only for work actually completed.
+- Do not delete existing user code/files merely because a generated scaffold differs; migrate intentionally.
+- Summarize changed files, commands run, test results, remaining risks and the exact next phase.

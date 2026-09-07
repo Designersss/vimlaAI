@@ -1,0 +1,68 @@
+---
+description: Frontend rules for Vimla Next.js/React application
+alwaysApply: false
+globs:
+  - "apps/web/**/*.ts"
+  - "apps/web/**/*.tsx"
+  - "apps/web/**/*.scss"
+---
+# Frontend rules
+
+## Stack
+- Next.js 16 App Router.
+- React 19 functional components and hooks.
+- TypeScript strict.
+- MobX only for durable client-side/domain UI state that genuinely benefits from observability.
+- SCSS Modules for component styles.
+
+## Rendering
+- Prefer Server Components by default.
+- Add `"use client"` only for interactivity/browser APIs/client stores.
+- Keep client component boundaries as small as practical.
+- Do not move server state into MobX. Fetch/cache server state using server components or an explicit data layer.
+
+## Structure
+Use feature-oriented organization. Example:
+
+```text
+apps/web/src/
+  app/
+  features/
+    auth/
+    chat/
+    models/
+    generations/
+    billing/
+    usage/
+    projects/
+  shared/
+    ui/
+    api/
+    lib/
+    styles/
+```
+
+Within a feature, use focused folders only when useful: `components/`, `stores/`, `services/`, `types/`.
+
+## Components/styles
+- One primary component per component file.
+- Components use PascalCase.
+- Co-locate `style.module.scss` with the component when the style is component-specific.
+- Keep design tokens in shared style/token files; do not duplicate colors/spacings throughout components.
+- Prefer semantic UI state (`loading`, `streaming`, `failed`) over ad-hoc booleans.
+
+## API/security
+- Browser code calls only Vimla backend endpoints.
+- Never call ProxyAPI or future direct model providers from the browser.
+- Never expose ProxyAPI/provider keys through `NEXT_PUBLIC_*` variables.
+- Treat all server responses as typed contracts from `packages/contracts`.
+- Do not calculate authoritative balance/provider cost in the browser.
+
+## Usage UI
+- Subscription percentage is derived display state only.
+- Never persist `usagePercent` as authoritative client/business state.
+- UI may show approximate percentage while streaming, but backend settlement is authoritative.
+- Top-up UI must not imply that provider-cost rubles are user-owned withdrawable money.
+
+## Removed legacy rules
+Do not introduce Pixi.js, canvas/editor architecture, constraint layout, SceneRenderer or ElementFactory. Those belonged to another project and are not part of Vimla.

@@ -1,0 +1,20 @@
+---
+description: PostgreSQL and Prisma persistence rules
+alwaysApply: false
+globs:
+  - "packages/database/**/*"
+  - "**/prisma/**/*"
+---
+# Database rules
+
+- PostgreSQL is the authoritative datastore for financial/business state.
+- Prisma is the ORM/migration layer unless deliberately replaced by an ADR.
+- Use migrations for schema changes; never rely on production `db push`.
+- Store monetary/provider-cost/usage integer values as `BIGINT` microRUB or another explicitly documented integer unit.
+- Prefer UTC timestamps and explicit lifecycle fields.
+- Use database constraints for critical invariants where possible: unique idempotency keys, foreign keys, non-negative checks where compatible with reservation logic.
+- Ledger tables are append-only. Do not update/delete historical ledger entries to "fix" balances; write compensating entries.
+- Financial mutations requiring consistency must run in database transactions.
+- Design for concurrent requests; never implement balance checks as an unlocked read followed later by a write.
+- Add indexes for actual query paths, not speculative indexes everywhere.
+- Do not store binary images/video in PostgreSQL; store object metadata/storage keys.

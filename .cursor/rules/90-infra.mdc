@@ -1,0 +1,22 @@
+---
+description: Local infrastructure, CI/CD and observability rules
+alwaysApply: false
+globs:
+  - "Dockerfile*"
+  - "docker-compose*.yml"
+  - "docker-compose*.yaml"
+  - ".github/**/*"
+  - "infra/**/*"
+  - "**/*.config.*"
+---
+# Infrastructure rules
+
+- MVP local stack uses Docker Compose for PostgreSQL and Redis; apps may run locally or in containers as documented.
+- Do not add Kubernetes, Kafka or service mesh in MVP.
+- Environments: local, test, staging (when introduced), production.
+- CI baseline: install -> lint -> typecheck -> test -> build.
+- Migrations are applied deliberately during deploy; do not auto-destruct/recreate production DB.
+- Use health/readiness endpoints for API/worker dependencies as needed.
+- Structured logs use correlation IDs.
+- Add Sentry/error tracking and metrics incrementally, but provider cost/usage observability is a first-class production concern.
+- `.env.example` contains names and safe examples only, never secrets.

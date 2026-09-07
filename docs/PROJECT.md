@@ -1,94 +1,72 @@
 # Vimla — Product Description
 
 ## Vision
-Vimla is a single AI workspace for global consumer and prosumer users.
+Vimla is a unified AI workspace for everyday users, creators and power users. Instead of maintaining separate subscriptions and interfaces for many AI tools, a user works in one product and can use different models/capabilities from the same account.
 
-Instead of buying and learning many separate AI products, a user works inside Vimla and can choose a specific model/capability or let `Auto` choose an appropriate route.
+Long-term positioning: **one workspace, many AIs, finished work rather than model complexity**.
 
-Vimla is not merely a model catalog. The long-term product value is:
-- one identity;
-- one workspace;
-- one billing/usage system;
-- model/provider abstraction;
-- projects and persistent context;
-- multimodal creation;
-- workflows and agents;
-- intelligent routing.
+## Target users
+Initial audience:
+- regular AI users who currently switch between several products;
+- creators who need text + image + video workflows;
+- students/knowledge workers;
+- developers/power users who care about explicit model selection;
+- users who want simple pricing/usage instead of token accounting.
 
-## Core user surfaces
-### Chat
-- multi-model text chat;
-- streaming responses;
-- explicit model selection;
-- `Auto` mode;
-- conversation history.
+## V1 capabilities
+1. Account/authentication.
+2. Multi-model text chat.
+3. Manual model selector.
+4. Conversation history.
+5. Subscription/usage system.
+6. Arbitrary top-up.
+7. ProxyAPI provider integration through Vimla AI Gateway.
+8. Basic admin/financial observability.
 
-### Create
+## Later capabilities
+- Auto model router;
 - image generation;
 - video generation;
-- later audio/voice capabilities if commercially justified.
+- file uploads;
+- projects/context workspaces;
+- agents/workflows;
+- model comparison;
+- provider fallback/direct-provider adapters;
+- advanced memory/context.
 
-### Projects
-- group conversations, files, generations and future agent context.
+## Pricing assumptions
+Initial product hypotheses:
+- Lite: 150 RUB/month;
+- Start: 300 RUB/month;
+- Pro: 990 RUB/month;
+- top-up: arbitrary RUB amount.
 
-### Agents
-Later phase:
-- research;
-- content creation;
-- developer/coding workflows;
-- other purpose-built workflows.
+The exact plan benefits and provider-cost budgets must remain configurable and should be adjusted from measured COGS and retention.
 
-Agents must have hard execution budgets and cannot bypass the Usage Engine.
+## Usage experience
+Subscription screen example:
 
-## Pricing/usage UX
-Initial provisional plans:
-- Lite — 150 RUB;
-- Start — 300 RUB;
-- Pro — 990 RUB;
-- arbitrary top-up.
-
-These are initial validation prices only and must be changeable without redeploying the application.
-
-Users should not see token accounting per prompt by default.
-Primary UI:
 ```text
 Monthly usage
-████████████░░░░░░░  62%
+████████████░░░░░░░░ 62%
 38% remaining
+Resets Oct 7
+
+[ Top up ]
 ```
 
-The percentage is presentation only.
+Users are not shown token pricing for every request. Expensive models/media naturally consume allowance faster.
 
-## Internal economics
-Vimla tracks real provider cost internally.
-Initial provisional cost ceilings:
-- Lite — provider cost budget up to 20% of subscription price;
-- Start — up to 25%;
-- Pro — up to 30%;
-- arbitrary top-up — up to 35% of top-up amount.
+## Provider/business arrangement for first commercial version
+- Vimla is operated by a Russian LLC.
+- Customer payments go to the LLC via a payment provider to the settlement account.
+- ProxyAPI is the first AI gateway/provider and is funded by the LLC using its B2B account/invoice flow.
+- Vimla maintains its own internal user usage ledger; the ProxyAPI corporate balance is not a user wallet.
 
-These are versioned plan/business parameters, not immutable constants.
-
-The system must remain safe if a user consumes 100% of the allowance. Unused allowance is upside, not a requirement for profitability.
-
-## Initial provider
-ProxyAPI is the initial provider gateway because it gives one Russian-paid API surface for multiple model families and media capabilities.
-
-Vimla must never expose ProxyAPI credentials to users.
-Provider balance is corporate infrastructure, separate from customer allowances.
-
-## Business context
-Initial operator: Russian LLC (ООО) with a T-Bank business account.
-
-Customer payments and provider expenses are separate flows:
-1. customer pays Vimla;
-2. verified payment grants subscription/top-up entitlement inside Vimla;
-3. company funds ProxyAPI separately based on aggregate provider burn;
-4. each user operation reduces only that user's internal Vimla allowance.
-
-## Product principle
-The long-term default should become:
-
-`user intent -> Vimla router -> best allowed AI capability -> finished result`
-
-Manual model choice remains available for advanced users.
+## Non-goals for early MVP
+- no custom foundation model training;
+- no direct provider accounts required initially;
+- no microservices;
+- no unlimited expensive compute;
+- no blockchain/internal transferable currency;
+- no user-supplied provider keys as primary business model.
