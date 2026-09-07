@@ -1,46 +1,190 @@
-# Prompt to paste into Cursor Agent for the first implementation pass
+# First prompt for Cursor Agent
 
-You are starting implementation of a new project named ONE.
+Ты начинаешь реализацию нового проекта **Vimla** с нуля.
 
-First, do not write feature code immediately. Read and treat as project source of truth:
+Vimla — глобальный consumer/prosumer AI workspace: один аккаунт, один интерфейс и единая система Usage для работы с несколькими AI-моделями и возможностями. На первом этапе AI-доступ будет идти через ProxyAPI, но архитектура не должна быть жёстко привязана к ProxyAPI.
+
+Перед написанием кода сначала полностью изучи и используй как источник истины:
 - `AGENTS.md`
-- every relevant file under `.cursor/rules/`
+- все релевантные `.cursor/rules/*.mdc`
 - `docs/PROJECT.md`
 - `docs/ARCHITECTURE.md`
 - `docs/IMPLEMENTATION_PLAN.md`
 
-The repository is new. Implement **Phase 0 — Repository foundation** from `docs/IMPLEMENTATION_PLAN.md` and then implement only the minimum skeleton needed to begin Phase 1. Do not implement payments, ProxyAPI calls, images, video, Auto Router or agents yet.
+Если между текущими файлами репозитория и документацией есть конфликт, не удаляй полезные файлы молча. Сначала определи конфликт и аккуратно мигрируй решение к архитектуре Vimla.
 
-Requirements for this pass:
-1. Create a pnpm + Turborepo monorepo.
-2. Create:
-   - `apps/web`: Next.js 16 + React 19 + TypeScript strict + MobX + SCSS Modules.
-   - `apps/api`: Node.js 24 LTS + NestJS + Fastify + TypeScript strict.
-   - `apps/worker`: Node.js 24 LTS worker foundation with BullMQ.
-3. Create packages:
-   - `packages/contracts`
-   - `packages/database`
-   - `packages/config`
-   - `packages/ai`
-   - `packages/billing`
-   - `packages/shared`
-4. Add PostgreSQL + Prisma and Redis development infrastructure through Docker Compose.
-5. Add typed environment validation. No scattered direct `process.env` access.
-6. Add API `/health` and worker connectivity health/logging.
-7. Let web read the configured API base URL and display/develop against the health endpoint without embedding backend secrets.
-8. Add root scripts for dev/build/lint/typecheck/test.
-9. Add initial test infrastructure and one smoke/unit test per app/package where it is useful to prove setup.
-10. Add `.env.example`, `.gitignore`, and a concise root `README.md` with exact local startup commands.
-11. Do not add Kubernetes, Kafka, microservices, payment SDKs or AI SDKs in this pass.
-12. Do not weaken rules to make setup easier.
+## Текущая задача
+Реализуй **только Phase 0 — Repository foundation** из `docs/IMPLEMENTATION_PLAN.md` и минимальный безопасный skeleton, необходимый для начала Phase 1.
 
-Before editing, inspect the repository and preserve any existing valid files. If an existing file conflicts with the ONE architecture, explain the conflict in your working notes and migrate it rather than silently deleting useful content.
+Не реализуй сейчас:
+- настоящие платежи;
+- ProxyAPI вызовы;
+- OpenAI/Anthropic/Google SDK;
+- Billing/Usage Engine целиком;
+- изображения;
+- видео;
+- Auto Router;
+- проекты;
+- агентов.
 
-After implementation:
-- run install/lint/typecheck/tests/build;
-- fix all errors introduced by this pass;
-- report exactly what was created;
-- list any environment prerequisites still required;
-- update `docs/IMPLEMENTATION_PLAN.md` by marking completed Phase 0 tasks without changing future product scope.
+Не перескакивай на более поздние фазы roadmap.
 
-The most important constraint: build a clean foundation for the financial/usage architecture described in the docs; do not rush ahead into visible AI features.
+## Обязательный стек
+Frontend:
+- Next.js 16 App Router
+- React 19
+- TypeScript strict
+- MobX
+- SCSS Modules
+
+Backend:
+- Node.js 24 LTS
+- TypeScript strict
+- NestJS
+- Fastify adapter
+
+Worker:
+- Node.js 24 LTS
+- TypeScript strict
+- BullMQ
+
+Infrastructure:
+- PostgreSQL
+- Prisma
+- Redis
+- Docker Compose
+- pnpm workspaces
+- Turborepo
+
+## Создай monorepo
+```text
+apps/
+  web/
+  api/
+  worker/
+
+packages/
+  contracts/
+  database/
+  config/
+  ai/
+  billing/
+  shared/
+```
+
+## В рамках этого прохода
+1. Инициализируй pnpm workspace и Turborepo.
+2. Создай `apps/web` на Next.js 16 + React 19.
+3. Создай `apps/api` на NestJS + Fastify.
+4. Создай `apps/worker` с фундаментом BullMQ.
+5. Создай перечисленные shared packages.
+6. Настрой TypeScript strict для всего monorepo.
+7. Настрой PostgreSQL + Prisma foundation.
+8. Настрой Redis foundation.
+9. Создай Docker Compose для локальной разработки.
+10. Добавь typed environment configuration. Не допускай разбросанного прямого `process.env` по приложению.
+11. Создай `.env.example` без секретов.
+12. Добавь API endpoint `GET /health`.
+13. Сделай возможность web-приложению обращаться к backend health через конфигурируемый public API base URL.
+14. Добавь базовое подключение worker к Redis.
+15. Добавь структурированное логирование через Pino или совместимую NestJS-интеграцию.
+16. Добавь root-команды:
+```text
+pnpm dev
+pnpm build
+pnpm lint
+pnpm typecheck
+pnpm test
+```
+17. Создай минимальную тестовую инфраструктуру и smoke tests там, где они полезны для проверки foundation.
+18. Добавь `.gitignore`.
+19. Создай root `README.md` с точными командами установки, env setup, Docker services, запуска, тестов, lint, typecheck и build.
+20. Добавь базовый CI pipeline:
+```text
+install -> lint -> typecheck -> test -> build
+```
+
+## Архитектурные ограничения
+Не создавай микросервисы.
+
+Используется:
+```text
+modular monolith API
++
+separate worker process
+```
+
+Не добавляй без необходимости:
+- Kubernetes;
+- Kafka;
+- RabbitMQ;
+- event sourcing framework;
+- CQRS framework;
+- payment SDK;
+- ProxyAPI SDK;
+- OpenAI SDK;
+- Anthropic SDK;
+- Google AI SDK;
+- media-generation integration.
+
+Архитектура должна быть подготовлена к будущей критической цепочке:
+```text
+Payment
+  -> Usage Bucket
+  -> Reservation
+  -> AI Gateway
+  -> Provider
+  -> Actual Cost
+  -> Settlement
+  -> Usage Ledger
+```
+
+Но сам billing engine в этом проходе не реализовывай.
+
+PostgreSQL в будущем является источником истины для:
+- payments;
+- subscriptions;
+- usage;
+- reservations;
+- ledger;
+- provider-cost accounting.
+
+Redis предназначен для:
+- queues;
+- cache;
+- rate limits;
+- временной coordination.
+
+Redis не является источником истины для денег или пользовательского allowance.
+
+## Важные правила качества
+- Не используй `any`.
+- Не ослабляй TypeScript strict.
+- Не используй floating-point arithmetic для будущих денежных сущностей.
+- Не помещай backend secrets в frontend.
+- Не создавай глобальное mutable state.
+- Соблюдай scoped frontend rules из `.cursor/rules/10-frontend.mdc`.
+- Не добавляй Pixi.js или editor/constraint-layout архитектуру: она относилась к другому проекту и не является частью Vimla.
+
+## Перед завершением
+Запусти:
+```text
+pnpm lint
+pnpm typecheck
+pnpm test
+pnpm build
+```
+
+Исправь все ошибки, возникшие из-за текущей реализации.
+
+После этого:
+1. перечисли созданные приложения и packages;
+2. покажи итоговую структуру репозитория;
+3. перечисли Docker services;
+4. перечисли environment variables;
+5. дай точные команды локального запуска;
+6. сообщи результаты lint/typecheck/test/build;
+7. обнови `docs/IMPLEMENTATION_PLAN.md`, отметив только реально выполненные задачи Phase 0;
+8. перечисли технический долг/открытые вопросы, но не реализуй следующие фазы без отдельной команды.
+
+Главный приоритет текущего прохода: создать чистый, типобезопасный и расширяемый фундамент Vimla, на котором затем можно безопасно реализовать Billing/Usage Engine и ProxyAPI.

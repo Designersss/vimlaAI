@@ -1,95 +1,94 @@
-# ONE — Product Description
+# Vimla — Product Description
 
 ## Vision
-ONE is a global AI workspace for ordinary users and power users. Instead of maintaining many separate AI subscriptions, a user gets one product with one account and a unified usage system.
+Vimla is a single AI workspace for global consumer and prosumer users.
 
-ONE should eventually support:
-- text/chat across multiple LLMs;
-- manual model selection;
-- Auto mode that selects an appropriate model;
-- images;
-- video;
-- research and tools;
-- reusable agents/workflows;
-- projects/files/memory;
-- a single subscription/top-up system across these capabilities.
+Instead of buying and learning many separate AI products, a user works inside Vimla and can choose a specific model/capability or let `Auto` choose an appropriate route.
 
-The MVP should prove that users are willing to pay for the unified product before overbuilding the full platform.
+Vimla is not merely a model catalog. The long-term product value is:
+- one identity;
+- one workspace;
+- one billing/usage system;
+- model/provider abstraction;
+- projects and persistent context;
+- multimodal creation;
+- workflows and agents;
+- intelligent routing.
 
-## Key UX principle
-Do not show an approximate RUB/USD price beside every prompt.
+## Core user surfaces
+### Chat
+- multi-model text chat;
+- streaming responses;
+- explicit model selection;
+- `Auto` mode;
+- conversation history.
 
-A subscriber sees a monthly usage bar, for example:
+### Create
+- image generation;
+- video generation;
+- later audio/voice capabilities if commercially justified.
 
+### Projects
+- group conversations, files, generations and future agent context.
+
+### Agents
+Later phase:
+- research;
+- content creation;
+- developer/coding workflows;
+- other purpose-built workflows.
+
+Agents must have hard execution budgets and cannot bypass the Usage Engine.
+
+## Pricing/usage UX
+Initial provisional plans:
+- Lite — 150 RUB;
+- Start — 300 RUB;
+- Pro — 990 RUB;
+- arbitrary top-up.
+
+These are initial validation prices only and must be changeable without redeploying the application.
+
+Users should not see token accounting per prompt by default.
+Primary UI:
 ```text
 Monthly usage
-████████████░░░░░░░░ 61%
-39% remaining
-Resets October 7
+████████████░░░░░░░  62%
+38% remaining
 ```
 
-Internally ONE tracks exact provider cost. The percentage is only a presentation layer over the user's allowance.
+The percentage is presentation only.
 
-Users may also buy arbitrary additional usage. Top-up value and monthly subscription quota are separate buckets.
+## Internal economics
+Vimla tracks real provider cost internally.
+Initial provisional cost ceilings:
+- Lite — provider cost budget up to 20% of subscription price;
+- Start — up to 25%;
+- Pro — up to 30%;
+- arbitrary top-up — up to 35% of top-up amount.
 
-## Commercial model
-Initial candidate price points are intentionally budget-friendly:
-- 150 RUB tier;
-- 300 RUB tier;
-- 990 RUB tier;
-- additional top-up by arbitrary amount.
+These are versioned plan/business parameters, not immutable constants.
 
-These exact plans and their maximum provider-cost budgets are product configuration, not permanent code constants. The working economics discussed before implementation are approximately:
-- 150 RUB plan: up to ~20% of price as AI provider budget;
-- 300 RUB plan: up to ~25%;
-- 990 RUB plan: up to ~30%;
-- top-ups: up to ~35% provider-cost budget.
+The system must remain safe if a user consumes 100% of the allowance. Unused allowance is upside, not a requirement for profitability.
 
-These ratios must be configurable/versioned because taxes, acquiring, provider prices and product strategy can change.
+## Initial provider
+ProxyAPI is the initial provider gateway because it gives one Russian-paid API surface for multiple model families and media capabilities.
 
-## Provider model
-Initial production AI provider: ProxyAPI under the company's account.
+Vimla must never expose ProxyAPI credentials to users.
+Provider balance is corporate infrastructure, separate from customer allowances.
 
-ONE must never expose ProxyAPI as the product itself. ONE owns:
-- accounts;
-- UX;
-- conversations/projects;
-- billing;
-- quota;
-- model catalog;
-- routing;
-- agents/workflows;
-- files;
-- cost controls.
+## Business context
+Initial operator: Russian LLC (ООО) with a T-Bank business account.
 
-ProxyAPI is infrastructure behind ONE's AI Gateway.
+Customer payments and provider expenses are separate flows:
+1. customer pays Vimla;
+2. verified payment grants subscription/top-up entitlement inside Vimla;
+3. company funds ProxyAPI separately based on aggregate provider burn;
+4. each user operation reduces only that user's internal Vimla allowance.
 
-## Payments
-The payment provider is intentionally abstracted. The implementation must support a Russian company accepting payments through a provider such as T-Kassa/CloudPayments/YooKassa without coupling domain code to one processor.
+## Product principle
+The long-term default should become:
 
-For initial development, use a MockPaymentProvider/sandbox adapter so billing can be tested before production acquiring credentials are chosen.
+`user intent -> Vimla router -> best allowed AI capability -> finished result`
 
-## MVP user stories
-1. User creates an account and logs in.
-2. User sees available plans.
-3. User purchases a plan in sandbox/mock mode.
-4. Verified payment event grants a monthly usage bucket.
-5. User opens Chat and chooses a model.
-6. Chat response streams to the browser.
-7. ONE reserves allowance before the provider call.
-8. Actual usage settles against the reservation.
-9. Usage percentage updates.
-10. When monthly allowance is exhausted, user can buy a top-up.
-11. Top-up creates an additional non-expiring usage bucket.
-12. An admin can see revenue events, provider cost, current provider balance snapshot and per-model usage.
-
-## Explicitly out of first milestone
-Do not build these before core billing + text chat are correct:
-- complex autonomous agents;
-- marketplace;
-- social features;
-- Kubernetes/microservices;
-- native mobile apps;
-- elaborate organization/team billing;
-- multi-region active-active infrastructure;
-- custom model training.
+Manual model choice remains available for advanced users.

@@ -1,9 +1,11 @@
-# ONE — Technical Architecture
+# Vimla — Architecture
 
-## High-level
-
+## High-level architecture
 ```text
-Browser
+User
+  |
+  v
+Cloudflare / CDN
   |
   v
 Next.js Web
@@ -11,236 +13,292 @@ Next.js Web
   v
 NestJS/Fastify API
   |
-  +--> PostgreSQL  (source of truth)
-  +--> Redis       (cache/rate limits/queues)
-  +--> S3 storage  (files/media)
+  +-------------------- PostgreSQL
   |
-  +--> PaymentProvider adapter
+  +-------------------- Redis
+  |                         |
+  |                         v
+  |                       BullMQ
+  |                         |
+  |                         v
+  |                       Worker
   |
-  +--> Usage Engine
-         |
-         v
-      AI Gateway
-         |
-         v
-      ProxyAPI adapter
-         |
-         v
-   GPT / Claude / Gemini / media models
-
-BullMQ Worker
-  +--> image/video jobs
-  +--> agent jobs later
-  +--> reconciliation
-  +--> notifications
+  v
+Usage Engine
+  |
+  v
+AI Gateway
+  |
+  v
+ProxyAPI adapter
+  |
+  +---- GPT / OpenAI-family models
+  +---- Claude / Anthropic-family models
+  +---- Gemini / Google-family models
+  +---- image models
+  +---- video models
 ```
 
-## Core bounded modules
+## Architectural style
+Start with:
+- one modular-monolith API application;
+- one separate worker process;
+- one PostgreSQL database;
+- one Redis instance;
+- S3-compatible object storage when media/files are introduced.
 
-### Auth/Users
-Owns identity, sessions and authorization.
+Do not start with microservices.
 
-### Plans/Subscriptions
-Owns plan definitions/versioning and active billing periods.
-
-### Payments
-Owns provider checkout creation, webhook verification, payment/refund state and idempotency.
-
-### Usage
-Owns usage buckets, reservation, settlement, expiration, adjustments and ledger.
-
-### AI
-Owns model catalog, provider adapters, streaming, model capabilities, routing and provider request metadata.
-
-### Conversations
-Owns conversations/messages and references to uploaded/generated assets.
-
-### Generations
-Owns image/video generation state and background-job orchestration.
-
-### Admin
-Read-heavy operational views and explicitly authorized adjustments/actions.
-
-## Monetary units
-Use integer micro-rubles:
-
+## Backend modules
+Target modules:
 ```text
-1 RUB = 1_000_000 microRUB
+AuthModule
+UsersModule
+PlansModule
+SubscriptionsModule
+PaymentsModule
+UsageModule
+AiModule
+ChatsModule
+FilesModule
+GenerationsModule
+AgentsModule
+AdminModule
 ```
 
-This gives enough precision for very cheap token usage while avoiding floating point drift.
+Not all modules must exist in Phase 0.
 
-## Suggested core data model
+## Money representation
+Never use JS `number` for authoritative money math.
 
-### users
-- id
-- email
-- password_hash or auth-provider fields
-- role
-- created_at
-- updated_at
+Canonical internal representation:
+- integer micro-rubles;
+- `1 RUB = 1_000_000 microRUB`;
+- PostgreSQL `BIGINT`;
+- TypeScript `bigint` in domain/internal layers.
 
-### plans
-- id
-- code
-- name
-- price_rub_minor or payment amount representation
-- active
+Public JSON contracts cannot serialize native `bigint` directly. Convert deliberately to validated decimal strings or another explicit API-safe representation at boundaries.
 
-### plan_versions
-- id
-- plan_id
-- effective_from
-- retail_price
-- provider_budget_microrub
-- model/feature entitlements JSON or normalized relation
+## Usage model
+The UI percentage is derived.
 
-### subscriptions
-- id
-- user_id
-- plan_version_id
-- status
-- period_start
-- period_end
-- source_payment_id
+Authoritative entities:
+- plan version;
+- subscription;
+- usage bucket;
+- usage reservation;
+- usage allocation;
+- usage ledger entry.
 
-### payments
-- id
-- user_id
-- provider
-- provider_payment_id
-- type (`subscription`, `topup`)
-- amount
-- currency
-- status
-- idempotency_key
-- created_at
+### Subscription bucket
+A subscription creates a time-bounded provider-cost allowance.
 
-### payment_events
-- id
-- provider
-- provider_event_id UNIQUE
-- payload_hash / safe metadata
-- processed_at
-- status
+Example only:
+```text
+Pro price: 990 RUB
+Provider-cost budget ratio: 30%
+Provider-cost allowance: 297 RUB
+```
 
-### usage_buckets
-- id
-- user_id
-- type (`monthly`, `topup`, `promo`, `admin`)
-- source_id
-- granted_microrub
-- consumed_microrub (optional cached aggregate)
-- reserved_microrub (optional cached aggregate)
-- expires_at nullable
-- created_at
+### Top-up bucket
+A top-up creates a separate non-expiring (unless business rules later change) allowance.
 
-### usage_reservations
-- id
-- user_id
-- operation_id UNIQUE
-- estimated_microrub
-- settled_microrub
-- status
-- created_at
-- settled_at
+Example only:
+```text
+Top-up paid: 1000 RUB
+Provider-cost ratio: 35%
+Provider-cost allowance: 350 RUB
+```
 
-### usage_allocations
-Tracks how a reservation/settlement maps to one or more buckets.
-- reservation_id
-- bucket_id
-- reserved_microrub
-- settled_microrub
+Monthly buckets are consumed before top-up buckets.
 
-### usage_ledger
-Append-only.
-- id
-- user_id
-- bucket_id nullable
-- reservation_id nullable
-- operation_id
-- entry_type
-- amount_microrub signed
-- idempotency_key UNIQUE
-- metadata safe JSON
-- created_at
-
-### ai_models
-- id (stable ONE id)
-- provider
-- provider_model_id
-- kind
-- enabled
-- capabilities
-- usage_tier
-- max_output_tokens
-
-### ai_model_price_versions
-- id
-- ai_model_id
-- effective_from
-- effective_to nullable
-- structured price fields required for that model type
-
-### ai_requests
-- id / operation_id
-- user_id
-- conversation_id nullable
-- ai_model_id
-- provider_request_id nullable
-- status
-- input/output usage breakdown
-- calculated_provider_cost_microrub
-- reconciled_provider_cost_microrub nullable
-- created_at
-- completed_at
-
-### conversations/messages
-Store conversation domain data. Do not place billing truth in message records.
-
-### generation_jobs
-- id
-- user_id
-- type
-- model_id
-- status
-- progress
-- reservation_id
-- provider_job_id
-- output_file_id
-- error_code
-- timestamps
-
-### provider_balance_snapshots
-- provider
-- balance_microrub
-- captured_at
-
-## Text request lifecycle
-
+## Critical request flow
+Every billable AI operation follows:
 ```text
 request
-  -> auth/rate limit
-  -> resolve model + entitlement
-  -> estimate maximum cost
-  -> Usage.reserve() [atomic DB transaction]
-  -> AI Gateway -> ProxyAPI (stream)
-  -> collect terminal usage
-  -> calculate actual cost by applicable price version
-  -> Usage.settle()
-  -> persist request/message
-  -> emit refreshed usage to frontend
+  |
+  v
+auth + validation + rate limit
+  |
+  v
+estimate maximum provider cost
+  |
+  v
+reserve allowance atomically
+  |
+  v
+call provider
+  |
+  +---- provider succeeds -> settle actual cost + release excess reservation
+  |
+  +---- provider fails unbilled -> release reservation
+  |
+  +---- ambiguous billing state -> preserve trace and reconcile; never guess silently
 ```
 
-If reserve fails, ProxyAPI must not be called.
+The provider must never be called before allowance is reserved.
 
-## Streaming
-Use SSE/streamed HTTP response from API to web for chat. The stream parser must account for terminal provider chunks containing usage without text choices.
+## Concurrency
+Reservation must be protected by a PostgreSQL transaction/locking strategy so simultaneous requests cannot overspend the same allowance.
 
-## Image/video
-Image/video operations use persisted jobs + BullMQ workers. The HTTP request returns a job id quickly; frontend follows job state through SSE or polling.
+Example failure that must be impossible:
+```text
+available = 5 RUB
+10 concurrent requests each see 5 RUB
+all execute
+provider cost = 50 RUB
+```
+
+## Ledger
+Use append-only financial/usage ledger semantics.
+
+Example entry types:
+- `SUBSCRIPTION_GRANT`
+- `TOPUP_GRANT`
+- `RESERVATION_CREATED`
+- `RESERVATION_RELEASED`
+- `AI_USAGE_SETTLED`
+- `MANUAL_ADJUSTMENT`
+- `REFUND_ADJUSTMENT`
+- `EXPIRATION`
+
+Do not mutate historical ledger entries to “fix” balances. Use compensating entries.
+
+## Plan versioning
+Never mutate historical commercial terms.
+
+Use:
+```text
+plans
+plan_versions
+```
+
+A subscription references the version effective when it was purchased/renewed.
+
+Version at minimum:
+- retail price;
+- currency;
+- provider-cost budget ratio/allowance policy;
+- feature entitlements;
+- effective dates.
+
+## AI provider abstraction
+Domain code calls an internal interface, not ProxyAPI directly.
+
+Conceptual interface:
+```ts
+interface AiProvider {
+  streamText(...): ...;
+  generateImage(...): ...;
+  submitVideo(...): ...;
+  getVideoStatus(...): ...;
+}
+```
+
+Provider-specific DTOs remain inside the adapter.
+
+## Model catalog
+Vimla owns stable model IDs independent of provider model IDs.
+
+Example:
+```text
+vimlaModelId: text-fast-v1
+provider: proxyapi
+providerModelId: ...
+capabilities: [text, vision]
+status: enabled
+usageTier: low
+```
+
+The catalog must allow model availability/prices to change without frontend redeploy where practical.
+
+## Price versioning
+Provider/model pricing changes over time.
+
+Persist price versions with effective ranges. A historical request must remain explainable using the price/version active at execution.
+
+## Streaming text
+Preferred MVP flow:
+```text
+ProxyAPI stream
+  -> API server
+  -> SSE/streaming response
+  -> browser
+```
+
+The final provider usage metadata is used for settlement where available.
+
+## Long-running generations
+Images that are asynchronous, videos, and agents use jobs:
+```text
+API request
+  -> reserve
+  -> create generation/agent job
+  -> enqueue BullMQ
+  -> worker executes/polls provider
+  -> persist result
+  -> settle/release
+```
+
+Do not keep an HTTP request alive for multi-minute video jobs.
+
+## Payments
+Use:
+```ts
+interface PaymentProvider {
+  createCheckout(...): ...;
+  verifyWebhook(...): ...;
+  refund(...): ...;
+}
+```
+
+Start with `MockPaymentProvider`.
+Add the real acquiring adapter only after the billing domain is tested.
+
+Payment redirect is never proof of payment.
+A verified webhook/provider confirmation is authoritative.
+
+All webhook events require idempotency.
+
+## ProxyAPI treasury
+Corporate ProxyAPI balance is not a user balance.
+
+Store periodic snapshots:
+- provider balance;
+- 24h burn;
+- 7d burn;
+- estimated runway;
+- timestamp.
+
+Admin alerts should eventually warn before the provider balance is critically low.
 
 ## Reconciliation
-ONE's immediate cost accounting must not depend on manually checking ProxyAPI.
+Vimla calculates provider cost per operation and stores provider request identifiers.
+Periodically compare internal calculated totals to provider-reported/logged costs.
+Meaningful differences must generate alerts.
 
-Store enough usage/provider request metadata to later compare ONE-calculated cost with ProxyAPI's actual transaction/log amount. A scheduled worker flags material differences and produces admin metrics.
+## Redis responsibilities
+Redis may be used for:
+- BullMQ;
+- cache;
+- rate limits;
+- ephemeral locks/coordination where safe.
+
+Redis must not be authoritative for:
+- payment state;
+- subscription state;
+- remaining financial allowance;
+- historical ledger.
+
+## Files/media
+Do not store large media blobs in PostgreSQL.
+Use object storage and persist metadata/storage keys in PostgreSQL.
+
+## Security basics
+- secrets server-side only;
+- validate every untrusted payload;
+- webhook signature verification;
+- ownership checks on every user resource;
+- redact prompts/files/secrets from logs where appropriate;
+- rate/concurrency limits;
+- provider keys scoped/budgeted/IP-restricted when supported.
