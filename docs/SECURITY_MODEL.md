@@ -54,10 +54,13 @@ Strict runtime schemas for external payloads; reject unknown sensitive fields on
 Postgres transactions/locks/constraints, idempotency, append-only ledger, reservation before provider calls, independent cost/concurrency caps and anomaly/reconciliation states.
 
 ### Abuse/DoS
-IP/account/action rate limits, concurrency limits, request/file/context bounds, provider-spend caps and emergency switches.
+IP/account/action rate limits, concurrency limits, request/file/context bounds, provider-spend caps and emergency switches. Email/SMS have additional rolling destination/IP/account/global send limits so Vimla cannot be used as a bomber.
 
 ### Secrets
-Environment-specific least-privilege keys, no browser exposure, log redaction, rotation-ready configuration.
+Environment-specific least-privilege keys, no browser exposure, log redaction, rotation-ready configuration. Notification credentials (`SMTP_PASSWORD`, `SMS_HTTP_AUTHORIZATION`) are server-only and redacted.
+
+### Notifications
+OTP and password-reset tokens never appear in logs, URLs (except the single-use reset query on the Vimla origin), analytics or Sentry breadcrumbs. Provider errors are normalized to stable API codes. Production cannot start with memory/logging delivery adapters. `GET /dev/notifications/latest` is registered only for `APP_ENV=local|test` (gated on `APP_ENV`, never `NODE_ENV`) and is absent from staging/production. Rate-limit Redis keys HMAC destination and IP; they never store raw email.
 
 ### Admin
 Separate control plane, strong MFA/passkey, infrastructure access restriction where practical, explicit RBAC/permissions, step-up re-authentication and append-only audit trail.

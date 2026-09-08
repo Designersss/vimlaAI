@@ -28,6 +28,22 @@ export async function streamAssistantMessage(input: {
     throw new AuthRequiredError();
   }
 
+  if (!response.ok) {
+    const payload: unknown = await response.json().catch(() => null);
+    const code =
+      payload !== null &&
+      typeof payload === "object" &&
+      "error" in payload &&
+      payload.error !== null &&
+      typeof payload.error === "object" &&
+      "code" in payload.error &&
+      typeof payload.error.code === "string"
+        ? payload.error.code
+        : "internal_error";
+    input.onError(code);
+    return;
+  }
+
   if (!response.body) {
     input.onError("internal_error");
     return;
@@ -36,6 +52,18 @@ export async function streamAssistantMessage(input: {
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  let terminal = false;
+  const streamInput = {
+    onDelta: input.onDelta,
+    onDone: () => {
+      terminal = true;
+      input.onDone();
+    },
+    onError: (code: string) => {
+      terminal = true;
+      input.onError(code);
+    },
+  };
 
   while (true) {
     const { done, value } = await reader.read();
@@ -43,10 +71,13 @@ export async function streamAssistantMessage(input: {
       break;
     }
     buffer += decoder.decode(value, { stream: true });
-    buffer = consumeSse(buffer, input);
+    buffer = consumeSse(buffer, streamInput);
   }
 
-  consumeSse(buffer + decoder.decode(), input, true);
+  consumeSse(buffer + decoder.decode(), streamInput, true);
+  if (!terminal) {
+    input.onError("internal_error");
+  }
 }
 
 function consumeSse(

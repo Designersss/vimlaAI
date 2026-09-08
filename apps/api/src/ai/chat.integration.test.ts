@@ -8,6 +8,7 @@ import { createPrismaClient } from "@vimla/database";
 import { createVimlaApiApp } from "../create-app.js";
 import { AI_PROVIDER } from "./ai.tokens.js";
 import { TextChatService, type StreamSink } from "./text-chat.service.js";
+import { registerVerifiedUser } from "../test/identity-helpers.js";
 
 const testDatabaseUrl = process.env.TEST_DATABASE_URL;
 if (!testDatabaseUrl) {
@@ -146,6 +147,30 @@ describe("AI chat integration", () => {
     });
     const body = detail.json() as { messages: Array<{ role: string; content: string }> };
     expect(body.messages.some((message) => message.role === "ASSISTANT")).toBe(true);
+  });
+
+  it("streams mock text over HTTP with CORS headers on the hijacked SSE response", async () => {
+    const user = await registerUser(app, "http-sse");
+    await purchasePro(app, user.cookies);
+    const conversation = await createConversation(app, user.cookies);
+    const modelId = await firstModelId(app, user.cookies);
+    const response = await app.inject({
+      method: "POST",
+      url: `/v1/conversations/${conversation.id}/messages`,
+      headers: { origin, "content-type": "application/json" },
+      cookies: user.cookies,
+      payload: {
+        clientRequestId: randomUUID(),
+        modelId,
+        content: "Hello",
+      },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["access-control-allow-origin"]).toBe(origin);
+    expect(response.headers["access-control-allow-credentials"]).toBe("true");
+    expect(response.body).toContain("Hello fr");
+    expect(response.body).toContain("om Vimla");
+    expect(response.body).toContain("event: done");
   });
 
   it("calls the provider at most once for duplicate clientRequestId, including parallel calls", async () => {
@@ -508,26 +533,8 @@ async function registerUser(
   app: NestFastifyApplication,
   label: string,
 ): Promise<{ cookies: Record<string, string>; id: string }> {
-  const email = `${label}-${randomUUID()}@example.com`;
-  const signUp = await app.inject({
-    method: "POST",
-    url: "/api/auth/sign-up/email",
-    headers: { origin, "content-type": "application/json" },
-    payload: { email, password: "correct-horse-battery", name: label },
-  });
-  expect(signUp.statusCode).toBeGreaterThanOrEqual(200);
-  expect(signUp.statusCode).toBeLessThan(300);
-  const cookies: Record<string, string> = {};
-  for (const cookie of signUp.cookies) {
-    cookies[cookie.name] = cookie.value;
-  }
-  const me = await app.inject({
-    method: "GET",
-    url: "/v1/me",
-    headers: { origin },
-    cookies,
-  });
-  return { cookies, id: (me.json() as { id: string }).id };
+  const user = await registerVerifiedUser(app, label);
+  return { cookies: user.cookies, id: user.id };
 }
 
 async function purchasePro(

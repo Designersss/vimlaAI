@@ -15,6 +15,7 @@ vimla/
     auth/
     ai/
     billing/
+    notifications/
     shared/
   .cursor/rules/
   docs/
@@ -46,21 +47,73 @@ PostgreSQL   Redis      Object Storage
 ```
 
 ## Authentication
-Phase 1 uses self-hosted Better Auth (email/password, database-backed HttpOnly cookie sessions). The API is the auth authority; the browser is not.
+Phase 3.5 keeps self-hosted Better Auth as the identity library. The API is the auth authority; the browser is not.
 
 ```text
 Browser
-  -> Vimla Web (`/sign-in`, `/sign-up`, `/app`)
+  -> Vimla Web (`/sign-in`, `/sign-up`, `/verify-email`, `/forgot-password`, `/reset-password`, `/settings/security`, `/app`)
   -> Vimla API `/api/auth/*`
   -> Better Auth (`@vimla/auth`)
-  -> PostgreSQL (`user`, `session`, `account`, `verification`)
+  -> Vimla NotificationService
+       -> EmailProvider / SmsProvider
+  -> PostgreSQL (`user`, `session`, `account`, `verification`, `user_preference`)
 
 Protected Vimla routes:
   AuthGuard -> Better Auth getSession -> AuthenticatedUser.id
+  SensitiveAreaGuard (@SensitiveArea on AI/billing controllers) -> emailVerified=true for POST/PUT/PATCH/DELETE
+  VerifiedEmailGuard remains available for explicit method-level checks
   GET /v1/me
+  PATCH /v1/me/preferences
 ```
 
-`User.id` is the canonical identifier for later billing, usage, conversations and generations. Public routes such as `GET /health` stay unauthenticated.
+`User.id` is the canonical identifier for later billing, usage, conversations and generations. Public routes such as `GET /health` stay unauthenticated. Verification, password-reset and session endpoints stay available for unverified sessions.
+
+OTP policy is centralized in `@vimla/config`: 6 digits, 5 minutes, 3 attempts, 60s resend cooldown. Email OTP is stored as HMAC (not unsalted SHA). Phone OTP is hashed the same way after Better Auth writes the verification row. Verification rows are stored in PostgreSQL (`verification.storeInDatabase`) so Redis is not the OTP source of truth.
+
+Phone-first registration is disabled: a verified Vimla account links a canonical E.164 number, then that number can sign in with SMS OTP. Unknown phones do not silently create users.
+
+Locale resolution (next-intl, no URL prefix): authenticated `UserPreference.locale` → `vimla_locale` cookie → `Accept-Language` → `ru`.
+
+Error UX: API `error.code` → translation key → localized copy. Do not render `error.message` as the primary user string.
+
+## Notifications (Phase 3.6)
+
+```text
+Better Auth / identity
+  -> Vimla NotificationService
+  -> EmailProvider / SmsProvider
+  -> Memory (local/test) | SMTP | HTTP SMS gateway
+```
+
+Commercial email/SMS vendor is not chosen. Staging/production cannot use Memory or Logging providers; `loadApiConfig` fails fast unless `EMAIL_PROVIDER=smtp` and `SMS_PROVIDER=http` are fully configured. SMTP is a protocol adapter (nodemailer transport). SMS uses a configured HTTP endpoint plus server-side authorization header.
+
+Sender domain (manual DNS, not automated by Vimla):
+
+- `EMAIL_FROM` must be a Vimla domain mailbox, not Gmail/Mail.ru/Yandex/etc.
+- Production mail requires SPF, DKIM and DMARC on the sender domain.
+- Reply-To is optional (`EMAIL_REPLY_TO`) and must also be a controlled address.
+
+Reset links are `${WEB_ORIGIN}/reset-password?token=...` only. Browser `redirectTo` / callback host cannot choose the emailed URL.
+
+OTP and reset tokens are never logged. Application logs use destination HMAC hashes, template id, provider name, success/failure, latency, error category and retry count.
+
+Delivery retries: email up to `NOTIFY_EMAIL_RETRY_MAX` (default 2) with backoff, only on network/timeout; SMS is single-attempt (`NOTIFY_SMS_RETRY_MAX=1`) so a user resend cannot fan out into a retry storm. Each `queue*` call has a `notificationId` with Redis SET NX so application retries of the same dispatch are not sent twice.
+
+Cost-abuse limits (config-driven, Redis): per destination, per IP, per account (SMS), and global rolling windows, in addition to Better Auth per-minute rules and the 60s OTP cooldown. Signup HTTP (`/sign-up*`) is intentionally looser than OTP/SMS/reset so a user can correct an existing-email mistake and retry immediately.
+
+Local/test inbox: in-process `MemoryNotificationInbox` singleton shared by `MemoryEmailProvider` / `MemorySmsProvider` and `GET /dev/notifications/latest`. The inspector is registered only when `APP_ENV` is `local` or `test` and is absent from staging/production. Startup logs `GET /dev/notifications/latest registered`. An empty inbox returns `notification_not_found`, not a generic missing-route `not_found`. Query params `channel` and `to` are optional filters.
+
+## Verified-user route policy
+
+Do not install a global verified-email guard (it would break login, verification, password reset and public reads).
+
+Controllers that own expensive mutations (`ConversationsController`, `MockPurchaseController`) are tagged `@SensitiveArea()`. `SensitiveAreaGuard` then default-denies POST/PUT/PATCH/DELETE unless the handler has `@AllowUnverified()`. New AI/billing/payment mutation endpoints inherit the deny unless a developer explicitly opts out. `@SensitiveMutation()` can mark a single handler outside a sensitive controller.
+
+## Browser E2E
+
+`pnpm test:e2e` runs Playwright against a dedicated Next.js origin (`http://localhost:3100`) and Nest API (`http://localhost:3101`) so it does not attach to a local `pnpm dev` process. The suite uses `APP_ENV=test`, test PostgreSQL, test Redis, memory notifications, `MockAiProvider` and mock purchases. It must not target production or send real email, SMS, ProxyAPI or payment traffic.
+
+Hijacked AI SSE responses include CORS credentials headers (`Access-Control-Allow-Origin` = `WEB_ORIGIN`) because `reply.hijack()` skips Nest's CORS plugin. Without that, the browser cannot read the stream.
 
 ## Core synchronous chat flow
 

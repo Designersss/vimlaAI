@@ -10,6 +10,10 @@ describe("fetchCurrentUser", () => {
           email: "ada@example.com",
           name: "Ada",
           image: null,
+          emailVerified: true,
+          phoneNumber: null,
+          phoneNumberVerified: false,
+          locale: "ru",
         }),
         { status: 200, headers: { "content-type": "application/json" } },
       );

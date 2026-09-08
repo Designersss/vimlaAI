@@ -13,25 +13,39 @@ datasource db {
 // Monetary columns must use BIGINT microRUB (1 RUB = 1_000_000 microRUB).
 
 model User {
-  id            String    @id
-  name          String
-  email         String
-  emailVerified Boolean   @default(false)
-  image         String?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
-  sessions      Session[]
-  accounts      Account[]
-  subscriptions Subscription[]
-  payments      Payment[]
-  usageBuckets  UsageBucket[]
-  reservations  UsageReservation[]
-  ledgerEntries UsageLedgerEntry[]
-  conversations Conversation[]
-  aiRequests    AiRequest[]
+  id                   String          @id
+  name                 String
+  email                String
+  emailVerified        Boolean         @default(false)
+  image                String?
+  phoneNumber          String?
+  phoneNumberVerified  Boolean         @default(false)
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+  sessions             Session[]
+  accounts             Account[]
+  preference           UserPreference?
+  subscriptions        Subscription[]
+  payments             Payment[]
+  usageBuckets         UsageBucket[]
+  reservations         UsageReservation[]
+  ledgerEntries        UsageLedgerEntry[]
+  conversations        Conversation[]
+  aiRequests           AiRequest[]
 
   @@unique([email])
+  @@unique([phoneNumber])
   @@map("user")
+}
+
+model UserPreference {
+  userId    String   @id
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  locale    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("user_preference")
 }
 
 model Session {

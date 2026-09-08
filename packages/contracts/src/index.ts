@@ -6,7 +6,11 @@ export {
 } from "./errors.js";
 export {
   currentUserSchema,
+  updateLocalePreferenceSchema,
+  vimlaLocaleSchema,
   type CurrentUser,
+  type UpdateLocalePreference,
+  type VimlaLocale,
 } from "./user.js";
 export {
   microRubStringSchema,

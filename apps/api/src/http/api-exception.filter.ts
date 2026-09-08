@@ -51,7 +51,7 @@ export class ApiExceptionFilter implements ExceptionFilter {
       void response.status(status).send(
         apiErrorResponseSchema.parse({
           error: {
-            code: statusToErrorCode(status),
+            code: httpExceptionCode(exception, status),
             message: publicErrorMessage(exception),
             requestId,
           },
@@ -128,6 +128,21 @@ function billingCodeToApi(code: BillingErrorCode): ApiErrorCode {
     default:
       return "internal_error";
   }
+}
+
+function httpExceptionCode(exception: HttpException, status: number): ApiErrorCode {
+  const payload = exception.getResponse();
+  if (payload !== null && typeof payload === "object" && "code" in payload) {
+    const code = payload.code;
+    if (typeof code === "string") {
+      const parsed = apiErrorResponseSchema.shape.error.shape.code.safeParse(code);
+      if (parsed.success) {
+        return parsed.data;
+      }
+    }
+  }
+
+  return statusToErrorCode(status);
 }
 
 function statusToErrorCode(status: number): ApiErrorCode {

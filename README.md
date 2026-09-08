@@ -2,7 +2,7 @@
 
 Unified consumer/prosumer AI workspace. This repository is a pnpm + Turborepo monorepo.
 
-Phase 3 adds financially metered streaming text chat through Vimla's AI Gateway and a ProxyAPI adapter. Images, video, agents and real acquiring are still out of scope.
+Phase 3.6 adds production-ready notification delivery (SMTP/HTTP adapters, fail-fast production config, abuse limits) and Playwright browser E2E for identity. Images, video, agents, admin dashboard and real acquiring are still out of scope.
 
 ## Requirements
 
@@ -106,11 +106,22 @@ pnpm dev
 
 This starts:
 
-- web: [http://localhost:3000](http://localhost:3000) (`/sign-in`, `/sign-up`, `/app`)
-- api: [http://localhost:3001](http://localhost:3001) (`GET /health`, `GET /v1/me`, `GET /v1/plans`, `GET /v1/usage`, `GET /v1/subscription`, `GET /v1/ai/models`, `/v1/conversations`, `/api/auth/*`)
+- web: [http://localhost:3000](http://localhost:3000) (`/sign-in`, `/sign-up`, `/verify-email`, `/forgot-password`, `/reset-password`, `/settings/security`, `/app`)
+- api: [http://localhost:3001](http://localhost:3001) (`GET /health`, `GET /v1/me`, `PATCH /v1/me/preferences`, `GET /v1/plans`, `GET /v1/usage`, `GET /v1/subscription`, `GET /v1/ai/models`, `/v1/conversations`, `/api/auth/*`)
 - worker: BullMQ / Redis connection process
 
-Local/test only: `POST /dev/mock-purchases/subscription` and `POST /dev/mock-purchases/topup` (authenticated, server-side prices). These routes are not registered in staging/production.
+Local/test only: `POST /dev/mock-purchases/subscription` and `POST /dev/mock-purchases/topup` (authenticated, server-side prices, verified email required). These routes are not registered in staging/production.
+
+Local/test notification inbox (never in staging/production):
+
+```bash
+GET /dev/notifications/latest
+GET /dev/notifications/latest?channel=email&to=you@example.com
+```
+
+An empty inbox returns `404` with `error.code=notification_not_found` (the route exists). After signup, the same URL without query params returns the latest memory OTP.
+
+Sign-up creates an unverified user and emails a 6-digit OTP (memory inbox in local/test). Confirm at `/verify-email` before chat send or mock purchases. Existing unverified Phase 1 accounts can sign in and complete the same OTP screen. Do not auto-verify old rows.
 
 To chat against real ProxyAPI locally, set `PROXYAPI_API_KEY` in `.env` (never `NEXT_PUBLIC_*`). Leave it empty to use the mock AI provider. Staging/production require a key when `AI_TEXT_ENABLED=true`.
 
@@ -120,7 +131,7 @@ Optional live smoke (not CI, max 1–2 tiny requests):
 VIMLA_PROXYAPI_LIVE=1 pnpm test:proxyapi
 ```
 
-Email verification and password-reset emails are not sent in Phase 1. Sign-up works locally without SMTP.
+Email verification and password-reset emails use the memory inbox in local/test (`GET /dev/notifications/latest`). Staging/production require SMTP + HTTP SMS (`EMAIL_PROVIDER=smtp`, `SMS_PROVIDER=http`) or the API will refuse to start. Do not send auth mail from a free mailbox. Configure SPF, DKIM and DMARC on the Vimla sender domain in DNS (not in this repo).
 
 ## Tests
 
@@ -135,7 +146,10 @@ Integration tests need PostgreSQL and Redis, use the `vimla_test` database, appl
 ```bash
 docker compose up -d
 pnpm test:integration
+pnpm test:e2e
 ```
+
+`pnpm test:e2e` starts the API on `http://localhost:3101` and the web app on `http://localhost:3100` against `vimla_test`, memory notifications, MockAiProvider and mock purchases. It does not send real email, SMS, ProxyAPI or payment traffic, and it does not reuse a local `pnpm dev` server.
 
 ## Lint
 
@@ -167,6 +181,7 @@ packages/config
 packages/auth
 packages/ai
 packages/billing
+packages/notifications
 packages/shared
 ```
 

@@ -9,7 +9,7 @@ jobs:
   ci:
     name: lint-typecheck-test-build
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
 
     services:
       postgres:
@@ -81,3 +81,9 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+      - name: Install Playwright Chromium
+        run: pnpm --filter @vimla/web exec playwright install --with-deps chromium
+
+      - name: Browser E2E
+        run: pnpm test:e2e

@@ -4,6 +4,7 @@ import {
   Controller,
   Get,
   HttpCode,
+  HttpException,
   Inject,
   Param,
   Post,
@@ -28,12 +29,16 @@ import {
 import { API_CONFIG, type ApiRuntimeConfig } from "../config/api-config.js";
 import { AuthGuard } from "../auth/auth.guard.js";
 import { AuthUser } from "../auth/current-user.decorator.js";
+import { SensitiveArea, SensitiveMutation } from "../auth/sensitive-area.js";
+import { SensitiveAreaGuard } from "../auth/sensitive-area.guard.js";
 import { OriginGuard } from "./origin.guard.js";
+import { sseResponseHeaders } from "./sse-headers.js";
 import { AiRateLimitGuard } from "./ai-rate-limit.guard.js";
 import { TextChatService } from "./text-chat.service.js";
 
 @Controller("v1/conversations")
-@UseGuards(AuthGuard, OriginGuard)
+@SensitiveArea()
+@UseGuards(AuthGuard, OriginGuard, SensitiveAreaGuard)
 export class ConversationsController {
   constructor(
     @Inject(TextChatService) private readonly chat: TextChatService,
@@ -92,6 +97,7 @@ export class ConversationsController {
   }
 
   @Post(":id/messages")
+  @SensitiveMutation()
   @UseGuards(AiRateLimitGuard)
   async sendMessage(
     @AuthUser() user: AuthenticatedUser,
@@ -112,17 +118,15 @@ export class ConversationsController {
     await this.chat.getConversation(user.id, conversationId);
 
     reply.hijack();
-    reply.raw.writeHead(200, {
-      "Content-Type": "text/event-stream; charset=utf-8",
-      "Cache-Control": "no-cache, no-transform",
-      Connection: "keep-alive",
-    });
+    // hijack() skips Nest CORS; the browser reads this cross-origin SSE body.
+    reply.raw.writeHead(200, sseResponseHeaders(this.config.webOrigin));
+    reply.raw.write(":\n\n");
 
     const response = reply.raw;
     const sink = {
-      isClientOpen: () => !request.raw.destroyed && !response.writableEnded,
+      isClientOpen: () => !response.writableEnded,
       write: (chunk: string) => {
-        if (!request.raw.destroyed && !response.writableEnded) {
+        if (!response.writableEnded) {
           response.write(chunk);
         }
       },
@@ -138,7 +142,7 @@ export class ConversationsController {
       });
     } catch (error: unknown) {
       const payload = publicStreamError(error, String(request.id));
-      if (!request.raw.destroyed && !response.writableEnded) {
+      if (!response.writableEnded) {
         response.write(encodeVimlaSse("error", payload));
       }
     } finally {
@@ -156,6 +160,16 @@ function publicStreamError(error: unknown, requestId: string): Record<string, st
 
   if (isBillingError(error)) {
     return { code: error.code.toLowerCase(), requestId };
+  }
+
+  if (error instanceof HttpException) {
+    const payload = error.getResponse();
+    if (payload !== null && typeof payload === "object" && "code" in payload) {
+      const code = payload.code;
+      if (typeof code === "string") {
+        return { code, requestId };
+      }
+    }
   }
 
   return { code: "internal_error", requestId };

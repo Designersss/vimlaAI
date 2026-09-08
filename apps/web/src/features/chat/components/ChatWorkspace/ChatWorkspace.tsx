@@ -3,6 +3,8 @@
 import { observer } from "mobx-react-lite";
 import { useEffect, useState, type FormEvent, type ReactElement } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { useLocale, useTranslations } from "next-intl";
 import type { CurrentUser, UsageResponse } from "@vimla/contracts";
 import { AuthRequiredError, fetchCurrentUser } from "../../../auth/services/current-user";
 import { authClient } from "../../../auth/services/auth-client";
@@ -15,9 +17,15 @@ import {
 } from "../../services/conversations";
 import { streamAssistantMessage } from "../../services/stream-message";
 import { ChatWorkspaceStore } from "../../stores/chat-workspace-store";
+import { LanguageSwitcher } from "../../../../shared/i18n/LanguageSwitcher";
+import { readLocaleCookie, syncAuthenticatedLocale } from "../../../../shared/i18n/persist-locale";
+import { apiErrorMessageKey } from "../../../../shared/errors/error-keys";
+import { tx } from "../../../../shared/i18n/translate";
 import styles from "./ChatWorkspace.module.scss";
 
 export const ChatWorkspace = observer(function ChatWorkspace(): ReactElement {
+  const t = useTranslations();
+  const locale = useLocale();
   const router = useRouter();
   const [store] = useState(() => new ChatWorkspaceStore());
   const [user, setUser] = useState<CurrentUser | null>(null);
@@ -26,8 +34,21 @@ export const ChatWorkspace = observer(function ChatWorkspace(): ReactElement {
   useEffect(() => {
     let cancelled = false;
     void Promise.all([fetchCurrentUser(), fetchUsage(), fetchAiModels(), fetchConversations()])
-      .then(([currentUser, usage, models, conversations]) => {
+      .then(async ([currentUser, usage, models, conversations]) => {
         if (cancelled) {
+          return;
+        }
+        if (!currentUser.emailVerified) {
+          router.replace("/verify-email");
+          return;
+        }
+        await syncAuthenticatedLocale(currentUser.locale);
+        if (cancelled) {
+          return;
+        }
+        const cookieLocale = readLocaleCookie();
+        if (cookieLocale && cookieLocale !== locale) {
+          router.refresh();
           return;
         }
         setUser(currentUser);
@@ -47,7 +68,7 @@ export const ChatWorkspace = observer(function ChatWorkspace(): ReactElement {
     return () => {
       cancelled = true;
     };
-  }, [router, store]);
+  }, [locale, router, store]);
 
   async function signOut(): Promise<void> {
     await authClient.signOut();
@@ -67,7 +88,7 @@ export const ChatWorkspace = observer(function ChatWorkspace(): ReactElement {
 
   async function onSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
-    if (store.streaming) {
+    if (store.streaming || !user?.emailVerified) {
       return;
     }
 
@@ -106,19 +127,19 @@ export const ChatWorkspace = observer(function ChatWorkspace(): ReactElement {
   }
 
   if (boot === "loading") {
-    return <p className={styles.status}>Loading Vimla…</p>;
+    return <p className={styles.status}>{t("chat.loading")}</p>;
   }
 
   if (boot === "failed" || !user) {
-    return <p className={styles.status}>Unable to load the workspace.</p>;
+    return <p className={styles.status}>{t("chat.failed")}</p>;
   }
 
   return (
     <div className={styles.shell}>
       <aside className={styles.sidebar}>
-        <p className={styles.brand}>Vimla</p>
+        <p className={styles.brand}>{t("meta.productName")}</p>
         <button type="button" className={styles.button} onClick={() => void onNewChat()}>
-          New chat
+          {t("chat.newChat")}
         </button>
         <nav className={styles.list}>
           {store.conversations.map((conversation) => (
@@ -128,7 +149,7 @@ export const ChatWorkspace = observer(function ChatWorkspace(): ReactElement {
               className={conversation.id === store.activeConversationId ? styles.activeItem : styles.item}
               onClick={() => void onSelect(conversation.id)}
             >
-              {conversation.title ?? "New chat"}
+              {conversation.title ?? t("chat.newChat")}
             </button>
           ))}
         </nav>
@@ -136,7 +157,7 @@ export const ChatWorkspace = observer(function ChatWorkspace(): ReactElement {
       <section className={styles.main}>
         <header className={styles.header}>
           <label className={styles.model}>
-            Model
+            {t("chat.model")}
             <select
               value={store.selectedModelId}
               onChange={(event) => store.setModel(event.target.value)}
@@ -149,29 +170,42 @@ export const ChatWorkspace = observer(function ChatWorkspace(): ReactElement {
             </select>
           </label>
           <UsageMeter usage={store.usage} />
+          <LanguageSwitcher />
           <p className={styles.user}>{user.email}</p>
+          <Link href="/settings/security" className={styles.button}>
+            {t("nav.settings")}
+          </Link>
           <button type="button" className={styles.button} onClick={() => void signOut()}>
-            Sign out
+            {t("nav.signOut")}
           </button>
         </header>
         <div className={styles.messages}>
+          {store.messages.length === 0 ? <p className={styles.muted}>{t("chat.empty")}</p> : null}
           {store.messages.map((message) => (
             <article key={message.id} className={styles.message}>
-              <p className={styles.role}>{message.role === "USER" ? "You" : "Vimla"}</p>
+              <p className={styles.role}>{message.role === "USER" ? t("chat.you") : t("chat.assistant")}</p>
               <p className={styles.content}>{message.content}</p>
             </article>
           ))}
         </div>
-        {store.error ? <p className={styles.error}>{store.error}</p> : null}
+        {store.error ? (
+          <p className={styles.error}>{tx(t, apiErrorMessageKey(store.error))}</p>
+        ) : null}
+        {!user.emailVerified ? <p className={styles.error}>{t("chat.verifyToSend")}</p> : null}
         <form className={styles.composer} onSubmit={(event) => void onSubmit(event)}>
           <textarea
             value={store.draft}
             onChange={(event) => store.setDraft(event.target.value)}
-            placeholder="Message Vimla"
+            placeholder={t("chat.placeholder")}
             rows={3}
+            disabled={!user.emailVerified}
           />
-          <button type="submit" className={styles.send} disabled={store.streaming}>
-            Send
+          <button
+            type="submit"
+            className={styles.send}
+            disabled={store.streaming || !user.emailVerified}
+          >
+            {t("chat.send")}
           </button>
         </form>
       </section>
@@ -180,18 +214,19 @@ export const ChatWorkspace = observer(function ChatWorkspace(): ReactElement {
 });
 
 function UsageMeter({ usage }: { usage: UsageResponse | null }): ReactElement {
+  const t = useTranslations("chat");
   if (!usage) {
-    return <p className={styles.usage}>Usage unavailable</p>;
+    return <p className={styles.usage}>{t("usageUnavailable")}</p>;
   }
 
   return (
     <div className={styles.usage}>
-      <p>Monthly Usage</p>
+      <p>{t("monthlyUsage")}</p>
       <div className={styles.bar} aria-hidden="true">
         <span style={{ width: `${usage.monthly.usedPercent}%` }} />
       </div>
       <p>{usage.monthly.usedPercent}%</p>
-      <p>Top-up {usage.topup.usedPercent}% used</p>
+      <p>{t("topupUsed", { percent: usage.topup.usedPercent })}</p>
     </div>
   );
 }
@@ -200,4 +235,3 @@ async function loadConversation(store: ChatWorkspaceStore, id: string): Promise<
   const detail = await fetchConversation(id);
   store.setActiveConversation(id, detail.messages);
 }
-

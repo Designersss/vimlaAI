@@ -1,6 +1,7 @@
 import "reflect-metadata";
 import "./auth/fastify-request.js";
 import type { IncomingMessage } from "node:http";
+import { Logger as NestLogger } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import {
   FastifyAdapter,
@@ -11,6 +12,7 @@ import type { ApiConfig } from "@vimla/config";
 import { resolveRequestId } from "./observability/logger.js";
 import { AppModule } from "./app.module.js";
 import { AUTH_BASE_PATH } from "@vimla/auth";
+import { isDevNotificationInboxEnabled } from "@vimla/notifications";
 import { AuthService } from "./auth/auth.service.js";
 import { handleBetterAuthRequest } from "./auth/better-auth.fastify.js";
 import { ApiExceptionFilter } from "./http/api-exception.filter.js";
@@ -62,6 +64,13 @@ export async function createVimlaApiApp(
       );
     },
   });
+
+  if (!options?.quiet && isDevNotificationInboxEnabled(config.appEnv)) {
+    const logger = new NestLogger("DevNotifications");
+    logger.log(
+      `GET /dev/notifications/latest registered (APP_ENV=${config.appEnv}, EMAIL_PROVIDER=${config.emailProvider}, SMS_PROVIDER=${config.smsProvider})`,
+    );
+  }
 
   return app;
 }

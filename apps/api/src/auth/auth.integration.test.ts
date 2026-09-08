@@ -170,6 +170,8 @@ describe("authentication integration", () => {
     expect(me.statusCode).toBe(200);
     const currentUser = currentUserSchema.parse(me.json());
     expect(currentUser.email).toBe(email);
+    expect(currentUser.emailVerified).toBe(false);
+    expect(currentUser.locale).toBe("ru");
     assertNoSecrets(me.json());
 
     const signOut = await app.inject({

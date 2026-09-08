@@ -5,6 +5,9 @@ export interface AuthenticatedUser {
   email: string;
   name: string;
   image: string | null;
+  emailVerified: boolean;
+  phoneNumber: string | null;
+  phoneNumberVerified: boolean;
 }
 
 export interface AuthSessionUser {
@@ -12,6 +15,9 @@ export interface AuthSessionUser {
   email: string;
   name: string;
   image?: string | null;
+  emailVerified?: boolean;
+  phoneNumber?: string | null;
+  phoneNumberVerified?: boolean;
 }
 
 export function toAuthenticatedUser(user: AuthSessionUser): AuthenticatedUser {
@@ -20,6 +26,9 @@ export function toAuthenticatedUser(user: AuthSessionUser): AuthenticatedUser {
     email: user.email,
     name: user.name,
     image: user.image ?? null,
+    emailVerified: user.emailVerified === true,
+    phoneNumber: user.phoneNumber ?? null,
+    phoneNumberVerified: user.phoneNumberVerified === true,
   };
 }
 
@@ -29,7 +38,16 @@ export function containsForbiddenAuthFields(payload: unknown): boolean {
   }
 
   const keys = Object.keys(payload);
-  return keys.some(
-    (key) => key === "password" || key === "passwordHash" || key === "sessionToken",
-  );
+  return keys.some((key) => {
+    const normalized = key.toLowerCase();
+    return (
+      normalized === "password" ||
+      normalized === "passwordhash" ||
+      normalized === "sessiontoken" ||
+      normalized === "otp" ||
+      normalized === "token" ||
+      normalized === "currentpassword" ||
+      normalized === "newpassword"
+    );
+  });
 }

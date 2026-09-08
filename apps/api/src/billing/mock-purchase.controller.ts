@@ -21,12 +21,15 @@ import {
 } from "@vimla/contracts";
 import { AuthGuard } from "../auth/auth.guard.js";
 import { AuthUser } from "../auth/current-user.decorator.js";
+import { SensitiveArea } from "../auth/sensitive-area.js";
+import { SensitiveAreaGuard } from "../auth/sensitive-area.guard.js";
 import { API_CONFIG, type ApiRuntimeConfig } from "../config/api-config.js";
 import { BillingService } from "./billing.service.js";
 import { MockPurchaseRateLimitGuard } from "./mock-purchase.rate-limit.js";
 
 @Controller("dev/mock-purchases")
-@UseGuards(AuthGuard, MockPurchaseRateLimitGuard)
+@SensitiveArea()
+@UseGuards(AuthGuard, SensitiveAreaGuard, MockPurchaseRateLimitGuard)
 export class MockPurchaseController {
   private readonly mockProvider: MockPaymentProvider;
 

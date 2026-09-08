@@ -10,9 +10,24 @@ import type { LogLevel } from "@vimla/config";
 
 type HeaderMap = Record<string, string | string[] | undefined>;
 
+export function shouldSkipPinoAutoLogging(url: string | undefined): boolean {
+  if (!url) {
+    return false;
+  }
+
+  const path = url.split("?")[0] ?? "";
+  return /\/v1\/conversations\/[^/]+\/messages$/.test(path);
+}
+
 export function createPinoHttpOptions(logLevel: LogLevel): Options {
   return {
     level: logLevel,
+    autoLogging: {
+      ignore: (req) => {
+        const withOriginal = req as IncomingMessage & { originalUrl?: string };
+        return shouldSkipPinoAutoLogging(withOriginal.originalUrl ?? req.url);
+      },
+    },
     genReqId: (req: IncomingMessage, _res: ServerResponse) =>
       resolveRequestId(req.headers),
     customProps: (req: IncomingMessage) => {
@@ -28,11 +43,20 @@ export function createPinoHttpOptions(logLevel: LogLevel): Options {
         "req.body.password",
         "req.body.currentPassword",
         "req.body.newPassword",
+        "req.body.otp",
+        "req.body.code",
+        "req.body.token",
+        "req.query.token",
+        "req.body.resetToken",
+        "req.query.otp",
         "req.body.cardNumber",
         "req.body.cvv",
         "req.body.providerSecret",
         "req.body.PROXYAPI_API_KEY",
         "config.proxyapiApiKey",
+        "config.smtpPassword",
+        "config.smsHttpAuthorization",
+        "config.betterAuthSecret",
       ],
       remove: true,
     },

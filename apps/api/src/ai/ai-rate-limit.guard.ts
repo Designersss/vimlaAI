@@ -37,7 +37,10 @@ export class AiRateLimitGuard implements CanActivate {
     );
 
     if (!userAllowed || !ipAllowed) {
-      throw new HttpException("Too many AI requests", HttpStatus.TOO_MANY_REQUESTS);
+      throw new HttpException(
+        { code: "rate_limited", message: "Too many AI requests" },
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
     }
 
     return true;

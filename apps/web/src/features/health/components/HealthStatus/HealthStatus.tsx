@@ -2,6 +2,7 @@
 
 import { observer } from "mobx-react-lite";
 import { useEffect, useMemo, useState } from "react";
+import { useTranslations } from "next-intl";
 import type { HealthResponse } from "@vimla/contracts";
 import { fetchApiHealth } from "../../../../shared/api/health";
 import { HealthStore } from "../../stores/health-store";
@@ -16,6 +17,7 @@ export const HealthStatus = observer(function HealthStatus({
   initialHealth,
   initialError,
 }: HealthStatusProps) {
+  const t = useTranslations("health");
   const store = useMemo(() => new HealthStore(), []);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -36,8 +38,8 @@ export const HealthStatus = observer(function HealthStatus({
     try {
       const health = await fetchApiHealth();
       store.succeed(health);
-    } catch (error: unknown) {
-      store.fail(error instanceof Error ? error.message : "Health request failed");
+    } catch {
+      store.fail(t("failed"));
     } finally {
       setIsRefreshing(false);
     }
@@ -48,7 +50,7 @@ export const HealthStatus = observer(function HealthStatus({
   return (
     <section className={styles.panel} aria-live="polite">
       <header className={styles.header}>
-        <h2 className={styles.title}>Backend health</h2>
+        <h2 className={styles.title}>{t("title")}</h2>
         <button
           type="button"
           className={styles.refresh}
@@ -57,7 +59,7 @@ export const HealthStatus = observer(function HealthStatus({
           }}
           disabled={isRefreshing}
         >
-          {isRefreshing ? "Checking…" : "Refresh"}
+          {isRefreshing ? t("checking") : t("refresh")}
         </button>
       </header>
       {store.state === "failed" ? (
@@ -65,12 +67,18 @@ export const HealthStatus = observer(function HealthStatus({
       ) : null}
       {health ? (
         <ul className={styles.checks}>
-          <li>API: {health.checks.api.status}</li>
-          <li>PostgreSQL: {health.checks.database.status}</li>
-          <li>Redis: {health.checks.redis.status}</li>
+          <li>
+            {t("api")}: {health.checks.api.status}
+          </li>
+          <li>
+            {t("postgres")}: {health.checks.database.status}
+          </li>
+          <li>
+            {t("redis")}: {health.checks.redis.status}
+          </li>
         </ul>
       ) : (
-        <p className={styles.empty}>No health payload yet.</p>
+        <p className={styles.empty}>{t("empty")}</p>
       )}
     </section>
   );

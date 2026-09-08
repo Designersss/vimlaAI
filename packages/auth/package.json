@@ -20,6 +20,8 @@
   "dependencies": {
     "@vimla/config": "workspace:*",
     "@vimla/database": "workspace:*",
+    "@vimla/notifications": "workspace:*",
+    "@vimla/shared": "workspace:*",
     "better-auth": "^1.7.3",
     "ioredis": "^5.7.0"
   },

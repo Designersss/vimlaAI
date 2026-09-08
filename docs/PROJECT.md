@@ -70,28 +70,51 @@ packages/
   auth          Better Auth
   ai            provider abstractions, catalog, cost, streaming
   billing       framework-independent billing domain
+  notifications EmailProvider / SmsProvider + localized templates
   shared        shared utilities
 ```
 
 Local PostgreSQL/Redis via Docker Compose, typed `@vimla/config`, structured logging/correlation IDs, `GET /health`, CI, and a quality gate of lint/typecheck/test/integration/build.
 
-### Phase 1 — Identity and sessions (current)
+### Phase 1 — Identity and sessions
 Self-hosted Better Auth, email/password, PostgreSQL-backed HttpOnly cookie sessions. The API is the auth authority. `User.id` is the canonical identifier.
 
-Implemented:
+Implemented in Phase 1, hardened in Phase 3.5:
 - `POST /api/auth/sign-up/email`, `POST /api/auth/sign-in/email`, sign-out;
 - `GET /v1/me`;
 - protected `/app` shell;
 - ownership scoping by authenticated user id.
 
-Not yet implemented, but mandatory before public production:
-- email OTP verification;
-- phone/SMS OTP login;
-- password-reset email link;
-- session list/revoke-other-sessions;
-- RU/EN localized auth UX.
+### Phase 3.5 — Identity, authentication UX and localization
+Production identity on top of Better Auth (not a hand-rolled auth stack).
 
-Local sign-up currently works without SMTP. Email verification and password-reset delivery are architectural hooks only in Phase 1.
+Implemented:
+- mandatory email OTP after sign-up (`emailVerified=false` until a valid 6-digit code);
+- existing unverified accounts are not auto-verified; next login reaches `/verify-email`;
+- `VerifiedEmailGuard` blocks AI generation and billing mutations until verified;
+- link-based password reset with generic responses, short-lived single-use tokens, and `revokeSessionsOnPasswordReset`;
+- verified phone linking (E.164) after a verified email account; phone-first signup stays off;
+- SMS OTP login only for an already linked verified phone; unknown numbers do not create users;
+- `/settings/security`: email/phone status, change email (current + new OTP), change password (revokes other sessions by default), list/revoke sessions;
+- RU/EN via `next-intl`; locale = authenticated `UserPreference` → `vimla_locale` cookie → `Accept-Language` → `ru`;
+- API returns stable error codes; the web maps codes to translation keys (no raw backend English as UX);
+- Vimla field/form validation is primary; native browser bubbles are not;
+- `@vimla/notifications` with `EmailProvider` / `SmsProvider`; local/test memory inbox.
+
+### Phase 3.6 — Production notification delivery and browser E2E
+Identity is exercised through Playwright against test PostgreSQL/Redis, Memory email/SMS, MockAiProvider and MockPaymentProvider.
+
+Implemented:
+- provider modes: `local`/`test` use memory adapters; `staging`/`production` require SMTP email + HTTP SMS and fail startup otherwise;
+- SMTP and HTTP SMS are protocol adapters, not a chosen commercial vendor SDK;
+- rolling email/SMS cost-abuse limits (IP, destination, account, global) on top of the 60s OTP cooldown;
+- bounded email retries with idempotency keys; SMS is not auto-retried (user resend only);
+- password-reset URLs are built only from `WEB_ORIGIN`; client `redirectTo` is ignored;
+- change-email UI uses Better Auth OTP for the current address then the new address;
+- `@SensitiveArea()` default-deny for mutating AI/billing routes so unverified users cannot hit expensive endpoints by omission;
+- Playwright `pnpm test:e2e` (not production, no live email/SMS/ProxyAPI/payments).
+
+Email/SMS commercial vendor is still not chosen. Auth calls Vimla `NotificationService`, not a vendor SDK. Live `test:email-live` / `test:sms-live` smoke tests are not added until a vendor is chosen.
 
 ### Phase 2 — Billing and usage
 PostgreSQL is the source of truth for payments, subscriptions, usage and provider-cost accounting. Redis is never financial truth.
@@ -273,7 +296,7 @@ Permanent rules:
 - auth/security email and SMS use the recipient locale when known;
 - a flow is not complete until it is usable in both RU and EN.
 
-Phase 3 chat currently uses English UI copy. Localization is a mandatory hardening item, not an optional later cosmetic pass.
+Phase 3.5 localizes auth, settings, chat, usage and API error codes in `apps/web/messages/{ru,en}.json`. Model display names stay product names.
 
 ## Validation and error UX
 Backend/domain returns stable machine-readable error codes. Clients map codes to localized human-readable text.

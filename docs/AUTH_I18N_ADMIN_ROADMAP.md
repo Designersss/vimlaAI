@@ -3,24 +3,28 @@
 This document adds mandatory requirements to the implementation roadmap. It does not require interrupting an in-progress phase unless that phase would make these requirements impossible.
 
 ## Phase 3.5 — Identity + Auth UX + Localization Hardening
-Recommended immediately after text-chat Phase 3 and before public payments/production.
+Completed after text-chat Phase 3 and before public payments/production.
 
-Deliverables:
+Delivered:
 - email OTP verification and resend/cooldown/attempt limits;
-- block sensitive paid/AI use for unverified identity according to policy;
+- block AI generation and billing mutations until `emailVerified=true`;
 - password reset email link and reset-complete session revocation;
-- phone login via SMS OTP behind provider abstraction;
-- safe account/identity linking rules;
-- change email/phone with verification;
-- session management/revoke other sessions;
-- auth/account enumeration protection;
-- localized RU/EN auth UI and validation;
+- phone login via SMS OTP behind `@vimla/notifications` (no phone-first signup);
+- account linking only after authenticated verified-email + SMS OTP proof;
+- change phone via SMS OTP from settings; change email via Better Auth OTP (current address, then new address);
+- session management / revoke other sessions / IDOR-safe revoke;
+- auth/account enumeration protection on signup and forgot-password;
+- localized RU/EN auth, chat, usage, validation and API error codes via next-intl;
 - no native-browser-only validation UX;
 - localized auth/security email/SMS templates;
-- central i18n framework and locale persistence;
-- tests for auth abuse, replay, expiry, resend, localization and errors.
+- `UserPreference.locale` persistence with cookie and Accept-Language fallback;
+- tests for auth abuse, replay, expiry, resend, localization and errors;
+- Playwright browser E2E against memory notifications and mock AI/payments.
 
-Provider selection for email/SMS is a separate explicit infrastructure/commercial decision; design adapters first.
+Provider selection for email/SMS remains a separate explicit infrastructure/commercial decision. SMTP and HTTP SMS adapters exist; no vendor SDK is wired. Staging/production fail startup unless those adapters are configured. Live smoke tests are deferred until a vendor is chosen.
+
+## Sender domain (production email)
+Operators must configure SPF, DKIM and DMARC for the Vimla sending domain before production mail. `EMAIL_FROM` is a first-party address (not a free mailbox). Vimla does not write DNS records.
 
 ## Real payments phase
 Before production acquiring:

@@ -8,6 +8,10 @@ describe("currentUserSchema", () => {
       email: "ada@example.com",
       name: "Ada",
       image: null,
+      emailVerified: true,
+      phoneNumber: null,
+      phoneNumberVerified: false,
+      locale: "ru",
     });
     expect(parsed.email).toBe("ada@example.com");
   });
@@ -18,6 +22,10 @@ describe("currentUserSchema", () => {
       email: "ada@example.com",
       name: "Ada",
       image: null,
+      emailVerified: false,
+      phoneNumber: "+79991234567",
+      phoneNumberVerified: true,
+      locale: "en",
       password: "should-be-stripped-by-strictness-or-ignored",
     });
     expect("password" in parsed).toBe(false);

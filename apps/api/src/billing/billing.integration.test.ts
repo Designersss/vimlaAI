@@ -1,10 +1,10 @@
-import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { NestFastifyApplication } from "@nestjs/platform-fastify";
 import { loadApiConfig } from "@vimla/config/server";
 import { createPrismaClient } from "@vimla/database";
 import { seedVimlaPlans } from "@vimla/billing";
 import { createVimlaApiApp } from "../create-app.js";
+import { registerVerifiedUser } from "../test/identity-helpers.js";
 
 const testDatabaseUrl = process.env.TEST_DATABASE_URL;
 if (!testDatabaseUrl) {
@@ -166,6 +166,14 @@ describe("production mock billing isolation", () => {
     process.env.BETTER_AUTH_SECRET = "production-secret-value-32-chars-min";
     process.env.BETTER_AUTH_URL = "http://localhost:3001";
     process.env.AI_TEXT_ENABLED = "false";
+    process.env.EMAIL_PROVIDER = "smtp";
+    process.env.SMTP_HOST = "smtp.example.com";
+    process.env.SMTP_USER = "vimla";
+    process.env.SMTP_PASSWORD = "smtp-secret-value";
+    process.env.EMAIL_FROM = "noreply@vimla.example";
+    process.env.SMS_PROVIDER = "http";
+    process.env.SMS_HTTP_URL = "https://sms.example.com/send";
+    process.env.SMS_HTTP_AUTHORIZATION = "Bearer sms-token";
 
     const config = loadApiConfig(process.env);
     app = await createVimlaApiApp(config, { quiet: true });
@@ -194,27 +202,6 @@ async function registerUser(
   app: NestFastifyApplication,
   label: string,
 ): Promise<{ cookies: Record<string, string>; id: string }> {
-  const email = `${label}-${randomUUID()}@example.com`;
-  const signUp = await app.inject({
-    method: "POST",
-    url: "/api/auth/sign-up/email",
-    headers: { origin, "content-type": "application/json" },
-    payload: { email, password: "correct-horse-battery", name: label },
-  });
-  expect(signUp.statusCode).toBeGreaterThanOrEqual(200);
-  expect(signUp.statusCode).toBeLessThan(300);
-
-  const cookies: Record<string, string> = {};
-  for (const cookie of signUp.cookies) {
-    cookies[cookie.name] = cookie.value;
-  }
-
-  const me = await app.inject({
-    method: "GET",
-    url: "/v1/me",
-    headers: { origin },
-    cookies,
-  });
-  const body = me.json() as { id: string };
-  return { cookies, id: body.id };
+  const user = await registerVerifiedUser(app, label);
+  return { cookies: user.cookies, id: user.id };
 }

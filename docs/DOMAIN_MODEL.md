@@ -3,7 +3,10 @@
 This document defines concepts, not final Prisma syntax.
 
 ## User
-Owns conversations, files, projects, subscriptions and usage buckets.
+Owns conversations, files, projects, subscriptions and usage buckets. `User.id` is the canonical identity. Email/password credentials live in Better Auth `account` rows. `emailVerified` is false until a valid email OTP. `phoneNumber` is canonical E.164 and unique when set; `phoneNumberVerified` is true only after SMS OTP while authenticated.
+
+## UserPreference
+Separate from Better Auth `User`. Stores UI/locale settings (`locale`, timestamps). Timezone and other preferences can be added later without stuffing Better Auth user fields.
 
 ## Plan / PlanVersion
 `Plan` is stable identity (`LITE`, `START`, `PRO`). `PlanVersion` snapshots commercial values for a time range so old subscriptions remain auditable.

@@ -28,6 +28,20 @@ export const apiErrorCodeSchema = z.enum([
   "message_too_large",
   "origin_forbidden",
   "concurrency_limited",
+  "email_not_verified",
+  "invalid_credentials",
+  "invalid_otp",
+  "otp_expired",
+  "otp_too_many_attempts",
+  "otp_resend_too_soon",
+  "phone_not_verified",
+  "phone_already_in_use",
+  "invalid_phone_number",
+  "invalid_reset_token",
+  "reset_token_expired",
+  "session_not_found",
+  "notification_temporarily_unavailable",
+  "notification_not_found",
 ]);
 export type ApiErrorCode = z.infer<typeof apiErrorCodeSchema>;
 

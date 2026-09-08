@@ -1,0 +1,17 @@
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-lg);
+}
+
+.card,
+.session {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.session {
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--color-border);
+}

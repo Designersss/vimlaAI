@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type ReactElement } from "react";
 import { useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
 import {
   AuthRequiredError,
   fetchCurrentUser,
@@ -12,6 +13,7 @@ import { fetchUsage } from "../../../billing/services/usage";
 import styles from "./SignedInHome.module.scss";
 
 export function SignedInHome(): ReactElement {
+  const t = useTranslations();
   const router = useRouter();
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [usage, setUsage] = useState<UsageResponse | null>(null);
@@ -54,19 +56,18 @@ export function SignedInHome(): ReactElement {
   }
 
   if (state === "loading") {
-    return <p className={styles.copy}>Checking session…</p>;
+    return <p className={styles.copy}>{t("common.loading")}</p>;
   }
 
   if (state === "failed" || !user || !usage) {
-    return <p className={styles.copy}>Unable to load the current user.</p>;
+    return <p className={styles.copy}>{t("common.genericError")}</p>;
   }
 
   return (
     <section className={styles.panel}>
-      <p className={styles.copy}>Signed in as {user.email}</p>
+      <p className={styles.copy}>{t("chat.signedInAs", { email: user.email })}</p>
       <p className={styles.copy}>
-        Monthly usage {usage.monthly.usedPercent}% · remaining{" "}
-        {usage.monthly.remainingMicroRub} microRUB
+        {t("chat.monthlyUsage")}: {usage.monthly.usedPercent}%
       </p>
       <button
         type="button"
@@ -75,7 +76,7 @@ export function SignedInHome(): ReactElement {
           void signOut();
         }}
       >
-        Sign out
+        {t("nav.signOut")}
       </button>
     </section>
   );

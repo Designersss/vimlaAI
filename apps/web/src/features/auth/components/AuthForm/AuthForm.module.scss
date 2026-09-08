@@ -33,7 +33,13 @@
   opacity: 0.7;
 }
 
+.fieldError,
 .error {
   margin: 0;
   color: var(--color-danger);
+  font-size: 0.85rem;
+}
+
+.error {
+  font-size: 0.95rem;
 }

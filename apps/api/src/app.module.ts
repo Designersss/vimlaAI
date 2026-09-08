@@ -2,9 +2,11 @@ import { type DynamicModule, Module } from "@nestjs/common";
 import { LoggerModule } from "nestjs-pino";
 import type { ApiConfig } from "@vimla/config";
 import { isDevBillingEnvironment } from "@vimla/billing";
+import { isDevNotificationInboxEnabled } from "@vimla/notifications";
 import { API_CONFIG, type ApiRuntimeConfig } from "./config/api-config.js";
 import { ApiConfigModule } from "./config/api-config.module.js";
 import { AuthModule } from "./auth/auth.module.js";
+import { DevNotificationsModule } from "./auth/dev-notifications.module.js";
 import { BillingModule } from "./billing/billing.module.js";
 import { DevBillingModule } from "./billing/dev-billing.module.js";
 import { AiModule } from "./ai/ai.module.js";
@@ -32,6 +34,10 @@ export class AppModule {
 
     if (isDevBillingEnvironment(config.appEnv)) {
       imports.push(DevBillingModule);
+    }
+
+    if (isDevNotificationInboxEnabled(config.appEnv)) {
+      imports.push(DevNotificationsModule);
     }
 
     return {

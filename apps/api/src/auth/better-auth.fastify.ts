@@ -7,6 +7,7 @@ export interface BetterAuthRequest {
   method: string;
   headers: IncomingHttpHeaders;
   body?: unknown;
+  ip?: string;
 }
 
 export interface BetterAuthReply {
@@ -28,6 +29,9 @@ export async function handleBetterAuthRequest(
 function toFetchRequest(request: BetterAuthRequest, baseURL: string): Request {
   const url = new URL(request.url, baseURL);
   const headers = fromNodeHeaders(request.headers);
+  if (request.ip && !headers.has("x-forwarded-for") && !headers.has("x-real-ip")) {
+    headers.set("x-forwarded-for", request.ip);
+  }
   const method = request.method.toUpperCase();
   const canHaveBody = method !== "GET" && method !== "HEAD";
 

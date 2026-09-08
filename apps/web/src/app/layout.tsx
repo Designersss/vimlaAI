@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import { NextIntlClientProvider } from "next-intl";
+import { getLocale, getMessages } from "next-intl/server";
 import "../shared/styles/tokens.scss";
 import styles from "./layout.module.scss";
 
@@ -8,12 +10,19 @@ export const metadata: Metadata = {
   description: "Unified AI workspace",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
-}: Readonly<{ children: ReactNode }>): ReactNode {
+}: Readonly<{ children: ReactNode }>): Promise<ReactNode> {
+  const locale = await getLocale();
+  const messages = await getMessages();
+
   return (
-    <html lang="en">
-      <body className={styles.body}>{children}</body>
+    <html lang={locale}>
+      <body className={styles.body}>
+        <NextIntlClientProvider locale={locale} messages={messages}>
+          {children}
+        </NextIntlClientProvider>
+      </body>
     </html>
   );
 }

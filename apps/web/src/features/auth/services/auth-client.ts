@@ -1,3 +1,4 @@
+import { emailOTPClient, phoneNumberClient } from "better-auth/client/plugins";
 import { createAuthClient } from "better-auth/react";
 import { publicWebConfig } from "../../../shared/config/public-env";
 
@@ -6,4 +7,5 @@ export const authClient = createAuthClient({
   fetchOptions: {
     credentials: "include",
   },
+  plugins: [emailOTPClient(), phoneNumberClient()],
 });

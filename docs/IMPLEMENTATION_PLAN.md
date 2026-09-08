@@ -94,6 +94,47 @@ Goal: first real AI value with financially safe metering.
 
 Exit criteria: paid-cost text calls cannot occur without allowance and every completed request is auditable.
 
+## Phase 3.5 — Identity, authentication UX and localization
+Goal: production-ready identity and RU/EN UX without real payments or admin.
+
+- [x] next-intl RU/EN dictionaries; no hard-coded user-facing chat/auth copy.
+- [x] locale cookie + `UserPreference` + Accept-Language fallback, default `ru`.
+- [x] Better Auth email OTP on signup; HMAC OTP storage; 6/300s/3/60s policy.
+- [x] `/verify-email` UI; unverified users blocked from AI send and mock purchases.
+- [x] Existing unverified users enter verification after login (not auto-verified).
+- [x] Link-based `/forgot-password` + `/reset-password`; generic enumeration-safe response; session revocation.
+- [x] `@vimla/notifications` EmailProvider/SmsProvider + localized templates + local/test mocks.
+- [x] Verified phone linking (E.164 unique) and SMS OTP login; no phone-first signup.
+- [x] `/settings/security`: password change, sessions list/revoke, phone link.
+- [x] Dedicated auth/OTP rate limits and resend cooldown; no OTP/password/reset token in logs.
+- [x] Stable API error codes mapped to translation keys.
+- [x] Prisma migration `20260908000000_add_identity_preferences` only (no rewrite of old migrations).
+- [x] Integration tests against PostgreSQL with mocked email/SMS.
+
+Exit criteria: a real user can register, verify email, reset password, link a phone, manage sessions, and use chat in RU or EN without native browser bubbles or raw backend errors.
+
+## Phase 3.6 — Production notification delivery + browser E2E
+Goal: identity is safe to expose to real users for email/SMS delivery wiring, and critical flows are proven in a real browser.
+
+- [x] Keep `NotificationService` → `EmailProvider` / `SmsProvider`; no Better Auth vendor SDK coupling.
+- [x] Do not silently pick a commercial vendor; SMTP + HTTP SMS protocol adapters only.
+- [x] local/test = memory adapters; staging/production fail startup on memory/logging providers.
+- [x] Secrets via `@vimla/config`, not `NEXT_PUBLIC_*`, redacted in logs.
+- [x] Document SPF/DKIM/DMARC and sender-domain policy (DNS not automated).
+- [x] Reset URLs from trusted `WEB_ORIGIN` only; ignore client redirect/callback host.
+- [x] Never log OTP, reset token, full email/phone, or message bodies.
+- [x] Bounded email retries, no SMS retry storm, notificationId idempotency.
+- [x] Config-driven email/SMS abuse limits (IP, destination, account, global) plus 60s cooldown.
+- [x] Local/test inbox; HTTP inspector only for `APP_ENV=local|test`.
+- [x] Playwright E2E for registration, invalid password/OTP, reset, phone link/login, sessions, AI gate, RU/EN, errors.
+- [x] Change-email UI on `/settings/security` with Better Auth OTP (current then new).
+- [x] `@SensitiveArea` default-deny for AI/billing mutations.
+- [x] Stable `notification_temporarily_unavailable` / `rate_limited` codes; no raw vendor errors.
+- [x] Sanitized delivery metrics/logs for a future admin dashboard (no Admin UI).
+- [x] Default CI does not send real email/SMS/ProxyAPI/payments. No live smoke tests until a vendor is chosen.
+
+Exit criteria: identity works from first click to verified account in a browser, and production cannot start pretending to deliver mail/SMS.
+
 ## Phase 4 — Real payment provider
 Goal: real subscription/top-up money activates existing billing domain.
 

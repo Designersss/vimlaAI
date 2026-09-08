@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { config as loadDotenv } from "dotenv";
 import type { NextConfig } from "next";
+import createNextIntlPlugin from "next-intl/plugin";
 
 loadDotenv({
   path: resolve(fileURLToPath(new URL("../../.env", import.meta.url))),
@@ -9,10 +10,12 @@ loadDotenv({
 });
 
 const nextConfig: NextConfig = {
-  transpilePackages: ["@vimla/config", "@vimla/contracts", "better-auth"],
+  transpilePackages: ["@vimla/config", "@vimla/contracts", "@vimla/shared", "better-auth"],
   sassOptions: {
     implementation: "sass",
   },
 };
 
-export default nextConfig;
+const withNextIntl = createNextIntlPlugin("./src/i18n/request.ts");
+
+export default withNextIntl(nextConfig);

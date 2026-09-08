@@ -1,0 +1,89 @@
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { defineConfig, devices } from "@playwright/test";
+import { config as loadDotenv } from "dotenv";
+
+const webRoot = dirname(fileURLToPath(import.meta.url));
+const repoRoot = resolve(webRoot, "../..");
+const apiRoot = resolve(repoRoot, "apps/api");
+
+loadDotenv({ path: resolve(repoRoot, ".env"), override: false });
+
+const webOrigin = "http://localhost:3100";
+const apiBase = "http://localhost:3101";
+process.env.WEB_ORIGIN = webOrigin;
+process.env.BETTER_AUTH_URL = apiBase;
+process.env.NEXT_PUBLIC_API_BASE_URL = apiBase;
+const testDatabaseUrl =
+  process.env.TEST_DATABASE_URL ?? "postgresql://vimla:vimla@localhost:5432/vimla_test";
+
+function inheritedEnv(): Record<string, string> {
+  const copied: Record<string, string> = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value !== undefined) {
+      copied[key] = value;
+    }
+  }
+  return copied;
+}
+
+const e2eEnv: Record<string, string> = {
+  ...inheritedEnv(),
+  NODE_ENV: "test",
+  APP_ENV: "test",
+  LOG_LEVEL: "error",
+  API_HOST: "127.0.0.1",
+  API_PORT: "3101",
+  WEB_ORIGIN: webOrigin,
+  DATABASE_URL: testDatabaseUrl,
+  REDIS_URL: process.env.REDIS_URL ?? "redis://localhost:6379",
+  BETTER_AUTH_URL: apiBase,
+  BETTER_AUTH_SECRET:
+    process.env.BETTER_AUTH_SECRET ?? "local-dev-only-change-me-use-32-chars-min",
+  NEXT_PUBLIC_API_BASE_URL: apiBase,
+  AI_TEXT_ENABLED: "true",
+  AI_TEXT_PROVIDER: "mock",
+  EMAIL_PROVIDER: "memory",
+  SMS_PROVIDER: "memory",
+  AUTH_OTP_RESEND_COOLDOWN_SECONDS: "2",
+  AI_TEXT_RATE_LIMIT_PER_MINUTE: "3",
+  AI_TEXT_IP_RATE_LIMIT_PER_MINUTE: "20",
+  NOTIFY_EMAIL_PER_IP_PER_HOUR: "1000",
+  NOTIFY_EMAIL_GLOBAL_PER_MINUTE: "1000",
+  NOTIFY_SMS_PER_IP_PER_HOUR: "1000",
+  NOTIFY_SMS_GLOBAL_PER_MINUTE: "1000",
+};
+
+export default defineConfig({
+  testDir: "./e2e",
+  fullyParallel: false,
+  workers: 1,
+  timeout: 90_000,
+  expect: { timeout: 15_000 },
+  retries: process.env.CI ? 1 : 0,
+  reporter: process.env.CI ? [["github"], ["list"]] : "list",
+  use: {
+    baseURL: webOrigin,
+    trace: "on-first-retry",
+    screenshot: "only-on-failure",
+  },
+  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  webServer: [
+    {
+      command: "pnpm exec tsx src/main.ts",
+      cwd: apiRoot,
+      url: `${apiBase}/health`,
+      reuseExistingServer: false,
+      timeout: 120_000,
+      env: e2eEnv,
+    },
+    {
+      command: "pnpm exec next dev --port 3100",
+      cwd: webRoot,
+      url: webOrigin,
+      reuseExistingServer: false,
+      timeout: 120_000,
+      env: e2eEnv,
+    },
+  ],
+});

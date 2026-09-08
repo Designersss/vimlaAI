@@ -7,6 +7,7 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "jsx": "preserve",
+    "resolveJsonModule": true,
     "plugins": [{ "name": "next" }],
     "paths": {
       "@/*": ["./src/*"]

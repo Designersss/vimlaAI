@@ -13,6 +13,9 @@ export {
   publicWebEnvSchema,
   workerConfigSchema,
   workerEnvSchema,
+  emailProviderKindSchema,
+  smsProviderKindSchema,
+  isFreeMailboxDomain,
   type ApiConfig,
   type ApiEnv,
   type AppEnv,
@@ -22,4 +25,6 @@ export {
   type PublicWebEnv,
   type WorkerConfig,
   type WorkerEnv,
+  type EmailProviderKind,
+  type SmsProviderKind,
 } from "./schemas.js";

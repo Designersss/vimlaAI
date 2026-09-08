@@ -52,6 +52,38 @@ export function loadApiConfig(
     aiTextRateLimitPerMinute: parsed.AI_TEXT_RATE_LIMIT_PER_MINUTE,
     aiTextIpRateLimitPerMinute: parsed.AI_TEXT_IP_RATE_LIMIT_PER_MINUTE,
     aiProviderTimeoutMs: parsed.AI_PROVIDER_TIMEOUT_MS,
+    authOtpDigits: parsed.AUTH_OTP_DIGITS,
+    authOtpExpiresSeconds: parsed.AUTH_OTP_EXPIRES_SECONDS,
+    authOtpMaxAttempts: parsed.AUTH_OTP_MAX_ATTEMPTS,
+    authOtpResendCooldownSeconds: parsed.AUTH_OTP_RESEND_COOLDOWN_SECONDS,
+    authResetTokenExpiresSeconds: parsed.AUTH_RESET_TOKEN_EXPIRES_SECONDS,
+    authDefaultLocale: parsed.AUTH_DEFAULT_LOCALE,
+    authSignupIpLimitPerMinute: parsed.AUTH_SIGNUP_IP_LIMIT_PER_MINUTE,
+    authLoginWindowSeconds: parsed.AUTH_LOGIN_WINDOW_SECONDS,
+    authLoginMaxAttempts: parsed.AUTH_LOGIN_MAX_ATTEMPTS,
+    authOtpSendLimitPerMinute: parsed.AUTH_OTP_SEND_LIMIT_PER_MINUTE,
+    authOtpVerifyLimitPerMinute: parsed.AUTH_OTP_VERIFY_LIMIT_PER_MINUTE,
+    authPasswordResetLimitPerMinute: parsed.AUTH_PASSWORD_RESET_LIMIT_PER_MINUTE,
+    emailProvider: resolveEmailProvider(parsed),
+    smtpHost: parsed.SMTP_HOST,
+    smtpPort: parsed.SMTP_PORT,
+    smtpSecure: parsed.SMTP_SECURE === "true",
+    smtpUser: parsed.SMTP_USER,
+    smtpPassword: parsed.SMTP_PASSWORD,
+    emailFrom: parsed.EMAIL_FROM,
+    emailReplyTo: parsed.EMAIL_REPLY_TO,
+    smsProvider: resolveSmsProvider(parsed),
+    smsHttpUrl: parsed.SMS_HTTP_URL,
+    smsHttpAuthorization: parsed.SMS_HTTP_AUTHORIZATION,
+    notifyEmailRetryMax: parsed.NOTIFY_EMAIL_RETRY_MAX,
+    notifySmsRetryMax: parsed.NOTIFY_SMS_RETRY_MAX,
+    notifyEmailPerDestPerHour: parsed.NOTIFY_EMAIL_PER_DEST_PER_HOUR,
+    notifyEmailPerIpPerHour: parsed.NOTIFY_EMAIL_PER_IP_PER_HOUR,
+    notifyEmailGlobalPerMinute: parsed.NOTIFY_EMAIL_GLOBAL_PER_MINUTE,
+    notifySmsPerPhonePerHour: parsed.NOTIFY_SMS_PER_PHONE_PER_HOUR,
+    notifySmsPerAccountPerHour: parsed.NOTIFY_SMS_PER_ACCOUNT_PER_HOUR,
+    notifySmsPerIpPerHour: parsed.NOTIFY_SMS_PER_IP_PER_HOUR,
+    notifySmsGlobalPerMinute: parsed.NOTIFY_SMS_GLOBAL_PER_MINUTE,
   });
 }
 
@@ -71,6 +103,28 @@ function resolveAiTextProvider(parsed: {
   return parsed.PROXYAPI_API_KEY && parsed.PROXYAPI_API_KEY.trim().length > 0
     ? "proxyapi"
     : "mock";
+}
+
+function resolveEmailProvider(parsed: {
+  APP_ENV: string;
+  EMAIL_PROVIDER?: "memory" | "smtp";
+}): "memory" | "smtp" {
+  if (parsed.EMAIL_PROVIDER) {
+    return parsed.EMAIL_PROVIDER;
+  }
+
+  return parsed.APP_ENV === "local" || parsed.APP_ENV === "test" ? "memory" : "smtp";
+}
+
+function resolveSmsProvider(parsed: {
+  APP_ENV: string;
+  SMS_PROVIDER?: "memory" | "http";
+}): "memory" | "http" {
+  if (parsed.SMS_PROVIDER) {
+    return parsed.SMS_PROVIDER;
+  }
+
+  return parsed.APP_ENV === "local" || parsed.APP_ENV === "test" ? "memory" : "http";
 }
 
 export function loadWorkerConfig(

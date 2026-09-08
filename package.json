@@ -12,6 +12,7 @@
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "test:integration": "dotenv -e .env -- sh -c 'pnpm --filter @vimla/database ensure-test-db && turbo run test:integration'",
+    "test:e2e": "dotenv -e .env -- sh -c 'pnpm --filter @vimla/database ensure-test-db && DATABASE_URL=\"$TEST_DATABASE_URL\" pnpm --filter @vimla/billing seed && DATABASE_URL=\"$TEST_DATABASE_URL\" pnpm --filter @vimla/ai seed && pnpm --filter @vimla/web test:e2e'",
     "db:generate": "pnpm --filter @vimla/database generate",
     "db:migrate": "pnpm db:migrate:dev",
     "db:migrate:dev": "dotenv -e .env -- pnpm --filter @vimla/database migrate:dev",
