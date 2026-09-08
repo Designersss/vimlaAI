@@ -1,7 +1,8 @@
 import { betterAuth, type BetterAuthOptions } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { APIError, createAuthMiddleware, getSessionFromCtx } from "better-auth/api";
-import { emailOTP, phoneNumber } from "better-auth/plugins";
+import { emailOTP, phoneNumber, twoFactor } from "better-auth/plugins";
+import { passkey } from "@better-auth/passkey";
 import type { ApiConfig } from "@vimla/config";
 import type { PrismaClient } from "@vimla/database";
 import { isNotificationAbuseError, type NotificationService } from "@vimla/notifications";
@@ -19,6 +20,9 @@ type VimlaAuthRuntimeConfig = Pick<
   | "betterAuthSecret"
   | "betterAuthUrl"
   | "webOrigin"
+  | "adminOrigin"
+  | "adminWebauthnRpId"
+  | "adminWebauthnOrigin"
   | "nodeEnv"
   | "appEnv"
   | "authOtpDigits"
@@ -40,6 +44,11 @@ export interface CreateVimlaAuthOptions {
   secret: string;
   baseURL: string;
   webOrigin: string;
+  adminOrigin: string;
+  webauthn: {
+    rpID: string;
+    origin: string;
+  };
   trustedOrigins: readonly string[];
   useSecureCookies: boolean;
   appEnv: ApiConfig["appEnv"];
@@ -96,6 +105,7 @@ export function createVimlaAuth(options: CreateVimlaAuthOptions) {
         });
       },
       onPasswordReset: async ({ user }) => {
+        await revokeAdminSessions(options.prisma, user.id);
         options.notifications.queueEmail({
           to: user.email,
           templateId: "securityPasswordChanged",
@@ -152,6 +162,26 @@ export function createVimlaAuth(options: CreateVimlaAuthOptions) {
         "/sign-in/email": {
           window: options.rateLimits.loginWindowSeconds,
           max: options.rateLimits.loginMaxAttempts,
+        },
+        "/two-factor/enable": {
+          window: 60,
+          max: options.rateLimits.otpVerifyPerMinute,
+        },
+        "/two-factor/verify-totp": {
+          window: 60,
+          max: options.rateLimits.otpVerifyPerMinute,
+        },
+        "/two-factor/verify-backup-code": {
+          window: 60,
+          max: options.rateLimits.otpVerifyPerMinute,
+        },
+        "/two-factor/*": {
+          window: 60,
+          max: options.rateLimits.otpVerifyPerMinute,
+        },
+        "/passkey/*": {
+          window: 60,
+          max: options.rateLimits.otpVerifyPerMinute,
         },
         "/request-password-reset": {
           window: 60,
@@ -331,6 +361,29 @@ export function createVimlaAuth(options: CreateVimlaAuthOptions) {
         }
       }),
       after: createAuthMiddleware(async (ctx) => {
+        if (ctx.path === "/change-password") {
+          const session = await getSessionFromCtx(ctx).catch(() => null);
+          if (session) {
+            await revokeAdminSessions(options.prisma, session.user.id);
+          }
+        }
+        if (
+          ctx.path === "/two-factor/verify-totp" ||
+          ctx.path === "/two-factor/enable" ||
+          ctx.path === "/passkey/verify-registration"
+        ) {
+          const session = await getSessionFromCtx(ctx).catch(() => null);
+          if (session) {
+            await auditAdminSecurityAction(options.prisma, {
+              userId: session.user.id,
+              action:
+                ctx.path === "/passkey/verify-registration"
+                  ? "ADMIN_PASSKEY_ADDED"
+                  : "ADMIN_MFA_ENROLLED",
+              resourceType: ctx.path === "/passkey/verify-registration" ? "Passkey" : "TwoFactor",
+            });
+          }
+        }
         if (!ctx.path.startsWith("/sign-up")) {
           return;
         }
@@ -427,6 +480,18 @@ export function createVimlaAuth(options: CreateVimlaAuthOptions) {
           });
         },
       }),
+      twoFactor({
+        issuer: "Vimla",
+        skipVerificationOnEnable: false,
+        backupCodeOptions: {
+          storeBackupCodes: "encrypted",
+        },
+      }),
+      passkey({
+        rpID: options.webauthn.rpID,
+        rpName: "Vimla Admin",
+        origin: [options.webauthn.origin, options.webOrigin],
+      }),
     ],
   };
 
@@ -506,6 +571,42 @@ function readHeader(headers: unknown, name: string): string | undefined {
   return undefined;
 }
 
+async function revokeAdminSessions(prisma: PrismaClient, userId: string): Promise<void> {
+  const principal = await prisma.adminPrincipal.findUnique({
+    where: { userId },
+    select: { id: true },
+  });
+  if (!principal) {
+    return;
+  }
+  await prisma.adminSession.updateMany({
+    where: { principalId: principal.id, revokedAt: null },
+    data: { revokedAt: new Date() },
+  });
+}
+
+async function auditAdminSecurityAction(
+  prisma: PrismaClient,
+  input: { userId: string; action: string; resourceType: string },
+): Promise<void> {
+  const principal = await prisma.adminPrincipal.findUnique({
+    where: { userId: input.userId },
+    select: { id: true },
+  });
+  if (!principal) {
+    return;
+  }
+  await prisma.adminAuditLog.create({
+    data: {
+      adminUserId: input.userId,
+      principalId: principal.id,
+      action: input.action,
+      resourceType: input.resourceType,
+      afterSnapshot: { enrolled: true },
+    },
+  });
+}
+
 export type VimlaAuth = ReturnType<typeof createVimlaAuth>;
 
 export function createVimlaAuthFromConfig(
@@ -519,7 +620,12 @@ export function createVimlaAuthFromConfig(
     secret: config.betterAuthSecret,
     baseURL: config.betterAuthUrl,
     webOrigin: config.webOrigin,
-    trustedOrigins: [config.webOrigin],
+    adminOrigin: config.adminOrigin,
+    webauthn: {
+      rpID: config.adminWebauthnRpId,
+      origin: config.adminWebauthnOrigin,
+    },
+    trustedOrigins: [config.webOrigin, config.adminOrigin],
     useSecureCookies:
       config.nodeEnv === "production" || config.appEnv === "production",
     appEnv: config.appEnv,

@@ -56,9 +56,10 @@ test.describe("locale and errors", () => {
     await expect(page.locator("p").filter({ hasText: /недостаточно|not enough|usage/i }).first()).toBeVisible();
 
     await purchasePro(page);
-    await page.reload();
-    await page.getByRole("button", { name: /новый чат|new chat/i }).click();
-    await page.getByPlaceholder(/сообщение для vimla|message vimla/i).fill("Hello 0");
+    await page.goto("/app");
+    const composer = page.getByPlaceholder(/сообщение для vimla|message vimla/i);
+    await expect(composer).toBeVisible();
+    await composer.fill("Hello 0");
     await page.getByRole("button", { name: /отправить|send/i }).click();
     await expect(page.getByText("Hello from Vimla")).toBeVisible({ timeout: 20_000 });
     await page.getByPlaceholder(/сообщение для vimla|message vimla/i).fill("Hello 1");

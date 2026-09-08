@@ -1,0 +1,35 @@
+{
+  "name": "@vimla/admin",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
+    "lint": "eslint . --max-warnings 0",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "bootstrap": "tsx src/cli.ts bootstrap",
+    "disable": "tsx src/cli.ts disable",
+    "revoke-sessions": "tsx src/cli.ts revoke-sessions"
+  },
+  "dependencies": {
+    "@vimla/billing": "workspace:*",
+    "@vimla/config": "workspace:*",
+    "@vimla/database": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.1",
+    "eslint": "^9.35.0",
+    "tsx": "^4.20.5",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}

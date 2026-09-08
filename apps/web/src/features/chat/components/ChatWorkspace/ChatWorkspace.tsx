@@ -172,6 +172,9 @@ export const ChatWorkspace = observer(function ChatWorkspace(): ReactElement {
           <UsageMeter usage={store.usage} />
           <LanguageSwitcher />
           <p className={styles.user}>{user.email}</p>
+          <Link href="/settings/billing" className={styles.button}>
+            {t("nav.billing")}
+          </Link>
           <Link href="/settings/security" className={styles.button}>
             {t("nav.settings")}
           </Link>

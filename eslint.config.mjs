@@ -6,10 +6,14 @@ export default tseslint.config(
     ignores: [
       "**/dist/**",
       "**/.next/**",
+      "**/.next-e2e/**",
       "**/coverage/**",
       "**/node_modules/**",
       "**/generated/**",
       "apps/web/.next/**",
+      "apps/web/.next-e2e/**",
+      "apps/admin/.next/**",
+      "apps/admin/.next-e2e/**",
       "playwright-report/**",
       "test-results/**",
     ],
@@ -42,7 +46,7 @@ export default tseslint.config(
     },
   },
   {
-    files: ["**/*.test.ts", "**/*.spec.ts"],
+    files: ["**/*.test.ts", "**/*.spec.ts", "**/cli.ts"],
     rules: {
       "no-console": "off",
     },

@@ -16,7 +16,7 @@
 - PostgreSQL is source of truth for money/usage.
 - Money/provider cost uses integer microRUB.
 - Reservation/settlement is mandatory before/after AI calls.
-- Billing core: versioned plans, mock payments, usage buckets, reservation/settlement, append-only ledger, PostgreSQL constraints and locking.
+- Billing core: versioned plans, T-Bank hosted checkout + mock provider, usage buckets, reservation/settlement, append-only ledger, PostgreSQL constraints and locking.
 - Phase 3 text chat: AiGateway + ProxyApiProvider, curated versioned model catalog, reservation before provider, Vimla SSE, no blind provider retry.
 - Phase 3.5 identity: next-intl RU/EN, UserPreference locale, email OTP (HMAC-stored), link-based password reset with session revocation, phone linking after verified email (no phone-first signup), notification provider abstraction without a commercial vendor.
 
@@ -43,7 +43,7 @@
 - Phone-first signup is off so one person cannot accidentally create a second account by entering an unknown number. Link phone from a verified account, then allow SMS login.
 - Notification delivery: Better Auth / identity → `@vimla/notifications` → `EmailProvider` / `SmsProvider` → SMTP or HTTP gateway adapter. Local/test uses an in-memory inbox. Staging/production require real SMTP + HTTP SMS configuration and fail startup on memory/logging providers. A commercial email/SMS vendor is not chosen.
 - Frontend localization is `next-intl` with dictionaries in `apps/web/messages`. Default locale is `ru`.
-- Admin dashboard remains a later phase: this identity work does not introduce a consumer-app admin role or shared admin session.
+- Phase 5 Admin is a separate Next.js app (`apps/admin`) with Better Auth TOTP + passkey, hashed AdminSession, default-deny permissions, and append-only audit. Ordinary user sessions cannot be reused.
 - Verified expensive mutations: `@SensitiveArea()` on AI/billing controllers with default-deny for mutating methods, not a global verified-email guard.
 - Browser E2E uses Playwright + test infrastructure only (`pnpm test:e2e`).
 - Signup HTTP validation is a layered limiter (`AUTH_SIGNUP_IP_LIMIT_PER_MINUTE`, default 20), overriding Better Auth's built-in `/sign-up*` 3/10s rule so a legitimate email typo is not treated as abuse. OTP send/verify, SMS and password-reset remain stricter. Notification budget keys HMAC destination and IP; they never store raw email.
@@ -51,9 +51,17 @@
 ## Billing
 - Authoritative money is integer microRUB (`bigint` / `BIGINT`). JSON uses decimal strings. JavaScript `number` is forbidden for money.
 - Plan commercial terms are versioned. Changing a future price does not rewrite historical subscriptions or payments.
-- Subscription periods in Phase 2 are fixed-length (default 30 days). Recurring billing/dunning is deferred.
+- Subscription periods in Phase 2/4 are fixed-length (default 30 days). Recurring MIT/T-Bank auto-renew is explicitly disabled until a tested business flow exists.
 - Usage is granted only after an idempotent payment event. Duplicate provider events grant once.
-- Top-up provider budget is `floor(amount * ratioBps / 10000)` with centralized min/max bounds. Remainder below 1 microRUB is discarded; Vimla never rounds up.
+- Top-up provider budget is `floor(amount * ratioBps / 10000)` with published `TopupPolicyVersion` min/max (env is bootstrap fallback). Remainder below 1 microRUB is discarded; Vimla never rounds up the **grant**.
+- Estimated payment/fiscalization/tax **costs** use **ceil** basis points so we do not understate merchant cost. Actual reconciled fees are never recalculated.
+- **TOPUP never expires.** No 3-month, 90-day, or lastActiveAt timer.
+- Checkout snapshots freeze plan version / top-up ratio / `topupPolicyVersionId` at Init time. Later catalog changes do not rewrite an in-flight or historical payment.
+- `PlanVersion` / fee / top-up / fiscalization / tax-reserve policies are DRAFT → PUBLISHED (immutable commercial fields) → RETIRED.
+- Finance metrics are owner-only and stay inside `@vimla/billing`. There is no `/v1/finance`. Missing fee policy must not block Usage grant.
+- T-Bank Internet Acquiring is the Phase 4 processor (hosted page, `/v2` EACQ). 1 kopeck = 10_000 microRUB. Amounts that are not whole kopecks are rejected.
+- If an ACTIVE subscription exists, a second concurrent subscription checkout is rejected. No upgrade/proration in Phase 4.
+- Full refunds append compensating `BUCKET_REVOKED` ledger entries and never make a bucket negative. Partial subscription refunds are not automated (`RECONCILIATION_REQUIRED`). Chargebacks are anomalies, not ordinary refunds.
 - Bucket spend order: unexpired MONTHLY (earliest expiry first), then TOPUP.
 - Concurrency: `READ COMMITTED` + `SELECT ... FOR UPDATE`. Deadlock/serialization retries are bounded (3). Fail closed.
 - `MockPaymentProvider` and `/dev/mock-purchases/*` exist only for `local`/`test` and are absent from the production route registry.
@@ -66,16 +74,16 @@
 - Start ~300 RUB;
 - Pro ~990 RUB;
 - target provider-cost ratios ~20% / 25% / 30%;
-- top-up target provider-cost ratio ~35%.
+- top-up target provider-cost ratio ~35%;
+- these ratios are **not** final product economics; new grants are published PlanVersions after simulation.
 
 ## Not decided yet
-- real payment/acquiring provider;
 - email/SMS vendor (SMTP and HTTP SMS adapters exist; commercial provider not chosen);
 - S3-compatible object storage vendor;
 - hosting/VPS/cloud provider;
 - exact plan feature limits;
 - exact models exposed at launch;
 - whether top-up UI displays ruble face value, extra percentage, or both;
-- refund/carryover policy details.
+- accountant/cash-register confirmation of Receipt Taxation/VAT/FFD before enabling fiscalization.
 
 Do not invent final choices for `Not decided yet` items without explicit user instruction. Implement abstractions/foundations that keep these choices replaceable.

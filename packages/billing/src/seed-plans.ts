@@ -1,5 +1,6 @@
 import type { PrismaClient } from "@vimla/database";
 import { VIMLA_PLAN_CATALOG } from "./plan-catalog.js";
+import { seedFinanceFoundation } from "./seed-finance.js";
 
 export async function seedVimlaPlans(prisma: PrismaClient): Promise<void> {
   const now = new Date();
@@ -17,6 +18,7 @@ export async function seedVimlaPlans(prisma: PrismaClient): Promise<void> {
         priceMicroRub: entry.priceMicroRub,
         providerBudgetMicroRub: entry.providerBudgetMicroRub,
         providerCostRatioBps: entry.providerCostRatioBps,
+        status: "PUBLISHED",
         OR: [{ validTo: null }, { validTo: { gt: now } }],
       },
       orderBy: { validFrom: "desc" },
@@ -29,10 +31,15 @@ export async function seedVimlaPlans(prisma: PrismaClient): Promise<void> {
           priceMicroRub: entry.priceMicroRub,
           providerBudgetMicroRub: entry.providerBudgetMicroRub,
           providerCostRatioBps: entry.providerCostRatioBps,
+          subscriptionPeriodDays: 30,
+          status: "PUBLISHED",
+          publishedAt: now,
           validFrom: now,
           validTo: null,
         },
       });
     }
   }
+
+  await seedFinanceFoundation(prisma, now);
 }

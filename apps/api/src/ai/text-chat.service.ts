@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { isAiTextOperatorDisabled } from "@vimla/admin";
 import {
   AiError,
   encodeVimlaSse,
@@ -52,6 +53,12 @@ export class TextChatService {
 
   private get engine(): BillingEngine {
     return this.billing.engine;
+  }
+
+  async assertTextEnabled(): Promise<void> {
+    if (!this.config.aiTextEnabled || (await isAiTextOperatorDisabled(this.prisma))) {
+      throw new AiError("AI_DISABLED", "Text AI is temporarily disabled", 503);
+    }
   }
 
   async listRetailModels() {
@@ -112,9 +119,7 @@ export class TextChatService {
     correlationId: string;
     sink: StreamSink;
   }): Promise<void> {
-    if (!this.config.aiTextEnabled) {
-      throw new AiError("AI_DISABLED", "Text AI is temporarily disabled", 503);
-    }
+    await this.assertTextEnabled();
 
     const conversation = await this.prisma.conversation.findFirst({
       where: { id: input.conversationId, userId: input.userId },

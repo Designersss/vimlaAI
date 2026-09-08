@@ -111,9 +111,7 @@ export class ConversationsController {
       throw new BadRequestException("Invalid message payload");
     }
 
-    if (!this.config.aiTextEnabled) {
-      throw new AiError("AI_DISABLED", "Text AI is temporarily disabled", 503);
-    }
+    await this.chat.assertTextEnabled();
 
     await this.chat.getConversation(user.id, conversationId);
 

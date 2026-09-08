@@ -10,6 +10,7 @@ import { DevNotificationsModule } from "./auth/dev-notifications.module.js";
 import { BillingModule } from "./billing/billing.module.js";
 import { DevBillingModule } from "./billing/dev-billing.module.js";
 import { AiModule } from "./ai/ai.module.js";
+import { AdminModule } from "./admin/admin.module.js";
 import { HealthModule } from "./health/health.module.js";
 import { createPinoHttpOptions } from "./observability/logger.js";
 
@@ -30,6 +31,7 @@ export class AppModule {
       BillingModule,
       AiModule,
       HealthModule,
+      AdminModule,
     ];
 
     if (isDevBillingEnvironment(config.appEnv)) {

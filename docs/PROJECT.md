@@ -20,19 +20,15 @@ Vimla is operated by a Russian LLC. Customer payments go to the LLC. ProxyAPI is
 
 Vimla maintains its own user usage ledger. The ProxyAPI corporate balance is treasury state, not a user wallet.
 
-Initial pricing hypotheses (business configuration, not hard-coded constants):
-- Lite: 150 RUB/month;
-- Start: 300 RUB/month;
-- Pro: 990 RUB/month;
-- top-up: arbitrary RUB amount.
+Initial pricing hypotheses (business configuration, versioned in PostgreSQL, not `.env`):
+- Published local/test catalog still includes historical Lite / Start / Pro until new PlanVersions are published;
+- Target paid shells exist as **DRAFT** `T199` / `T499` / `T999` (199 / 499 / 999 ₽) **without invented monthly AI grants**;
+- `FREE` is a published fallback entitlement (0 ₽, 0 monthly AI, top-up allowed) — not a fake paid Subscription;
+- top-up: arbitrary RUB amount within the published `TopupPolicyVersion`.
 
-Current target maximum AI/provider-cost ratios are also assumptions and must stay configurable/versioned:
-- Lite: about 20%;
-- Start: about 25%;
-- Pro: about 30%;
-- top-up: about 35%.
+Historical 20/25/30/35% provider-cost ratios are **not** the final product economy. New monthly grants are created as new PlanVersions after Admin simulation. Do not treat them as a product requirement.
 
-Exact plan benefits and provider-cost budgets are adjusted from measured COGS and retention.
+**TOPUP Usage never expires** (`expiresAt = NULL`). It is not burned by inactivity, login, or a 90-day/3-month timer.
 
 ## Usage experience
 Users see a simple percentage such as `62% used / 38% remaining`. The percentage is presentation only. Authoritative state is integer microRUB in PostgreSQL.
@@ -48,7 +44,7 @@ Resets Oct 7
 
 Users are not shown token pricing for every prompt. Expensive models/media consume allowance faster. In-flight reservations move the meter because the UI percentage is derived from `spent + reserved`.
 
-Subscription allowance is spent before top-up allowance. Top-ups create a separate non-expiring (unless policy changes) usage bucket.
+Subscription allowance is spent before top-up allowance. Top-ups create a separate **non-expiring** usage bucket (`expiresAt` is always NULL). There is no 90-day/3-month/inactivity expiry.
 
 ---
 
@@ -115,6 +111,34 @@ Implemented:
 - Playwright `pnpm test:e2e` (not production, no live email/SMS/ProxyAPI/payments).
 
 Email/SMS commercial vendor is still not chosen. Auth calls Vimla `NotificationService`, not a vendor SDK. Live `test:email-live` / `test:sms-live` smoke tests are not added until a vendor is chosen.
+
+### Phase 4 — T-Bank Internet Acquiring
+Real users pay subscriptions and top-ups on the T-Bank hosted page. Vimla never accepts card PAN/CVV. Usage is granted only after a verified `CONFIRMED` notification or `GetState`/`CheckOrder` reconciliation through the same fulfillment transaction.
+
+Implemented:
+- `PAYMENT_PROVIDER=mock|tbank` with production fail-fast on mock;
+- `TBankPaymentProvider` (`/v2/Init`, `GetState`, `CheckOrder`, `Cancel`) and official Token signer;
+- immutable checkout snapshots; server-generated `OrderId`;
+- `POST /v1/payments/subscriptions` (`planCode` + `idempotencyKey` only);
+- `POST /v1/payments/topups` (amount + idempotencyKey; grant from snapshot ratio);
+- `GET /v1/payments`, `GET /v1/payments/:id` (owner 404);
+- `POST /webhooks/tbank/payments` → HTTP 200 `OK`;
+- refund compensating ledger (`BUCKET_REVOKED`), no negative buckets;
+- `/settings/billing` and `/payment/result` (RU/EN; redirect is not proof of payment);
+- worker reconciliation of stale PENDING payments.
+
+Recurring charges stay off. Fiscalization Receipt fields are accountant-configured; they are not guessed. Projects are not implemented; billing subject is the authenticated user.
+
+### Phase 4.5 — Finance & tariff economics foundation
+Internal unit-economics model for a future Admin (no Admin UI, no public finance API).
+
+- **TOPUP never expires**; outstanding obligation includes all unspent top-up;
+- expired MONTHLY remaining is released AI commitment, not named “profit”;
+- versioned `TopupPolicyVersion`, `PaymentFeePolicyVersion`, `FiscalizationFeePolicyVersion`, optional tax reserve;
+- `PaymentEconomics` snapshots estimated vs actual fees; missing policy → `RECONCILIATION_REQUIRED` without blocking grant;
+- `FREE` published fallback; `T199`/`T499`/`T999` DRAFT shells without invented monthly grants;
+- `FinanceQueryService` + `TariffEconomicsSimulator` (contribution, not NET_PROFIT_ACTUAL);
+- AI COGS = `AiRequest.providerActualCostMicroRub`.
 
 ### Phase 2 — Billing and usage
 PostgreSQL is the source of truth for payments, subscriptions, usage and provider-cost accounting. Redis is never financial truth.
@@ -310,9 +334,7 @@ Permanent rules:
 - UI must handle loading, empty, partial, retryable and terminal error states.
 
 ## Admin / control plane
-Basic financial observability is a V1 capability, but it is not a page inside the consumer app.
-
-The future control plane is an isolated privileged boundary:
+Phase 5 ships `apps/admin` and `/admin/v1/*`. See `docs/ADMIN_SECURITY.md`. Hidden URL is still not a security control.
 
 ```text
 Internet
@@ -333,7 +355,18 @@ Permanent rules:
 - all dangerous actions audited; audit history cannot be erased through normal admin UI;
 - local/mock admin shortcuts are absent from production.
 
-Initial operator surfaces include users/support, plans/subscriptions/payments/usage, provider COGS/balance/burn/runway, model catalog enable/disable, feature flags/circuit breakers, incidents/security signals and the audit log.
+Initial operator surfaces include users, plans/subscriptions/payments/usage, provider COGS, model catalog, kill switch, incidents/security signals and the audit log.
+
+## Projects (Phase 6 mechanics, documented now)
+
+Projects are not implemented in Phase 5. Agreed rules:
+
+- owner plan determines entitlements (`ownedActiveMax`, `externalActiveMax`, `membersPerOwnedProjectMax`);
+- no paid-participant rescue, no automatic ownership transfer, no billing fallback to another member;
+- downgrade keeps the most recently active owned project ACTIVE and locks the rest as `PLAN_LOCKED` without deleting data;
+- excess members become `READ_ONLY_BY_OWNER_PLAN`; excess external memberships become `READ_ONLY_BY_MEMBER_PLAN`;
+- AI usage is personal (`User A` spends `User A` Usage) unless a future `PROJECT_USAGE` mode is selected;
+- anti-churn quotas/cooldowns/trash retention are BusinessGuardrail settings, not plan entitlements.
 
 ## Production security and observability
 Before public launch, later phases must leave room for and not contradict:
@@ -362,8 +395,7 @@ Application logs, security/admin audit logs and the append-only financial ledger
 - agents/workflows;
 - model comparison;
 - provider fallback/direct-provider adapters;
-- advanced memory/context;
-- real acquiring (T-Kassa/CloudPayments/etc. not chosen yet).
+- advanced memory/context.
 
 ## Non-goals for early MVP
 - no custom foundation model training;
@@ -384,4 +416,4 @@ Application logs, security/admin audit logs and the append-only financial ledger
 7. Modular monolith + separate worker until measured load justifies more complexity.
 8. Every public/expensive feature needs auth, ownership, bounded input, rate/concurrency/cost limits, stable errors and tests.
 9. Fail closed for expensive/security-sensitive actions when critical checks are unavailable.
-10. Implement only the requested phase. Do not silently start images, video, files, agents, Auto Router, real payments or admin UI.
+10. Implement only the requested phase. Do not silently start images, video, files, agents, Auto Router or Projects.

@@ -15,6 +15,8 @@ export default async function SecurityPage(): Promise<ReactElement> {
       <h1 className={styles.heading}>{t("settings.securityTitle")}</h1>
       <p className={styles.copy}>
         <Link href="/app">{t("nav.chat")}</Link>
+        {" · "}
+        <Link href="/settings/billing">{t("nav.billing")}</Link>
       </p>
       <SecuritySettings />
     </main>

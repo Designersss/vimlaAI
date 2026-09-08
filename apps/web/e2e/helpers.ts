@@ -97,7 +97,7 @@ export async function signUp(
   await page.getByLabel(/email/i).fill(input.email);
   await page.locator("#auth-password").fill(input.password);
   await page.getByRole("button", { name: /создать аккаунт|create account/i }).click();
-  await expect(page).toHaveURL(/verify-email/);
+  await expect(page).toHaveURL(/verify-email/, { timeout: 30_000 });
 }
 
 export async function verifyEmail(page: Page, request: APIRequestContext, email: string): Promise<void> {
@@ -121,4 +121,6 @@ export async function purchasePro(page: Page): Promise<void> {
     headers: { origin: webOrigin },
   });
   expect(response.status()).toBe(201);
+  const body = (await response.json()) as { subscriptionId: string | null };
+  expect(body.subscriptionId).toBeTruthy();
 }

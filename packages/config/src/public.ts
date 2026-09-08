@@ -1,5 +1,10 @@
-import { publicWebConfigSchema, publicWebEnvSchema } from "./schemas.js";
-import type { PublicWebConfig } from "./schemas.js";
+import {
+  publicAdminConfigSchema,
+  publicAdminEnvSchema,
+  publicWebConfigSchema,
+  publicWebEnvSchema,
+} from "./schemas.js";
+import type { PublicAdminConfig, PublicWebConfig } from "./schemas.js";
 
 /**
  * Validates the browser-safe public config.
@@ -14,6 +19,15 @@ export function parsePublicWebConfig(
   const parsed = publicWebEnvSchema.parse(env);
   return publicWebConfigSchema.parse({
     apiBaseUrl: stripTrailingSlash(parsed.NEXT_PUBLIC_API_BASE_URL),
+  });
+}
+
+export function parsePublicAdminConfig(
+  env: Record<string, string | undefined>,
+): PublicAdminConfig {
+  const parsed = publicAdminEnvSchema.parse(env);
+  return publicAdminConfigSchema.parse({
+    apiBaseUrl: stripTrailingSlash(parsed.NEXT_PUBLIC_ADMIN_API_BASE_URL),
   });
 }
 

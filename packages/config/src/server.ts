@@ -2,6 +2,7 @@ import { loadEnvFiles } from "./load-env.js";
 import {
   apiConfigSchema,
   apiEnvSchema,
+  resolveDefaultPaymentProvider,
   workerConfigSchema,
   workerEnvSchema,
 } from "./schemas.js";
@@ -28,6 +29,20 @@ export function loadApiConfig(
     host: parsed.API_HOST,
     port: parsed.API_PORT,
     webOrigin: parsed.WEB_ORIGIN,
+    adminOrigin: parsed.ADMIN_ORIGIN,
+    adminSessionTtlSeconds: parsed.ADMIN_SESSION_TTL_SECONDS,
+    adminSessionIdleSeconds: parsed.ADMIN_SESSION_IDLE_SECONDS,
+    adminStepUpSeconds: parsed.ADMIN_STEP_UP_SECONDS,
+    adminRequireTotp: parsed.ADMIN_REQUIRE_TOTP === "true",
+    adminRequirePasskey: parsed.ADMIN_REQUIRE_PASSKEY === "true",
+    adminReportingTimezone: parsed.ADMIN_REPORTING_TIMEZONE,
+    adminWebauthnRpId: parsed.ADMIN_WEBAUTHN_RP_ID,
+    adminWebauthnOrigin: (parsed.ADMIN_WEBAUTHN_ORIGIN ?? parsed.ADMIN_ORIGIN).replace(/\/$/, ""),
+    adminLoginIpLimitPerMinute: parsed.ADMIN_LOGIN_IP_LIMIT_PER_MINUTE,
+    adminLoginAccountLimitPerMinute: parsed.ADMIN_LOGIN_ACCOUNT_LIMIT_PER_MINUTE,
+    adminLoginGlobalLimitPerMinute: parsed.ADMIN_LOGIN_GLOBAL_LIMIT_PER_MINUTE,
+    adminElevateLimitPerMinute: parsed.ADMIN_ELEVATE_LIMIT_PER_MINUTE,
+    adminQueryMaxRangeDays: parsed.ADMIN_QUERY_MAX_RANGE_DAYS,
     databaseUrl: parsed.DATABASE_URL,
     redisUrl: parsed.REDIS_URL,
     betterAuthSecret: parsed.BETTER_AUTH_SECRET,
@@ -84,6 +99,25 @@ export function loadApiConfig(
     notifySmsPerAccountPerHour: parsed.NOTIFY_SMS_PER_ACCOUNT_PER_HOUR,
     notifySmsPerIpPerHour: parsed.NOTIFY_SMS_PER_IP_PER_HOUR,
     notifySmsGlobalPerMinute: parsed.NOTIFY_SMS_GLOBAL_PER_MINUTE,
+    paymentProvider: parsed.PAYMENT_PROVIDER ?? resolveDefaultPaymentProvider(parsed.APP_ENV),
+    paymentCheckoutLimitPerMinute: parsed.PAYMENT_CHECKOUT_LIMIT_PER_MINUTE,
+    paymentWebhookLimitPerMinute: parsed.PAYMENT_WEBHOOK_LIMIT_PER_MINUTE,
+    paymentReconcileAfterSeconds: parsed.PAYMENT_RECONCILE_AFTER_SECONDS,
+    tbankEnv: parsed.TBANK_ENV,
+    tbankTerminalKey: parsed.TBANK_TERMINAL_KEY ?? "MockTerminalKey",
+    tbankPassword: parsed.TBANK_PASSWORD ?? "local-dev-only-tbank-password",
+    tbankApiBaseUrl: resolveTbankApiBaseUrl(parsed.TBANK_ENV, parsed.TBANK_API_BASE_URL),
+    tbankNotificationUrl: `${(parsed.TBANK_NOTIFICATION_BASE_URL ?? parsed.BETTER_AUTH_URL).replace(/\/$/, "")}/webhooks/tbank/payments`,
+    tbankSuccessUrl: parsed.TBANK_SUCCESS_URL ?? `${parsed.WEB_ORIGIN.replace(/\/$/, "")}/payment/result`,
+    tbankFailUrl: parsed.TBANK_FAIL_URL ?? `${parsed.WEB_ORIGIN.replace(/\/$/, "")}/payment/result`,
+    tbankFiscalizationEnabled: parsed.TBANK_FISCALIZATION_ENABLED === "true",
+    tbankReceiptTaxation: parsed.TBANK_RECEIPT_TAXATION,
+    tbankReceiptTax: parsed.TBANK_RECEIPT_TAX,
+    tbankReceiptPaymentMethod: parsed.TBANK_RECEIPT_PAYMENT_METHOD,
+    tbankReceiptPaymentObject: parsed.TBANK_RECEIPT_PAYMENT_OBJECT,
+    tbankReceiptFfdVersion: parsed.TBANK_RECEIPT_FFD_VERSION,
+    tbankReceiptItemName: parsed.TBANK_RECEIPT_ITEM_NAME,
+    tbankRecurringEnabled: parsed.TBANK_RECURRING_ENABLED === "true",
   });
 }
 
@@ -127,6 +161,18 @@ function resolveSmsProvider(parsed: {
   return parsed.APP_ENV === "local" || parsed.APP_ENV === "test" ? "memory" : "http";
 }
 
+export function resolveTbankApiBaseUrl(
+  tbankEnv: "test" | "production",
+  override?: string,
+): string {
+  if (override && override.trim().length > 0) {
+    return override.replace(/\/$/, "");
+  }
+  return tbankEnv === "production"
+    ? "https://securepay.tinkoff.ru"
+    : "https://rest-api-test.tinkoff.ru";
+}
+
 export function loadWorkerConfig(
   env: NodeJS.ProcessEnv = process.env,
 ): WorkerConfig {
@@ -137,5 +183,15 @@ export function loadWorkerConfig(
     logLevel: parsed.LOG_LEVEL,
     databaseUrl: parsed.DATABASE_URL,
     redisUrl: parsed.REDIS_URL,
+    paymentProvider: parsed.PAYMENT_PROVIDER ?? resolveDefaultPaymentProvider(parsed.APP_ENV),
+    paymentReconcileAfterSeconds: parsed.PAYMENT_RECONCILE_AFTER_SECONDS,
+    billingMinTopupMicroRub: parsed.BILLING_MIN_TOPUP_MICRORUB,
+    billingMaxTopupMicroRub: parsed.BILLING_MAX_TOPUP_MICRORUB,
+    billingTopupRatioBps: parsed.BILLING_TOPUP_RATIO_BPS,
+    billingSubscriptionPeriodDays: parsed.BILLING_SUBSCRIPTION_PERIOD_DAYS,
+    tbankEnv: parsed.TBANK_ENV,
+    tbankTerminalKey: parsed.TBANK_TERMINAL_KEY ?? "MockTerminalKey",
+    tbankPassword: parsed.TBANK_PASSWORD ?? "local-dev-only-tbank-password",
+    tbankApiBaseUrl: resolveTbankApiBaseUrl(parsed.TBANK_ENV, parsed.TBANK_API_BASE_URL),
   });
 }

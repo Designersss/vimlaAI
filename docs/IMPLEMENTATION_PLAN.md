@@ -138,32 +138,52 @@ Exit criteria: identity works from first click to verified account in a browser,
 ## Phase 4 — Real payment provider
 Goal: real subscription/top-up money activates existing billing domain.
 
-- [ ] choose payment provider (do not assume until user decides).
-- [ ] implement PaymentProvider adapter.
-- [ ] checkout endpoints.
-- [ ] verified webhook.
-- [ ] subscription purchase/renewal.
-- [ ] arbitrary top-up amount with server-side min/max rules.
-- [ ] duplicate webhook protection.
-- [ ] cancellation/refund domain paths.
-- [ ] billing history UI.
+- [x] choose payment provider (T-Bank Internet Acquiring, hosted page).
+- [x] implement PaymentProvider adapter.
+- [x] checkout endpoints.
+- [x] verified webhook.
+- [x] subscription purchase/renewal.
+- [x] arbitrary top-up amount with server-side min/max rules.
+- [x] duplicate webhook protection.
+- [x] cancellation/refund domain paths.
+- [x] billing history UI.
 
 Exit criteria: browser redirects cannot grant value; verified idempotent webhook does.
 
-## Phase 5 — Admin + provider treasury
-Goal: operator can see whether Vimla is profitable/safe.
+## Phase 4.5 — Finance & tariff economics foundation
+Goal: truthful unit economics and versioned tariffs for a future Admin, without exposing finance to end users.
 
-- [ ] admin authorization/audit.
-- [ ] ProxyAPI balance sync/snapshots.
-- [ ] daily provider spend.
-- [ ] provider runway estimate.
-- [ ] low-balance alerts.
-- [ ] revenue vs provider COGS dashboard.
-- [ ] per-plan/per-user provider cost.
-- [ ] cost anomaly alert thresholds.
-- [ ] reconciliation job comparing Vimla accounting to provider data.
+- [x] TOPUP never expires (`expiresAt` NULL, CHECK-enforced).
+- [x] PlanVersion DRAFT / PUBLISHED / RETIRED lifecycle.
+- [x] FREE fallback entitlement (no fake Subscription).
+- [x] typed PlanEntitlement registry (unlimited without magic -1).
+- [x] TopupPolicyVersion as PostgreSQL truth (env bootstrap fallback).
+- [x] PaymentFeePolicyVersion / FiscalizationFeePolicyVersion / optional tax reserve.
+- [x] PaymentEconomics estimated vs actual; missing policy does not block grant.
+- [x] FinanceQueryService (revenue, fees, AI COGS, outstanding, contribution, quality).
+- [x] TariffEconomicsSimulator + worst-case guardrails.
+- [x] no public `/v1/finance`.
 
-Exit criteria: operator can detect low provider balance/cost anomalies before outage/material loss.
+Exit criteria: Admin can later show real contribution/obligation/quality; historical payments are not rewritten by new policies.
+
+## Phase 5 — Protected Admin / Finance & Tariff Control Plane
+Goal: owner-only control plane, separate from consumer web.
+
+- [x] `apps/admin` on `:3002` / production `admin.<domain>`.
+- [x] `/admin/v1/*` + `AdminGuard` + `@RequireAdminPermission` (default deny).
+- [x] `AdminPrincipal` / `AdminRole` / `AdminSession` / `AdminAuditLog`.
+- [x] CLI bootstrap / disable / revoke-sessions.
+- [x] Better Auth TOTP + passkey plugins; AdminSession distinct from user session.
+- [x] Finance Overview via `FinanceQueryService`; top-up outstanding highlighted; no net profit as fact.
+- [x] Tariff drafts, simulator, negative-margin confirmation; no top-up expiry UI.
+- [x] Canonical project entitlement keys (Projects not implemented).
+- [x] Admin E2E on ports `3202` / `3201` (user E2E remains `3100` / `3101`).
+- [ ] ProxyAPI balance sync/snapshots / provider runway (Phase 5.x).
+- [ ] Bounded CSV export (Phase 5.x).
+- [ ] Model price write editor (Phase 5.x; catalog is read-only).
+- [ ] Reconciliation compensating write actions (Phase 5.x; inspect-only now).
+
+Exit criteria: ordinary users cannot reach Admin API; quality gate includes Admin tests. See `docs/ADMIN_SECURITY.md` and `docs/FINANCE_ADMIN.md`.
 
 ## Phase 6 — Images
 - [ ] image capability interface/provider mapping.

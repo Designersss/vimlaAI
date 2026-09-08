@@ -111,7 +111,7 @@ Controllers that own expensive mutations (`ConversationsController`, `MockPurcha
 
 ## Browser E2E
 
-`pnpm test:e2e` runs Playwright against a dedicated Next.js origin (`http://localhost:3100`) and Nest API (`http://localhost:3101`) so it does not attach to a local `pnpm dev` process. The suite uses `APP_ENV=test`, test PostgreSQL, test Redis, memory notifications, `MockAiProvider` and mock purchases. It must not target production or send real email, SMS, ProxyAPI or payment traffic.
+`pnpm test:e2e` runs Playwright against dedicated origins so it does not attach to a local `pnpm dev` process: consumer web `http://localhost:3100` / API `http://localhost:3101`, Admin `http://localhost:3202` / API `http://localhost:3201`. The suite uses `APP_ENV=test`, test PostgreSQL, test Redis, memory notifications, `MockAiProvider` and mock purchases. It must not target production or send real email, SMS, ProxyAPI or payment traffic.
 
 Hijacked AI SSE responses include CORS credentials headers (`Access-Control-Allow-Origin` = `WEB_ORIGIN`) because `reply.hijack()` skips Nest's CORS plugin. Without that, the browser cannot read the stream.
 
@@ -189,8 +189,25 @@ Do not use floats for authoritative calculations.
 ### Top-up bucket
 - created after confirmed top-up payment;
 - separate from subscription;
-- default non-expiring unless product policy changes;
+- **never expires** (`expiresAt` is NULL; CHECK-enforced);
+- remaining balance is outstanding AI obligation, not profit;
 - retail amount and provider-cost budget are distinct values.
+
+## Phase 4.5 finance & tariff economics
+Internal `FinanceQueryService` / `TariffEconomicsSimulator` compute contribution (realized vs conservative), not “net profit”. No public finance HTTP API. Payment method is taken from signed notification PAN presence or trusted GetState `Params.Source` (`cards` → CARD). Nested unsigned webhook Params are not used.
+
+```text
+Revenue (gross customer payment)
+≠ usage grant
+≠ AI COGS (AiRequest.providerActualCostMicroRub)
+≠ outstanding obligation (unexpired MONTHLY remaining + all TOPUP remaining)
+```
+
+Estimated acquiring/fiscalization fees use **ceil** basis-point rounding. Actual reconciled fees are stored separately and preferred when present. A new published fee/top-up/plan version never rewrites historical PaymentEconomics or checkout snapshots.
+
+`EffectivePlanResolver`: ACTIVE paid subscription, else published FREE. Target 199/499/999 PlanVersions stay DRAFT until monthly grants are decided in Admin.
+
+Phase 5 Admin: `apps/admin` on a distinct origin; `/admin/v1/*` with AdminSession, MFA and default-deny permissions. Finance Overview uses `FinanceQueryService`. See `docs/ADMIN_SECURITY.md`.
 
 ## Reservation/settlement
 Reservation protects against concurrency/overspend.
@@ -219,6 +236,20 @@ A subscription references one `PlanVersion` and a 30-day period (configurable). 
 Payments are created server-side. Grants happen only after a verified `PaymentEvent`. Unique `(provider, providerEventId)` makes duplicate/replay events a no-op. Browser "I paid" is never trusted.
 
 `MockPaymentProvider` exists only for `local`/`test`. HTTP helpers `POST /dev/mock-purchases/*` are not registered when `APP_ENV` is staging or production.
+
+### Phase 4 T-Bank acquiring
+Hosted payment page only. Billing domain talks to `PaymentProvider`; `TBankPaymentProvider` owns `/v2/Init`, `GetState`, `CheckOrder`, `Cancel`, Token signing and notification verification. Browser never sends card data, prices, grants or redirect URLs.
+
+Checkout snapshot is immutable (`planVersionId` / `topupRatioBps` + amounts). Fulfillment uses the snapshot, not the current catalog. Grant happens in the same DB transaction as marking `SUCCEEDED`. Domain status is separate from raw `providerStatus`. One-stage `PayType=O`: grant only on `CONFIRMED`, never `AUTHORIZED`.
+
+Webhook `POST /webhooks/tbank/payments` is unauthenticated but not unverified: signature, terminal, order mapping and amount must match. Success body is plain `OK`. Browser `/payment/result` only polls `GET /v1/payments/:id` (owner-scoped 404). Worker reconciliation reuses the same `processPaymentEvent` path.
+
+Recurring MIT charges are off (`TBANK_RECURRING_ENABLED` must stay false). UI says “Active until”, never “next charge”. Fiscalization `Receipt` is config-gated; production cannot enable it without accountant-supplied Taxation/Tax/FFD fields.
+
+### Fiscalization
+T-Bank `Receipt` is not invented in code. `TBANK_FISCALIZATION_ENABLED=true` requires accountant/cash-register values: `Taxation`, item `Tax`, `PaymentMethod`, `PaymentObject`, FFD version. If those are missing, the process refuses to start. Line items are server-defined and `sum(Items.Amount)` equals Init `Amount`. Refund receipts are not user-supplied.
+
+Future Projects: application layer separates authenticated actor from billing subject. Today the resolver always returns the current user's `USER` subject. No polymorphic payment FK. Project `PERSONAL_USAGE` / `PROJECT_USAGE` payment source selection is documented only.
 
 ### Usage buckets
 Types: `MONTHLY` (expires at period end) and `TOPUP` (`expiresAt` null). CHECK constraint: `spent + reserved <= total` and all amounts `>= 0`.
@@ -279,7 +310,7 @@ Kill switch: `AI_TEXT_ENABLED=false` blocks new provider calls; auth/billing/con
 Default tests use `MockAiProvider`. Optional live smoke: `VIMLA_PROXYAPI_LIVE=1 pnpm test:proxyapi` (not CI).
 
 ## Payments
-Use `PaymentProvider` abstraction. Build with mock first. Real provider selection can be T-Kassa/CloudPayments/etc. Domain must not depend on a specific SDK.
+Use `PaymentProvider` abstraction (`MockPaymentProvider` | `TBankPaymentProvider`). Billing domain does not call T-Bank HTTP. Token/notification verification lives in the adapter. Domain must not depend on a T-Bank SDK.
 
 ## Storage
 PostgreSQL stores metadata. Files/images/video live in S3-compatible object storage. Use signed URLs or backend-mediated access as appropriate.

@@ -42,6 +42,14 @@ export const apiErrorCodeSchema = z.enum([
   "session_not_found",
   "notification_temporarily_unavailable",
   "notification_not_found",
+  "payment_temporarily_unavailable",
+  "payment_not_found",
+  "payment_already_processed",
+  "payment_amount_invalid",
+  "payment_reconciliation_required",
+  "payment_provider_unavailable",
+  "payment_rate_limited",
+  "subscription_already_active",
 ]);
 export type ApiErrorCode = z.infer<typeof apiErrorCodeSchema>;
 

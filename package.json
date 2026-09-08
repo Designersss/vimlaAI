@@ -12,13 +12,17 @@
     "typecheck": "turbo run typecheck",
     "test": "turbo run test",
     "test:integration": "dotenv -e .env -- sh -c 'pnpm --filter @vimla/database ensure-test-db && turbo run test:integration'",
-    "test:e2e": "dotenv -e .env -- sh -c 'pnpm --filter @vimla/database ensure-test-db && DATABASE_URL=\"$TEST_DATABASE_URL\" pnpm --filter @vimla/billing seed && DATABASE_URL=\"$TEST_DATABASE_URL\" pnpm --filter @vimla/ai seed && pnpm --filter @vimla/web test:e2e'",
+    "test:e2e": "dotenv -e .env -- sh -c 'pnpm --filter @vimla/database ensure-test-db && DATABASE_URL=\"$TEST_DATABASE_URL\" pnpm --filter @vimla/billing seed && DATABASE_URL=\"$TEST_DATABASE_URL\" pnpm --filter @vimla/ai seed && pnpm --filter @vimla/web test:e2e && pnpm --filter @vimla/admin-web test:e2e'",
+    "admin:bootstrap": "dotenv -e .env -- pnpm --filter @vimla/admin bootstrap --",
+    "admin:disable": "dotenv -e .env -- pnpm --filter @vimla/admin disable --",
+    "admin:revoke-sessions": "dotenv -e .env -- pnpm --filter @vimla/admin revoke-sessions --",
     "db:generate": "pnpm --filter @vimla/database generate",
     "db:migrate": "pnpm db:migrate:dev",
     "db:migrate:dev": "dotenv -e .env -- pnpm --filter @vimla/database migrate:dev",
     "db:migrate:deploy": "dotenv -e .env -- pnpm --filter @vimla/database migrate:deploy",
     "db:seed": "dotenv -e .env -- sh -c 'pnpm --filter @vimla/billing seed && pnpm --filter @vimla/ai seed'",
     "test:proxyapi": "dotenv -e .env -- pnpm --filter @vimla/ai test:proxyapi",
+    "test:tbank": "node -e \"console.log('Refusing live T-Bank charges. Set TBANK_LIVE_TEST=1 with a TEST terminal only, never production credentials. Not part of CI.')\"",
     "db:studio": "dotenv -e .env -- pnpm --filter @vimla/database studio"
   },
   "pnpm": {

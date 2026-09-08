@@ -13,6 +13,7 @@
     "signOut": "Выйти",
     "settings": "Настройки",
     "security": "Безопасность",
+    "billing": "Оплата",
     "home": "Главная",
     "chat": "Чат"
   },
@@ -135,6 +136,35 @@
     "changeEmailSuccess": "Email обновлён",
     "unknownDevice": "Неизвестное устройство"
   },
+  "billing": {
+    "title": "Оплата",
+    "currentPlan": "Текущий тариф",
+    "noPlan": "Нет активного тарифа",
+    "activeUntil": "Действует до {date}",
+    "plans": "Тарифы",
+    "buy": "Купить",
+    "topup": "Пополнить Usage",
+    "topupAmount": "Сумма",
+    "pay": "Оплатить",
+    "history": "История платежей",
+    "emptyHistory": "Платежей пока нет.",
+    "waiting": "Ожидаем подтверждение…",
+    "resultTitle": "Статус платежа",
+    "missingPayment": "Платёж не найден.",
+    "mockTitle": "Тестовая страница оплаты",
+    "mockCopy": "Это локальная замена платёжной формы Т-Банка. Возврат на сайт сам по себе не подтверждает оплату.",
+    "returnToMerchant": "Вернуться в магазин",
+    "status": {
+      "CREATED": "Создан",
+      "PENDING": "Ожидаем подтверждение",
+      "SUCCEEDED": "Оплачено",
+      "FAILED": "Платёж не прошёл",
+      "CANCELED": "Отменён",
+      "REFUNDED": "Возвращён",
+      "PARTIALLY_REFUNDED": "Частично возвращён",
+      "RECONCILIATION_REQUIRED": "Требует сверки"
+    }
+  },
   "chat": {
     "loading": "Загружаем Vimla…",
     "failed": "Не удалось загрузить рабочее пространство.",
@@ -193,6 +223,14 @@
     "session_not_found": "Сессия не найдена.",
     "notification_temporarily_unavailable": "Доставка уведомления временно недоступна. Попробуйте позже.",
     "notification_not_found": "В локальном inbox нет уведомления.",
+    "payment_temporarily_unavailable": "Оплата временно недоступна.",
+    "payment_not_found": "Платёж не найден.",
+    "payment_already_processed": "Этот платёж уже обрабатывается.",
+    "payment_amount_invalid": "Некорректная сумма платежа.",
+    "payment_reconciliation_required": "Платёж требует сверки.",
+    "payment_provider_unavailable": "Платёжный провайдер временно недоступен.",
+    "payment_rate_limited": "Слишком много попыток оплаты. Подождите.",
+    "subscription_already_active": "У вас уже есть активный тариф.",
     "generic": "Не получилось выполнить запрос. Попробуйте ещё раз."
   }
 }

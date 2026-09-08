@@ -3,13 +3,25 @@ import type { MicroRub } from "./money.js";
 export const PLAN_CODES = ["LITE", "START", "PRO"] as const;
 export type PlanCode = (typeof PLAN_CODES)[number];
 
+export const PLAN_IDENTITY_CODES = ["LITE", "START", "PRO", "FREE", "T199", "T499", "T999"] as const;
+export type PlanIdentityCode = (typeof PLAN_IDENTITY_CODES)[number];
+
 export const SUBSCRIPTION_STATUSES = ["ACTIVE", "CANCELED", "EXPIRED"] as const;
 export type SubscriptionStatus = (typeof SUBSCRIPTION_STATUSES)[number];
 
 export const PAYMENT_KINDS = ["SUBSCRIPTION", "TOPUP"] as const;
 export type PaymentKind = (typeof PAYMENT_KINDS)[number];
 
-export const PAYMENT_STATUSES = ["PENDING", "SUCCEEDED", "FAILED", "REFUNDED"] as const;
+export const PAYMENT_STATUSES = [
+  "CREATED",
+  "PENDING",
+  "SUCCEEDED",
+  "FAILED",
+  "CANCELED",
+  "REFUNDED",
+  "PARTIALLY_REFUNDED",
+  "RECONCILIATION_REQUIRED",
+] as const;
 export type PaymentStatus = (typeof PAYMENT_STATUSES)[number];
 
 export const USAGE_BUCKET_TYPES = ["MONTHLY", "TOPUP"] as const;
@@ -26,6 +38,7 @@ export type ReservationStatus = (typeof RESERVATION_STATUSES)[number];
 export const LEDGER_TYPES = [
   "BUCKET_GRANTED",
   "TOPUP_GRANTED",
+  "BUCKET_REVOKED",
   "RESERVATION_CREATED",
   "USAGE_SETTLED",
   "RESERVATION_RELEASED",
@@ -78,8 +91,22 @@ export interface ReservationView {
 export interface PaymentEventInput {
   provider: string;
   providerEventId: string;
-  providerPaymentId: string;
-  eventType: "payment.succeeded" | "payment.failed" | "payment.refunded";
+  providerPaymentId?: string;
+  orderId?: string;
+  eventType:
+    | "payment.succeeded"
+    | "payment.failed"
+    | "payment.refunded"
+    | "payment.canceled"
+    | "payment.partially_refunded"
+    | "payment.chargeback"
+    | "payment.status";
+  providerStatus?: string;
+  amountMicroRub?: MicroRub;
+  terminalKey?: string;
+  refundAmountMicroRub?: MicroRub;
+  paymentMethod?: string;
+  rawProviderPaymentMethod?: string;
 }
 
 export interface ProcessPaymentResult {

@@ -1,0 +1,1248 @@
+---
+description: Vimla responsive UI, adaptive layouts, viewport strategy, mobile/tablet/desktop behavior, and responsive E2E testing rules
+globs:
+  - "apps/web/**/*.{ts,tsx,scss,css}"
+  - "apps/admin/**/*.{ts,tsx,scss,css}"
+  - "packages/ui/**/*.{ts,tsx,scss,css}"
+  - "tests/**/*.{ts,tsx}"
+  - "e2e/**/*.{ts,tsx}"
+alwaysApply: false
+---
+
+# Vimla Responsive UI & Testing
+
+These rules are mandatory for all frontend UI work in Vimla.
+
+The goal is not to create a separate CSS layout for every phone or screen size.
+
+The goal is to build fluid, resilient interfaces that remain usable across:
+
+- small phones;
+- common mobile phones;
+- large phones;
+- tablets;
+- small laptops;
+- regular laptops;
+- desktop monitors;
+- wide desktop monitors;
+- portrait orientation;
+- landscape orientation;
+- touch input;
+- mouse input;
+- keyboard input.
+
+"Responsive on all devices" means robust layout behavior across viewport ranges, not one hard-coded branch per physical device model.
+
+---
+
+# 1. Responsive behavior is mandatory
+
+Every new user-facing page and shared UI component must be designed and implemented responsively from the beginning.
+
+Do not implement desktop first and postpone mobile as undefined technical debt unless explicitly approved.
+
+A feature is not complete if its core flow breaks on:
+
+```text
+mobile
+tablet
+laptop
+desktop
+```
+
+Responsive behavior is part of feature correctness.
+
+---
+
+# 2. Centralized breakpoint system
+
+Breakpoints must be centralized in the design system.
+
+Do not invent arbitrary breakpoints in individual feature files.
+
+Use a shared breakpoint/token layer.
+
+Recommended initial viewport ranges may be approximately:
+
+```text
+xs: 0+
+sm: 480+
+md: 768+
+lg: 1024+
+xl: 1280+
+2xl: 1536+
+```
+
+Exact values should be finalized in `docs/DESIGN_SYSTEM.md`.
+
+Do not optimize for one specific iPhone, Android device, MacBook, or monitor.
+
+Use content-driven responsive behavior.
+
+---
+
+# 3. Prefer fluid layout over breakpoint-heavy layout
+
+Prefer:
+
+- CSS Grid;
+- Flexbox;
+- `minmax()`;
+- `clamp()`;
+- intrinsic sizing;
+- `max-width`;
+- percentage/fr units;
+- container constraints;
+- wrapping;
+
+before adding a new media query.
+
+GOOD:
+
+```scss
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+}
+```
+
+BAD:
+
+```scss
+@media (width: 1378px) { ... }
+@media (width: 1394px) { ... }
+@media (width: 1440px) { ... }
+```
+
+Avoid device-specific CSS hacks.
+
+---
+
+# 4. No accidental horizontal overflow
+
+Pages must not create unintended horizontal scrolling.
+
+Always verify:
+
+- long text;
+- long URLs;
+- code blocks;
+- tables;
+- model names;
+- email addresses;
+- payment IDs;
+- badges;
+- buttons;
+- modal contents;
+- sidebar layouts.
+
+Use appropriate:
+
+```text
+min-width: 0
+overflow-wrap
+text-overflow
+overflow-x
+scroll containers
+```
+
+Do not hide important content by applying `overflow: hidden` blindly.
+
+---
+
+# 5. Minimum supported width
+
+The consumer Vimla application should remain functionally usable down to approximately:
+
+```text
+320 CSS px
+```
+
+unless a feature has a documented technical reason otherwise.
+
+Admin is desktop-first, but critical Admin flows should still remain usable on narrow screens through responsive stacking, drawers, or horizontally scrollable data containers.
+
+Admin must not become unusable solely because the viewport is smaller than a laptop.
+
+---
+
+# 6. Viewport height matters too
+
+Do not design only for width.
+
+Support:
+
+- short laptop screens;
+- mobile browser chrome;
+- on-screen keyboards;
+- split-screen windows.
+
+Avoid fixed-height layouts that cut off:
+
+- auth submit buttons;
+- chat composer;
+- dialogs;
+- billing actions;
+- settings controls.
+
+Prefer:
+
+```text
+min-height
+dvh
+svh
+flex layouts
+scrollable content regions
+```
+
+over assuming `100vh` always represents usable space.
+
+---
+
+# 7. Mobile browser viewport units
+
+When implementing full-height mobile layouts, prefer modern viewport units such as:
+
+```text
+dvh
+svh
+lvh
+```
+
+where appropriate.
+
+Do not rely only on legacy `100vh` for mobile application shells if it causes browser-toolbar or keyboard issues.
+
+Provide sensible fallback where necessary.
+
+---
+
+# 8. Safe-area support
+
+Interfaces used on mobile must account for safe-area insets where relevant.
+
+Examples:
+
+- bottom chat composer;
+- bottom navigation;
+- full-screen drawers;
+- full-screen modals;
+- top fixed bars.
+
+Use:
+
+```css
+env(safe-area-inset-top)
+env(safe-area-inset-right)
+env(safe-area-inset-bottom)
+env(safe-area-inset-left)
+```
+
+through shared layout utilities/tokens where appropriate.
+
+Do not hardcode iPhone-specific pixel offsets.
+
+---
+
+# 9. Touch targets
+
+Interactive controls on touch devices should generally have an effective target of approximately:
+
+```text
+44 × 44 CSS px
+```
+
+where appropriate.
+
+Small visual icons may remain visually smaller, but the clickable/tappable target must remain usable.
+
+Applies especially to:
+
+- icon buttons;
+- sidebar controls;
+- close buttons;
+- dropdown triggers;
+- message actions;
+- mobile navigation;
+- password visibility controls.
+
+---
+
+# 10. Do not depend on hover
+
+Hover is enhancement, not required functionality.
+
+Any action available only through `:hover` is invalid for touch devices unless there is another obvious touch-accessible path.
+
+Examples:
+
+BAD:
+
+```text
+message delete appears only on hover with no mobile equivalent
+```
+
+GOOD:
+
+```text
+desktop hover actions
++
+mobile overflow/action menu
+```
+
+---
+
+# 11. Pointer capability
+
+When interaction behavior differs by input type, prefer capability media queries where useful:
+
+```css
+@media (hover: hover) and (pointer: fine) { ... }
+```
+
+Do not assume:
+
+```text
+wide screen = mouse
+small screen = touch
+```
+
+Convertible devices exist.
+
+---
+
+# 12. Typography must scale safely
+
+Typography should remain readable across viewports.
+
+Use centralized type tokens and, where appropriate, fluid values with `clamp()`.
+
+Do not aggressively shrink body text to make layouts fit.
+
+Body text should remain comfortably readable on mobile.
+
+If space is constrained:
+
+- reflow layout;
+- wrap;
+- stack controls;
+- collapse secondary information;
+
+instead of reducing text to unreadable sizes.
+
+---
+
+# 13. Responsive spacing
+
+Spacing should use the design-system scale.
+
+Layouts may become denser on narrow viewports, but do not introduce random mobile-only spacing values.
+
+Prefer explicit responsive spacing tokens or shared patterns.
+
+Example concept:
+
+```text
+page padding:
+mobile -> smaller system spacing
+tablet -> medium
+desktop -> larger
+```
+
+Keep the same visual rhythm.
+
+---
+
+# 14. Application shell behavior
+
+The main Vimla application shell must have explicit responsive behavior.
+
+Desktop:
+
+```text
+persistent/collapsible sidebar
+main workspace
+```
+
+Tablet:
+
+```text
+compact/collapsible sidebar or drawer depending on available width
+```
+
+Mobile:
+
+```text
+sidebar becomes Drawer / Sheet
+main content uses full width
+```
+
+Do not keep a fixed 280px sidebar visible on a 375px viewport.
+
+---
+
+# 15. Sidebar state
+
+Desktop sidebar state and mobile navigation state must be separate concepts.
+
+Do not let:
+
+```text
+desktop collapsed preference
+```
+
+break:
+
+```text
+mobile drawer behavior
+```
+
+The mobile drawer should close after relevant navigation and support:
+
+- Escape;
+- overlay click where appropriate;
+- focus management;
+- keyboard navigation.
+
+---
+
+# 16. Chat responsive behavior
+
+Chat is a critical Vimla flow.
+
+It must work well across all supported viewports.
+
+Mobile requirements:
+
+- conversation content uses available width;
+- composer remains accessible above safe area/on-screen keyboard;
+- attachments/actions do not overflow;
+- model selector remains reachable;
+- message actions remain touch-accessible;
+- code blocks can scroll horizontally without breaking the page;
+- long responses wrap safely;
+- sidebar/navigation becomes drawer;
+- optional secondary panels must not permanently consume screen width.
+
+Do not merely shrink the desktop chat layout.
+
+---
+
+# 17. Chat composer
+
+The composer must adapt to width.
+
+Desktop may show:
+
+```text
+attachment
+mode/model selector
+input
+voice
+send
+```
+
+in one horizontal composition.
+
+Mobile may:
+
+- stack secondary controls;
+- move model selector into a compact menu;
+- collapse secondary actions;
+- preserve a large primary text area.
+
+The send action must remain reachable when the mobile keyboard is open.
+
+---
+
+# 18. Authentication responsive behavior
+
+Auth screens must work on:
+
+- 320px small mobile;
+- common mobile;
+- tablet;
+- desktop;
+- short viewport heights.
+
+Do not require a large centered card with fixed height.
+
+If a split-screen marketing layout exists:
+
+```text
+desktop -> split layout allowed
+mobile -> auth form becomes primary full-width content
+```
+
+The actual sign-in/sign-up flow must remain simple.
+
+OTP inputs must fit small screens without horizontal overflow.
+
+---
+
+# 19. Settings responsive behavior
+
+Desktop Settings may use:
+
+```text
+settings navigation + content
+```
+
+On mobile:
+
+- navigation may become a top-level list, drawer, or compact selector;
+- content should use full width;
+- forms should stack;
+- action buttons should remain reachable.
+
+Do not force a desktop settings sidebar into a narrow screen.
+
+---
+
+# 20. Billing responsive behavior
+
+Billing/Pricing must remain understandable on mobile.
+
+Plan cards should:
+
+- stack cleanly;
+- preserve comparison clarity;
+- avoid tiny multi-column cards;
+- keep price and CTA visible;
+- avoid overflow from long feature names.
+
+Payment history tables may become:
+
+- horizontally scrollable contained tables;
+- responsive cards/rows;
+- column-prioritized layouts.
+
+Do not hide critical payment status or amount.
+
+---
+
+# 21. Projects responsive behavior
+
+Future Project UI must follow the same system.
+
+Desktop may show:
+
+```text
+project navigation
+main chat/workspace
+optional context panel
+```
+
+Mobile must not display three permanent columns.
+
+Use:
+
+- tabs;
+- drawers;
+- sheets;
+- route-level views;
+- compact project header.
+
+Core project actions must remain accessible.
+
+---
+
+# 22. Admin responsive behavior
+
+Admin is desktop-first but not desktop-only.
+
+Desktop:
+
+- dense tables;
+- filters;
+- side navigation;
+- charts.
+
+Tablet/mobile:
+
+- filters may collapse into a Drawer;
+- KPI cards stack;
+- tables use controlled horizontal scrolling or responsive column reduction;
+- actions remain available;
+- detail panels may become full-screen routes/sheets.
+
+Never simply hide financial fields because screen width is small.
+
+---
+
+# 23. Tables
+
+Tables require explicit responsive strategy.
+
+For every data table decide which approach is appropriate:
+
+```text
+horizontal scroll container
+responsive column visibility
+stacked row/card representation
+detail drilldown
+```
+
+Do not allow a table to stretch the entire page horizontally.
+
+Critical identifiers, amount, status, and primary action should remain accessible.
+
+---
+
+# 24. Dialogs and drawers
+
+Shared Dialog/Modal behavior:
+
+Desktop:
+
+```text
+centered constrained dialog
+```
+
+Small mobile:
+
+```text
+may use near-full-width dialog or bottom/full-screen sheet depending on task
+```
+
+Dialogs must respect:
+
+- viewport height;
+- keyboard;
+- safe area;
+- internal scrolling;
+- focus management.
+
+Do not render a fixed 700px-wide dialog on a 375px device.
+
+---
+
+# 25. Forms
+
+Forms must reflow intentionally.
+
+Desktop may use two-column fields where useful.
+
+Mobile should normally stack fields vertically.
+
+Do not use two narrow columns simply to preserve a desktop screenshot.
+
+Primary actions should remain clear.
+
+For long forms, consider sticky actions only if they do not obstruct content or mobile keyboard.
+
+---
+
+# 26. Navigation and breadcrumbs
+
+Breadcrumbs must not overflow narrow screens.
+
+Use:
+
+- truncation;
+- collapsing intermediate levels;
+- responsive back navigation.
+
+Do not wrap a long breadcrumb into an unreadable multi-line block unless intentional.
+
+---
+
+# 27. Images and uploaded content
+
+User-uploaded images/files must:
+
+- fit within available width;
+- preserve aspect ratio;
+- not overflow containers.
+
+Use sensible max dimensions.
+
+Do not stretch low-resolution images.
+
+---
+
+# 28. Code blocks
+
+Code blocks must not force whole-page horizontal scroll.
+
+Use contained:
+
+```text
+overflow-x: auto
+```
+
+with visible accessible scrolling behavior.
+
+Copy buttons must remain reachable on small screens.
+
+---
+
+# 29. Long content resilience
+
+Test UI with intentionally difficult content:
+
+- long Russian words/phrases;
+- long English text;
+- long email;
+- long project name;
+- long conversation title;
+- long model name;
+- large monetary values;
+- long payment IDs;
+- multiple badges.
+
+Do not test only ideal short strings.
+
+---
+
+# 30. Localization and responsiveness
+
+RU and EN can have different text lengths.
+
+A layout is not responsive if it works in English but breaks in Russian, or vice versa.
+
+Responsive tests should include both locales for critical UI where practical.
+
+Do not use fixed widths based on one language.
+
+---
+
+# 31. Zoom support
+
+Core application flows should remain usable at browser zoom levels such as:
+
+```text
+200%
+```
+
+where reasonably required for accessibility.
+
+Do not disable zoom.
+
+Avoid layouts that depend on exact physical pixel size.
+
+---
+
+# 32. Orientation
+
+Critical mobile flows should work in both:
+
+```text
+portrait
+landscape
+```
+
+Do not create landscape-only breakage from fixed-height headers/composers.
+
+No need for a unique design for every orientation; layouts should reflow safely.
+
+---
+
+# 33. Responsive state must not change business semantics
+
+Responsive UI must not change:
+
+- permissions;
+- billing;
+- Usage;
+- project ownership;
+- payment status;
+- AI mode semantics;
+- Admin authorization.
+
+Mobile UI may reorganize controls, but it must not silently remove important functionality.
+
+---
+
+# 34. SSR and hydration
+
+Responsive implementation must not depend on unsafe server/client viewport assumptions that produce hydration mismatches.
+
+Prefer CSS media queries for presentation changes.
+
+Use JavaScript viewport detection only when actual behavior cannot reasonably be expressed in CSS.
+
+If JS responsiveness is necessary:
+
+- isolate it;
+- handle SSR safely;
+- test hydration.
+
+---
+
+# 35. Avoid duplicate mobile and desktop applications
+
+Do not maintain two separate feature implementations such as:
+
+```text
+DesktopBillingPage
+MobileBillingPage
+```
+
+unless there is an exceptional architectural reason.
+
+Prefer shared data/business logic with responsive composition.
+
+Avoid duplicating domain actions and fetching logic.
+
+---
+
+# 36. Shared responsive utilities
+
+Reusable responsive behavior belongs in the design system.
+
+Examples:
+
+```text
+Container
+Stack
+Inline
+Cluster
+ResponsiveGrid
+VisuallyHidden
+Drawer
+```
+
+or equivalent utilities where useful.
+
+Do not build a new responsive helper system in each feature.
+
+---
+
+# 37. Responsive testing is mandatory
+
+Critical UI flows require automated responsive coverage.
+
+Do not consider manual browser resizing sufficient.
+
+Use Playwright for viewport/device-level regression coverage.
+
+The standard test suite must not use live:
+
+- T-Bank;
+- ProxyAPI;
+- email/SMS providers.
+
+Use existing mocks/test infrastructure.
+
+---
+
+# 38. Representative viewport matrix
+
+Do not try to test every physical device.
+
+Use representative viewport classes.
+
+Minimum recommended matrix:
+
+```text
+Small Mobile
+320 × 568
+
+Mobile
+375 × 667
+
+Modern Mobile
+390 × 844
+
+Tablet Portrait
+768 × 1024
+
+Tablet / Small Laptop
+1024 × 768
+
+Laptop
+1280 × 800
+
+Desktop
+1440 × 900
+
+Wide Desktop
+1920 × 1080
+```
+
+The exact matrix may be adjusted to keep CI practical, but all major layout classes must remain represented.
+
+---
+
+# 39. Browser coverage
+
+Where practical, critical responsive flows should be tested in representative browser engines via Playwright:
+
+```text
+Chromium
+WebKit
+Firefox
+```
+
+At minimum:
+
+- Chromium desktop;
+- one mobile WebKit-style device profile or equivalent;
+- critical layout smoke coverage in Firefox.
+
+Do not multiply every test by every browser and viewport if it makes CI excessively slow.
+
+Use a targeted matrix.
+
+---
+
+# 40. Playwright device emulation
+
+Use Playwright device profiles where appropriate for realistic mobile behavior.
+
+Examples may include a representative:
+
+```text
+iPhone
+Android/Pixel
+tablet
+```
+
+Do not write CSS specifically for these models.
+
+Device profiles exist for regression testing, not implementation targeting.
+
+---
+
+# 41. Required responsive smoke flows
+
+At minimum, after the design-system refactor, automated responsive smoke tests should cover:
+
+## Consumer app
+
+```text
+Sign In
+Sign Up
+Verify Email
+Forgot/Reset Password
+Main Chat
+Chat Composer
+Settings
+Security
+Billing
+Usage
+```
+
+## Future Projects
+
+```text
+Project list
+Project workspace
+PLAN_LOCKED state
+member states
+Context View
+```
+
+## Admin
+
+```text
+Admin login/strong auth
+Finance Overview
+Tariff editor
+Payments table/detail
+Users table/detail
+```
+
+Only implement tests for features that already exist.
+
+Do not mock future screens that are not implemented yet.
+
+---
+
+# 42. Responsive assertions
+
+Responsive tests should assert behavior, not only screenshots.
+
+Examples:
+
+```text
+no unintended page-level horizontal overflow
+primary action is visible/reachable
+sidebar is replaced by mobile drawer
+drawer can open and close
+composer is visible
+form submit button is reachable
+dialog fits viewport
+table is contained
+critical labels are not clipped
+navigation remains operable
+```
+
+Do not rely only on visual snapshots.
+
+---
+
+# 43. Horizontal overflow assertion
+
+Create a reusable Playwright helper where practical.
+
+For critical pages verify conceptually:
+
+```js
+document.documentElement.scrollWidth <= document.documentElement.clientWidth
+```
+
+except where the page intentionally contains a controlled internal horizontal scroller such as a code block or table.
+
+Do not treat intentional component-level scrolling as page overflow.
+
+---
+
+# 44. Touch interaction tests
+
+For mobile flows verify key actions do not require hover.
+
+Test:
+
+- opening mobile navigation;
+- selecting model/mode;
+- submitting forms;
+- sending chat message;
+- opening dropdown;
+- closing modal/drawer;
+- billing CTA.
+
+Use touch/device emulation where practical.
+
+---
+
+# 45. Keyboard tests
+
+Responsive work must not regress keyboard accessibility.
+
+Critical desktop flows should verify:
+
+- Tab navigation;
+- focus-visible;
+- Enter/Space activation;
+- Escape to close overlays;
+- focus return after Dialog/Drawer close.
+
+Do not create separate inaccessible mobile components.
+
+---
+
+# 46. Mobile keyboard resilience
+
+For forms/chat, implementation should account for virtual keyboards.
+
+Automated browser emulation cannot perfectly reproduce every OS keyboard, so also provide manual verification instructions for:
+
+- iOS Safari;
+- Android Chrome;
+
+before production release.
+
+Composer or submit actions must not become permanently hidden behind the keyboard.
+
+---
+
+# 47. Visual regression tests
+
+Use visual screenshot tests selectively.
+
+Good candidates:
+
+```text
+UI catalog
+AppShell
+Auth shell
+Chat empty state
+Settings shell
+Admin shell
+```
+
+Avoid screenshot-testing every dynamic page if it makes the suite brittle.
+
+Behavioral responsive tests remain mandatory even when screenshots exist.
+
+---
+
+# 48. UI catalog responsive review
+
+The local/test-only UI catalog such as:
+
+```text
+/dev/ui
+```
+
+should be usable at:
+
+```text
+mobile
+tablet
+desktop
+dark mode
+light mode
+```
+
+Shared component changes should be reviewed there before being accepted.
+
+---
+
+# 49. Test selectors
+
+Use semantic queries first:
+
+```text
+role
+label
+text
+```
+
+Add stable `data-testid` only where necessary.
+
+Do not litter UI with test IDs when accessible selectors are available.
+
+Responsive tests should verify the same user-visible behavior users interact with.
+
+---
+
+# 50. CI strategy
+
+Responsive coverage must be meaningful without making CI unreasonably slow.
+
+Preferred strategy:
+
+- full existing E2E on primary desktop browser;
+- focused responsive smoke suite across representative viewport classes;
+- targeted cross-browser tests for critical shared shells/components;
+- visual snapshots for a small stable set of screens.
+
+Do not run every full E2E scenario across 8 viewports × 3 browsers unless there is a justified reason.
+
+---
+
+# 51. Manual device verification before production
+
+Automated testing does not replace final physical-device smoke testing.
+
+Before production UI release, manually verify at least:
+
+```text
+real iPhone / iOS Safari
+real Android / Chrome
+desktop Safari
+desktop Chromium browser
+```
+
+when access to these environments is available.
+
+Document any unavailable environment instead of pretending it was tested.
+
+---
+
+# 52. Performance on mobile
+
+Responsive design must consider lower-powered devices and slower networks.
+
+Avoid unnecessary:
+
+- large animation libraries;
+- huge JS-only layout systems;
+- excessive rerenders;
+- large blocking images;
+- expensive effects.
+
+Motion should remain smooth but lightweight.
+
+Respect reduced-motion settings.
+
+---
+
+# 53. Network-independent layout
+
+The basic shell and loading states must remain structurally usable while API requests are pending.
+
+Do not make layout dimensions depend on loaded content in a way that causes excessive shifting.
+
+Use appropriate Skeletons/placeholders.
+
+---
+
+# 54. Responsive design review checklist
+
+Before completing a frontend feature, verify manually and/or automatically:
+
+- 320px width works;
+- common mobile width works;
+- tablet works;
+- laptop works;
+- desktop works;
+- wide desktop does not stretch content excessively;
+- short viewport works;
+- portrait works;
+- landscape does not break critical flow;
+- no accidental page horizontal scroll;
+- long RU text works;
+- long EN text works;
+- touch actions work without hover;
+- keyboard navigation works;
+- dialogs fit;
+- inputs fit;
+- composer fit is correct;
+- safe areas are respected where relevant;
+- reduced motion works;
+- dark/light both work.
+
+---
+
+# 55. New shared component responsive checklist
+
+Before adding a shared component to `@vimla/ui`, verify:
+
+- it does not assume a fixed page width;
+- it supports narrow containers;
+- text can wrap/truncate intentionally;
+- actions do not overflow;
+- touch target is usable;
+- keyboard behavior remains correct;
+- mobile state does not rely on hover;
+- both themes work;
+- reduced motion works;
+- component is demonstrated in narrow and wide states in `/dev/ui` where appropriate.
+
+---
+
+# 56. New page responsive checklist
+
+Before completing a page, verify:
+
+- page uses centralized breakpoints;
+- layout is fluid between breakpoints;
+- mobile is not merely a scaled desktop page;
+- primary actions remain reachable;
+- secondary controls collapse gracefully;
+- long content cannot destroy layout;
+- dialogs/dropdowns remain within viewport;
+- no duplicate mobile business logic exists;
+- no viewport-specific security/business behavior exists;
+- responsive Playwright coverage exists for critical flow.
+
+---
+
+# 57. Priority order
+
+If a visual reference conflicts with responsive requirements, use this priority:
+
+1. security;
+2. product correctness;
+3. accessibility;
+4. responsive usability;
+5. Vimla Design System consistency;
+6. visual similarity to the reference.
+
+A generated screenshot is never a reason to ship a layout that breaks on real devices.
+
+---
+
+# 58. Main rule
+
+Build one adaptive Vimla interface, not separate pixel-perfect implementations for individual devices.
+
+Use:
+
+**fluid layout first → centralized breakpoints second → device-specific exception only as a last resort.**
+
+Every important Vimla flow must remain understandable and operable across mobile, tablet, laptop, and desktop.

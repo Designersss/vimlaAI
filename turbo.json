@@ -6,7 +6,7 @@
     "build": {
       "dependsOn": ["^build"],
       "outputs": ["dist/**", ".next/**", "!.next/cache/**", "!.next/dev/**"],
-      "env": ["NEXT_PUBLIC_API_BASE_URL", "NODE_ENV"]
+      "env": ["NEXT_PUBLIC_API_BASE_URL", "NEXT_PUBLIC_ADMIN_API_BASE_URL", "NODE_ENV"]
     },
     "dev": {
       "cache": false,
@@ -21,7 +21,7 @@
     },
     "test": {
       "dependsOn": ["^build"],
-      "env": ["NODE_ENV", "APP_ENV", "DATABASE_URL", "REDIS_URL", "BETTER_AUTH_SECRET", "BETTER_AUTH_URL", "WEB_ORIGIN"]
+      "env": ["NODE_ENV", "APP_ENV", "DATABASE_URL", "REDIS_URL", "BETTER_AUTH_SECRET", "BETTER_AUTH_URL", "WEB_ORIGIN", "ADMIN_ORIGIN"]
     },
     "test:integration": {
       "dependsOn": ["^build"],
@@ -34,7 +34,8 @@
         "REDIS_URL",
         "BETTER_AUTH_SECRET",
         "BETTER_AUTH_URL",
-        "WEB_ORIGIN"
+        "WEB_ORIGIN",
+        "ADMIN_ORIGIN"
       ]
     },
     "test:e2e": {
@@ -49,7 +50,9 @@
         "BETTER_AUTH_SECRET",
         "BETTER_AUTH_URL",
         "WEB_ORIGIN",
-        "NEXT_PUBLIC_API_BASE_URL"
+        "ADMIN_ORIGIN",
+        "NEXT_PUBLIC_API_BASE_URL",
+        "NEXT_PUBLIC_ADMIN_API_BASE_URL"
       ]
     },
     "generate": {

@@ -48,10 +48,19 @@ Proven auth framework, secure cookie sessions, verification/recovery, strong pri
 Default deny. Scope resources by authenticated owner. Explicit permissions for privileged actions.
 
 ### Data validation
-Strict runtime schemas for external payloads; reject unknown sensitive fields on mutating security/financial/admin/AI operations.
+Validate every external payload, including webhooks, provider responses, env, and queue jobs. Bound sizes. Reject unexpected sensitive fields.
+
+## Admin control plane
+Privileged Admin uses a separate origin, hashed AdminSession, TOTP (required) and passkeys (required in staging/production), default-deny permissions, and append-only `AdminAuditLog`. Ordinary sessions and email/phone OTP cannot elevate. Details: `docs/ADMIN_SECURITY.md`.
 
 ### Financial safety
 Postgres transactions/locks/constraints, idempotency, append-only ledger, reservation before provider calls, independent cost/concurrency caps and anomaly/reconciliation states.
+
+### Payments (Phase 4)
+T-Bank notifications are untrusted until Token verification (timing-safe compare). `Success=true` / `Status=CONFIRMED` / Amount / PaymentId are ignored until the signature matches and the values equal the checkout snapshot. Webhook body `OK` is returned only after idempotent processing. Invalid signatures do not mutate Payment or Usage. Owner-scoped payment reads return 404 for foreign IDs. `TBANK_PASSWORD` and Token are redacted and never `NEXT_PUBLIC_*`. Production cannot start with `PAYMENT_PROVIDER=mock`. NotificationURL is server config (HTTPS in staging/production). Payment method is taken from **signed** root fields (e.g. PAN presence) or a trusted GetState `Source`; nested unsigned notification Params are not used. Raw PAN is not stored.
+
+### Finance (Phase 4.5)
+`FinanceQueryService` / tariff simulator / PaymentEconomics are internal. There is no public `/v1/finance` and no user-facing margin API. Owner Admin (`apps/admin`, `/admin/v1/*`) is the only privileged reader. Missing acquiring-fee policy must not cancel a paid grant.
 
 ### Abuse/DoS
 IP/account/action rate limits, concurrency limits, request/file/context bounds, provider-spend caps and emergency switches. Email/SMS have additional rolling destination/IP/account/global send limits so Vimla cannot be used as a bomber.

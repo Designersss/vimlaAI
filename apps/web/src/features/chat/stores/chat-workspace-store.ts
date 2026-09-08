@@ -52,6 +52,9 @@ export class ChatWorkspaceStore {
   }
 
   setActiveConversation(id: string, messages: ChatMessage[]): void {
+    if (this.streaming) {
+      return;
+    }
     this.activeConversationId = id;
     this.messages = messages;
     this.error = null;

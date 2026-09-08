@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   MICRORUB_PER_RUB,
+  kopecksToMicroRub,
   microRubFromJson,
   microRubToJson,
+  microRubToKopecks,
   rubToMicroRub,
   topupProviderBudgetMicroRub,
   usedPercentFloor,
@@ -20,8 +22,10 @@ describe("microRUB serialization", () => {
     expect(() => microRubFromJson("1e6")).toThrow();
   });
 
-  it("preserves fractional-ruble precision in integer microRUB", () => {
-    expect(microRubFromJson("3217")).toBe(3217n);
+  it("converts whole kopecks without floating point", () => {
+    expect(microRubToKopecks(rubToMicroRub(3n) + 120_000n)).toBe(312n);
+    expect(kopecksToMicroRub(312n)).toBe(3_120_000n);
+    expect(() => microRubToKopecks(1n)).toThrow(/kopecks/);
   });
 });
 
@@ -30,6 +34,14 @@ describe("top-up provider budget", () => {
     expect(topupProviderBudgetMicroRub(rubToMicroRub(1000n), 3500n)).toBe(
       rubToMicroRub(350n),
     );
+  });
+});
+
+describe("conservative fee rounding", () => {
+  it("ceils remainder microRUB instead of flooring", async () => {
+    const { applyBpsCeil } = await import("./money.js");
+    expect(applyBpsCeil(100n, 1n)).toBe(1n);
+    expect(applyBpsCeil(10_000n, 2500n)).toBe(2500n);
   });
 });
 

@@ -32,6 +32,10 @@ model User {
   ledgerEntries        UsageLedgerEntry[]
   conversations        Conversation[]
   aiRequests           AiRequest[]
+  twoFactorEnabled     Boolean         @default(false)
+  twoFactor            TwoFactor?
+  passkeys             Passkey[]
+  adminPrincipal       AdminPrincipal?
 
   @@unique([email])
   @@unique([phoneNumber])
@@ -109,21 +113,45 @@ model Plan {
   @@map("plan")
 }
 
+// providerBudgetMicroRub is the monthly AI usage grant (not customer revenue).
 model PlanVersion {
-  id                     String         @id @default(cuid())
+  id                     String            @id @default(cuid())
   planId                 String
-  plan                   Plan           @relation(fields: [planId], references: [id], onDelete: Restrict)
+  plan                   Plan              @relation(fields: [planId], references: [id], onDelete: Restrict)
   priceMicroRub          BigInt
   providerBudgetMicroRub BigInt
   providerCostRatioBps   Int
+  subscriptionPeriodDays Int               @default(30)
+  status                 String            @default("PUBLISHED")
   validFrom              DateTime
   validTo                DateTime?
-  createdAt              DateTime       @default(now())
+  publishedAt            DateTime?
+  retiredAt              DateTime?
+  createdByUserId        String?
+  createdAt              DateTime          @default(now())
   subscriptions          Subscription[]
   payments               Payment[]
+  entitlements           PlanEntitlement[]
 
   @@index([planId, validFrom])
+  @@index([status, validFrom])
   @@map("plan_version")
+}
+
+model PlanEntitlement {
+  id            String      @id @default(cuid())
+  planVersionId String
+  planVersion   PlanVersion @relation(fields: [planVersionId], references: [id], onDelete: Restrict)
+  key           String
+  valueKind     String
+  unlimited     Boolean     @default(false)
+  intValue      BigInt?
+  boolValue     Boolean?
+  createdAt     DateTime    @default(now())
+
+  @@unique([planVersionId, key])
+  @@index([key])
+  @@map("plan_entitlement")
 }
 
 model Subscription {
@@ -144,35 +172,56 @@ model Subscription {
 }
 
 model Payment {
-  id                String       @id @default(cuid())
-  userId            String
-  user              User         @relation(fields: [userId], references: [id], onDelete: Restrict)
-  provider          String
-  providerPaymentId String
-  kind              String
-  amountMicroRub    BigInt
-  currency          String       @default("RUB")
-  status            String
-  planVersionId     String?
-  planVersion       PlanVersion? @relation(fields: [planVersionId], references: [id], onDelete: Restrict)
-  createdAt         DateTime     @default(now())
-  updatedAt         DateTime     @updatedAt
-  events            PaymentEvent[]
-  ledgerEntries     UsageLedgerEntry[]
+  id                       String              @id @default(cuid())
+  userId                   String
+  user                     User                @relation(fields: [userId], references: [id], onDelete: Restrict)
+  billingSubjectType       String              @default("USER")
+  provider                 String
+  providerPaymentId        String?
+  providerOrderId          String
+  providerStatus           String?
+  paymentUrl               String?
+  kind                     String
+  amountMicroRub           BigInt
+  currency                 String              @default("RUB")
+  status                   String
+  planVersionId            String?
+  planVersion              PlanVersion?        @relation(fields: [planVersionId], references: [id], onDelete: Restrict)
+  topupPolicyVersionId     String?
+  topupPolicyVersion       TopupPolicyVersion? @relation(fields: [topupPolicyVersionId], references: [id], onDelete: Restrict)
+  paymentMethod            String?
+  rawProviderPaymentMethod String?
+  idempotencyKey           String
+  checkoutSnapshot         Json
+  grantedBucketId          String?
+  grantedSubscriptionId    String?
+  fulfilledAt              DateTime?
+  createdAt                DateTime            @default(now())
+  updatedAt                DateTime            @updatedAt
+  events                   PaymentEvent[]
+  ledgerEntries            UsageLedgerEntry[]
+  economics                PaymentEconomics?
 
   @@unique([provider, providerPaymentId])
+  @@unique([providerOrderId])
+  @@unique([userId, kind, idempotencyKey])
   @@index([userId, createdAt])
+  @@index([status, updatedAt])
+  @@index([kind, status, createdAt])
+  @@index([planVersionId, createdAt])
   @@map("payment")
 }
 
 model PaymentEvent {
-  id              String   @id @default(cuid())
-  provider        String
-  providerEventId String
-  paymentId       String
-  payment         Payment  @relation(fields: [paymentId], references: [id], onDelete: Restrict)
-  eventType       String
-  processedAt     DateTime @default(now())
+  id                String   @id @default(cuid())
+  provider          String
+  providerEventId   String
+  paymentId         String
+  payment           Payment  @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  eventType         String
+  providerStatus    String?
+  sanitizedPayload  Json?
+  processedAt       DateTime @default(now())
 
   @@unique([provider, providerEventId])
   @@index([paymentId])
@@ -364,5 +413,289 @@ model AiRequest {
   @@index([conversationId, createdAt])
   @@index([reservationId])
   @@index([status])
+  @@index([createdAt])
   @@map("ai_request")
+}
+
+// Phase 4.5: versioned commercial policy and internal finance facts.
+// TOPUP buckets never expire (expiresAt IS NULL). No public finance API.
+
+model TopupPolicyVersion {
+  id                  String    @id @default(cuid())
+  status              String
+  minPurchaseMicroRub BigInt
+  maxPurchaseMicroRub BigInt
+  usageGrantRatioBps  Int
+  effectiveFrom       DateTime
+  effectiveTo         DateTime?
+  publishedAt         DateTime?
+  retiredAt           DateTime?
+  createdByUserId     String?
+  sourceKind          String    @default("BOOTSTRAP")
+  createdAt           DateTime  @default(now())
+  payments            Payment[]
+
+  @@index([status, effectiveFrom])
+  @@map("topup_policy_version")
+}
+
+model PaymentFeePolicyVersion {
+  id                 String              @id @default(cuid())
+  provider           String
+  paymentMethod      String
+  feeBps             Int
+  feeVatBps          Int                 @default(0)
+  minimumFeeMicroRub BigInt?
+  fixedFeeMicroRub   BigInt?
+  status             String
+  effectiveFrom      DateTime
+  effectiveTo        DateTime?
+  sourceDescription  String
+  sourceQuality      String
+  verifiedAt         DateTime?
+  publishedAt        DateTime?
+  retiredAt          DateTime?
+  createdByUserId    String?
+  createdAt          DateTime            @default(now())
+  economics          PaymentEconomics[]
+
+  @@index([provider, paymentMethod, status, effectiveFrom], map: "payment_fee_policy_lookup_idx")
+  @@map("payment_fee_policy_version")
+}
+
+model FiscalizationFeePolicyVersion {
+  id               String              @id @default(cuid())
+  provider         String
+  mode             String
+  percentageBps    Int?
+  fixedFeeMicroRub BigInt?
+  status           String
+  effectiveFrom    DateTime
+  effectiveTo      DateTime?
+  sourceDescription String
+  sourceQuality    String
+  verifiedAt       DateTime?
+  publishedAt      DateTime?
+  retiredAt        DateTime?
+  createdByUserId  String?
+  createdAt        DateTime            @default(now())
+  economics        PaymentEconomics[]
+
+  @@index([provider, mode, status, effectiveFrom], map: "fiscalization_fee_policy_lookup_idx")
+  @@map("fiscalization_fee_policy_version")
+}
+
+model TaxReservePolicyVersion {
+  id              String    @id @default(cuid())
+  reserveBps      Int
+  enabled         Boolean   @default(false)
+  status          String
+  effectiveFrom   DateTime
+  effectiveTo     DateTime?
+  sourceQuality   String
+  publishedAt     DateTime?
+  retiredAt       DateTime?
+  createdByUserId String?
+  createdAt       DateTime  @default(now())
+
+  @@index([status, effectiveFrom])
+  @@map("tax_reserve_policy_version")
+}
+
+model BusinessGuardrailVersion {
+  id                                        String    @id @default(cuid())
+  targetMinimumMarginBps                    Int
+  projectCreationWindowDays                 Int?
+  projectCreationLimitFree                  Int?
+  projectCreationLimit199                   Int?
+  projectCreationLimit499                   Int?
+  projectCreationLimit999                   Int?
+  freeActiveProjectReallocationCooldownDays Int?
+  projectTrashRetentionDays                 Int?
+  sourceQuality                             String    @default("UNVERIFIED")
+  status                                    String
+  effectiveFrom                             DateTime
+  effectiveTo                               DateTime?
+  publishedAt                               DateTime?
+  retiredAt                                 DateTime?
+  createdByUserId                           String?
+  createdAt                                 DateTime  @default(now())
+
+  @@index([status, effectiveFrom])
+  @@map("business_guardrail_version")
+}
+
+model PaymentEconomics {
+  id                               String                          @id @default(cuid())
+  paymentId                        String                          @unique
+  payment                          Payment                         @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  grossAmountMicroRub              BigInt
+  paymentMethod                    String?
+  paymentFeePolicyVersionId        String?
+  paymentFeePolicyVersion          PaymentFeePolicyVersion?        @relation(fields: [paymentFeePolicyVersionId], references: [id], onDelete: Restrict)
+  estimatedAcquiringFeeMicroRub    BigInt?
+  estimatedAcquiringFeeVatMicroRub BigInt?
+  fiscalizationFeePolicyVersionId  String?
+  fiscalizationFeePolicyVersion    FiscalizationFeePolicyVersion?  @relation(fields: [fiscalizationFeePolicyVersionId], references: [id], onDelete: Restrict)
+  estimatedFiscalizationFeeMicroRub BigInt?
+  actualAcquiringFeeMicroRub       BigInt?
+  actualAcquiringFeeVatMicroRub    BigInt?
+  actualFiscalizationFeeMicroRub   BigInt?
+  refundedAmountMicroRub           BigInt                          @default(0)
+  chargebackAmountMicroRub         BigInt                          @default(0)
+  economicsStatus                  String
+  financialReconciledAt            DateTime?
+  createdAt                        DateTime                        @default(now())
+  updatedAt                        DateTime                        @updatedAt
+
+  @@index([economicsStatus])
+  @@map("payment_economics")
+}
+
+model VariableCostEntry {
+  id             String   @id @default(cuid())
+  kind           String
+  amountMicroRub BigInt
+  occurredAt     DateTime
+  sourceType     String
+  sourceId       String
+  quality        String
+  metadata       Json?
+  createdAt      DateTime @default(now())
+
+  @@index([kind, occurredAt])
+  @@index([sourceType, sourceId])
+  @@map("variable_cost_entry")
+}
+
+// Better Auth two-factor plugin. TOTP secret and backup codes are never returned by Admin APIs.
+model TwoFactor {
+  id                      String    @id @default(cuid())
+  secret                  String
+  backupCodes             String
+  userId                  String    @unique
+  user                    User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  verified                Boolean   @default(false)
+  failedVerificationCount Int       @default(0)
+  lockedUntil             DateTime?
+
+  @@map("two_factor")
+}
+
+// Better Auth passkey plugin. Passkey private keys are never stored by Vimla.
+model Passkey {
+  id           String   @id @default(cuid())
+  name         String?
+  publicKey    String
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  credentialID String
+  counter      Int
+  deviceType   String
+  backedUp     Boolean
+  transports   String?
+  aaguid       String?
+  createdAt    DateTime @default(now())
+
+  @@index([userId])
+  @@index([credentialID])
+  @@map("passkey")
+}
+
+model AdminPrincipal {
+  id              String               @id @default(cuid())
+  userId          String               @unique
+  user            User                 @relation(fields: [userId], references: [id], onDelete: Restrict)
+  status          String
+  createdAt       DateTime             @default(now())
+  disabledAt      DateTime?
+  createdByUserId String?
+  roles           AdminPrincipalRole[]
+  sessions        AdminSession[]
+  auditLogs       AdminAuditLog[]
+
+  @@index([status])
+  @@map("admin_principal")
+}
+
+model AdminRole {
+  id          String               @id @default(cuid())
+  code        String               @unique
+  permissions String[]
+  principals  AdminPrincipalRole[]
+
+  @@map("admin_role")
+}
+
+model AdminPrincipalRole {
+  principalId String
+  principal   AdminPrincipal @relation(fields: [principalId], references: [id], onDelete: Restrict)
+  roleId      String
+  role        AdminRole      @relation(fields: [roleId], references: [id], onDelete: Restrict)
+
+  @@id([principalId, roleId])
+  @@map("admin_principal_role")
+}
+
+model AdminSession {
+  id               String         @id @default(cuid())
+  principalId      String
+  principal        AdminPrincipal @relation(fields: [principalId], references: [id], onDelete: Restrict)
+  tokenHash        String         @unique
+  createdAt        DateTime       @default(now())
+  expiresAt        DateTime
+  idleExpiresAt    DateTime
+  lastStrongAuthAt DateTime
+  lastSeenAt       DateTime       @default(now())
+  revokedAt        DateTime?
+  userAgentSummary String?
+  ipHash           String?
+
+  @@index([principalId, revokedAt])
+  @@index([expiresAt])
+  @@map("admin_session")
+}
+
+model AdminAuditLog {
+  id               String          @id @default(cuid())
+  adminUserId      String
+  principalId      String?
+  principal        AdminPrincipal? @relation(fields: [principalId], references: [id], onDelete: Restrict)
+  adminSessionId   String?
+  action           String
+  resourceType     String
+  resourceId       String?
+  requestId        String?
+  ipHash           String?
+  userAgentSummary String?
+  beforeSnapshot   Json?
+  afterSnapshot    Json?
+  reason           String?
+  createdAt        DateTime        @default(now())
+
+  @@index([createdAt])
+  @@index([adminUserId, createdAt])
+  @@index([action, createdAt])
+  @@map("admin_audit_log")
+}
+
+model OperatorSetting {
+  key             String   @id
+  valueJson       Json
+  updatedAt       DateTime @updatedAt
+  updatedByUserId String?
+
+  @@map("operator_setting")
+}
+
+model AdminSecurityEvent {
+  id        String   @id @default(cuid())
+  kind      String
+  userId    String?
+  ipHash    String?
+  createdAt DateTime @default(now())
+  metadata  Json?
+
+  @@index([kind, createdAt])
+  @@map("admin_security_event")
 }

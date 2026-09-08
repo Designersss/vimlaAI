@@ -1,0 +1,4 @@
+export const ADMIN_CONTROL = "ADMIN_CONTROL";
+export const ADMIN_TARIFF = "ADMIN_TARIFF";
+export const ADMIN_POLICY = "ADMIN_POLICY";
+export const ADMIN_FINANCE = "ADMIN_FINANCE";

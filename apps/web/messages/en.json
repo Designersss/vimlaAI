@@ -13,6 +13,7 @@
     "signOut": "Sign out",
     "settings": "Settings",
     "security": "Security",
+    "billing": "Billing",
     "home": "Home",
     "chat": "Chat"
   },
@@ -135,6 +136,35 @@
     "changeEmailSuccess": "Email updated",
     "unknownDevice": "Unknown device"
   },
+  "billing": {
+    "title": "Billing",
+    "currentPlan": "Current plan",
+    "noPlan": "No active plan",
+    "activeUntil": "Active until {date}",
+    "plans": "Plans",
+    "buy": "Buy",
+    "topup": "Top up usage",
+    "topupAmount": "Amount",
+    "pay": "Pay",
+    "history": "Payment history",
+    "emptyHistory": "No payments yet.",
+    "waiting": "Waiting for confirmation…",
+    "resultTitle": "Payment status",
+    "missingPayment": "Payment was not found.",
+    "mockTitle": "Test payment page",
+    "mockCopy": "This is a local stand-in for the T-Bank payment form. Returning here does not confirm payment.",
+    "returnToMerchant": "Return to merchant",
+    "status": {
+      "CREATED": "Created",
+      "PENDING": "Waiting for confirmation",
+      "SUCCEEDED": "Paid",
+      "FAILED": "Payment failed",
+      "CANCELED": "Canceled",
+      "REFUNDED": "Refunded",
+      "PARTIALLY_REFUNDED": "Partially refunded",
+      "RECONCILIATION_REQUIRED": "Needs review"
+    }
+  },
   "chat": {
     "loading": "Loading Vimla…",
     "failed": "Unable to load the workspace.",
@@ -193,6 +223,14 @@
     "session_not_found": "Session not found.",
     "notification_temporarily_unavailable": "Notification delivery is temporarily unavailable. Try again later.",
     "notification_not_found": "No notification in the local inbox.",
+    "payment_temporarily_unavailable": "Payments are temporarily unavailable.",
+    "payment_not_found": "Payment was not found.",
+    "payment_already_processed": "This payment is already being processed.",
+    "payment_amount_invalid": "Invalid payment amount.",
+    "payment_reconciliation_required": "This payment needs review.",
+    "payment_provider_unavailable": "The payment provider is temporarily unavailable.",
+    "payment_rate_limited": "Too many payment attempts. Please wait.",
+    "subscription_already_active": "You already have an active plan.",
     "generic": "The request failed. Try again."
   }
 }

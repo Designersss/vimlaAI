@@ -55,3 +55,26 @@ describe("financial mutating DTOs", () => {
     ).toBe(false);
   });
 });
+
+describe("checkout DTOs", () => {
+  it("rejects browser-supplied price, userId and grant fields", async () => {
+    const { subscriptionCheckoutSchema, topupCheckoutSchema } = await import("./billing.js");
+    expect(
+      subscriptionCheckoutSchema.safeParse({
+        planCode: "PRO",
+        idempotencyKey: "00000000-0000-4000-8000-000000000000",
+        price: 1,
+        userId: "other",
+        providerBudget: 999999,
+      }).success,
+    ).toBe(false);
+    expect(
+      topupCheckoutSchema.safeParse({
+        amountMicroRub: "1000000000",
+        idempotencyKey: "00000000-0000-4000-8000-000000000000",
+        providerUsageGrant: "1",
+        ratioBps: "1",
+      }).success,
+    ).toBe(false);
+  });
+});

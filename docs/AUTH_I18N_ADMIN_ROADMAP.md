@@ -35,7 +35,7 @@ Before production acquiring:
 - operator reconciliation/admin views.
 
 ## Admin/control-plane foundation
-Recommended after or alongside real payments/operations tooling, before broad public launch.
+Delivered in Phase 5 as `apps/admin` + `/admin/v1/*`. See `docs/ADMIN_SECURITY.md`. Cloudflare Access remains a future extra layer, not a replacement for application auth.
 
 Architecture target:
 ```text

@@ -5,6 +5,8 @@
 export type MicroRub = bigint;
 
 export const MICRORUB_PER_RUB = 1_000_000n;
+export const KOPECKS_PER_RUB = 100n;
+export const MICRORUB_PER_KOPECK = MICRORUB_PER_RUB / KOPECKS_PER_RUB;
 export const BASIS_POINTS_DENOMINATOR = 10_000n;
 
 const INTEGER_STRING_PATTERN = /^-?\d+$/;
@@ -52,6 +54,46 @@ export function topupProviderBudgetMicroRub(
   }
 
   return (amountMicroRub * ratioBps) / BASIS_POINTS_DENOMINATOR;
+}
+
+export function microRubToKopecks(amount: MicroRub): bigint {
+  if (amount < 0n) {
+    throw new Error("Money amounts must be non-negative");
+  }
+  if (amount % MICRORUB_PER_KOPECK !== 0n) {
+    throw new Error("Amount is not representable as whole kopecks");
+  }
+  return amount / MICRORUB_PER_KOPECK;
+}
+
+export function kopecksToMicroRub(kopecks: bigint): MicroRub {
+  if (kopecks < 0n) {
+    throw new Error("Kopeck amounts must be non-negative");
+  }
+  return kopecks * MICRORUB_PER_KOPECK;
+}
+
+/**
+ * Conservative percentage-of-amount: round **up** to the next microRUB.
+ * Used for estimated acquiring/fiscalization/tax costs so we never understate them.
+ * Actual reconciled fees are stored as given and never recalculated.
+ */
+export function applyBpsCeil(amountMicroRub: MicroRub, bps: bigint): MicroRub {
+  if (amountMicroRub < 0n || bps < 0n || bps > BASIS_POINTS_DENOMINATOR) {
+    throw new Error("Invalid basis-point fee inputs");
+  }
+  if (amountMicroRub === 0n || bps === 0n) {
+    return 0n;
+  }
+  const numerator = amountMicroRub * bps;
+  return (numerator + BASIS_POINTS_DENOMINATOR - 1n) / BASIS_POINTS_DENOMINATOR;
+}
+
+export function marginBpsFloor(contributionMicroRub: MicroRub, netSalesMicroRub: MicroRub): number | null {
+  if (netSalesMicroRub <= 0n) {
+    return null;
+  }
+  return Number((contributionMicroRub * BASIS_POINTS_DENOMINATOR) / netSalesMicroRub);
 }
 
 export function usedPercentFloor(committed: MicroRub, total: MicroRub): number {

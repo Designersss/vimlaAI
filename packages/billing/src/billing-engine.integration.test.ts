@@ -8,6 +8,7 @@ import { MOCK_PAYMENT_PROVIDER_ID, MockPaymentProvider } from "./payment-provide
 import { seedVimlaPlans } from "./seed-plans.js";
 import { simulateProviderUsage } from "./simulate-provider-usage.js";
 import { rubToMicroRub } from "./money.js";
+import { republishBootstrapTopupPolicy } from "./seed-finance.js";
 
 const testDatabaseUrl = process.env.TEST_DATABASE_URL;
 
@@ -25,6 +26,7 @@ describe("billing engine integration", () => {
     prisma = createPrismaClient(testDatabaseUrl);
     engine = new BillingEngine(prisma, DEFAULT_BILLING_POLICY);
     await seedVimlaPlans(prisma);
+    await republishBootstrapTopupPolicy(prisma);
   });
 
   afterAll(async () => {

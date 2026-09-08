@@ -1,0 +1,1417 @@
+---
+description: Vimla shared design system, reusable UI components, styling tokens, accessibility, motion, responsive behavior, and visual consistency rules
+globs:
+  - "apps/web/**/*.{ts,tsx,scss,css}"
+  - "apps/admin/**/*.{ts,tsx,scss,css}"
+  - "packages/ui/**/*.{ts,tsx,scss,css}"
+alwaysApply: false
+---
+
+# Vimla Design System
+
+These rules are mandatory for all Vimla frontend UI work.
+
+The goal is to maintain one coherent, reusable production design system across:
+
+- `apps/web`
+- `apps/admin`
+- future frontend applications
+
+Do not build pages as isolated collections of custom styles.
+
+Vimla must use reusable primitives, semantic design tokens, consistent typography, motion, accessibility, and interaction patterns.
+
+The core implementation principle is:
+
+**Reuse first → compose second → extend third → create new only when necessary.**
+
+---
+
+# 1. Visual direction
+
+Vimla should feel:
+
+- clean;
+- minimal;
+- calm;
+- modern;
+- lightweight;
+- premium without being flashy;
+- easy to understand without training;
+- AI-native;
+- collaborative;
+- motion-aware.
+
+Vimla may take inspiration from products such as ChatGPT, Linear, Notion, and Arc in terms of simplicity and clarity, but it must NOT clone their UI.
+
+Prefer:
+
+- generous whitespace;
+- restrained use of color;
+- subtle borders;
+- clear visual hierarchy;
+- predictable controls;
+- calm states;
+- subtle motion;
+- strong readability.
+
+Avoid unless explicitly justified:
+
+- excessive gradients;
+- heavy glassmorphism;
+- cyberpunk/gaming aesthetics;
+- oversized shadows;
+- decorative UI that harms clarity;
+- turning every piece of content into a large card;
+- inconsistent page-specific styling.
+
+---
+
+# 2. Sources of truth
+
+Once established, the authoritative design sources are:
+
+```text
+docs/DESIGN_SYSTEM.md
+packages/ui
+```
+
+Visual references should live under:
+
+```text
+docs/design/
+```
+
+For example:
+
+```text
+docs/design/vimla-ui-reference.png
+```
+
+Reference images define visual direction only.
+
+They are NOT exact runtime CSS specifications.
+
+If a generated reference contains:
+
+- inconsistent spacing;
+- malformed text;
+- fake icons;
+- impossible UI states;
+- accessibility issues;
+- contradictory component states;
+
+do not reproduce those mistakes literally.
+
+The coded design system is the final implementation source of truth.
+
+---
+
+# 3. Shared UI package
+
+All reusable UI primitives belong in:
+
+```text
+packages/ui
+```
+
+Package name:
+
+```text
+@vimla/ui
+```
+
+It should be reused by at least:
+
+```text
+apps/web
+apps/admin
+```
+
+Do NOT create an independent design system for Admin.
+
+Admin may use denser layouts, but should reuse the same:
+
+- tokens;
+- typography;
+- buttons;
+- inputs;
+- dialogs;
+- badges;
+- tabs;
+- tables;
+- focus states;
+- theme system;
+- motion system.
+
+---
+
+# 4. Search before creating components
+
+Before implementing any reusable UI element:
+
+1. search `@vimla/ui`;
+2. reuse an existing component if possible;
+3. extend an existing component if the use case is repeatable;
+4. create a new shared primitive only if no suitable abstraction exists.
+
+Do NOT create page-specific primitives such as:
+
+```text
+LoginButton
+SettingsButton
+BillingButton
+ProjectButton
+```
+
+when they are simply different uses of the same shared Button.
+
+Use composition:
+
+```tsx
+<Button variant="primary">
+  ...
+</Button>
+```
+
+---
+
+# 5. Shared primitives
+
+The following should normally come from `@vimla/ui`:
+
+```text
+Button
+IconButton
+
+Input
+PasswordInput
+SearchInput
+Textarea
+OtpInput
+
+FormField
+
+Checkbox
+Radio
+Switch
+
+Select
+DropdownMenu
+SegmentedControl
+Tabs
+
+Dialog
+Modal
+Drawer
+Popover
+Tooltip
+
+Toast
+
+Badge
+StatusBadge
+
+Avatar
+AvatarGroup
+
+Progress
+UsageMeter
+
+Card
+
+Skeleton
+Spinner
+
+EmptyState
+ErrorState
+Alert
+Divider
+```
+
+If one of these is missing, first consider adding it to `@vimla/ui` instead of creating a local implementation.
+
+---
+
+# 6. Product-level components
+
+Product-level components are allowed when they represent real Vimla concepts.
+
+Examples:
+
+```text
+ConversationItem
+ProjectListItem
+PlanCard
+UsageSummary
+PaymentStatus
+MemberListItem
+StreamingIndicator
+AiModeSelector
+```
+
+However, product-level components should still compose shared primitives.
+
+For example, `PlanCard` should reuse the shared:
+
+```text
+Button
+Badge
+Text
+```
+
+rather than inventing new button or badge styles.
+
+---
+
+# 7. Feature styles are mainly layout
+
+Feature-level SCSS Modules may define:
+
+- grid;
+- flex composition;
+- page layout;
+- positioning;
+- feature-specific responsive structure;
+- spacing between major sections.
+
+Feature SCSS SHOULD NOT redefine shared visual primitives.
+
+Do not redefine locally:
+
+- button appearance;
+- input appearance;
+- modal appearance;
+- checkbox appearance;
+- badges;
+- toasts;
+- focus rings;
+- global typography;
+- common shadows;
+- global radius system;
+- global colors.
+
+If shared visual behavior is missing, extend `@vimla/ui`.
+
+---
+
+# 8. Design tokens
+
+All global design values must come from centralized semantic tokens.
+
+Do not scatter raw visual values throughout application code.
+
+Use semantic CSS custom properties such as:
+
+```text
+--vimla-bg
+--vimla-surface
+--vimla-surface-secondary
+--vimla-surface-hover
+
+--vimla-text
+--vimla-text-secondary
+--vimla-text-muted
+
+--vimla-border
+--vimla-border-strong
+
+--vimla-accent
+--vimla-accent-hover
+--vimla-accent-active
+--vimla-accent-soft
+
+--vimla-success
+--vimla-warning
+--vimla-danger
+
+--vimla-focus-ring
+```
+
+Prefer semantic naming over component-specific or raw color naming.
+
+GOOD:
+
+```scss
+background: var(--vimla-surface);
+color: var(--vimla-text);
+border-color: var(--vimla-border);
+```
+
+BAD:
+
+```scss
+background: #ffffff;
+color: #0f172a;
+border-color: #cbd5e1;
+```
+
+---
+
+# 9. Initial visual palette
+
+The initial Vimla visual direction uses an indigo-based accent family.
+
+Reference values:
+
+```text
+Accent
+#6366F1
+
+Accent Light
+#A5B4FC
+
+Accent Soft
+#E0E7FF
+
+Gray 900
+#0F172A
+
+Gray 600
+#475569
+
+Gray 300
+#CBD5E1
+
+Gray 100
+#F1F5F9
+
+Success
+#10B981
+
+Warning
+#F59E0B
+
+Danger
+#EF4444
+```
+
+These values should live only in the token/theme implementation.
+
+Components consume semantic tokens.
+
+Interaction colors may be adjusted for:
+
+- contrast;
+- hover;
+- active;
+- focus;
+- disabled;
+- dark mode.
+
+Do not casually change Vimla's overall visual identity.
+
+---
+
+# 10. No raw colors in feature code
+
+Outside the theme/token implementation, do not hardcode ordinary product colors using:
+
+```text
+#xxxxxx
+rgb()
+rgba()
+hsl()
+```
+
+unless the exception is genuinely necessary and documented.
+
+BAD:
+
+```scss
+background: #6366f1;
+```
+
+GOOD:
+
+```scss
+background: var(--vimla-accent);
+```
+
+---
+
+# 11. Light, dark, and system appearance
+
+All reusable components must support:
+
+```text
+light
+dark
+system
+```
+
+through semantic tokens.
+
+Do not implement independent dark-mode color logic in every feature component.
+
+The theme layer owns token mappings.
+
+Feature components should usually not care which theme is active.
+
+---
+
+# 12. Typography
+
+Typography must be centralized.
+
+Do not invent arbitrary font sizes on individual pages.
+
+Use semantic typography concepts such as:
+
+```text
+Page title
+Section title
+Subsection title
+Body
+Secondary
+Caption
+Label
+Meta
+```
+
+Initial direction:
+
+```text
+Page title
+32 / 40
+Bold
+
+Section title
+20 / 28
+Semibold
+
+Body
+16 / 24
+Regular
+
+Secondary
+14 / 20
+Regular
+
+Caption / Meta
+12–13 px
+```
+
+Exact values belong in the design system.
+
+Prefer reusable typography primitives such as:
+
+```text
+Heading
+Text
+```
+
+or centralized typography classes/tokens.
+
+---
+
+# 13. Spacing
+
+Use one centralized spacing scale.
+
+Initial scale:
+
+```text
+4
+8
+12
+16
+24
+32
+40
+48
+64
+```
+
+Avoid arbitrary values such as:
+
+```text
+13px
+17px
+19px
+23px
+```
+
+when the layout can be represented by existing spacing tokens.
+
+---
+
+# 14. Border radius
+
+Use a centralized radius scale.
+
+Initial direction:
+
+```text
+8
+10
+12
+14
+```
+
+mapped to semantic names such as:
+
+```text
+sm
+md
+lg
+xl
+round
+```
+
+Do not define a unique radius system per page.
+
+---
+
+# 15. Shadows and elevation
+
+Shadows should be centralized and restrained.
+
+Prefer:
+
+- borders;
+- surface contrast;
+- spacing;
+
+before adding shadows.
+
+Do not add heavy shadows to every card.
+
+If elevation levels are needed, define semantic elevation tokens in the design system.
+
+---
+
+# 16. Motion
+
+Motion is part of Vimla's visual identity.
+
+Animations must be:
+
+- subtle;
+- fast;
+- functional;
+- consistent;
+- non-blocking.
+
+Use centralized motion tokens.
+
+Typical timing ranges:
+
+```text
+fast
+120–150ms
+
+normal
+180–220ms
+
+slow
+250–300ms
+```
+
+Examples of appropriate motion:
+
+- button hover/press;
+- sidebar collapse;
+- dropdown appearance;
+- modal fade + scale;
+- toast slide/fade;
+- list item insertion;
+- AI streaming indicator;
+- Project Brain pulse.
+
+Avoid:
+
+- bouncing;
+- long decorative transitions;
+- motion that delays user interaction.
+
+---
+
+# 17. Reduced motion
+
+Always respect:
+
+```css
+prefers-reduced-motion
+```
+
+Animations must never be essential for understanding or operating the UI.
+
+---
+
+# 18. Buttons
+
+Use the shared `Button`.
+
+Core variants:
+
+```text
+primary
+secondary
+ghost
+destructive
+```
+
+Core sizes:
+
+```text
+sm
+md
+lg
+```
+
+Required states:
+
+```text
+default
+hover
+active
+focus-visible
+disabled
+loading
+```
+
+Do not create separate CSS implementations for buttons on Sign In, Settings, Billing, Projects, or Admin pages.
+
+Loading state should not unexpectedly change button width.
+
+---
+
+# 19. Inputs
+
+Use shared:
+
+```text
+Input
+PasswordInput
+SearchInput
+Textarea
+OtpInput
+```
+
+Inputs should share consistent:
+
+- height;
+- padding;
+- typography;
+- border;
+- radius;
+- focus state;
+- invalid state;
+- disabled state.
+
+Do not create a separate visual input implementation for each page.
+
+---
+
+# 20. FormField
+
+Forms should compose a shared `FormField` pattern.
+
+Example:
+
+```tsx
+<FormField
+  label={...}
+  description={...}
+  error={...}
+>
+  <Input />
+</FormField>
+```
+
+Do not repeatedly implement custom:
+
+```text
+label
+input
+description
+validation error
+```
+
+markup on every screen.
+
+Auth, Settings, Billing, and Admin forms should use the same visual form language.
+
+---
+
+# 21. Validation
+
+Validation errors must be shown through Vimla UI.
+
+Do not rely on browser-native validation bubbles as the primary UX.
+
+Errors should:
+
+- be localized;
+- be understandable;
+- use stable app semantics;
+- visually follow the shared design system.
+
+---
+
+# 22. Dialogs and modals
+
+Use one shared Dialog/Modal system.
+
+It should support:
+
+- title;
+- description;
+- body content;
+- actions;
+- close;
+- destructive state;
+- keyboard navigation;
+- focus trap;
+- Escape handling.
+
+Do not create a separate modal implementation for each feature.
+
+---
+
+# 23. Toasts
+
+Use one shared toast/notification system.
+
+Core variants:
+
+```text
+success
+info
+warning
+error
+```
+
+Do not create separate notification systems for Auth, Billing, Settings, or Admin.
+
+---
+
+# 24. Badges
+
+Use a shared Badge system.
+
+Core variants:
+
+```text
+neutral
+accent
+success
+warning
+danger
+locked
+```
+
+Examples:
+
+```text
+AI
+PRO
+Free
+Active
+Locked
+```
+
+Do not create page-specific badge styling.
+
+---
+
+# 25. Icons
+
+Use one consistent icon system/library across Vimla.
+
+Do not casually mix:
+
+```text
+Lucide
+Heroicons
+Material Icons
+random inline SVG libraries
+emoji
+```
+
+Do not use emoji as normal production UI icons.
+
+Custom brand/product icons are allowed when intentional.
+
+---
+
+# 26. App Shell
+
+Application navigation should reuse shared shell components.
+
+Prefer concepts such as:
+
+```text
+AppShell
+Sidebar
+SidebarSection
+SidebarItem
+SidebarFooter
+```
+
+Do not rebuild independent sidebars for:
+
+```text
+Chat
+Projects
+Settings
+```
+
+Desktop:
+
+```text
+expanded
+collapsed
+```
+
+Mobile:
+
+```text
+Drawer / Sheet
+```
+
+---
+
+# 27. Authentication UI
+
+All authentication screens must share one visual architecture.
+
+Applies to:
+
+```text
+Sign In
+Sign Up
+Verify Email
+Forgot Password
+Reset Password
+Phone Verification
+```
+
+Prefer shared:
+
+```text
+AuthLayout
+AuthCard
+FormField
+Input
+PasswordInput
+OtpInput
+Button
+Alert
+```
+
+Do not create six unrelated auth designs.
+
+---
+
+# 28. Settings UI
+
+Settings pages should share:
+
+```text
+SettingsLayout
+SettingsNavigation
+SettingsSection
+```
+
+Applies to:
+
+```text
+Account
+Appearance
+Language
+Security
+Billing
+Usage
+Notifications
+```
+
+Do not build an independent section design for each Settings page.
+
+---
+
+# 29. Chat UI
+
+Chat-specific components should be reusable.
+
+Prefer shared concepts such as:
+
+```text
+ChatComposer
+Message
+AssistantMessage
+UserMessage
+StreamingIndicator
+ModelSelector
+ConversationItem
+```
+
+Normal chat and future Project chat should reuse the same lower-level primitives where appropriate.
+
+---
+
+# 30. AUTO / PRO product semantics
+
+Do not change AI-mode product semantics during styling work.
+
+AUTO:
+
+- shows the selected Auto level;
+- does NOT show the hidden underlying routed model.
+
+PRO:
+
+- shows the concrete model manually selected by the user.
+
+UI must never reveal hidden Auto routing.
+
+---
+
+# 31. Usage UI
+
+Normal users should see understandable Usage, not internal provider economics.
+
+Prefer reusable:
+
+```text
+UsageMeter
+UsageSummary
+```
+
+Do not expose normal users to:
+
+```text
+providerActualCostMicroRub
+internal margin
+provider reservation accounting
+provider cost internals
+```
+
+---
+
+# 32. Admin reuse
+
+`apps/admin` must reuse the same design foundation.
+
+Admin may use denser:
+
+- tables;
+- filters;
+- forms;
+- data layouts.
+
+But the core controls remain shared.
+
+Where useful, components may expose an explicit density:
+
+```text
+comfortable
+compact
+```
+
+Do not create many overlapping variants such as:
+
+```text
+small
+mini
+admin
+dense
+compactDense
+```
+
+without a real need.
+
+---
+
+# 33. Tables
+
+Data-heavy Admin tables should use shared table primitives.
+
+Required states:
+
+- loading;
+- empty;
+- error;
+- selected;
+- sortable where applicable;
+- pagination/cursor controls.
+
+Do not encode important status only by color.
+
+---
+
+# 34. Responsive behavior
+
+Responsive behavior must be intentional.
+
+Do not simply shrink the desktop UI.
+
+Centralize breakpoints.
+
+Desktop:
+
+- persistent/collapsible sidebar;
+- wide workspace.
+
+Mobile:
+
+- drawer/sheet navigation;
+- touch-friendly controls;
+- adapted composer;
+- no accidental horizontal overflow.
+
+Avoid random media-query breakpoints per feature.
+
+---
+
+# 35. Accessibility
+
+All new UI must be accessible by default.
+
+Required:
+
+- semantic HTML;
+- correct labels;
+- keyboard navigation;
+- visible `focus-visible`;
+- sufficient contrast;
+- appropriate ARIA attributes;
+- correct disabled semantics;
+- accessible validation/error association;
+- dialog focus management;
+- Escape handling where expected;
+- touch-friendly targets;
+- reduced-motion support.
+
+Do not remove browser focus outlines without replacing them with an accessible shared focus ring.
+
+---
+
+# 36. i18n
+
+Generic shared UI components must not hardcode product copy.
+
+Components receive:
+
+```text
+label
+description
+aria-label
+children
+```
+
+from the consuming application.
+
+Actual product translations remain in next-intl dictionaries.
+
+Dev-only UI catalog examples may contain sample copy.
+
+---
+
+# 37. Business logic separation
+
+UI refactors must NOT rewrite working product/domain/security logic unless explicitly requested.
+
+Do not casually change:
+
+```text
+Better Auth
+OTP
+sessions
+billing
+T-Bank
+Finance
+ProxyAPI
+AI Gateway
+Usage
+permissions
+Admin security
+```
+
+Visual work should compose around existing behavior.
+
+Never break a secure working flow only to match a screenshot.
+
+---
+
+# 38. Inline styles
+
+Avoid ordinary product styling such as:
+
+```tsx
+style={{
+  color: "...",
+  padding: "...",
+  borderRadius: "..."
+}}
+```
+
+Use:
+
+- design tokens;
+- shared components;
+- SCSS Modules.
+
+Inline styles are acceptable when genuinely data-driven and not representable through a reusable semantic class/token.
+
+---
+
+# 39. Styling technology
+
+The project uses SCSS Modules.
+
+Do NOT add another styling system without an explicit architectural decision.
+
+Do not introduce:
+
+```text
+Tailwind
+styled-components
+Emotion
+Bootstrap
+Material UI
+Chakra
+Ant Design
+```
+
+for convenience.
+
+Do not replace the Vimla visual system with a complete third-party visual framework.
+
+Headless/accessibility primitives may be considered only when they solve a real implementation problem and do not own Vimla's visual identity.
+
+---
+
+# 40. UI dependencies
+
+Before installing a new UI dependency:
+
+- check whether an existing dependency already solves the problem;
+- check whether `@vimla/ui` already provides the primitive;
+- verify that the package is actually necessary.
+
+Do not install a library only for one simple button, dropdown, modal, or tooltip if the project already has an equivalent solution.
+
+---
+
+# 41. Composition over prop explosion
+
+Prefer small composable components.
+
+Avoid giant components with many booleans such as:
+
+```text
+isSettings
+isBilling
+isProject
+isPurple
+isCompact
+isChat
+isAnotherVariant
+```
+
+If a visual variation represents a real repeatable use case, define an explicit typed variant.
+
+Otherwise compose components.
+
+---
+
+# 42. Loading states
+
+Prefer:
+
+- Skeleton;
+- inline progress;
+- local Spinner;
+- StreamingIndicator.
+
+Avoid unnecessary full-screen spinners.
+
+Loading UI must reuse shared components.
+
+---
+
+# 43. Empty states
+
+Use a shared EmptyState language.
+
+Empty states should be:
+
+- concise;
+- useful;
+- calm;
+- action-oriented when appropriate.
+
+Avoid huge random illustrations unless explicitly part of the product direction.
+
+---
+
+# 44. Error states
+
+Use shared:
+
+```text
+Alert
+ErrorState
+```
+
+Show user-friendly copy.
+
+Do not expose raw provider/backend errors as primary UI messages.
+
+Preserve stable backend error semantics.
+
+---
+
+# 45. Destructive actions
+
+Destructive operations should use:
+
+- destructive Button variant;
+- clear confirmation;
+- concise explanation;
+- shared Dialog.
+
+Red should primarily communicate:
+
+- destructive action;
+- error.
+
+Do not use red decoratively throughout normal UI.
+
+---
+
+# 46. Development UI catalog
+
+Once the design-system foundation exists, provide a local/test-only component catalog such as:
+
+```text
+/dev/ui
+```
+
+It should show:
+
+- colors;
+- typography;
+- Buttons;
+- Inputs;
+- FormField;
+- Badges;
+- Avatars;
+- Select;
+- Dialog;
+- Toast;
+- UsageMeter;
+- AUTO/PRO selector;
+- loading states;
+- empty states;
+- dark mode.
+
+This route must NOT exist in production.
+
+When shared components change, inspect the UI catalog.
+
+---
+
+# 47. Working from screenshots / visual references
+
+When a new UI screenshot/reference is provided:
+
+1. study the composition;
+2. map visible elements to existing `@vimla/ui` components;
+3. reuse design tokens;
+4. create only missing product-level components;
+5. use feature styles mainly for layout;
+6. do not duplicate Button/Input/Dialog/etc.
+
+A screenshot defines composition and visual direction.
+
+It does NOT authorize creating a miniature new design system inside one page.
+
+---
+
+# 48. New page checklist
+
+Before considering a new UI page complete, verify:
+
+- existing shared components were reused;
+- no duplicate Button exists;
+- no duplicate Input exists;
+- no duplicate Dialog exists;
+- no raw colors were introduced;
+- typography comes from the system;
+- spacing comes from the system;
+- radius comes from the system;
+- light mode works;
+- dark mode works;
+- keyboard navigation works;
+- focus-visible exists;
+- mobile works;
+- loading state exists where applicable;
+- error state exists where applicable;
+- RU/EN works;
+- business logic was not unintentionally changed.
+
+---
+
+# 49. New shared component checklist
+
+Before adding a reusable component, verify:
+
+- it represents a true reusable primitive or repeated pattern;
+- it has typed props;
+- variants are meaningful;
+- accessibility is implemented;
+- keyboard behavior is correct where applicable;
+- focus state exists;
+- disabled state exists where applicable;
+- light/dark themes work;
+- reduced motion is respected;
+- it is reusable outside one page;
+- it is exported through `@vimla/ui`;
+- it is documented in the UI catalog when appropriate.
+
+---
+
+# 50. Duplication checks
+
+During substantial UI work, inspect the repository for duplicated styling/primitives.
+
+Examples:
+
+```bash
+rg '#[0-9A-Fa-f]{6}' apps/web apps/admin
+rg '<button' apps/web apps/admin
+rg '<input' apps/web apps/admin
+```
+
+Do not mechanically replace every native element.
+
+Investigate results and verify that shared application primitives are used where appropriate.
+
+---
+
+# 51. Priority order
+
+If a screenshot conflicts with other requirements, use this priority:
+
+1. security;
+2. product correctness;
+3. accessibility;
+4. Vimla Design System consistency;
+5. visual similarity to the screenshot.
+
+Never break auth, billing, permissions, or security merely for pixel-perfect matching.
+
+---
+
+# 52. Main rule
+
+Vimla must feel like one coherent product.
+
+Do not design each new screen as a separate mini-application.
+
+Always:
+
+**reuse first, compose second, extend third, create a new primitive only as the last option.**

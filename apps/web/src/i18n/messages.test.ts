@@ -16,6 +16,8 @@ describe("i18n dictionaries", () => {
     expect(ruKeys).toContain("auth.forgot.title");
     expect(ruKeys).toContain("auth.reset.title");
     expect(ruKeys).toContain("settings.securityTitle");
+    expect(ruKeys).toContain("billing.title");
+    expect(ruKeys).toContain("billing.activeUntil");
     expect(ruKeys).toContain("validation.passwordMin");
   });
 });

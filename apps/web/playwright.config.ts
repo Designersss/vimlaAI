@@ -83,7 +83,10 @@ export default defineConfig({
       url: webOrigin,
       reuseExistingServer: false,
       timeout: 120_000,
-      env: e2eEnv,
+      env: {
+        ...e2eEnv,
+        NEXT_DIST_DIR: ".next-e2e",
+      },
     },
   ],
 });

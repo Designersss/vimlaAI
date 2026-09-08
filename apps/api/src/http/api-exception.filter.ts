@@ -12,6 +12,7 @@ import {
   apiErrorResponseSchema,
   type ApiErrorCode,
 } from "@vimla/contracts";
+import { ZodError } from "zod";
 
 @Catch()
 export class ApiExceptionFilter implements ExceptionFilter {
@@ -39,6 +40,19 @@ export class ApiExceptionFilter implements ExceptionFilter {
           error: {
             code: billingCodeToApi(exception.code),
             message: exception.message,
+            requestId,
+          },
+        }),
+      );
+      return;
+    }
+
+    if (exception instanceof ZodError) {
+      void response.status(HttpStatus.BAD_REQUEST).send(
+        apiErrorResponseSchema.parse({
+          error: {
+            code: "validation_error",
+            message: "Invalid request",
             requestId,
           },
         }),
@@ -110,7 +124,7 @@ function billingCodeToApi(code: BillingErrorCode): ApiErrorCode {
     case "NO_ACTIVE_SUBSCRIPTION":
       return "no_active_subscription";
     case "SUBSCRIPTION_ALREADY_ACTIVE":
-      return "conflict";
+      return "subscription_already_active";
     case "RESERVATION_NOT_FOUND":
       return "reservation_not_found";
     case "RESERVATION_ALREADY_SETTLED":
@@ -122,9 +136,28 @@ function billingCodeToApi(code: BillingErrorCode): ApiErrorCode {
     case "FINANCIAL_OPERATION_FAILED":
       return "financial_operation_failed";
     case "PAYMENT_NOT_FOUND":
+      return "payment_not_found";
     case "PLAN_NOT_FOUND":
     case "MOCK_PROVIDER_DISABLED":
       return "not_found";
+    case "PAYMENT_TEMPORARILY_UNAVAILABLE":
+      return "payment_temporarily_unavailable";
+    case "PAYMENT_ALREADY_PROCESSED":
+      return "payment_already_processed";
+    case "PAYMENT_AMOUNT_INVALID":
+      return "payment_amount_invalid";
+    case "PAYMENT_RECONCILIATION_REQUIRED":
+      return "payment_reconciliation_required";
+    case "PAYMENT_PROVIDER_UNAVAILABLE":
+      return "payment_provider_unavailable";
+    case "PAYMENT_RATE_LIMITED":
+      return "payment_rate_limited";
+    case "PAYMENT_NOTIFICATION_INVALID":
+      return "validation_error";
+    case "POLICY_CONFIRMATION_REQUIRED":
+      return "validation_error";
+    case "ENTITLEMENT_INVALID":
+      return "validation_error";
     default:
       return "internal_error";
   }

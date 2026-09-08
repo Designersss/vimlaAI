@@ -2,7 +2,7 @@
 
 Unified consumer/prosumer AI workspace. This repository is a pnpm + Turborepo monorepo.
 
-Phase 3.6 adds production-ready notification delivery (SMTP/HTTP adapters, fail-fast production config, abuse limits) and Playwright browser E2E for identity. Images, video, agents, admin dashboard and real acquiring are still out of scope.
+Phase 4 adds T-Bank Internet Acquiring (hosted payment page only). Phase 4.5 adds an internal finance/tariff foundation (**TOPUP never expires**; no public finance API). Phase 5 adds a separate Admin control plane on `http://localhost:3002` (`/admin/v1/*`). Images, video, agents and projects remain out of scope.
 
 ## Requirements
 
@@ -106,11 +106,12 @@ pnpm dev
 
 This starts:
 
-- web: [http://localhost:3000](http://localhost:3000) (`/sign-in`, `/sign-up`, `/verify-email`, `/forgot-password`, `/reset-password`, `/settings/security`, `/app`)
-- api: [http://localhost:3001](http://localhost:3001) (`GET /health`, `GET /v1/me`, `PATCH /v1/me/preferences`, `GET /v1/plans`, `GET /v1/usage`, `GET /v1/subscription`, `GET /v1/ai/models`, `/v1/conversations`, `/api/auth/*`)
-- worker: BullMQ / Redis connection process
+- web: [http://localhost:3000](http://localhost:3000) (`/sign-in`, `/sign-up`, `/verify-email`, `/forgot-password`, `/reset-password`, `/settings/security`, `/settings/billing`, `/payment/result`, `/app`)
+- admin: [http://localhost:3002](http://localhost:3002) (privileged control plane; not part of `apps/web`)
+- api: [http://localhost:3001](http://localhost:3001) (`GET /health`, `GET /v1/me`, `PATCH /v1/me/preferences`, `GET /v1/plans`, `GET /v1/usage`, `GET /v1/subscription`, `POST /v1/payments/subscriptions`, `POST /v1/payments/topups`, `GET /v1/payments`, `POST /webhooks/tbank/payments`, `GET /v1/ai/models`, `/v1/conversations`, `/api/auth/*`, `/admin/v1/*`)
+- worker: BullMQ / Redis process, including pending-payment reconciliation
 
-Local/test only: `POST /dev/mock-purchases/subscription` and `POST /dev/mock-purchases/topup` (authenticated, server-side prices, verified email required). These routes are not registered in staging/production.
+Local/test default `PAYMENT_PROVIDER=mock` uses a Vimla mock hosted page. `/dev/mock-purchases/*` still exists for chat E2E shortcuts. Staging/production require `PAYMENT_PROVIDER=tbank` and never register mock purchase routes. `pnpm test:tbank` is a reminder only — default CI never calls T-Bank.
 
 Local/test notification inbox (never in staging/production):
 
@@ -149,7 +150,7 @@ pnpm test:integration
 pnpm test:e2e
 ```
 
-`pnpm test:e2e` starts the API on `http://localhost:3101` and the web app on `http://localhost:3100` against `vimla_test`, memory notifications, MockAiProvider and mock purchases. It does not send real email, SMS, ProxyAPI or payment traffic, and it does not reuse a local `pnpm dev` server.
+`pnpm test:e2e` starts the consumer API on `http://localhost:3101` and web on `http://localhost:3100`, then Admin API on `http://localhost:3201` and `apps/admin` on `http://localhost:3202`, against `vimla_test`, memory notifications, MockAiProvider and mock purchases. It does not send real email, SMS, ProxyAPI or payment traffic, and it does not reuse a local `pnpm dev` server.
 
 ## Lint
 
@@ -173,17 +174,35 @@ pnpm build
 
 ```text
 apps/web        Next.js 16 App Router
+apps/admin      Privileged Admin control plane (port 3002)
 apps/api        NestJS + Fastify modular monolith
 apps/worker     BullMQ worker process
 packages/contracts
 packages/database
 packages/config
 packages/auth
+packages/admin
 packages/ai
 packages/billing
 packages/notifications
 packages/shared
 ```
+
+Owner bootstrap (existing verified user, no password, operator CLI on the server):
+
+```bash
+pnpm admin:bootstrap --user-id <uuid>
+pnpm admin:disable --user-id <uuid>
+pnpm admin:revoke-sessions --user-id <uuid>
+```
+
+MFA/passkey enrollment (Admin app, after identity login):
+
+1. Sign in at `http://localhost:3002/sign-in` with the bootstrapped user's password.
+2. Open `/enroll`, enter the password, scan the TOTP URI in an authenticator app, save backup codes (shown once), verify the TOTP code.
+3. Add at least one passkey (`/enroll`). Staging/production require a passkey (`ADMIN_REQUIRE_PASSKEY=true`).
+4. Open `/elevate`, enter TOTP or a backup code to create the privileged `AdminSession`.
+5. SMS and email OTP are not sufficient Admin factors. Lost MFA: remaining backup codes, another passkey, or server CLI disable/revoke (audited). There is no email magic-link Admin recovery.
 
 ## Money
 

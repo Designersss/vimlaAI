@@ -58,6 +58,10 @@ export function isFreeMailboxDomain(address: string): boolean {
   return FREE_MAILBOX_DOMAINS.has(emailDomain(address));
 }
 
+export function resolveDefaultPaymentProvider(appEnv: string): "mock" | "tbank" {
+  return appEnv === "local" || appEnv === "test" ? "mock" : "tbank";
+}
+
 export const publicWebEnvSchema = z.object({
   NEXT_PUBLIC_API_BASE_URL: z.url(),
 });
@@ -68,6 +72,16 @@ export const publicWebConfigSchema = z.object({
 });
 export type PublicWebConfig = z.infer<typeof publicWebConfigSchema>;
 
+export const publicAdminEnvSchema = z.object({
+  NEXT_PUBLIC_ADMIN_API_BASE_URL: z.url(),
+});
+export type PublicAdminEnv = z.infer<typeof publicAdminEnvSchema>;
+
+export const publicAdminConfigSchema = z.object({
+  apiBaseUrl: z.url(),
+});
+export type PublicAdminConfig = z.infer<typeof publicAdminConfigSchema>;
+
 export const apiEnvSchema = z
   .object({
     NODE_ENV: nodeEnvSchema.default("development"),
@@ -76,6 +90,20 @@ export const apiEnvSchema = z
     API_HOST: z.string().min(1).default("0.0.0.0"),
     API_PORT: portSchema.default(3001),
     WEB_ORIGIN: z.url().default("http://localhost:3000"),
+    ADMIN_ORIGIN: z.url().default("http://localhost:3002"),
+    ADMIN_SESSION_TTL_SECONDS: z.coerce.number().int().min(300).max(86_400).default(28_800),
+    ADMIN_SESSION_IDLE_SECONDS: z.coerce.number().int().min(60).max(28_800).default(1_800),
+    ADMIN_STEP_UP_SECONDS: z.coerce.number().int().min(60).max(3_600).default(900),
+    ADMIN_REQUIRE_TOTP: z.enum(["true", "false"]).default("true"),
+    ADMIN_REQUIRE_PASSKEY: z.enum(["true", "false"]).default("false"),
+    ADMIN_REPORTING_TIMEZONE: z.string().min(1).default("Europe/Moscow"),
+    ADMIN_WEBAUTHN_RP_ID: z.string().min(1).default("localhost"),
+    ADMIN_WEBAUTHN_ORIGIN: z.preprocess(emptyToUndefined, z.url().optional()),
+    ADMIN_LOGIN_IP_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).default(10),
+    ADMIN_LOGIN_ACCOUNT_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).default(8),
+    ADMIN_LOGIN_GLOBAL_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).default(30),
+    ADMIN_ELEVATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).default(8),
+    ADMIN_QUERY_MAX_RANGE_DAYS: z.coerce.number().int().min(1).max(366).default(366),
     DATABASE_URL: z.url(),
     REDIS_URL: z.url(),
     BETTER_AUTH_SECRET: z.string().min(32),
@@ -129,6 +157,28 @@ export const apiEnvSchema = z
     NOTIFY_SMS_PER_ACCOUNT_PER_HOUR: z.coerce.number().int().min(1).default(4),
     NOTIFY_SMS_PER_IP_PER_HOUR: z.coerce.number().int().min(1).default(8),
     NOTIFY_SMS_GLOBAL_PER_MINUTE: z.coerce.number().int().min(1).default(20),
+    PAYMENT_PROVIDER: z.enum(["mock", "tbank"]).optional(),
+    PAYMENT_CHECKOUT_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).default(10),
+    PAYMENT_WEBHOOK_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).default(120),
+    PAYMENT_RECONCILE_AFTER_SECONDS: z.coerce.number().int().min(30).max(86_400).default(120),
+    TBANK_ENV: z.enum(["test", "production"]).default("test"),
+    TBANK_TERMINAL_KEY: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+    TBANK_PASSWORD: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+    TBANK_API_BASE_URL: z.preprocess(emptyToUndefined, z.url().optional()),
+    TBANK_NOTIFICATION_BASE_URL: z.preprocess(emptyToUndefined, z.url().optional()),
+    TBANK_SUCCESS_URL: z.preprocess(emptyToUndefined, z.url().optional()),
+    TBANK_FAIL_URL: z.preprocess(emptyToUndefined, z.url().optional()),
+    TBANK_FISCALIZATION_ENABLED: z.enum(["true", "false"]).default("false"),
+    TBANK_RECEIPT_TAXATION: z.preprocess(
+      emptyToUndefined,
+      z.enum(["osn", "usn_income", "usn_income_outcome", "esn", "patent"]).optional(),
+    ),
+    TBANK_RECEIPT_TAX: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+    TBANK_RECEIPT_PAYMENT_METHOD: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+    TBANK_RECEIPT_PAYMENT_OBJECT: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+    TBANK_RECEIPT_FFD_VERSION: z.preprocess(emptyToUndefined, z.enum(["1.05", "1.2"]).optional()),
+    TBANK_RECEIPT_ITEM_NAME: z.preprocess(emptyToUndefined, z.string().min(1).max(128).optional()),
+    TBANK_RECURRING_ENABLED: z.enum(["true", "false"]).default("false"),
   })
   .superRefine((value, ctx) => {
     if (value.APP_ENV === "production" || value.APP_ENV === "staging") {
@@ -227,6 +277,78 @@ export const apiEnvSchema = z
           });
         }
       }
+
+      if (!value.ADMIN_ORIGIN.startsWith("https://")) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["ADMIN_ORIGIN"],
+          message: "ADMIN_ORIGIN must be an https URL in staging/production",
+        });
+      }
+      if (value.ADMIN_ORIGIN === value.WEB_ORIGIN) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["ADMIN_ORIGIN"],
+          message: "ADMIN_ORIGIN must be distinct from WEB_ORIGIN",
+        });
+      }
+      if (value.ADMIN_REQUIRE_PASSKEY !== "true") {
+        ctx.addIssue({
+          code: "custom",
+          path: ["ADMIN_REQUIRE_PASSKEY"],
+          message: "ADMIN_REQUIRE_PASSKEY must be true in staging/production",
+        });
+      }
+      const webauthnOrigin = value.ADMIN_WEBAUTHN_ORIGIN ?? value.ADMIN_ORIGIN;
+      if (!webauthnOrigin.startsWith("https://")) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["ADMIN_WEBAUTHN_ORIGIN"],
+          message: "ADMIN_WEBAUTHN_ORIGIN must be an https URL in staging/production",
+        });
+      }
+
+      if ((value.PAYMENT_PROVIDER ?? "tbank") === "mock") {
+        ctx.addIssue({
+          code: "custom",
+          path: ["PAYMENT_PROVIDER"],
+          message: "Mock payment provider is not allowed in staging/production",
+        });
+      }
+      if (value.APP_ENV === "production" && value.TBANK_ENV !== "production") {
+        ctx.addIssue({
+          code: "custom",
+          path: ["TBANK_ENV"],
+          message: "Production requires TBANK_ENV=production",
+        });
+      }
+      if (!value.TBANK_TERMINAL_KEY || LOCAL_AUTH_SECRET_MARKERS.some((marker) => value.TBANK_TERMINAL_KEY?.toLowerCase().includes(marker)) || value.TBANK_TERMINAL_KEY === "MockTerminalKey") {
+        ctx.addIssue({
+          code: "custom",
+          path: ["TBANK_TERMINAL_KEY"],
+          message: "TBANK_TERMINAL_KEY must be the real terminal key in staging/production",
+        });
+      }
+      if (!value.TBANK_PASSWORD || LOCAL_AUTH_SECRET_MARKERS.some((marker) => value.TBANK_PASSWORD?.toLowerCase().includes(marker))) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["TBANK_PASSWORD"],
+          message: "TBANK_PASSWORD must be the real terminal password in staging/production",
+        });
+      }
+      for (const [path, url] of [
+        ["TBANK_NOTIFICATION_BASE_URL", value.TBANK_NOTIFICATION_BASE_URL],
+        ["TBANK_SUCCESS_URL", value.TBANK_SUCCESS_URL],
+        ["TBANK_FAIL_URL", value.TBANK_FAIL_URL],
+      ] as const) {
+        if (!url || !url.startsWith("https://")) {
+          ctx.addIssue({
+            code: "custom",
+            path: [path],
+            message: `${path} must be an https URL in staging/production`,
+          });
+        }
+      }
     } else if (value.EMAIL_PROVIDER === "smtp") {
       if (!value.SMTP_HOST || !value.SMTP_USER || !value.SMTP_PASSWORD || !value.EMAIL_FROM) {
         ctx.addIssue({
@@ -244,6 +366,60 @@ export const apiEnvSchema = z
         });
       }
     }
+
+    if (value.TBANK_RECURRING_ENABLED === "true") {
+      ctx.addIssue({
+        code: "custom",
+        path: ["TBANK_RECURRING_ENABLED"],
+        message: "T-Bank recurring charges are not implemented; leave TBANK_RECURRING_ENABLED=false",
+      });
+    }
+    if (value.TBANK_FISCALIZATION_ENABLED === "true") {
+      if (!value.TBANK_RECEIPT_TAXATION) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["TBANK_RECEIPT_TAXATION"],
+          message: "TBANK_RECEIPT_TAXATION is required when fiscalization is enabled",
+        });
+      }
+      if (!value.TBANK_RECEIPT_TAX) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["TBANK_RECEIPT_TAX"],
+          message: "TBANK_RECEIPT_TAX is required when fiscalization is enabled",
+        });
+      }
+      if (!value.TBANK_RECEIPT_PAYMENT_METHOD) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["TBANK_RECEIPT_PAYMENT_METHOD"],
+          message: "TBANK_RECEIPT_PAYMENT_METHOD is required when fiscalization is enabled",
+        });
+      }
+      if (!value.TBANK_RECEIPT_PAYMENT_OBJECT) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["TBANK_RECEIPT_PAYMENT_OBJECT"],
+          message: "TBANK_RECEIPT_PAYMENT_OBJECT is required when fiscalization is enabled",
+        });
+      }
+      if (!value.TBANK_RECEIPT_FFD_VERSION) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["TBANK_RECEIPT_FFD_VERSION"],
+          message: "TBANK_RECEIPT_FFD_VERSION is required when fiscalization is enabled",
+        });
+      }
+    }
+    if ((value.PAYMENT_PROVIDER ?? resolveDefaultPaymentProvider(value.APP_ENV)) === "tbank") {
+      if (!value.TBANK_TERMINAL_KEY || !value.TBANK_PASSWORD) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["TBANK_PASSWORD"],
+          message: "TBANK_TERMINAL_KEY and TBANK_PASSWORD are required when PAYMENT_PROVIDER=tbank",
+        });
+      }
+    }
   });
 export type ApiEnv = z.infer<typeof apiEnvSchema>;
 
@@ -254,6 +430,20 @@ export const apiConfigSchema = z.object({
   host: z.string().min(1),
   port: portSchema,
   webOrigin: z.url(),
+  adminOrigin: z.url(),
+  adminSessionTtlSeconds: z.number().int().min(300).max(86_400),
+  adminSessionIdleSeconds: z.number().int().min(60).max(28_800),
+  adminStepUpSeconds: z.number().int().min(60).max(3_600),
+  adminRequireTotp: z.boolean(),
+  adminRequirePasskey: z.boolean(),
+  adminReportingTimezone: z.string().min(1),
+  adminWebauthnRpId: z.string().min(1),
+  adminWebauthnOrigin: z.url(),
+  adminLoginIpLimitPerMinute: z.number().int().min(1),
+  adminLoginAccountLimitPerMinute: z.number().int().min(1),
+  adminLoginGlobalLimitPerMinute: z.number().int().min(1),
+  adminElevateLimitPerMinute: z.number().int().min(1),
+  adminQueryMaxRangeDays: z.number().int().min(1).max(366),
   databaseUrl: z.url(),
   redisUrl: z.url(),
   betterAuthSecret: z.string().min(32),
@@ -307,16 +497,57 @@ export const apiConfigSchema = z.object({
   notifySmsPerAccountPerHour: z.number().int().min(1),
   notifySmsPerIpPerHour: z.number().int().min(1),
   notifySmsGlobalPerMinute: z.number().int().min(1),
+  paymentProvider: z.enum(["mock", "tbank"]),
+  paymentCheckoutLimitPerMinute: z.number().int().min(1),
+  paymentWebhookLimitPerMinute: z.number().int().min(1),
+  paymentReconcileAfterSeconds: z.number().int().min(30),
+  tbankEnv: z.enum(["test", "production"]),
+  tbankTerminalKey: z.string().min(1),
+  tbankPassword: z.string().min(1),
+  tbankApiBaseUrl: z.url(),
+  tbankNotificationUrl: z.url(),
+  tbankSuccessUrl: z.url(),
+  tbankFailUrl: z.url(),
+  tbankFiscalizationEnabled: z.boolean(),
+  tbankReceiptTaxation: z.string().min(1).optional(),
+  tbankReceiptTax: z.string().min(1).optional(),
+  tbankReceiptPaymentMethod: z.string().min(1).optional(),
+  tbankReceiptPaymentObject: z.string().min(1).optional(),
+  tbankReceiptFfdVersion: z.enum(["1.05", "1.2"]).optional(),
+  tbankReceiptItemName: z.string().min(1).optional(),
+  tbankRecurringEnabled: z.boolean(),
 });
 export type ApiConfig = z.infer<typeof apiConfigSchema>;
 
-export const workerEnvSchema = z.object({
-  NODE_ENV: nodeEnvSchema.default("development"),
-  APP_ENV: appEnvSchema.default("local"),
-  LOG_LEVEL: logLevelSchema.default("info"),
-  DATABASE_URL: z.url(),
-  REDIS_URL: z.url(),
-});
+export const workerEnvSchema = z
+  .object({
+    NODE_ENV: nodeEnvSchema.default("development"),
+    APP_ENV: appEnvSchema.default("local"),
+    LOG_LEVEL: logLevelSchema.default("info"),
+    DATABASE_URL: z.url(),
+    REDIS_URL: z.url(),
+    PAYMENT_PROVIDER: z.enum(["mock", "tbank"]).optional(),
+    PAYMENT_RECONCILE_AFTER_SECONDS: z.coerce.number().int().min(30).max(86_400).default(120),
+    BILLING_MIN_TOPUP_MICRORUB: integerStringSchema.default("100000000"),
+    BILLING_MAX_TOPUP_MICRORUB: integerStringSchema.default("100000000000"),
+    BILLING_TOPUP_RATIO_BPS: integerStringSchema.default("3500"),
+    BILLING_SUBSCRIPTION_PERIOD_DAYS: z.coerce.number().int().min(1).max(366).default(30),
+    TBANK_ENV: z.enum(["test", "production"]).default("test"),
+    TBANK_TERMINAL_KEY: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+    TBANK_PASSWORD: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+    TBANK_API_BASE_URL: z.preprocess(emptyToUndefined, z.url().optional()),
+  })
+  .superRefine((value, ctx) => {
+    if (value.APP_ENV === "production" || value.APP_ENV === "staging") {
+      if ((value.PAYMENT_PROVIDER ?? "tbank") === "mock") {
+        ctx.addIssue({
+          code: "custom",
+          path: ["PAYMENT_PROVIDER"],
+          message: "Mock payment provider is not allowed in staging/production",
+        });
+      }
+    }
+  });
 export type WorkerEnv = z.infer<typeof workerEnvSchema>;
 
 export const workerConfigSchema = z.object({
@@ -325,5 +556,15 @@ export const workerConfigSchema = z.object({
   logLevel: logLevelSchema,
   databaseUrl: z.url(),
   redisUrl: z.url(),
+  paymentProvider: z.enum(["mock", "tbank"]),
+  paymentReconcileAfterSeconds: z.number().int().min(30),
+  billingMinTopupMicroRub: z.string().regex(/^\d+$/),
+  billingMaxTopupMicroRub: z.string().regex(/^\d+$/),
+  billingTopupRatioBps: z.string().regex(/^\d+$/),
+  billingSubscriptionPeriodDays: z.number().int().min(1).max(366),
+  tbankEnv: z.enum(["test", "production"]),
+  tbankTerminalKey: z.string().min(1),
+  tbankPassword: z.string().min(1),
+  tbankApiBaseUrl: z.url(),
 });
 export type WorkerConfig = z.infer<typeof workerConfigSchema>;

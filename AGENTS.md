@@ -18,19 +18,13 @@ The first AI provider/gateway is ProxyAPI. Vimla must never be architecturally c
 ## Current commercial model
 Vimla is operated by the user's Russian LLC. Customer revenue is received by the LLC. ProxyAPI is replenished from the LLC settlement account under the provider's B2B flow.
 
-Initial pricing assumptions (business configuration, not hard-coded constants):
+Initial published catalog (historical, not the final tariff set):
 - Lite: 150 RUB;
 - Start: 300 RUB;
 - Pro: 990 RUB;
 - arbitrary top-up amount.
 
-Current target maximum AI/provider-cost ratios are assumptions and must be configurable/versioned:
-- Lite: about 20%;
-- Start: about 25%;
-- Pro: about 30%;
-- top-up: about 35%.
-
-These values can change. Code must not scatter them as literals.
+Target 199 / 499 / 999 plans exist as inactive DRAFT PlanVersions without invented monthly AI grants. Included AI Usage is versioned `PlanVersion.providerBudgetMicroRub` / `TopupPolicyVersion.usageGrantRatioBps` in PostgreSQL — not `.env` and not a product-frozen 20/25/30/35%. Historical Lite/Start/Pro versions stay published and must not be rewritten.
 
 ## User-facing usage model
 For subscriptions, users see a simple percentage such as `62% used / 38% remaining`.
@@ -39,7 +33,7 @@ The percentage is presentation only. It is never authoritative financial state.
 
 The backend stores exact integer usage/billing values and derives the percentage.
 
-Top-ups create a separate non-expiring (unless policy changes) usage bucket. Subscription allowance is spent before top-up allowance.
+Top-ups create a separate **non-expiring** usage bucket (`expiresAt = NULL`). Subscription allowance is spent before top-up allowance. Top-up never burns from inactivity or a calendar timer.
 
 ## Financial invariants
 These are non-negotiable:
@@ -135,6 +129,9 @@ Data/infrastructure:
 - New external integrations must sit behind interfaces/adapters.
 - Validate every external input: HTTP, webhook, provider response, environment variable and queue payload.
 - Never log secrets, authorization headers, full payment data or raw sensitive file contents.
+
+## Admin control plane
+Privileged operator UI lives in `apps/admin` (`http://localhost:3002`, production `admin.<domain>`). APIs are `/admin/v1/*` behind `AdminGuard` + `@RequireAdminPermission`. Ordinary sessions and email/phone OTP cannot become Admin. Bootstrap: `pnpm admin:bootstrap --user-id <uuid>`. See `docs/ADMIN_SECURITY.md` and `docs/FINANCE_ADMIN.md`.
 
 ## Sources of truth
 Use these documents in this order when making architectural decisions:

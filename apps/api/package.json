@@ -17,6 +17,7 @@
     "@nestjs/core": "^11.1.6",
     "@nestjs/platform-fastify": "^11.1.6",
     "@vimla/ai": "workspace:*",
+    "@vimla/admin": "workspace:*",
     "@vimla/auth": "workspace:*",
     "@vimla/billing": "workspace:*",
     "@vimla/config": "workspace:*",
@@ -31,7 +32,8 @@
     "pino": "^9.9.0",
     "pino-http": "^10.5.0",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.2"
+    "rxjs": "^7.8.2",
+    "zod": "^4.1.5"
   },
   "devDependencies": {
     "@types/node": "^24.3.1",

@@ -38,7 +38,7 @@ export async function createVimlaApiApp(
 
   app.useGlobalFilters(new ApiExceptionFilter());
   app.enableCors({
-    origin: config.webOrigin,
+    origin: [config.webOrigin, config.adminOrigin],
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: [
@@ -51,6 +51,9 @@ export async function createVimlaApiApp(
   });
 
   const fastify = app.getHttpAdapter().getInstance();
+  fastify.setReplySerializer((payload) =>
+    JSON.stringify(payload, (_key, value) => (typeof value === "bigint" ? value.toString() : value)),
+  );
   const authService = app.get(AuthService);
   fastify.route({
     method: ["GET", "POST", "PUT", "PATCH", "DELETE"],
