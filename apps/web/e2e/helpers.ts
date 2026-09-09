@@ -86,6 +86,17 @@ export async function seedLocale(page: Page, locale: "ru" | "en"): Promise<void>
   ]);
 }
 
+export async function fillInput(page: Page, selector: string, value: string): Promise<void> {
+  const field = page.locator(selector);
+  await field.click();
+  await field.fill(value);
+  if ((await field.inputValue()) !== value) {
+    await field.clear();
+    await field.pressSequentially(value, { delay: 20 });
+  }
+  await expect(field).toHaveValue(value);
+}
+
 export async function signUp(
   page: Page,
   input: { name: string; email: string; password: string },
@@ -93,9 +104,9 @@ export async function signUp(
 ): Promise<void> {
   await seedLocale(page, locale);
   await page.goto("/sign-up");
-  await page.getByLabel(/имя|name/i).fill(input.name);
-  await page.getByLabel(/email/i).fill(input.email);
-  await page.locator("#auth-password").fill(input.password);
+  await fillInput(page, "#auth-name", input.name);
+  await fillInput(page, "#auth-email", input.email);
+  await fillInput(page, "#auth-password", input.password);
   await page.getByRole("button", { name: /создать аккаунт|create account/i }).click();
   await expect(page).toHaveURL(/verify-email/, { timeout: 30_000 });
 }

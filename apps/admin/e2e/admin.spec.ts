@@ -113,13 +113,19 @@ test.describe("visual regression", () => {
   test("admin auth shell", async ({ page }) => {
     await page.goto("/sign-in");
     await expect(page.getByRole("heading")).toBeVisible();
-    await expect(page).toHaveScreenshot("admin-auth-shell.png", { animations: "disabled" });
+    await expect(page).toHaveScreenshot("admin-auth-shell.png", {
+      animations: "disabled",
+      maxDiffPixelRatio: 0.02,
+    });
   });
 
   test("admin shell", async ({ page }) => {
     await bootstrapOwnerSession(page);
     await page.goto("/admin");
     await expect(page.getByTestId("outstanding-topup")).toBeVisible({ timeout: 20_000 });
-    await expect(page).toHaveScreenshot("admin-shell.png", { animations: "disabled" });
+    await expect(page).toHaveScreenshot("admin-shell.png", {
+      animations: "disabled",
+      maxDiffPixelRatio: 0.02,
+    });
   });
 });

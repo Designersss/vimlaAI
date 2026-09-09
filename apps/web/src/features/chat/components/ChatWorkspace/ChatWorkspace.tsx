@@ -44,6 +44,7 @@ import {
 import { streamAssistantMessage } from "../../services/stream-message";
 import { ChatWorkspaceStore } from "../../stores/chat-workspace-store";
 import { LanguageSwitcher } from "../../../../shared/i18n/LanguageSwitcher";
+import { CanonicalNav } from "../../../shell/CanonicalNav";
 import { readLocaleCookie, syncAuthenticatedLocale } from "../../../../shared/i18n/persist-locale";
 import { apiErrorMessageKey } from "../../../../shared/errors/error-keys";
 import { tx } from "../../../../shared/i18n/translate";
@@ -170,6 +171,9 @@ export const ChatWorkspace = observer(function ChatWorkspace(): ReactElement {
   const sidebar = (
     <Sidebar>
       <p className={styles.brand}>{t("meta.productName")}</p>
+      <div className={styles.canonical}>
+        <CanonicalNav />
+      </div>
       <Button variant="secondary" onClick={() => void onNewChat()}>
         <PlusIcon size={16} aria-hidden="true" />
         {t("chat.newChat")}

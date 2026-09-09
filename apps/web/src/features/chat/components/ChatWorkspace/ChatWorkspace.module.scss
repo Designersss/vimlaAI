@@ -48,6 +48,11 @@
   font-weight: 700;
 }
 
+.canonical {
+  display: grid;
+  gap: var(--vimla-space-2);
+}
+
 .status {
   padding: var(--vimla-space-6);
 }

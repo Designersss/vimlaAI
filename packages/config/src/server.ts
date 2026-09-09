@@ -101,6 +101,7 @@ export function loadApiConfig(
     notifySmsGlobalPerMinute: parsed.NOTIFY_SMS_GLOBAL_PER_MINUTE,
     paymentProvider: parsed.PAYMENT_PROVIDER ?? resolveDefaultPaymentProvider(parsed.APP_ENV),
     paymentCheckoutLimitPerMinute: parsed.PAYMENT_CHECKOUT_LIMIT_PER_MINUTE,
+    workspaceMutationLimitPerMinute: parsed.WORKSPACE_MUTATION_LIMIT_PER_MINUTE,
     paymentWebhookLimitPerMinute: parsed.PAYMENT_WEBHOOK_LIMIT_PER_MINUTE,
     paymentReconcileAfterSeconds: parsed.PAYMENT_RECONCILE_AFTER_SECONDS,
     tbankEnv: parsed.TBANK_ENV,

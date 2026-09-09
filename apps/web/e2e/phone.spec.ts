@@ -21,7 +21,7 @@ test.describe("phone identity", () => {
     await signUp(page, { name: "Ada", email, password });
     await verifyEmail(page, request, email);
 
-    await page.getByRole("link", { name: /настройки|settings/i }).click();
+    await page.getByRole("navigation", { name: /мои дела|my work/i }).getByRole("link", { name: /настройки|settings/i }).click();
     await expect(page).toHaveURL(/settings\/security/);
     await page.locator("#security-phone").fill(phone);
     await page.locator("#security-send-phone").click();

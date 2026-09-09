@@ -27,6 +27,9 @@ export function SettingsChrome({ title, children }: { title: string; children: R
           {item("/settings/security", t("nav.security"))}
           {item("/settings/billing", t("nav.billing"))}
           {item("/settings/appearance", t("nav.appearance"))}
+          <Link href="/work" className={buttonClassName({ variant: "ghost", size: "sm" })}>
+            {t("nav.work")}
+          </Link>
           <Link href="/app" className={buttonClassName({ variant: "ghost", size: "sm" })}>
             {t("nav.chat")}
           </Link>

@@ -17,6 +17,7 @@ vimla/
     ai/
     billing/
     notifications/
+    workspace/
     shared/
     ui/
   .cursor/rules/
@@ -65,7 +66,8 @@ Protected Vimla routes:
   SensitiveAreaGuard (@SensitiveArea on AI/billing controllers) -> emailVerified=true for POST/PUT/PATCH/DELETE
   VerifiedEmailGuard remains available for explicit method-level checks
   GET /v1/me
-  PATCH /v1/me/preferences
+  PATCH /v1/me/preferences (locale and/or IANA timezone; OriginGuard)
+  /v1/workspace/* personal objects (AuthGuard + OriginGuard + SensitiveArea + mutation rate limit)
 ```
 
 `User.id` is the canonical identifier for later billing, usage, conversations and generations. Public routes such as `GET /health` stay unauthenticated. Verification, password-reset and session endpoints stay available for unverified sessions.

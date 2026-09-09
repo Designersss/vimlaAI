@@ -14,6 +14,7 @@ describe("fetchCurrentUser", () => {
           phoneNumber: null,
           phoneNumberVerified: false,
           locale: "ru",
+          timezone: null,
         }),
         { status: 200, headers: { "content-type": "application/json" } },
       );

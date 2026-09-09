@@ -141,6 +141,9 @@ importers:
       '@vimla/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@vimla/workspace':
+        specifier: workspace:*
+        version: link:../../packages/workspace
       better-auth:
         specifier: ^1.7.3
         version: 1.7.3(@prisma/client@6.19.3(prisma@6.19.3(typescript@5.9.3))(typescript@5.9.3))(next@16.3.4(@playwright/test@1.63.0)(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(sass@1.104.0))(pg@8.23.0)(prisma@6.19.3(typescript@5.9.3))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(vitest@3.2.7(@types/node@24.13.3)(jiti@2.7.0)(sass@1.104.0)(tsx@4.23.13))
@@ -540,6 +543,28 @@ importers:
       react-dom:
         specifier: ^19.1.1
         version: 19.2.8(react@19.2.8)
+      typescript:
+        specifier: ^5.9.2
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.7(@types/node@24.13.3)(jiti@2.7.0)(sass@1.104.0)(tsx@4.23.13)
+
+  packages/workspace:
+    dependencies:
+      '@vimla/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@vimla/database':
+        specifier: workspace:*
+        version: link:../database
+    devDependencies:
+      '@types/node':
+        specifier: ^24.3.1
+        version: 24.13.3
+      eslint:
+        specifier: ^9.35.0
+        version: 9.39.5(jiti@2.7.0)
       typescript:
         specifier: ^5.9.2
         version: 5.9.3

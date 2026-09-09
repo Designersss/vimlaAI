@@ -12,6 +12,7 @@ export const currentUserSchema = z.object({
   phoneNumber: z.string().nullable(),
   phoneNumberVerified: z.boolean(),
   locale: vimlaLocaleSchema,
+  timezone: z.string().nullable(),
 });
 export type CurrentUser = z.infer<typeof currentUserSchema>;
 
@@ -21,3 +22,12 @@ export const updateLocalePreferenceSchema = z
   })
   .strict();
 export type UpdateLocalePreference = z.infer<typeof updateLocalePreferenceSchema>;
+
+export const updatePreferencesSchema = z
+  .object({
+    locale: vimlaLocaleSchema.optional(),
+    timezone: z.string().min(1).max(64).optional(),
+  })
+  .strict()
+  .refine((value) => value.locale !== undefined || value.timezone !== undefined);
+export type UpdatePreferences = z.infer<typeof updatePreferencesSchema>;

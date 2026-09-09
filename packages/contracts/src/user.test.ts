@@ -12,6 +12,7 @@ describe("currentUserSchema", () => {
       phoneNumber: null,
       phoneNumberVerified: false,
       locale: "ru",
+      timezone: null,
     });
     expect(parsed.email).toBe("ada@example.com");
   });
@@ -26,6 +27,7 @@ describe("currentUserSchema", () => {
       phoneNumber: "+79991234567",
       phoneNumberVerified: true,
       locale: "en",
+      timezone: null,
       password: "should-be-stripped-by-strictness-or-ignored",
     });
     expect("password" in parsed).toBe(false);

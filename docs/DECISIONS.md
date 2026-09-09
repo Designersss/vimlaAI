@@ -45,6 +45,7 @@
 - Frontend localization is `next-intl` with dictionaries in `apps/web/messages`. Default locale is `ru`.
 - Phase 5 Admin is a separate Next.js app (`apps/admin`) with Better Auth TOTP + passkey, hashed AdminSession, default-deny permissions, and append-only audit. Ordinary user sessions cannot be reused.
 - Phase 5.5 UI: one `@vimla/ui` SCSS-module design system for Web and Admin; light/dark/system; no screenshot data in production.
+- Phase 6 Personal Workspace: PERSONAL `WorkspaceObject` kinds only; notes use explicit Save; reminders are schedule data until Phase 6.5; other users’ objects 404; `@Vimla` is not started.
 - Verified expensive mutations: `@SensitiveArea()` on AI/billing controllers with default-deny for mutating methods, not a global verified-email guard.
 - Browser E2E uses Playwright + test infrastructure only (`pnpm test:e2e`).
 - Signup HTTP validation is a layered limiter (`AUTH_SIGNUP_IP_LIMIT_PER_MINUTE`, default 20), overriding Better Auth's built-in `/sign-up*` 3/10s rule so a legitimate email typo is not treated as abuse. OTP send/verify, SMS and password-reset remain stricter. Notification budget keys HMAC destination and IP; they never store raw email.

@@ -25,6 +25,7 @@
     "@vimla/database": "workspace:*",
     "@vimla/notifications": "workspace:*",
     "@vimla/shared": "workspace:*",
+    "@vimla/workspace": "workspace:*",
     "better-auth": "^1.7.3",
     "fastify": "^5.11.3",
     "ioredis": "^5.7.0",

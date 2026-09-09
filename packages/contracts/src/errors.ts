@@ -50,6 +50,12 @@ export const apiErrorCodeSchema = z.enum([
   "payment_provider_unavailable",
   "payment_rate_limited",
   "subscription_already_active",
+  "invalid_timezone",
+  "timezone_required",
+  "workspace_payload_too_large",
+  "workspace_reorder_invalid",
+  "workspace_list_full",
+  "workspace_status_invalid",
 ]);
 export type ApiErrorCode = z.infer<typeof apiErrorCodeSchema>;
 

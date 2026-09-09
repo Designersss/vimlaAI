@@ -9,15 +9,17 @@ import {
 } from "@nestjs/common";
 import {
   currentUserSchema,
-  updateLocalePreferenceSchema,
+  isIanaTimeZone,
+  updatePreferencesSchema,
   type CurrentUser,
 } from "@vimla/contracts";
 import type { AuthenticatedUser } from "@vimla/auth";
-import { parseVimlaLocale, type VimlaLocale } from "@vimla/shared";
+import { parseVimlaLocale } from "@vimla/shared";
 import { PrismaService } from "../persistence/prisma.service.js";
 import { API_CONFIG, type ApiRuntimeConfig } from "../config/api-config.js";
 import { AuthGuard } from "./auth.guard.js";
 import { AuthUser } from "./current-user.decorator.js";
+import { OriginGuard } from "./origin.guard.js";
 
 @Controller("v1")
 @UseGuards(AuthGuard)
@@ -29,7 +31,7 @@ export class MeController {
 
   @Get("me")
   async getMe(@AuthUser() user: AuthenticatedUser): Promise<CurrentUser> {
-    const locale = await this.readLocale(user.id);
+    const preference = await this.readPreference(user.id);
     return currentUserSchema.parse({
       id: user.id,
       email: user.email,
@@ -38,33 +40,52 @@ export class MeController {
       emailVerified: user.emailVerified,
       phoneNumber: user.phoneNumber,
       phoneNumberVerified: user.phoneNumberVerified,
-      locale,
+      locale: parseVimlaLocale(preference?.locale, this.config.authDefaultLocale),
+      timezone: preference?.timezone ?? null,
     });
   }
 
   @Patch("me/preferences")
+  @UseGuards(OriginGuard)
   async updatePreferences(
     @AuthUser() user: AuthenticatedUser,
     @Body() body: unknown,
   ): Promise<CurrentUser> {
-    const parsed = updateLocalePreferenceSchema.safeParse(body);
+    const parsed = updatePreferencesSchema.safeParse(body);
     if (!parsed.success) {
       throw new BadRequestException("Invalid preference payload");
     }
 
+    if (parsed.data.timezone !== undefined && !isIanaTimeZone(parsed.data.timezone)) {
+      throw new BadRequestException({
+        code: "invalid_timezone",
+        message: "Invalid timezone",
+      });
+    }
+
     await this.prisma.client.userPreference.upsert({
       where: { userId: user.id },
-      create: { userId: user.id, locale: parsed.data.locale },
-      update: { locale: parsed.data.locale },
+      create: {
+        userId: user.id,
+        locale: parsed.data.locale ?? this.config.authDefaultLocale,
+        timezone: parsed.data.timezone ?? null,
+      },
+      update: {
+        ...(parsed.data.locale !== undefined ? { locale: parsed.data.locale } : {}),
+        ...(parsed.data.timezone !== undefined ? { timezone: parsed.data.timezone } : {}),
+      },
     });
 
     return this.getMe(user);
   }
 
-  private async readLocale(userId: string): Promise<VimlaLocale> {
+  private async readPreference(userId: string): Promise<{ locale: string; timezone: string | null } | null> {
     const preference = await this.prisma.client.userPreference.findUnique({
       where: { userId },
     });
-    return parseVimlaLocale(preference?.locale, this.config.authDefaultLocale);
+    if (!preference) {
+      return null;
+    }
+    return { locale: preference.locale, timezone: preference.timezone };
   }
 }

@@ -15,14 +15,12 @@ import { AiConcurrencyService } from "./concurrency.service.js";
 import { AiRateLimitGuard } from "./ai-rate-limit.guard.js";
 import { ConversationsController } from "./conversations.controller.js";
 import { ModelsController } from "./models.controller.js";
-import { OriginGuard } from "./origin.guard.js";
 import { TextChatService } from "./text-chat.service.js";
 
 @Module({
   imports: [PersistenceModule, AuthModule, BillingModule],
   controllers: [ModelsController, ConversationsController],
   providers: [
-    OriginGuard,
     AiRateLimitGuard,
     AiConcurrencyService,
     {

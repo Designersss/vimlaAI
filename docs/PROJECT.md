@@ -358,7 +358,7 @@ Permanent rules:
 
 Initial operator surfaces include users, plans/subscriptions/payments/usage, provider COGS, model catalog, kill switch, incidents/security signals and the audit log.
 
-## Projects (Phase 6 mechanics, documented now)
+## Projects (Phase 8 mechanics, documented now)
 
 Projects are not implemented in Phase 5. Agreed rules:
 

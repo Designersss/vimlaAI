@@ -27,3 +27,22 @@ export async function fetchCurrentUser(
   const payload: unknown = await response.json();
   return currentUserSchema.parse(payload);
 }
+
+export async function updatePreferences(
+  input: { locale?: CurrentUser["locale"]; timezone?: string },
+  fetchImpl: typeof fetch = fetch,
+): Promise<CurrentUser> {
+  const response = await fetchImpl(`${publicWebConfig.apiBaseUrl}/v1/me/preferences`, {
+    method: "PATCH",
+    credentials: "include",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (response.status === 401) {
+    throw new AuthRequiredError();
+  }
+  if (!response.ok) {
+    throw new Error("Unable to update preferences");
+  }
+  return currentUserSchema.parse(await response.json());
+}

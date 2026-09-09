@@ -31,7 +31,7 @@ import { AuthGuard } from "../auth/auth.guard.js";
 import { AuthUser } from "../auth/current-user.decorator.js";
 import { SensitiveArea, SensitiveMutation } from "../auth/sensitive-area.js";
 import { SensitiveAreaGuard } from "../auth/sensitive-area.guard.js";
-import { OriginGuard } from "./origin.guard.js";
+import { OriginGuard } from "../auth/origin.guard.js";
 import { sseResponseHeaders } from "./sse-headers.js";
 import { AiRateLimitGuard } from "./ai-rate-limit.guard.js";
 import { TextChatService } from "./text-chat.service.js";

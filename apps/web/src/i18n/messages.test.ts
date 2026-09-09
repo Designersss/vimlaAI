@@ -20,7 +20,9 @@ describe("i18n dictionaries", () => {
     expect(ruKeys).toContain("billing.activeUntil");
     expect(ruKeys).toContain("billing.topupNeverExpires");
     expect(ruKeys).toContain("appearance.theme");
-    expect(ruKeys).toContain("chat.autoUnavailable");
+    expect(ruKeys).toContain("nav.work");
+    expect(ruKeys).toContain("work.today");
+    expect(ruKeys).toContain("work.noDelivery");
     expect(JSON.stringify(en)).not.toMatch(/Acme|Sarah Chen|62% used of 1,240/i);
     expect(JSON.stringify(ru)).not.toMatch(/Acme|Sarah Chen/);
     expect(ruKeys).toContain("validation.passwordMin");

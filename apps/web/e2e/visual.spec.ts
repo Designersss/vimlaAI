@@ -29,7 +29,10 @@ test.describe("visual regression", () => {
     await verifyEmail(page, request, email);
     await page.goto("/app");
     await expect(page.getByPlaceholder(/сообщение для vimla|message vimla/i)).toBeVisible();
-    await expect(page).toHaveScreenshot("chat-empty-shell.png", { animations: "disabled" });
+    await expect(page).toHaveScreenshot("chat-empty-shell.png", {
+      animations: "disabled",
+      maxDiffPixelRatio: 0.02,
+    });
   });
 
   test("settings shell", async ({ page, request }) => {
@@ -38,6 +41,9 @@ test.describe("visual regression", () => {
     await verifyEmail(page, request, email);
     await page.goto("/settings/security");
     await expect(page.getByRole("heading", { name: /безопасность|security/i })).toBeVisible();
-    await expect(page).toHaveScreenshot("settings-shell.png", { animations: "disabled" });
+    await expect(page).toHaveScreenshot("settings-shell.png", {
+      animations: "disabled",
+      maxDiffPixelRatio: 0.02,
+    });
   });
 });

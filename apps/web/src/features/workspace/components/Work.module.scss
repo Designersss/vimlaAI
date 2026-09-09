@@ -1,0 +1,34 @@
+.form {
+  display: grid;
+  gap: var(--vimla-space-3);
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--vimla-space-2);
+  align-items: center;
+}
+
+.stack {
+  display: grid;
+  gap: var(--vimla-space-3);
+}
+
+.item {
+  display: grid;
+  gap: var(--vimla-space-2);
+  min-width: 0;
+}
+
+.noteBody {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: inherit;
+}
+
+.grow {
+  flex: 1;
+  min-width: 12rem;
+}

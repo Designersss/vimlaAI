@@ -8,6 +8,7 @@ import {
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { isAiError, type AiErrorCode } from "@vimla/ai";
 import { isBillingError, type BillingErrorCode } from "@vimla/billing";
+import { isWorkspaceError, type WorkspaceErrorCode } from "@vimla/workspace";
 import {
   apiErrorResponseSchema,
   type ApiErrorCode,
@@ -39,6 +40,19 @@ export class ApiExceptionFilter implements ExceptionFilter {
         apiErrorResponseSchema.parse({
           error: {
             code: billingCodeToApi(exception.code),
+            message: exception.message,
+            requestId,
+          },
+        }),
+      );
+      return;
+    }
+
+    if (isWorkspaceError(exception)) {
+      void response.status(exception.httpStatus).send(
+        apiErrorResponseSchema.parse({
+          error: {
+            code: workspaceCodeToApi(exception.code),
             message: exception.message,
             requestId,
           },
@@ -110,6 +124,31 @@ function aiCodeToApi(code: AiErrorCode): ApiErrorCode {
       return "ai_reconciliation_required";
     case "PROVIDER_REJECTED":
       return "internal_error";
+    default:
+      return "internal_error";
+  }
+}
+
+function workspaceCodeToApi(code: WorkspaceErrorCode): ApiErrorCode {
+  switch (code) {
+    case "NOT_FOUND":
+      return "not_found";
+    case "VALIDATION_ERROR":
+      return "validation_error";
+    case "INVALID_TIMEZONE":
+      return "invalid_timezone";
+    case "TIMEZONE_REQUIRED":
+      return "timezone_required";
+    case "PAYLOAD_TOO_LARGE":
+      return "workspace_payload_too_large";
+    case "REORDER_INVALID":
+      return "workspace_reorder_invalid";
+    case "LIST_FULL":
+      return "workspace_list_full";
+    case "STATUS_INVALID":
+      return "workspace_status_invalid";
+    case "CONFLICT":
+      return "conflict";
     default:
       return "internal_error";
   }

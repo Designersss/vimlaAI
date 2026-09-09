@@ -30,9 +30,11 @@ model User {
   usageBuckets         UsageBucket[]
   reservations         UsageReservation[]
   ledgerEntries        UsageLedgerEntry[]
-  conversations        Conversation[]
-  aiRequests           AiRequest[]
-  twoFactorEnabled     Boolean         @default(false)
+  conversations              Conversation[]
+  aiRequests                 AiRequest[]
+  ownedWorkspaceObjects      WorkspaceObject[] @relation("WorkspacePersonalOwner")
+  createdWorkspaceObjects    WorkspaceObject[] @relation("WorkspaceCreatedBy")
+  twoFactorEnabled           Boolean           @default(false)
   twoFactor            TwoFactor?
   passkeys             Passkey[]
   adminPrincipal       AdminPrincipal?
@@ -46,6 +48,7 @@ model UserPreference {
   userId    String   @id
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   locale    String
+  timezone  String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -352,8 +355,9 @@ model Conversation {
   title      String?
   createdAt  DateTime    @default(now())
   updatedAt  DateTime    @updatedAt
-  messages   Message[]
-  aiRequests AiRequest[]
+  messages                 Message[]
+  aiRequests               AiRequest[]
+  sourcedWorkspaceObjects  WorkspaceObject[]
 
   @@index([userId, updatedAt])
   @@map("conversation")
@@ -370,6 +374,8 @@ model Message {
   aiRequest      AiRequest?   @relation(fields: [aiRequestId], references: [id], onDelete: Restrict)
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @updatedAt
+
+  sourcedWorkspaceObjects WorkspaceObject[]
 
   @@index([conversationId, createdAt])
   @@index([aiRequestId])
@@ -698,4 +704,102 @@ model AdminSecurityEvent {
 
   @@index([kind, createdAt])
   @@map("admin_security_event")
+}
+
+// Phase 6: personal Workspace objects. PROJECT scope is a Phase 8 migration; do not add a dangling projectId.
+model WorkspaceObject {
+  id                     String     @id @default(uuid())
+  kind                   String
+  scopeType              String     @default("PERSONAL")
+  personalOwnerUserId    String
+  personalOwner          User       @relation("WorkspacePersonalOwner", fields: [personalOwnerUserId], references: [id], onDelete: Restrict)
+  createdByUserId        String
+  createdBy              User       @relation("WorkspaceCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  sourceConversationId   String?
+  sourceConversation     Conversation? @relation(fields: [sourceConversationId], references: [id], onDelete: SetNull)
+  sourceMessageId        String?
+  sourceMessage          Message?      @relation(fields: [sourceMessageId], references: [id], onDelete: SetNull)
+  archivedAt             DateTime?
+  deletedAt              DateTime?
+  createdAt              DateTime   @default(now())
+  updatedAt              DateTime   @updatedAt
+  task                   WorkspaceTask?
+  reminder               WorkspaceReminder?
+  list                   WorkspaceList?
+  note                   WorkspaceNote?
+  linkedReminders        WorkspaceReminder[] @relation("ReminderLinkedTask")
+
+  @@index([personalOwnerUserId, kind, deletedAt])
+  @@index([personalOwnerUserId, archivedAt, updatedAt])
+  @@index([kind, deletedAt, updatedAt])
+  @@map("workspace_object")
+}
+
+model WorkspaceTask {
+  objectId     String          @id
+  object       WorkspaceObject @relation(fields: [objectId], references: [id], onDelete: Cascade)
+  title        String
+  description  String?
+  status       String
+  priority     String?
+  dueAt        DateTime?
+  completedAt  DateTime?
+
+  @@index([status, dueAt])
+  @@map("workspace_task")
+}
+
+model WorkspaceReminder {
+  objectId            String           @id
+  object              WorkspaceObject  @relation(fields: [objectId], references: [id], onDelete: Cascade)
+  title               String
+  description         String?
+  scheduledAt         DateTime
+  timezone            String
+  status              String
+  linkedTaskObjectId  String?
+  linkedTask          WorkspaceObject? @relation("ReminderLinkedTask", fields: [linkedTaskObjectId], references: [id], onDelete: SetNull)
+  canceledAt          DateTime?
+  deliveredAt         DateTime?
+
+  @@index([status, scheduledAt])
+  @@index([linkedTaskObjectId])
+  @@map("workspace_reminder")
+}
+
+model WorkspaceList {
+  objectId    String           @id
+  object      WorkspaceObject  @relation(fields: [objectId], references: [id], onDelete: Cascade)
+  type        String
+  title       String
+  description String?
+  items       WorkspaceListItem[]
+
+  @@index([type])
+  @@map("workspace_list")
+}
+
+model WorkspaceListItem {
+  id           String        @id @default(uuid())
+  listObjectId String
+  list         WorkspaceList @relation(fields: [listObjectId], references: [objectId], onDelete: Cascade)
+  text         String
+  position     Int
+  completedAt  DateTime?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@index([listObjectId, position])
+  @@map("workspace_list_item")
+}
+
+model WorkspaceNote {
+  objectId         String          @id
+  object           WorkspaceObject @relation(fields: [objectId], references: [id], onDelete: Cascade)
+  title            String
+  contentMarkdown  String
+  pinnedAt         DateTime?
+
+  @@index([pinnedAt])
+  @@map("workspace_note")
 }

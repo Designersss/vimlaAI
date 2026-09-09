@@ -198,7 +198,47 @@ Goal: one `@vimla/ui` design system for Web and Admin; restyle existing flows; r
 
 Exit criteria: quality gate includes responsive tests; no screenshot data in production; no fake Projects.
 
-## Phase 6 — Images
+## Phase 6 — Personal Workspace Core
+Goal: personal My Work (Today, Tasks, Reminders, Lists/Checklists, Notes) without AI. See `docs/PERSONAL_WORKSPACE.md`.
+
+- [x] `WorkspaceObject` + kind child tables, PERSONAL scope only, `UserPreference.timezone`.
+- [x] `@vimla/workspace` domain services reusable later by `@Vimla`.
+- [x] Thin Nest API with IDOR 404, OriginGuard, SensitiveArea, mutation rate limit.
+- [x] Web `/work/*`, canonical Chat / My Work / Settings nav, explicit note Save, reminder copy without delivery claims.
+- [x] Integration + Playwright coverage, including responsive My Work smoke.
+
+Exit criteria: users can manage personal work without AI; quality gate green; Phase 6.5 delivery not started.
+
+## Phase 6.5 — Notification Platform
+- [ ] reminder/email/Web Push delivery (not scheduling data).
+- [ ] recurring reminders.
+
+## Phase 7 — Secure @Vimla Operator
+- [ ] `@Vimla` operator using existing workspace services + `TrustedSourceContext`.
+- [ ] Command Segments / Tool Registry / ActionPolicyEngine (not in Phase 6).
+
+## Phase 7.5 — Vimla Home
+
+## Phase 8 — Projects & Collaboration
+- [ ] projects.
+- [ ] files/object metadata.
+- [ ] signed access/upload.
+- [ ] ownership/security.
+- [ ] project context in chats.
+- [ ] PROJECT-scoped workspace objects (migrate from PERSONAL-only).
+
+## Phase 8.5 — Project-scoped @Vimla
+
+## Phase 9 — Personal Brain + Project Brain
+
+## Phase 9.x — Auto Router
+- [ ] task/capability classification.
+- [ ] configurable routing rules.
+- [ ] cost/quality/latency weighting.
+- [ ] fallback handling.
+- [ ] routing telemetry and evaluation.
+
+## Phase 10 — Images
 - [ ] image capability interface/provider mapping.
 - [ ] async/sync strategy by model.
 - [ ] reservation by selected parameters.
@@ -206,7 +246,7 @@ Exit criteria: quality gate includes responsive tests; no screenshot data in pro
 - [ ] generation history/UI.
 - [ ] settlement/failure rules.
 
-## Phase 7 — Video
+## Phase 11 — Video
 - [ ] video job API.
 - [ ] persistent job lifecycle.
 - [ ] BullMQ worker.
@@ -216,21 +256,7 @@ Exit criteria: quality gate includes responsive tests; no screenshot data in pro
 - [ ] strict reservation/cost caps.
 - [ ] ambiguous-provider-charge reconciliation path.
 
-## Phase 8 — Projects + files
-- [ ] projects.
-- [ ] files/object metadata.
-- [ ] signed access/upload.
-- [ ] ownership/security.
-- [ ] project context in chats.
-
-## Phase 9 — Auto Router
-- [ ] task/capability classification.
-- [ ] configurable routing rules.
-- [ ] cost/quality/latency weighting.
-- [ ] fallback handling.
-- [ ] routing telemetry and evaluation.
-
-## Phase 10 — Agents
+## Phase 12 — Agents
 - [ ] agent-run domain.
 - [ ] run-level provider-cost budget.
 - [ ] tool/step ledger.
