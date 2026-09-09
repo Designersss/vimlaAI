@@ -1,0 +1,180 @@
+---
+description: Vimla production UI data integrity, no hardcoded product data, reference-image hierarchy, and feature availability rules
+globs:
+  - "apps/web/**/*.{ts,tsx}"
+  - "apps/admin/**/*.{ts,tsx}"
+  - "packages/ui/**/*.{ts,tsx}"
+alwaysApply: false
+---
+
+# Vimla Real Data & Visual Reference Rules
+
+These rules are mandatory for all production UI work.
+
+## 1. Reference hierarchy
+
+When visual references disagree, use this priority:
+
+1. security and product/domain correctness;
+2. existing backend/API/contracts and persisted state;
+3. `docs/DESIGN_SYSTEM.md` and `@vimla/ui`;
+4. `docs/design/references/00-master-design-system.png`;
+5. screen-specific references;
+6. responsive rules.
+
+The master reference owns the canonical visual language.
+
+Screen-specific references own composition for their screen, not a separate design system.
+
+## 2. One navigation system
+
+Do not create different sidebar/navigation designs per screenshot.
+
+Use one shared `AppShell` / `Sidebar` / mobile navigation system.
+
+If a screen reference shows a different sidebar:
+- preserve the canonical sidebar visual language;
+- use the screen reference only for the main content composition;
+- change navigation only when the actual product information architecture requires it.
+
+## 3. No hardcoded production data
+
+Production UI must not hardcode user/business/domain data.
+
+Do NOT hardcode:
+- names;
+- emails;
+- avatars;
+- project titles;
+- participant lists;
+- messages;
+- plan prices;
+- plan limits;
+- AI usage;
+- storage usage;
+- payment history;
+- card/payment details;
+- payment statuses;
+- dates;
+- counts;
+- model catalog entries;
+- Project Brain facts;
+- decisions;
+- actions;
+- files;
+- finance metrics.
+
+These values must come from real:
+- API responses;
+- contracts;
+- authenticated session state;
+- database-backed domain state;
+- versioned policies;
+- server configuration;
+- feature flags.
+
+## 4. What may be static
+
+Static code is acceptable for:
+- design tokens;
+- component variants;
+- route definitions;
+- stable enum-to-label/icon mappings;
+- localization keys;
+- documented product constants that are truly code-level constants.
+
+Do not confuse a design example with a product constant.
+
+## 5. Missing features shown in references
+
+If a screenshot contains a feature that is not implemented:
+
+Do NOT:
+- add fake production cards;
+- add local arrays that pretend to be server data;
+- add a clickable fake route;
+- add fake billing/project/AI state;
+- silently invent backend behavior.
+
+Instead choose one of these:
+1. omit the feature from production UI for now;
+2. expose only a disabled/coming-soon state if the product specification explicitly requires it;
+3. implement the missing domain/backend/contracts/persistence first in a separately scoped feature task.
+
+Visual-only examples are allowed in:
+- local/test-only `/dev/ui`;
+- test fixtures;
+- Storybook-like local catalogs if later introduced.
+
+They must never leak into production runtime paths.
+
+## 6. Existing features must use real data
+
+When restyling existing screens, preserve current data flows.
+
+Examples:
+- Auth uses Better Auth/current auth APIs.
+- Usage uses `/v1/usage` or current equivalent.
+- Plans use the real plan catalog/API.
+- Payments use real payment APIs/history.
+- AI models use the real model catalog.
+- Admin finance uses the existing FinanceQueryService/Admin API.
+- Sessions use existing session APIs.
+
+Do not replace live data with mock data simply to match a screenshot.
+
+## 7. Loading, empty, and error states
+
+If real data is not available yet:
+- show `Skeleton` while loading;
+- show `EmptyState` for real empty results;
+- show `ErrorState` for failures.
+
+Do not fill empty states with fake records.
+
+## 8. No UI-only domain truth
+
+Frontend must not become the source of truth for:
+- pricing;
+- limits;
+- entitlements;
+- permissions;
+- billing math;
+- Usage grants;
+- payment methods;
+- finance calculations;
+- project limits.
+
+The frontend renders authoritative backend/domain results.
+
+## 9. Strict API evolution
+
+If a design requires data that the current API does not provide:
+- update contracts deliberately;
+- implement backend/domain support;
+- add tests;
+- then render it.
+
+Do not derive sensitive/financial truth heuristically in the browser.
+
+## 10. Production route integrity
+
+Navigation items must correspond to real routes and real feature availability.
+
+Do not show a production navigation item merely because it appears in a visual reference.
+
+Feature availability must be driven by actual implementation and permissions.
+
+## 11. Test requirement
+
+Tests must catch accidental mock/hardcoded production data where practical.
+
+For critical screens, verify rendered values are driven by fixture/API responses rather than literal screenshot values.
+
+## 12. Main rule
+
+Visual references define appearance and composition.
+
+The backend/domain defines truth.
+
+Never sacrifice real data integrity to make the UI look more like a generated mockup.
