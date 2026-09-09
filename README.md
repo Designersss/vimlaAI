@@ -2,7 +2,7 @@
 
 Unified consumer/prosumer AI workspace. This repository is a pnpm + Turborepo monorepo.
 
-Phase 4 adds T-Bank Internet Acquiring (hosted payment page only). Phase 4.5 adds an internal finance/tariff foundation (**TOPUP never expires**; no public finance API). Phase 5 adds a separate Admin control plane on `http://localhost:3002` (`/admin/v1/*`). Images, video, agents and projects remain out of scope.
+Phase 4 adds T-Bank Internet Acquiring (hosted payment page only). Phase 4.5 adds an internal finance/tariff foundation (**TOPUP never expires**; no public finance API). Phase 5 adds a separate Admin control plane on `http://localhost:3002` (`/admin/v1/*`). Phase 5.5 adds the shared `@vimla/ui` design system used by Web and Admin. Images, video, agents and projects remain out of scope.
 
 ## Requirements
 
@@ -106,7 +106,7 @@ pnpm dev
 
 This starts:
 
-- web: [http://localhost:3000](http://localhost:3000) (`/sign-in`, `/sign-up`, `/verify-email`, `/forgot-password`, `/reset-password`, `/settings/security`, `/settings/billing`, `/payment/result`, `/app`)
+- web: [http://localhost:3000](http://localhost:3000) (`/sign-in`, `/sign-up`, `/verify-email`, `/forgot-password`, `/reset-password`, `/settings/security`, `/settings/billing`, `/settings/appearance`, `/payment/result`, `/app`). Local/test-only `/dev/ui` design catalog is gated on `APP_ENV=local|test`.
 - admin: [http://localhost:3002](http://localhost:3002) (privileged control plane; not part of `apps/web`)
 - api: [http://localhost:3001](http://localhost:3001) (`GET /health`, `GET /v1/me`, `PATCH /v1/me/preferences`, `GET /v1/plans`, `GET /v1/usage`, `GET /v1/subscription`, `POST /v1/payments/subscriptions`, `POST /v1/payments/topups`, `GET /v1/payments`, `POST /webhooks/tbank/payments`, `GET /v1/ai/models`, `/v1/conversations`, `/api/auth/*`, `/admin/v1/*`)
 - worker: BullMQ / Redis process, including pending-payment reconciliation
@@ -186,6 +186,7 @@ packages/ai
 packages/billing
 packages/notifications
 packages/shared
+packages/ui
 ```
 
 Owner bootstrap (existing verified user, no password, operator CLI on the server):

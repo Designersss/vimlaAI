@@ -1,17 +1,13 @@
 .stack {
   display: flex;
   flex-direction: column;
-  gap: var(--space-lg);
+  gap: var(--vimla-space-5);
 }
 
-.card,
 .session {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
-}
-
-.session {
-  padding-bottom: 0.75rem;
-  border-bottom: 1px solid var(--color-border);
+  gap: var(--vimla-space-2);
+  padding-bottom: var(--vimla-space-3);
+  border-bottom: 1px solid var(--vimla-border);
 }

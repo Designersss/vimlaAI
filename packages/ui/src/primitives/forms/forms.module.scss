@@ -1,0 +1,180 @@
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--vimla-space-2);
+  min-width: 0;
+}
+
+.label {
+  font-size: var(--vimla-type-label-size);
+  font-weight: 600;
+  color: var(--vimla-text);
+}
+
+.description {
+  margin: 0;
+  color: var(--vimla-text-muted);
+  font-size: var(--vimla-type-caption-size);
+}
+
+.error {
+  margin: 0;
+  color: var(--vimla-danger);
+  font-size: var(--vimla-type-caption-size);
+}
+
+.control,
+.select,
+.textarea {
+  width: 100%;
+  min-width: 0;
+  min-height: var(--vimla-control-height);
+  padding: 0 var(--vimla-control-pad-x);
+  border: 1px solid var(--vimla-border);
+  border-radius: var(--vimla-radius-md);
+  background: var(--vimla-surface);
+  color: var(--vimla-text);
+  transition: border-color var(--vimla-duration-fast) var(--vimla-ease);
+}
+
+.textarea {
+  min-height: 6.5rem;
+  padding: var(--vimla-space-3);
+  resize: vertical;
+  line-height: var(--vimla-type-body-line);
+}
+
+.control:disabled,
+.select:disabled,
+.textarea:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.invalid {
+  border-color: var(--vimla-danger);
+}
+
+.passwordWrap,
+.searchWrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.passwordWrap .control,
+.searchWrap .control {
+  padding-right: 2.75rem;
+}
+
+.searchWrap .control {
+  padding-left: 2.5rem;
+}
+
+.searchIcon {
+  position: absolute;
+  left: 0.75rem;
+  color: var(--vimla-text-muted);
+  pointer-events: none;
+}
+
+.suffix {
+  position: absolute;
+  right: 0.25rem;
+}
+
+.otp {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--vimla-space-2);
+}
+
+.otpCell {
+  width: 2.5rem;
+  min-height: var(--vimla-control-height);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-size: 1.125rem;
+}
+
+.check,
+.radio {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--vimla-space-2);
+  color: var(--vimla-text);
+  cursor: pointer;
+}
+
+.check input,
+.radio input {
+  width: 1.1rem;
+  height: 1.1rem;
+  accent-color: var(--vimla-accent);
+}
+
+.switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--vimla-space-2);
+  cursor: pointer;
+}
+
+.switch input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+
+.track {
+  width: 2.5rem;
+  height: 1.4rem;
+  border-radius: var(--vimla-radius-round);
+  background: var(--vimla-surface-hover);
+  border: 1px solid var(--vimla-border);
+  position: relative;
+  transition: background-color var(--vimla-duration-fast) var(--vimla-ease);
+}
+
+.track::after {
+  content: "";
+  position: absolute;
+  top: 1px;
+  left: 2px;
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 50%;
+  background: var(--vimla-surface);
+  transition: transform var(--vimla-duration-fast) var(--vimla-ease);
+}
+
+.switch input:checked + .track {
+  background: var(--vimla-accent);
+  border-color: var(--vimla-accent);
+}
+
+.switch input:checked + .track::after {
+  transform: translateX(1rem);
+}
+
+.switch input:focus-visible + .track {
+  outline: 2px solid var(--vimla-focus-ring);
+  outline-offset: 2px;
+}
+
+@media (max-width: 479px) {
+  .otpCell {
+    width: 2.25rem;
+  }
+}
+
+@media (pointer: coarse) {
+  .control,
+  .select,
+  .textarea,
+  .otpCell {
+    min-height: 44px;
+  }
+}

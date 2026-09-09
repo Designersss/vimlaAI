@@ -1,0 +1,99 @@
+.composer {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--vimla-space-2);
+  padding: var(--vimla-space-3) var(--vimla-page-pad) calc(var(--vimla-safe-bottom) + var(--vimla-space-3));
+  border-top: 1px solid var(--vimla-border);
+  background: var(--vimla-surface);
+}
+
+.composerActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--vimla-space-2);
+  align-items: center;
+  justify-content: space-between;
+}
+
+.message {
+  max-width: 48rem;
+  min-width: 0;
+}
+
+.role {
+  margin: 0 0 var(--vimla-space-1);
+  color: var(--vimla-accent);
+  font-size: var(--vimla-type-caption-size);
+  font-weight: 600;
+}
+
+.userRole {
+  color: var(--vimla-text-muted);
+}
+
+.content {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.code {
+  overflow-x: auto;
+  background: var(--vimla-code-bg);
+  color: var(--vimla-code-text);
+  border-radius: var(--vimla-radius-md);
+  padding: var(--vimla-space-3);
+  font-size: var(--vimla-type-caption-size);
+}
+
+.stream {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.stream span {
+  width: 0.35rem;
+  height: 0.35rem;
+  border-radius: 50%;
+  background: var(--vimla-accent);
+  animation: pulse 1s ease-in-out infinite;
+}
+
+.stream span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.stream span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
+.projectCard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--vimla-space-2);
+}
+
+.projectMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--vimla-space-2);
+  align-items: center;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (min-width: 768px) {
+  .composer {
+    grid-template-columns: 1fr auto;
+    align-items: end;
+  }
+}

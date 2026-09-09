@@ -5,7 +5,7 @@ export const webOrigin = process.env.WEB_ORIGIN ?? "http://localhost:3100";
 export const apiBase = process.env.BETTER_AUTH_URL ?? "http://localhost:3101";
 
 export function formAlert(page: Page): Locator {
-  return page.locator("p[role='alert']");
+  return page.locator('[role="alert"]:not(#__next-route-announcer__)');
 }
 
 export function otpGroup(page: Page): Locator {

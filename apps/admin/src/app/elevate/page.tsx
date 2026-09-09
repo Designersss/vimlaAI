@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useState, type FormEvent } from "react";
+import { Alert, AuthCard, AuthLayout, Button, FormField, Heading, Input } from "@vimla/ui";
 import { adminFetch } from "../../shared/api/admin-fetch";
 import { adminAuthClient } from "../../shared/auth/auth-client";
 import styles from "../admin/admin.module.scss";
@@ -38,16 +39,22 @@ export default function ElevatePage() {
   }
 
   return (
-    <main className={styles.main}>
-      <h1>{t("app.elevate")}</h1>
-      <form className={styles.form} onSubmit={(event) => void onSubmit(event)}>
-        <input className={styles.input} name="totpCode" inputMode="numeric" autoComplete="one-time-code" />
-        <input className={styles.input} name="backupCode" autoComplete="off" />
-        <button className={styles.button} type="submit">
+    <AuthLayout>
+      <AuthCard>
+        <Heading as="h1" size="page">
           {t("app.elevate")}
-        </button>
-        {error ? <p role="alert">{error}</p> : null}
-      </form>
-    </main>
+        </Heading>
+        <form className={styles.form} onSubmit={(event) => void onSubmit(event)}>
+          <FormField label={t("app.verifyTotp")} htmlFor="elevate-totp">
+            <Input id="elevate-totp" name="totpCode" inputMode="numeric" autoComplete="one-time-code" />
+          </FormField>
+          <FormField label={t("app.backupCode")} htmlFor="elevate-backup">
+            <Input id="elevate-backup" name="backupCode" autoComplete="off" />
+          </FormField>
+          <Button type="submit">{t("app.elevate")}</Button>
+          {error ? <Alert variant="error">{error}</Alert> : null}
+        </form>
+      </AuthCard>
+    </AuthLayout>
   );
 }

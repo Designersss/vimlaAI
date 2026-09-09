@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent, type ReactElement } from "react";
 import { useTranslations } from "next-intl";
+import { Alert, Button, FormField, Input } from "@vimla/ui";
 import { authClient } from "../../services/auth-client";
 import { isValidEmail } from "../../services/validation";
 import { authErrorMessageKey } from "../../../../shared/errors/error-keys";
@@ -40,38 +41,27 @@ export function ForgotPasswordForm(): ReactElement {
   }
 
   if (success) {
-    return <p role="status">{t("auth.forgot.success")}</p>;
+    return <Alert variant="success">{t("auth.forgot.success")}</Alert>;
   }
 
   return (
     <form className={styles.form} noValidate onSubmit={(event) => void onSubmit(event)}>
-      <label className={styles.field} htmlFor="forgot-email">
-        {t("auth.email")}
-        <input
+      <FormField label={t("auth.email")} htmlFor="forgot-email" error={fieldError}>
+        <Input
           id="forgot-email"
           type="email"
           autoComplete="email"
           value={email}
-          aria-invalid={Boolean(fieldError)}
-          aria-describedby={fieldError ? "forgot-email-error" : undefined}
+          invalid={Boolean(fieldError)}
           onChange={(event) => {
             setEmail(event.target.value);
           }}
         />
-        {fieldError ? (
-          <span id="forgot-email-error" className={styles.fieldError}>
-            {fieldError}
-          </span>
-        ) : null}
-      </label>
-      {formError ? (
-        <p className={styles.error} role="alert">
-          {formError}
-        </p>
-      ) : null}
-      <button className={styles.submit} type="submit" disabled={state === "submitting"}>
-        {state === "submitting" ? t("auth.working") : t("auth.forgot.submit")}
-      </button>
+      </FormField>
+      {formError ? <Alert variant="error">{formError}</Alert> : null}
+      <Button type="submit" disabled={state === "submitting"} loading={state === "submitting"} block>
+        {t("auth.forgot.submit")}
+      </Button>
     </form>
   );
 }

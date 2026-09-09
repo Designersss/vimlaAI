@@ -3,6 +3,7 @@
 import { useState, type FormEvent, type ReactElement } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
+import { Alert, Button, FormField, PasswordInput } from "@vimla/ui";
 import { authClient } from "../../services/auth-client";
 import { passwordTooShort } from "../../services/validation";
 import { authErrorMessageKey } from "../../../../shared/errors/error-keys";
@@ -53,46 +54,41 @@ export function ResetPasswordForm(): ReactElement {
   }
 
   if (success) {
-    return <p role="status">{t("auth.reset.success")}</p>;
+    return <Alert variant="success">{t("auth.reset.success")}</Alert>;
   }
 
   return (
     <form className={styles.form} noValidate onSubmit={(event) => void onSubmit(event)}>
-      <label className={styles.field} htmlFor="reset-password">
-        {t("auth.newPassword")}
-        <input
+      <FormField label={t("auth.newPassword")} htmlFor="reset-password" error={fieldError}>
+        <PasswordInput
           id="reset-password"
-          type="password"
           autoComplete="new-password"
           value={password}
           minLength={8}
-          aria-invalid={Boolean(fieldError)}
+          invalid={Boolean(fieldError)}
+          revealLabel={t("auth.revealPassword")}
+          hideLabel={t("auth.hidePassword")}
           onChange={(event) => {
             setPassword(event.target.value);
           }}
         />
-      </label>
-      <label className={styles.field} htmlFor="reset-confirm">
-        {t("auth.confirmPassword")}
-        <input
+      </FormField>
+      <FormField label={t("auth.confirmPassword")} htmlFor="reset-confirm">
+        <PasswordInput
           id="reset-confirm"
-          type="password"
           autoComplete="new-password"
           value={confirm}
+          revealLabel={t("auth.revealPassword")}
+          hideLabel={t("auth.hidePassword")}
           onChange={(event) => {
             setConfirm(event.target.value);
           }}
         />
-        {fieldError ? <span className={styles.fieldError}>{fieldError}</span> : null}
-      </label>
-      {formError ? (
-        <p className={styles.error} role="alert">
-          {formError}
-        </p>
-      ) : null}
-      <button className={styles.submit} type="submit" disabled={state === "submitting"}>
-        {state === "submitting" ? t("auth.working") : t("auth.reset.submit")}
-      </button>
+      </FormField>
+      {formError ? <Alert variant="error">{formError}</Alert> : null}
+      <Button type="submit" disabled={state === "submitting"} loading={state === "submitting"} block>
+        {t("auth.reset.submit")}
+      </Button>
     </form>
   );
 }

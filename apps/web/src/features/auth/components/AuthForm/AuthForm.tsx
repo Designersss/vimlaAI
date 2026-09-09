@@ -13,6 +13,7 @@ import {
 } from "../../../../shared/errors/error-keys";
 import { syncAuthenticatedLocale } from "../../../../shared/i18n/persist-locale";
 import { tx } from "../../../../shared/i18n/translate";
+import { Alert, Button, FormField, Input, PasswordInput } from "@vimla/ui";
 import styles from "./AuthForm.module.scss";
 
 interface AuthFormProps {
@@ -145,81 +146,58 @@ export function AuthForm({ mode }: AuthFormProps): ReactElement {
   return (
     <form className={styles.form} noValidate onSubmit={(event) => void onSubmit(event)}>
       {mode === "sign-up" ? (
-        <label className={styles.field} htmlFor="auth-name">
-          {t("auth.name")}
-          <input
+        <FormField label={t("auth.name")} htmlFor="auth-name" error={fieldErrors.name}>
+          <Input
             id="auth-name"
             name="name"
             autoComplete="name"
             value={name}
-            aria-invalid={Boolean(fieldErrors.name)}
+            invalid={Boolean(fieldErrors.name)}
             aria-describedby={fieldErrors.name ? "auth-name-error" : undefined}
             onChange={(event) => {
               setName(event.target.value);
             }}
           />
-          {fieldErrors.name ? (
-            <span id="auth-name-error" className={styles.fieldError}>
-              {fieldErrors.name}
-            </span>
-          ) : null}
-        </label>
+        </FormField>
       ) : null}
-      <label className={styles.field} htmlFor="auth-email">
-        {t("auth.email")}
-        <input
+      <FormField label={t("auth.email")} htmlFor="auth-email" error={fieldErrors.email}>
+        <Input
           id="auth-email"
           name="email"
           type="email"
           autoComplete="email"
           value={email}
-          aria-invalid={Boolean(fieldErrors.email)}
+          invalid={Boolean(fieldErrors.email)}
           aria-describedby={fieldErrors.email ? "auth-email-error" : undefined}
           onChange={(event) => {
             setEmail(event.target.value);
           }}
         />
-        {fieldErrors.email ? (
-          <span id="auth-email-error" className={styles.fieldError}>
-            {fieldErrors.email}
-          </span>
-        ) : null}
-      </label>
-      <label className={styles.field} htmlFor="auth-password">
-        {t("auth.password")}
-        <input
+      </FormField>
+      <FormField label={t("auth.password")} htmlFor="auth-password" error={fieldErrors.password}>
+        <PasswordInput
           id="auth-password"
           name="password"
-          type="password"
           autoComplete={mode === "sign-up" ? "new-password" : "current-password"}
           value={password}
           minLength={8}
-          aria-invalid={Boolean(fieldErrors.password)}
+          invalid={Boolean(fieldErrors.password)}
           aria-describedby={fieldErrors.password ? "auth-password-error" : undefined}
+          revealLabel={t("auth.revealPassword")}
+          hideLabel={t("auth.hidePassword")}
           onChange={(event) => {
             setPassword(event.target.value);
           }}
         />
-        {fieldErrors.password ? (
-          <span id="auth-password-error" className={styles.fieldError}>
-            {fieldErrors.password}
-          </span>
-        ) : null}
-      </label>
-      {formError ? (
-        <p className={styles.error} role="alert">
-          {formError}
-        </p>
-      ) : null}
-      <button className={styles.submit} type="submit" disabled={submitDisabled}>
-        {state === "submitting"
-          ? t("auth.working")
-          : retryAfter > 0
-            ? t("auth.errors.rateLimitedWait", { seconds: retryAfter })
-            : mode === "sign-up"
-              ? t("auth.createAccount")
-              : t("auth.signIn")}
-      </button>
+      </FormField>
+      {formError ? <Alert variant="error">{formError}</Alert> : null}
+      <Button type="submit" disabled={submitDisabled} loading={state === "submitting"} block>
+        {retryAfter > 0
+          ? t("auth.errors.rateLimitedWait", { seconds: retryAfter })
+          : mode === "sign-up"
+            ? t("auth.createAccount")
+            : t("auth.signIn")}
+      </Button>
     </form>
   );
 }

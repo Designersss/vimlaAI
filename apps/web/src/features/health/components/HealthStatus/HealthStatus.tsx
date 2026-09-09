@@ -4,6 +4,7 @@ import { observer } from "mobx-react-lite";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslations } from "next-intl";
 import type { HealthResponse } from "@vimla/contracts";
+import { Button, Card, Heading, StatusBadge, Text } from "@vimla/ui";
 import { fetchApiHealth } from "../../../../shared/api/health";
 import { HealthStore } from "../../stores/health-store";
 import styles from "./HealthStatus.module.scss";
@@ -48,38 +49,43 @@ export const HealthStatus = observer(function HealthStatus({
   const health = store.health;
 
   return (
-    <section className={styles.panel} aria-live="polite">
+    <Card className={styles.panel} aria-live="polite">
       <header className={styles.header}>
-        <h2 className={styles.title}>{t("title")}</h2>
-        <button
+        <Heading as="h2" size="section">
+          {t("title")}
+        </Heading>
+        <Button
           type="button"
-          className={styles.refresh}
+          size="sm"
+          variant="secondary"
           onClick={() => {
             void refresh();
           }}
           disabled={isRefreshing}
+          loading={isRefreshing}
         >
-          {isRefreshing ? t("checking") : t("refresh")}
-        </button>
+          {t("refresh")}
+        </Button>
       </header>
-      {store.state === "failed" ? (
-        <p className={styles.error}>{store.errorMessage}</p>
-      ) : null}
+      {store.state === "failed" ? <Text>{store.errorMessage}</Text> : null}
       {health ? (
         <ul className={styles.checks}>
           <li>
-            {t("api")}: {health.checks.api.status}
+            {t("api")}: <StatusBadge tone={health.checks.api.status === "ok" ? "success" : "danger"}>{health.checks.api.status}</StatusBadge>
           </li>
           <li>
-            {t("postgres")}: {health.checks.database.status}
+            {t("postgres")}:{" "}
+            <StatusBadge tone={health.checks.database.status === "ok" ? "success" : "danger"}>
+              {health.checks.database.status}
+            </StatusBadge>
           </li>
           <li>
-            {t("redis")}: {health.checks.redis.status}
+            {t("redis")}: <StatusBadge tone={health.checks.redis.status === "ok" ? "success" : "danger"}>{health.checks.redis.status}</StatusBadge>
           </li>
         </ul>
       ) : (
-        <p className={styles.empty}>{t("empty")}</p>
+        <Text tone="secondary">{t("empty")}</Text>
       )}
-    </section>
+    </Card>
   );
 });

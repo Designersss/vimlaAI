@@ -1,10 +1,21 @@
 "use client";
 
-import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
+import {
+  AppShell,
+  Button,
+  Drawer,
+  IconButton,
+  MenuIcon,
+  Sidebar,
+  SidebarFooter,
+  SidebarItem,
+  SidebarSection,
+  Spinner,
+} from "@vimla/ui";
 import { adminFetch } from "../../shared/api/admin-fetch";
 import { adminAuthClient } from "../../shared/auth/auth-client";
 import styles from "./admin.module.scss";
@@ -58,6 +69,7 @@ export function AdminShell({ children }: { children: ReactNode }): ReactNode {
   const pathname = usePathname();
   const router = useRouter();
   const [ready, setReady] = useState(false);
+  const [navOpen, setNavOpen] = useState(false);
 
   useEffect(() => {
     void (async () => {
@@ -82,34 +94,51 @@ export function AdminShell({ children }: { children: ReactNode }): ReactNode {
   }
 
   if (!ready) {
-    return <p>{t("app.loading")}</p>;
+    return <Spinner label={t("app.loading")} />;
   }
 
+  const sidebar = (
+    <Sidebar>
+      <p className={styles.brand}>{t("app.title")}</p>
+      {NAV_GROUPS.map((group) => (
+        <SidebarSection key={group.label} label={t(`nav.group.${group.label}`)}>
+          {group.items.map((item) => (
+            <SidebarItem
+              key={`${item.href}-${item.key}`}
+              href={item.href}
+              active={pathname === item.href}
+            >
+              {t(`nav.${item.key}`)}
+            </SidebarItem>
+          ))}
+        </SidebarSection>
+      ))}
+      <SidebarFooter>
+        <Button variant="secondary" size="sm" onClick={() => void logout()}>
+          {t("app.logout")}
+        </Button>
+      </SidebarFooter>
+    </Sidebar>
+  );
+
   return (
-    <div className={styles.shell}>
-      <nav className={styles.nav}>
-        <p className={styles.brand}>{t("app.title")}</p>
-        {NAV_GROUPS.map((group) => (
-          <div key={group.label}>
-            <p className={styles.navGroup}>{t(`nav.group.${group.label}`)}</p>
-            {group.items.map((item) => (
-              <Link
-                key={`${item.href}-${item.key}`}
-                href={item.href}
-                className={pathname === item.href ? `${styles.link} ${styles.linkActive}` : styles.link}
-              >
-                {t(`nav.${item.key}`)}
-              </Link>
-            ))}
-          </div>
-        ))}
-        <div className={styles.logout}>
-          <button type="button" className={`${styles.button} ${styles.buttonSecondary}`} onClick={() => void logout()}>
-            {t("app.logout")}
-          </button>
-        </div>
-      </nav>
-      <main className={styles.main}>{children}</main>
-    </div>
+    <>
+      <AppShell
+        sidebar={sidebar}
+        topbar={
+          <>
+            <IconButton label={t("app.openNav")} onClick={() => setNavOpen(true)}>
+              <MenuIcon size={18} />
+            </IconButton>
+            <strong>{t("app.title")}</strong>
+          </>
+        }
+      >
+        <main className={styles.main}>{children}</main>
+      </AppShell>
+      <Drawer open={navOpen} onOpenChange={setNavOpen} title={t("app.title")} closeLabel={t("app.close")}>
+        {sidebar}
+      </Drawer>
+    </>
   );
 }

@@ -7,9 +7,9 @@ import type { CurrentUser } from "@vimla/contracts";
 import { AuthRequiredError, fetchCurrentUser } from "../../services/current-user";
 import { authClient } from "../../services/auth-client";
 import { passwordTooShort } from "../../services/validation";
+import { Alert, Button, Card, FormField, Heading, Input, OtpInput, PasswordInput, Skeleton, Text } from "@vimla/ui";
 import { authErrorMessageKey } from "../../../../shared/errors/error-keys";
 import { tx } from "../../../../shared/i18n/translate";
-import { OtpInput } from "../OtpInput/OtpInput";
 import styles from "../AuthForm/AuthForm.module.scss";
 import panel from "./SecuritySettings.module.scss";
 
@@ -202,26 +202,28 @@ export function SecuritySettings(): ReactElement {
   }
 
   if (boot === "loading") {
-    return <p>{t("common.loading")}</p>;
+    return <Skeleton />;
   }
   if (boot === "failed" || !user) {
-    return <p>{t("common.genericError")}</p>;
+    return <Alert variant="error">{t("common.genericError")}</Alert>;
   }
 
   const currentToken = sessions[0]?.token;
 
   return (
     <div className={panel.stack}>
-      <section className={panel.card}>
-        <h2>{t("settings.securityTitle")}</h2>
-        <p>
+      <Card>
+        <Heading as="h2" size="section">
+          {t("settings.securityTitle")}
+        </Heading>
+        <Text>
           {t("settings.email")}: {user.email} · {user.emailVerified ? t("settings.verified") : t("settings.unverified")}
-        </p>
-        <p>
+        </Text>
+        <Text>
           {t("settings.phone")}: {user.phoneNumber ?? t("settings.notLinked")} ·{" "}
           {user.phoneNumberVerified ? t("settings.linked") : t("settings.notLinked")}
-        </p>
-      </section>
+        </Text>
+      </Card>
 
       <form
         className={styles.form}
@@ -236,10 +238,11 @@ export function SecuritySettings(): ReactElement {
           }
         }}
       >
-        <h3>{t("settings.changeEmail")}</h3>
-        <label className={styles.field} htmlFor="new-email">
-          {t("settings.newEmail")}
-          <input
+        <Heading as="h3" size="sub">
+          {t("settings.changeEmail")}
+        </Heading>
+        <FormField label={t("settings.newEmail")} htmlFor="new-email">
+          <Input
             id="new-email"
             type="email"
             autoComplete="email"
@@ -249,22 +252,25 @@ export function SecuritySettings(): ReactElement {
               setNewEmail(event.target.value);
             }}
           />
-        </label>
+        </FormField>
         {emailStage === "current-otp" ? (
-          <div className={styles.field}>
-            <span id="current-email-otp">{t("settings.currentEmailCode")}</span>
+          <div>
+            <Text as="span" tone="secondary" id="current-email-otp">
+              {t("settings.currentEmailCode")}
+            </Text>
             <OtpInput labelledBy="current-email-otp" value={currentEmailOtp} onChange={setCurrentEmailOtp} />
           </div>
         ) : null}
         {emailStage === "new-otp" ? (
-          <div className={styles.field}>
-            <span id="new-email-otp">{t("settings.newEmailCode")}</span>
+          <div>
+            <Text as="span" tone="secondary" id="new-email-otp">
+              {t("settings.newEmailCode")}
+            </Text>
             <OtpInput labelledBy="new-email-otp" value={newEmailOtp} onChange={setNewEmailOtp} />
           </div>
         ) : null}
         {emailStage === "idle" ? (
-          <button
-            className={styles.submit}
+          <Button
             type="button"
             disabled={busy || !user.emailVerified || newEmail.length === 0}
             onClick={() => {
@@ -272,70 +278,74 @@ export function SecuritySettings(): ReactElement {
             }}
           >
             {t("settings.changeEmailSendCurrent")}
-          </button>
+          </Button>
         ) : (
-          <button className={styles.submit} type="submit" disabled={busy}>
+          <Button type="submit" disabled={busy} loading={busy}>
             {emailStage === "current-otp"
               ? t("settings.changeEmailConfirmCurrent")
               : t("settings.changeEmailConfirmNew")}
-          </button>
+          </Button>
         )}
       </form>
 
       <form className={styles.form} noValidate onSubmit={(event) => void onChangePassword(event)}>
-        <h3>{t("settings.changePassword")}</h3>
-        <label className={styles.field} htmlFor="current-password">
-          {t("auth.currentPassword")}
-          <input
+        <Heading as="h3" size="sub">
+          {t("settings.changePassword")}
+        </Heading>
+        <FormField label={t("auth.currentPassword")} htmlFor="current-password">
+          <PasswordInput
             id="current-password"
-            type="password"
             autoComplete="current-password"
             value={password.current}
+            revealLabel={t("auth.revealPassword")}
+            hideLabel={t("auth.hidePassword")}
             onChange={(event) => {
               setPassword((value) => ({ ...value, current: event.target.value }));
             }}
           />
-        </label>
-        <label className={styles.field} htmlFor="new-password">
-          {t("auth.newPassword")}
-          <input
+        </FormField>
+        <FormField label={t("auth.newPassword")} htmlFor="new-password">
+          <PasswordInput
             id="new-password"
-            type="password"
             autoComplete="new-password"
             minLength={8}
             value={password.next}
+            revealLabel={t("auth.revealPassword")}
+            hideLabel={t("auth.hidePassword")}
             onChange={(event) => {
               setPassword((value) => ({ ...value, next: event.target.value }));
             }}
           />
-        </label>
-        <button className={styles.submit} type="submit" disabled={busy}>
+        </FormField>
+        <Button type="submit" disabled={busy} loading={busy}>
           {t("settings.changePassword")}
-        </button>
+        </Button>
       </form>
 
       <form className={styles.form} noValidate onSubmit={(event) => void onVerifyPhone(event)}>
-        <h3>{user.phoneNumberVerified ? t("settings.changePhone") : t("settings.addPhone")}</h3>
-        <label className={styles.field} htmlFor="security-phone">
-          {t("auth.phone")}
-          <input
+        <Heading as="h3" size="sub">
+          {user.phoneNumberVerified ? t("settings.changePhone") : t("settings.addPhone")}
+        </Heading>
+        <FormField label={t("auth.phone")} htmlFor="security-phone">
+          <Input
             id="security-phone"
             value={phone}
             onChange={(event) => {
               setPhone(event.target.value);
             }}
           />
-        </label>
+        </FormField>
         {phoneStage === "otp" ? (
-          <div className={styles.field}>
-            <span id="security-otp">{t("auth.otp")}</span>
+          <div>
+            <Text as="span" tone="secondary" id="security-otp">
+              {t("auth.otp")}
+            </Text>
             <OtpInput labelledBy="security-otp" value={otp} onChange={setOtp} />
           </div>
         ) : null}
         {phoneStage === "idle" ? (
-          <button
+          <Button
             id="security-send-phone"
-            className={styles.submit}
             type="button"
             disabled={busy || !user.emailVerified}
             onClick={() => {
@@ -343,41 +353,39 @@ export function SecuritySettings(): ReactElement {
             }}
           >
             {t("auth.sendCode")}
-          </button>
+          </Button>
         ) : (
-          <button className={styles.submit} type="submit" disabled={busy}>
+          <Button type="submit" disabled={busy} loading={busy}>
             {t("auth.verify")}
-          </button>
+          </Button>
         )}
       </form>
 
-      <section className={panel.card}>
-        <h3>{t("settings.sessions")}</h3>
+      <Card>
+        <Heading as="h3" size="sub">
+          {t("settings.sessions")}
+        </Heading>
         {sessions.map((session, index) => (
           <div key={session.token} className={panel.session}>
-            <p>
+            <Text>
               {index === 0 ? t("settings.currentSession") : t("settings.otherSessions")}:{" "}
               {session.userAgent ?? t("settings.unknownDevice")}
-            </p>
+            </Text>
             {session.token !== currentToken || sessions.length === 1 ? null : (
-              <button type="button" className={styles.submit} onClick={() => void revoke(session.token)}>
+              <Button type="button" variant="destructive" size="sm" onClick={() => void revoke(session.token)}>
                 {t("settings.revoke")}
-              </button>
+              </Button>
             )}
           </div>
         ))}
-        {sessions.length <= 1 ? <p>{t("settings.noOtherSessions")}</p> : null}
-        <button type="button" className={styles.submit} onClick={() => void revokeOthers()}>
+        {sessions.length <= 1 ? <Text tone="secondary">{t("settings.noOtherSessions")}</Text> : null}
+        <Button type="button" variant="secondary" onClick={() => void revokeOthers()}>
           {t("settings.revokeOthers")}
-        </button>
-      </section>
+        </Button>
+      </Card>
 
-      {error ? (
-        <p className={styles.error} role="alert">
-          {error}
-        </p>
-      ) : null}
-      {message ? <p role="status">{message}</p> : null}
+      {error ? <Alert variant="error">{error}</Alert> : null}
+      {message ? <Alert variant="success">{message}</Alert> : null}
     </div>
   );
 }

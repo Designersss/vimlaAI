@@ -1,96 +1,82 @@
-.shell {
-  display: grid;
-  grid-template-columns: 240px 1fr;
-  min-height: 100vh;
-}
-
-.nav {
-  background: var(--surface);
-  border-right: 1px solid var(--line);
-  padding: 1.25rem 1rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  min-height: 100vh;
-}
-
 .brand {
+  margin: 0;
   font-weight: 700;
   letter-spacing: 0.04em;
-  margin: 0 0 1rem;
-}
-
-.link {
-  color: var(--muted);
-  text-decoration: none;
-  padding: 0.4rem 0.5rem;
-  border-radius: 0.3rem;
-}
-
-.link:hover,
-.linkActive {
-  color: var(--text);
-  background: var(--surface-2);
 }
 
 .main {
-  padding: 1.5rem 2rem;
+  padding: var(--vimla-space-5);
   overflow: auto;
+  min-width: 0;
+}
+
+.main section {
+  max-width: 100%;
+  overflow-x: auto;
 }
 
 .header {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 1.25rem;
+  gap: var(--vimla-space-3);
+  margin-bottom: var(--vimla-space-4);
 }
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+  gap: var(--vimla-space-3);
 }
 
 .card {
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 0.5rem;
-  padding: 0.9rem;
+  background: var(--vimla-surface);
+  border: 1px solid var(--vimla-border);
+  border-radius: var(--vimla-radius-lg);
+  padding: var(--vimla-space-4);
+  min-width: 0;
 }
 
 .kpi {
   font-size: 1.15rem;
   font-variant-numeric: tabular-nums;
-  margin: 0.35rem 0;
+  margin: var(--vimla-space-2) 0;
 }
 
 .badge {
   display: inline-block;
-  font-size: 0.75rem;
+  font-size: var(--vimla-type-caption-size);
   padding: 0.15rem 0.4rem;
-  border-radius: 0.25rem;
-  background: var(--surface-2);
-  color: var(--muted);
+  border-radius: var(--vimla-radius-round);
+  background: var(--vimla-surface-secondary);
+  color: var(--vimla-text-muted);
 }
 
 .warn {
-  color: var(--warn);
+  color: var(--vimla-warning);
 }
 
 .danger {
-  color: var(--danger);
+  color: var(--vimla-danger);
 }
 
 .ok {
-  color: var(--ok);
+  color: var(--vimla-success);
 }
 
 .callout {
-  border: 1px solid var(--warn);
-  background: #241c0c;
-  padding: 0.75rem 1rem;
-  border-radius: 0.4rem;
-  margin: 1rem 0;
+  border: 1px solid var(--vimla-warning);
+  background: var(--vimla-warning-soft);
+  padding: var(--vimla-space-3) var(--vimla-space-4);
+  border-radius: var(--vimla-radius-md);
+  margin: var(--vimla-space-4) 0;
+}
+
+.tableWrap {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .table {
@@ -101,68 +87,56 @@
 .table th,
 .table td {
   text-align: left;
-  padding: 0.45rem 0.5rem;
-  border-bottom: 1px solid var(--line);
+  padding: var(--vimla-space-2) var(--vimla-space-3);
+  border-bottom: 1px solid var(--vimla-border);
   font-variant-numeric: tabular-nums;
 }
 
 .form {
   display: grid;
-  gap: 0.65rem;
+  gap: var(--vimla-space-3);
   max-width: 28rem;
 }
 
 .input,
 .button {
   font: inherit;
-  padding: 0.5rem 0.65rem;
-  border-radius: 0.3rem;
-  border: 1px solid var(--line);
-  background: var(--surface-2);
-  color: var(--text);
+  min-height: var(--vimla-control-height);
+  padding: 0 var(--vimla-control-pad-x);
+  border-radius: var(--vimla-radius-md);
+  border: 1px solid var(--vimla-border);
+  background: var(--vimla-surface);
+  color: var(--vimla-text);
 }
 
 .button {
-  background: var(--accent);
-  color: #081018;
+  background: var(--vimla-accent);
+  color: var(--vimla-accent-text);
   border: 0;
   cursor: pointer;
   font-weight: 600;
 }
 
 .buttonSecondary {
-  background: var(--surface-2);
-  color: var(--text);
+  background: var(--vimla-surface-secondary);
+  color: var(--vimla-text);
 }
 
 .filters {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem;
-  margin: 0.75rem 0 1rem;
+  gap: var(--vimla-space-2);
+  margin: var(--vimla-space-3) 0 var(--vimla-space-4);
   align-items: end;
 }
 
-.navGroup {
-  margin: 0.85rem 0 0.25rem;
-  font-size: 0.72rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-
-.logout {
-  margin-top: auto;
-  padding-top: 1rem;
-}
-
 .calloutOk {
-  border-color: var(--ok);
-  background: #10241c;
+  border-color: var(--vimla-success);
+  background: var(--vimla-success-soft);
 }
 
-@media (max-width: 800px) {
-  .shell {
-    grid-template-columns: 1fr;
+@media (max-width: 1023px) {
+  .main {
+    padding: var(--vimla-space-4);
   }
 }

@@ -6,17 +6,8 @@ import {
   type KeyboardEvent,
   type ReactElement,
 } from "react";
-import styles from "./OtpInput.module.scss";
-
-interface OtpInputProps {
-  length?: number;
-  value: string;
-  onChange: (value: string) => void;
-  disabled?: boolean;
-  errorId?: string;
-  invalid?: boolean;
-  labelledBy: string;
-}
+import { cx } from "../../utils/cx";
+import styles from "./forms.module.scss";
 
 export function OtpInput({
   length = 6,
@@ -26,7 +17,15 @@ export function OtpInput({
   errorId,
   invalid = false,
   labelledBy,
-}: OtpInputProps): ReactElement {
+}: {
+  length?: number;
+  value: string;
+  onChange: (value: string) => void;
+  disabled?: boolean;
+  errorId?: string;
+  invalid?: boolean;
+  labelledBy: string;
+}): ReactElement {
   const inputs = useRef<Array<HTMLInputElement | null>>([]);
   const digits = Array.from({ length }, (_, index) => value[index] ?? "");
 
@@ -38,7 +37,6 @@ export function OtpInput({
       onChange(chars.join(""));
       return;
     }
-
     for (let offset = 0; offset < clean.length; offset += 1) {
       chars[index + offset] = clean[offset] ?? "";
     }
@@ -59,20 +57,20 @@ export function OtpInput({
   }
 
   return (
-    <div className={styles.row} role="group" aria-labelledby={labelledBy}>
+    <div className={styles.otp} role="group" aria-labelledby={labelledBy}>
       {digits.map((digit, index) => (
         <input
           key={index}
           ref={(node) => {
             inputs.current[index] = node;
           }}
-          className={styles.cell}
+          className={cx(styles.control, styles.otpCell, invalid ? styles.invalid : undefined)}
           inputMode="numeric"
           autoComplete={index === 0 ? "one-time-code" : "off"}
           maxLength={1}
           value={digit}
           disabled={disabled}
-          aria-invalid={invalid}
+          aria-invalid={invalid || undefined}
           aria-describedby={errorId}
           onChange={(event) => {
             updateAt(index, event.target.value);

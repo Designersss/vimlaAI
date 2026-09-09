@@ -1,0 +1,164 @@
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: var(--vimla-overlay);
+  z-index: var(--vimla-z-modal);
+  display: grid;
+  place-items: end;
+  padding: var(--vimla-safe-top) var(--vimla-safe-right) var(--vimla-safe-bottom) var(--vimla-safe-left);
+}
+
+.dialog {
+  width: min(100%, 32rem);
+  max-height: min(90dvh, 40rem);
+  overflow: auto;
+  background: var(--vimla-surface);
+  color: var(--vimla-text);
+  border-radius: var(--vimla-radius-xl) var(--vimla-radius-xl) 0 0;
+  border: 1px solid var(--vimla-border);
+  padding: var(--vimla-space-5);
+  display: flex;
+  flex-direction: column;
+  gap: var(--vimla-space-4);
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--vimla-space-3);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--vimla-type-section-size);
+  line-height: var(--vimla-type-section-line);
+}
+
+.description {
+  margin: 0;
+  color: var(--vimla-text-secondary);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--vimla-space-2);
+}
+
+.drawerOverlay {
+  position: fixed;
+  inset: 0;
+  background: var(--vimla-overlay);
+  z-index: var(--vimla-z-drawer);
+}
+
+.drawer {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: min(20rem, 100%);
+  background: var(--vimla-surface);
+  border-right: 1px solid var(--vimla-border);
+  z-index: calc(var(--vimla-z-drawer) + 1);
+  padding: calc(var(--vimla-safe-top) + var(--vimla-space-4)) var(--vimla-space-4)
+    calc(var(--vimla-safe-bottom) + var(--vimla-space-4));
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--vimla-space-4);
+}
+
+.menu {
+  position: absolute;
+  z-index: var(--vimla-z-dropdown);
+  min-width: 12rem;
+  max-width: min(20rem, calc(100vw - 2rem));
+  background: var(--vimla-surface);
+  border: 1px solid var(--vimla-border);
+  border-radius: var(--vimla-radius-md);
+  box-shadow: var(--vimla-shadow-md);
+  padding: var(--vimla-space-1);
+}
+
+.menuItem {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  color: var(--vimla-text);
+  padding: var(--vimla-space-2) var(--vimla-space-3);
+  border-radius: var(--vimla-radius-sm);
+  cursor: pointer;
+}
+
+.menuItem:hover,
+.menuItem:focus-visible {
+  background: var(--vimla-surface-hover);
+}
+
+.tooltip {
+  position: absolute;
+  z-index: var(--vimla-z-tooltip);
+  max-width: 16rem;
+  padding: var(--vimla-space-1) var(--vimla-space-2);
+  border-radius: var(--vimla-radius-sm);
+  background: var(--vimla-text);
+  color: var(--vimla-bg);
+  font-size: var(--vimla-type-caption-size);
+}
+
+.toastRegion {
+  position: fixed;
+  right: calc(var(--vimla-safe-right) + var(--vimla-space-4));
+  bottom: calc(var(--vimla-safe-bottom) + var(--vimla-space-4));
+  z-index: var(--vimla-z-toast);
+  display: flex;
+  flex-direction: column;
+  gap: var(--vimla-space-2);
+  width: min(22rem, calc(100vw - 2rem));
+}
+
+.toast {
+  background: var(--vimla-surface);
+  border: 1px solid var(--vimla-border);
+  border-radius: var(--vimla-radius-md);
+  box-shadow: var(--vimla-shadow-md);
+  padding: var(--vimla-space-3);
+}
+
+.toastSuccess {
+  border-color: var(--vimla-success);
+}
+
+.toastWarning {
+  border-color: var(--vimla-warning);
+}
+
+.toastError {
+  border-color: var(--vimla-danger);
+}
+
+.anchor {
+  position: relative;
+  display: inline-flex;
+}
+
+.tooltipWrap {
+  position: relative;
+  display: inline-flex;
+}
+
+@media (min-width: 768px) {
+  .overlay {
+    place-items: center;
+    padding: var(--vimla-space-5);
+  }
+
+  .dialog {
+    border-radius: var(--vimla-radius-xl);
+  }
+}

@@ -1,0 +1,43 @@
+.tabs,
+.segmented {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--vimla-space-1);
+  padding: var(--vimla-space-1);
+  border: 1px solid var(--vimla-border);
+  border-radius: var(--vimla-radius-lg);
+  background: var(--vimla-surface-secondary);
+}
+
+.tab,
+.segment {
+  border: 0;
+  background: transparent;
+  color: var(--vimla-text-secondary);
+  min-height: 2rem;
+  padding: 0 var(--vimla-space-3);
+  border-radius: var(--vimla-radius-md);
+  cursor: pointer;
+  font-weight: 600;
+  font-size: var(--vimla-type-secondary-size);
+}
+
+.tab[aria-selected="true"],
+.segment[aria-checked="true"] {
+  background: var(--vimla-surface);
+  color: var(--vimla-text);
+  box-shadow: var(--vimla-shadow-sm);
+}
+
+.tab:disabled,
+.segment:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+@media (pointer: coarse) {
+  .tab,
+  .segment {
+    min-height: 44px;
+  }
+}

@@ -1,0 +1,69 @@
+"use client";
+
+import { useEffect, useState, type ReactElement, type ReactNode } from "react";
+import { createPortal } from "react-dom";
+import { useFocusTrap } from "../../hooks/useFocusTrap";
+import { XIcon } from "../../icons";
+import { IconButton } from "../Button/Button";
+import styles from "./overlays.module.scss";
+
+export function Drawer({
+  open,
+  onOpenChange,
+  title,
+  children,
+  closeLabel,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  title: ReactNode;
+  children: ReactNode;
+  closeLabel: string;
+}): ReactElement | null {
+  const [panel, setPanel] = useState<HTMLElement | null>(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useFocusTrap(open, panel);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    function onKey(event: KeyboardEvent): void {
+      if (event.key === "Escape") {
+        onOpenChange(false);
+      }
+    }
+    document.addEventListener("keydown", onKey);
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = previous;
+    };
+  }, [onOpenChange, open]);
+
+  if (!mounted || !open) {
+    return null;
+  }
+
+  return createPortal(
+    <>
+      <div className={styles.drawerOverlay} onClick={() => onOpenChange(false)} />
+      <aside ref={setPanel} className={styles.drawer} role="dialog" aria-modal="true" aria-label={String(title)}>
+        <div className={styles.header}>
+          <strong>{title}</strong>
+          <IconButton label={closeLabel} onClick={() => onOpenChange(false)}>
+            <XIcon size={16} />
+          </IconButton>
+        </div>
+        {children}
+      </aside>
+    </>,
+    document.body,
+  );
+}

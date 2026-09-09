@@ -5,6 +5,8 @@
     "signIn": "Sign in",
     "elevate": "Admin step-up",
     "logout": "Sign out",
+    "close": "Close",
+    "openNav": "Open navigation",
     "loading": "Loading",
     "empty": "No data",
     "save": "Save draft",
@@ -15,10 +17,14 @@
     "confirm": "Confirm",
     "enroll": "Enroll MFA",
     "password": "Password",
+    "email": "Email",
+    "backupCode": "Backup code",
     "backupCodesOnce": "Store these backup codes now. They will not be shown again.",
     "addPasskey": "Add passkey",
     "totpUri": "Authenticator URI",
-    "verifyTotp": "Verify TOTP"
+    "verifyTotp": "Verify TOTP",
+    "revealPassword": "Show password",
+    "hidePassword": "Hide password"
   },
   "nav": {
     "overview": "Overview",

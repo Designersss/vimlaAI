@@ -6,6 +6,7 @@
 vimla/
   apps/
     web/
+    admin/
     api/
     worker/
   packages/
@@ -17,6 +18,7 @@ vimla/
     billing/
     notifications/
     shared/
+    ui/
   .cursor/rules/
   docs/
 ```
@@ -68,6 +70,10 @@ Protected Vimla routes:
 
 `User.id` is the canonical identifier for later billing, usage, conversations and generations. Public routes such as `GET /health` stay unauthenticated. Verification, password-reset and session endpoints stay available for unverified sessions.
 
+## Frontend design system (Phase 5.5)
+
+Web and Admin share `@vimla/ui` (`packages/ui`): semantic tokens, light/dark/system appearance, primitives, AppShell, and chat presentational components. Feature SCSS is layout-only. Production UI renders real API/session data; screenshot values are not hardcoded. `/dev/ui` is registered only for `APP_ENV=local|test`. See `docs/DESIGN_SYSTEM.md`.
+
 OTP policy is centralized in `@vimla/config`: 6 digits, 5 minutes, 3 attempts, 60s resend cooldown. Email OTP is stored as HMAC (not unsalted SHA). Phone OTP is hashed the same way after Better Auth writes the verification row. Verification rows are stored in PostgreSQL (`verification.storeInDatabase`) so Redis is not the OTP source of truth.
 
 Phone-first registration is disabled: a verified Vimla account links a canonical E.164 number, then that number can sign in with SMS OTP. Unknown phones do not silently create users.
@@ -111,7 +117,7 @@ Controllers that own expensive mutations (`ConversationsController`, `MockPurcha
 
 ## Browser E2E
 
-`pnpm test:e2e` runs Playwright against dedicated origins so it does not attach to a local `pnpm dev` process: consumer web `http://localhost:3100` / API `http://localhost:3101`, Admin `http://localhost:3202` / API `http://localhost:3201`. The suite uses `APP_ENV=test`, test PostgreSQL, test Redis, memory notifications, `MockAiProvider` and mock purchases. It must not target production or send real email, SMS, ProxyAPI or payment traffic.
+`pnpm test:e2e` runs Playwright against dedicated origins so it does not attach to a local `pnpm dev` process: consumer web `http://localhost:3100` / API `http://localhost:3101`, Admin `http://localhost:3202` / API `http://localhost:3201`. The suite uses `APP_ENV=test`, test PostgreSQL, test Redis, memory notifications, `MockAiProvider` and mock purchases. It must not target production or send real email, SMS, ProxyAPI or payment traffic. Chromium runs the full consumer/admin suites plus responsive smoke (320 / 390 / 768 / 1280). WebKit and Firefox run a focused shell smoke only.
 
 Hijacked AI SSE responses include CORS credentials headers (`Access-Control-Allow-Origin` = `WEB_ORIGIN`) because `reply.hijack()` skips Nest's CORS plugin. Without that, the browser cannot read the stream.
 

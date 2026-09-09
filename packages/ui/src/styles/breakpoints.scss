@@ -1,0 +1,42 @@
+// Canonical Vimla breakpoints. Use these values; do not invent per-page widths.
+$vimla-bp-sm: 480px;
+$vimla-bp-md: 768px;
+$vimla-bp-lg: 1024px;
+$vimla-bp-xl: 1280px;
+$vimla-bp-2xl: 1536px;
+
+@mixin vimla-up($width) {
+  @media (min-width: $width) {
+    @content;
+  }
+}
+
+@mixin vimla-sm-up {
+  @include vimla-up($vimla-bp-sm) {
+    @content;
+  }
+}
+
+@mixin vimla-md-up {
+  @include vimla-up($vimla-bp-md) {
+    @content;
+  }
+}
+
+@mixin vimla-lg-up {
+  @include vimla-up($vimla-bp-lg) {
+    @content;
+  }
+}
+
+@mixin vimla-xl-up {
+  @include vimla-up($vimla-bp-xl) {
+    @content;
+  }
+}
+
+@mixin vimla-2xl-up {
+  @include vimla-up($vimla-bp-2xl) {
+    @content;
+  }
+}

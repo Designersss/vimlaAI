@@ -1,22 +1,24 @@
 import type { ReactElement } from "react";
 import Link from "next/link";
 import { getTranslations } from "next-intl/server";
+import { Text } from "@vimla/ui";
 import { ForgotPasswordForm } from "../../features/auth/components/ForgotPasswordForm/ForgotPasswordForm";
-import { LanguageSwitcher } from "../../shared/i18n/LanguageSwitcher";
-import styles from "../page.module.scss";
+import { AuthPageFrame } from "../../features/auth/components/AuthPageFrame/AuthPageFrame";
 
 export default async function ForgotPasswordPage(): Promise<ReactElement> {
   const t = await getTranslations();
 
   return (
-    <main className={styles.main}>
-      <LanguageSwitcher />
-      <p className={styles.eyebrow}>{t("home.eyebrow")}</p>
-      <h1 className={styles.heading}>{t("auth.forgot.title")}</h1>
+    <AuthPageFrame
+      eyebrow={t("home.eyebrow")}
+      title={t("auth.forgot.title")}
+      footer={
+        <Text>
+          <Link href="/sign-in">{t("auth.signIn")}</Link>
+        </Text>
+      }
+    >
       <ForgotPasswordForm />
-      <p className={styles.copy}>
-        <Link href="/sign-in">{t("auth.signIn")}</Link>
-      </p>
-    </main>
+    </AuthPageFrame>
   );
 }

@@ -85,8 +85,8 @@ jobs:
       - name: Build
         run: pnpm build
 
-      - name: Install Playwright Chromium
-        run: pnpm --filter @vimla/web exec playwright install --with-deps chromium && pnpm --filter @vimla/admin-web exec playwright install chromium
+      - name: Install Playwright browsers
+        run: pnpm --filter @vimla/web exec playwright install --with-deps chromium webkit firefox && pnpm --filter @vimla/admin-web exec playwright install chromium webkit firefox
 
       - name: Browser E2E
         run: pnpm test:e2e

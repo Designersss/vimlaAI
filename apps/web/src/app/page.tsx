@@ -1,9 +1,9 @@
 import Link from "next/link";
 import type { ReactElement } from "react";
 import { getTranslations } from "next-intl/server";
+import { Heading, Text, buttonClassName } from "@vimla/ui";
 import { fetchApiHealth } from "../shared/api/health";
 import { HealthStatus } from "../features/health/components/HealthStatus/HealthStatus";
-import { publicWebConfig } from "../shared/config/public-env";
 import { LanguageSwitcher } from "../shared/i18n/LanguageSwitcher";
 import styles from "./page.module.scss";
 
@@ -23,14 +23,19 @@ export default async function HomePage(): Promise<ReactElement> {
   return (
     <main className={styles.main}>
       <LanguageSwitcher />
-      <p className={styles.eyebrow}>{t("home.eyebrow")}</p>
-      <h1 className={styles.heading}>{t("home.heading")}</h1>
-      <p className={styles.copy}>{t("home.apiBase", { url: publicWebConfig.apiBaseUrl })}</p>
-      <p className={styles.copy}>
-        <Link href="/sign-in">{t("nav.signIn")}</Link>
-        {" · "}
-        <Link href="/sign-up">{t("nav.signUp")}</Link>
-      </p>
+      <Text tone="caption">{t("home.eyebrow")}</Text>
+      <Heading as="h1" size="page">
+        {t("home.heading")}
+      </Heading>
+      <Text>{t("home.tagline")}</Text>
+      <div className={styles.actions}>
+        <Link href="/sign-in" className={buttonClassName({ variant: "primary" })}>
+          {t("nav.signIn")}
+        </Link>
+        <Link href="/sign-up" className={buttonClassName({ variant: "secondary" })}>
+          {t("nav.signUp")}
+        </Link>
+      </div>
       <HealthStatus initialHealth={initialHealth} initialError={initialError} />
     </main>
   );

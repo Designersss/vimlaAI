@@ -1,49 +1,22 @@
 .stack {
   display: flex;
   flex-direction: column;
-  gap: var(--space-lg);
+  gap: var(--vimla-space-5);
 }
 
-.nav,
 .plans,
 .history {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
+  display: grid;
+  gap: var(--vimla-space-3);
   padding: 0;
   margin: 0;
   list-style: none;
 }
 
-.nav {
-  flex-direction: row;
-  gap: var(--space-md);
-}
-
-.card {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.plans li,
-.history li {
+.plan {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.75rem;
+  gap: var(--vimla-space-3);
   align-items: center;
-}
-
-.card button,
-.card select {
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface);
-  color: var(--color-text);
-  padding: 0.45rem 0.7rem;
-}
-
-.card button:disabled {
-  opacity: 0.6;
-  cursor: wait;
+  justify-content: space-between;
 }

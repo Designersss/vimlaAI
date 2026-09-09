@@ -2,6 +2,7 @@ import type { ReactElement } from "react";
 import { Suspense } from "react";
 import { getTranslations } from "next-intl/server";
 import Link from "next/link";
+import { Heading, Text, buttonClassName } from "@vimla/ui";
 import styles from "../../page.module.scss";
 
 function MockPayInner({
@@ -18,9 +19,11 @@ function MockPayInner({
     : "/settings/billing";
   return (
     <section>
-      <p>{copy}</p>
+      <Text>{copy}</Text>
       <p>
-        <Link href={href}>{returnLabel}</Link>
+        <Link href={href} className={buttonClassName({ variant: "primary" })}>
+          {returnLabel}
+        </Link>
       </p>
     </section>
   );
@@ -35,7 +38,9 @@ export default async function MockPaymentPage({
   const params = await searchParams;
   return (
     <main className={styles.main}>
-      <h1 className={styles.heading}>{t("billing.mockTitle")}</h1>
+      <Heading as="h1" size="page">
+        {t("billing.mockTitle")}
+      </Heading>
       <Suspense>
         <MockPayInner
           paymentId={params.paymentId}

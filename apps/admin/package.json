@@ -16,6 +16,7 @@
     "@vimla/config": "workspace:*",
     "@vimla/contracts": "workspace:*",
     "@vimla/shared": "workspace:*",
+    "@vimla/ui": "workspace:*",
     "@vimla/admin": "workspace:*",
     "@vimla/billing": "workspace:*",
     "@vimla/database": "workspace:*",

@@ -73,14 +73,26 @@ export default defineConfig({
     trace: "on-first-retry",
     screenshot: "only-on-failure",
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  projects: [
+    { name: "chromium", use: { ...devices["Desktop Chrome"] } },
+    {
+      name: "webkit-mobile",
+      testMatch: /responsive-cross-browser\.spec\.ts/,
+      use: { ...devices["iPhone 13"] },
+    },
+    {
+      name: "firefox-shell",
+      testMatch: /responsive-cross-browser\.spec\.ts/,
+      use: { ...devices["Desktop Firefox"] },
+    },
+  ],
   webServer: [
     {
       command: "pnpm exec tsx src/main.ts",
       cwd: apiRoot,
       url: `${apiBase}/health`,
       reuseExistingServer: false,
-      timeout: 120_000,
+      timeout: 180_000,
       env: e2eEnv,
     },
     {
@@ -88,7 +100,7 @@ export default defineConfig({
       cwd: adminRoot,
       url: adminOrigin,
       reuseExistingServer: false,
-      timeout: 120_000,
+      timeout: 180_000,
       env: {
         ...e2eEnv,
         NEXT_DIST_DIR: ".next-e2e",

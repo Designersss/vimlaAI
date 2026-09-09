@@ -4,11 +4,11 @@ import { useEffect, useState, type FormEvent, type ReactElement } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { maskEmail } from "@vimla/shared";
+import { Alert, Button, OtpInput, Spinner, Text } from "@vimla/ui";
 import { AuthRequiredError, fetchCurrentUser } from "../../services/current-user";
 import { authClient } from "../../services/auth-client";
 import { authErrorMessageKey } from "../../../../shared/errors/error-keys";
 import { tx } from "../../../../shared/i18n/translate";
-import { OtpInput } from "../OtpInput/OtpInput";
 import styles from "../AuthForm/AuthForm.module.scss";
 
 export function VerifyEmailForm(): ReactElement {
@@ -85,14 +85,16 @@ export function VerifyEmailForm(): ReactElement {
   }
 
   if (!email) {
-    return <p>{t("common.loading")}</p>;
+    return <Spinner label={t("common.loading")} />;
   }
 
   return (
     <form className={styles.form} noValidate onSubmit={(event) => void onSubmit(event)}>
-      <p>{t("auth.verifyEmail.sentTo", { email: maskEmail(email) })}</p>
-      <div className={styles.field}>
-        <span id="email-otp-label">{t("auth.otp")}</span>
+      <Text>{t("auth.verifyEmail.sentTo", { email: maskEmail(email) })}</Text>
+      <div>
+        <Text as="span" tone="secondary" id="email-otp-label">
+          {t("auth.otp")}
+        </Text>
         <OtpInput
           labelledBy="email-otp-label"
           value={otp}
@@ -101,26 +103,21 @@ export function VerifyEmailForm(): ReactElement {
           disabled={state === "submitting"}
         />
       </div>
-      {formError ? (
-        <p className={styles.error} role="alert">
-          {formError}
-        </p>
-      ) : null}
-      <button className={styles.submit} type="submit" disabled={state === "submitting"}>
-        {state === "submitting" ? t("auth.working") : t("auth.verify")}
-      </button>
-      <button
+      {formError ? <Alert variant="error">{formError}</Alert> : null}
+      <Button type="submit" disabled={state === "submitting"} loading={state === "submitting"} block>
+        {t("auth.verify")}
+      </Button>
+      <Button
         type="button"
-        className={styles.submit}
+        variant="secondary"
         disabled={cooldown > 0}
         onClick={() => {
           void resend();
         }}
+        block
       >
-        {cooldown > 0
-          ? t("auth.verifyEmail.resendIn", { seconds: cooldown })
-          : t("auth.verifyEmail.resend")}
-      </button>
+        {cooldown > 0 ? t("auth.verifyEmail.resendIn", { seconds: cooldown }) : t("auth.verifyEmail.resend")}
+      </Button>
     </form>
   );
 }

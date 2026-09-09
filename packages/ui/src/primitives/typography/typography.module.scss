@@ -1,0 +1,38 @@
+.headingPage {
+  margin: 0;
+  font-size: var(--vimla-type-page-size);
+  line-height: var(--vimla-type-page-line);
+  font-weight: 700;
+}
+
+.headingSection {
+  margin: 0;
+  font-size: var(--vimla-type-section-size);
+  line-height: var(--vimla-type-section-line);
+  font-weight: 600;
+}
+
+.headingSub {
+  margin: 0;
+  font-size: var(--vimla-type-sub-size);
+  font-weight: 600;
+}
+
+.textBody {
+  margin: 0;
+  color: var(--vimla-text);
+}
+
+.textSecondary {
+  margin: 0;
+  color: var(--vimla-text-secondary);
+  font-size: var(--vimla-type-secondary-size);
+  line-height: var(--vimla-type-secondary-line);
+}
+
+.textCaption {
+  margin: 0;
+  color: var(--vimla-text-muted);
+  font-size: var(--vimla-type-caption-size);
+  line-height: var(--vimla-type-caption-line);
+}

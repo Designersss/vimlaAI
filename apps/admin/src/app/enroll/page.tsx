@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useState, type FormEvent } from "react";
+import { Alert, AuthCard, AuthLayout, Button, FormField, Heading, Input, PasswordInput, Text } from "@vimla/ui";
 import { adminAuthClient } from "../../shared/auth/auth-client";
 import styles from "../admin/admin.module.scss";
 
@@ -50,35 +51,46 @@ export default function EnrollPage() {
   }
 
   return (
-    <main className={styles.main}>
-      <h1>{t("app.enroll")}</h1>
-      <form className={styles.form} onSubmit={(event) => void enableTotp(event)}>
-        <input className={styles.input} name="password" type="password" autoComplete="current-password" required />
-        <button className={styles.button} type="submit">
+    <AuthLayout>
+      <AuthCard>
+        <Heading as="h1" size="page">
           {t("app.enroll")}
-        </button>
-      </form>
-      {totpUri ? (
-        <p>
-          {t("app.totpUri")}: <code>{totpUri}</code>
-        </p>
-      ) : null}
-      {backupCodes ? (
-        <section>
-          <p>{t("app.backupCodesOnce")}</p>
-          <pre>{backupCodes.join("\n")}</pre>
-        </section>
-      ) : null}
-      <form className={styles.form} onSubmit={(event) => void verifyTotp(event)}>
-        <input className={styles.input} name="totpCode" inputMode="numeric" required />
-        <button className={styles.button} type="submit">
-          {t("app.verifyTotp")}
-        </button>
-      </form>
-      <button type="button" className={styles.button} onClick={() => void addPasskey()}>
-        {t("app.addPasskey")}
-      </button>
-      {error ? <p role="alert">{error}</p> : null}
-    </main>
+        </Heading>
+        <form className={styles.form} onSubmit={(event) => void enableTotp(event)}>
+          <FormField label={t("app.password")} htmlFor="enroll-password">
+            <PasswordInput
+              id="enroll-password"
+              name="password"
+              autoComplete="current-password"
+              required
+              revealLabel={t("app.revealPassword")}
+              hideLabel={t("app.hidePassword")}
+            />
+          </FormField>
+          <Button type="submit">{t("app.enroll")}</Button>
+        </form>
+        {totpUri ? (
+          <Text>
+            {t("app.totpUri")}: <code>{totpUri}</code>
+          </Text>
+        ) : null}
+        {backupCodes ? (
+          <section>
+            <Text>{t("app.backupCodesOnce")}</Text>
+            <pre>{backupCodes.join("\n")}</pre>
+          </section>
+        ) : null}
+        <form className={styles.form} onSubmit={(event) => void verifyTotp(event)}>
+          <FormField label={t("app.verifyTotp")} htmlFor="enroll-totp">
+            <Input id="enroll-totp" name="totpCode" inputMode="numeric" required />
+          </FormField>
+          <Button type="submit">{t("app.verifyTotp")}</Button>
+        </form>
+        <Button type="button" variant="secondary" onClick={() => void addPasskey()}>
+          {t("app.addPasskey")}
+        </Button>
+        {error ? <Alert variant="error">{error}</Alert> : null}
+      </AuthCard>
+    </AuthLayout>
   );
 }

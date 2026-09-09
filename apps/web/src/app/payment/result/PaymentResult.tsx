@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useTranslations } from "next-intl";
 import type { PaymentView } from "@vimla/contracts";
+import { Alert, Card, Spinner, Text, buttonClassName } from "@vimla/ui";
 import { AuthRequiredError } from "../../../features/auth/services/current-user";
 import { fetchPayment } from "../../../features/billing/services/payments";
 
@@ -58,17 +59,19 @@ export function PaymentResult(): ReactElement {
   const error = paymentId ? loadError : t("billing.missingPayment");
 
   return (
-    <section>
-      {error ? <p role="alert">{error}</p> : null}
+    <Card>
+      {error ? <Alert variant="error">{error}</Alert> : null}
       {payment ? (
-        <p>
+        <Text>
           {t(`billing.status.${payment.status}` as never)} · {payment.kind}
-        </p>
+        </Text>
       ) : null}
-      {!error && !payment ? <p>{t("billing.waiting")}</p> : null}
+      {!error && !payment ? <Spinner label={t("billing.waiting")} /> : null}
       <p>
-        <Link href="/settings/billing">{t("billing.title")}</Link>
+        <Link href="/settings/billing" className={buttonClassName({ variant: "secondary", size: "sm" })}>
+          {t("billing.title")}
+        </Link>
       </p>
-    </section>
+    </Card>
   );
 }

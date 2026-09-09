@@ -5,6 +5,8 @@
     "signIn": "Войти",
     "elevate": "Повысить привилегии",
     "logout": "Выйти",
+    "close": "Закрыть",
+    "openNav": "Открыть навигацию",
     "loading": "Загрузка",
     "empty": "Нет данных",
     "save": "Сохранить черновик",
@@ -15,10 +17,14 @@
     "confirm": "Подтвердить",
     "enroll": "Подключить MFA",
     "password": "Пароль",
+    "email": "Email",
+    "backupCode": "Резервный код",
     "backupCodesOnce": "Сохраните резервные коды сейчас. Они больше не будут показаны.",
     "addPasskey": "Добавить passkey",
     "totpUri": "URI аутентификатора",
-    "verifyTotp": "Подтвердить TOTP"
+    "verifyTotp": "Подтвердить TOTP",
+    "revealPassword": "Показать пароль",
+    "hidePassword": "Скрыть пароль"
   },
   "nav": {
     "overview": "Обзор",

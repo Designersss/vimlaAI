@@ -16,6 +16,20 @@ import {
 } from "../../services/payments";
 import { apiErrorMessageKey } from "../../../../shared/errors/error-keys";
 import { tx } from "../../../../shared/i18n/translate";
+import {
+  Alert,
+  Button,
+  Card,
+  EmptyState,
+  ErrorState,
+  FormField,
+  Heading,
+  NativeSelect,
+  Skeleton,
+  StatusBadge,
+  Text,
+  UsageMeter,
+} from "@vimla/ui";
 import styles from "./BillingSettings.module.scss";
 
 const TOPUP_PRESETS_RUB = ["100", "500", "1000", "3000"] as const;
@@ -97,45 +111,44 @@ export function BillingSettings(): ReactElement {
   }
 
   if (state === "loading") {
-    return <p>{t("common.loading")}</p>;
+    return <Skeleton />;
   }
   if (state === "failed" || !usage) {
-    return <p>{t("common.genericError")}</p>;
+    return <ErrorState title={t("common.genericError")} />;
   }
 
   return (
     <section className={styles.stack}>
-      <nav className={styles.nav}>
-        <Link href="/settings/security">{t("nav.security")}</Link>
-        <Link href="/app">{t("nav.chat")}</Link>
-      </nav>
-
-      <article className={styles.card}>
-        <h2>{t("billing.currentPlan")}</h2>
+      <Card>
+        <Heading as="h2" size="section">
+          {t("billing.currentPlan")}
+        </Heading>
         {subscription ? (
           <>
-            <p>
+            <Text>
               {subscription.planName} ({subscription.planCode})
-            </p>
-            <p>{t("billing.activeUntil", { date: formatDate(subscription.periodEnd) })}</p>
+            </Text>
+            <Text tone="secondary">{t("billing.activeUntil", { date: formatDate(subscription.periodEnd) })}</Text>
           </>
         ) : (
-          <p>{t("billing.noPlan")}</p>
+          <Text>{t("billing.noPlan")}</Text>
         )}
-        <p>
-          {t("chat.monthlyUsage")}: {usage.monthly.usedPercent}%
-        </p>
-        <p>{t("chat.topupUsed", { percent: usage.topup.usedPercent })}</p>
-      </article>
+        <UsageMeter label={t("chat.monthlyUsage")} percent={usage.monthly.usedPercent} />
+        <Text tone="caption">{t("chat.topupUsed", { percent: usage.topup.usedPercent })}</Text>
+      </Card>
 
-      <article className={styles.card}>
-        <h2>{t("billing.plans")}</h2>
+      <Card>
+        <Heading as="h2" size="section">
+          {t("billing.plans")}
+        </Heading>
         <ul className={styles.plans}>
           {plans.map((plan) => (
-            <li key={plan.code}>
-              <strong>{plan.name}</strong>
-              <span>{formatRub(plan.priceMicroRub)}</span>
-              <button
+            <li key={plan.code} className={styles.plan}>
+              <div>
+                <strong>{plan.name}</strong>
+                <Text tone="secondary">{formatRub(plan.priceMicroRub)}</Text>
+              </div>
+              <Button
                 type="button"
                 disabled={state === "submitting" || Boolean(subscription)}
                 onClick={() => {
@@ -143,44 +156,68 @@ export function BillingSettings(): ReactElement {
                 }}
               >
                 {t("billing.buy")}
-              </button>
+              </Button>
             </li>
           ))}
         </ul>
-      </article>
+      </Card>
 
-      <form className={styles.card} onSubmit={(event) => void onTopup(event)}>
-        <h2>{t("billing.topup")}</h2>
-        <label>
-          {t("billing.topupAmount")}
-          <select value={topupRub} onChange={(event) => setTopupRub(event.target.value)}>
-            {TOPUP_PRESETS_RUB.map((amount) => (
-              <option key={amount} value={amount}>
-                {amount} RUB
-              </option>
-            ))}
-          </select>
-        </label>
-        <button type="submit" disabled={state === "submitting"}>
-          {t("billing.pay")}
-        </button>
-      </form>
+      <Card>
+        <form className={styles.stack} onSubmit={(event) => void onTopup(event)}>
+          <Heading as="h2" size="section">
+            {t("billing.topup")}
+          </Heading>
+          <Text tone="secondary">{t("billing.topupNeverExpires")}</Text>
+          <FormField label={t("billing.topupAmount")} htmlFor="topup-amount">
+            <NativeSelect
+              id="topup-amount"
+              value={topupRub}
+              onChange={(event) => setTopupRub(event.target.value)}
+            >
+              {TOPUP_PRESETS_RUB.map((amount) => (
+                <option key={amount} value={amount}>
+                  {amount} RUB
+                </option>
+              ))}
+            </NativeSelect>
+          </FormField>
+          <Button type="submit" disabled={state === "submitting"} loading={state === "submitting"}>
+            {t("billing.pay")}
+          </Button>
+        </form>
+      </Card>
 
-      {error ? <p role="alert">{error}</p> : null}
+      {error ? <Alert variant="error">{error}</Alert> : null}
 
-      <article className={styles.card}>
-        <h2>{t("billing.history")}</h2>
-        {payments.length === 0 ? <p>{t("billing.emptyHistory")}</p> : null}
+      <Card>
+        <Heading as="h2" size="section">
+          {t("billing.history")}
+        </Heading>
+        {payments.length === 0 ? <EmptyState title={t("billing.emptyHistory")} /> : null}
         <ul className={styles.history}>
           {payments.map((payment) => (
             <li key={payment.paymentId}>
               <Link href={`/payment/result?paymentId=${encodeURIComponent(payment.paymentId)}`}>
-                {t(`billing.status.${payment.status}` as never)} · {formatRub(payment.amountMicroRub)}
+                <StatusBadge
+                  tone={
+                    payment.status === "SUCCEEDED"
+                      ? "success"
+                      : payment.status === "FAILED"
+                        ? "danger"
+                        : payment.status === "RECONCILIATION_REQUIRED"
+                          ? "warning"
+                          : "neutral"
+                  }
+                >
+                  {t(`billing.status.${payment.status}` as never)}
+                </StatusBadge>
+                {" · "}
+                {formatRub(payment.amountMicroRub)}
               </Link>
             </li>
           ))}
         </ul>
-      </article>
+      </Card>
     </section>
   );
 }

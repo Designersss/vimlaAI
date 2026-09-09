@@ -4,6 +4,7 @@ import { useTranslations } from "next-intl";
 import { useCallback, useEffect, useState } from "react";
 import { adminFetch } from "../../shared/api/admin-fetch";
 import { formatBps, formatMoney, presetRange } from "../../shared/ui/format";
+import { Badge, Button, Input, StatusBadge } from "@vimla/ui";
 import styles from "./admin.module.scss";
 
 interface OverviewResponse {
@@ -172,27 +173,27 @@ export default function AdminHomePage() {
         <span className={styles.badge}>{data.timezone}</span>
       </div>
       <div className={styles.filters}>
-        <button type="button" className={styles.button} onClick={() => applyPreset("today")}>
+        <Button type="button" size="sm" onClick={() => applyPreset("today")}>
           {t("finance.rangeToday")}
-        </button>
-        <button type="button" className={styles.button} onClick={() => applyPreset("7")}>
+        </Button>
+        <Button type="button" size="sm" onClick={() => applyPreset("7")}>
           {t("finance.range7")}
-        </button>
-        <button type="button" className={styles.button} onClick={() => applyPreset("30")}>
+        </Button>
+        <Button type="button" size="sm" onClick={() => applyPreset("30")}>
           {t("finance.range30")}
-        </button>
+        </Button>
         <label>
           {t("finance.rangeFrom")}
-          <input className={styles.input} type="date" value={customFrom} onChange={(event) => setCustomFrom(event.target.value)} />
+          <Input type="date" value={customFrom} onChange={(event) => setCustomFrom(event.target.value)} />
         </label>
         <label>
           {t("finance.rangeTo")}
-          <input className={styles.input} type="date" value={customTo} onChange={(event) => setCustomTo(event.target.value)} />
+          <Input type="date" value={customTo} onChange={(event) => setCustomTo(event.target.value)} />
         </label>
-        <button type="button" className={`${styles.button} ${styles.buttonSecondary}`} onClick={applyCustom}>
+        <Button type="button" size="sm" variant="secondary" onClick={applyCustom}>
           {t("finance.rangeCustom")}
-        </button>
-        <span className={styles.badge}>{preset}</span>
+        </Button>
+        <Badge>{preset}</Badge>
       </div>
       <p className={styles.callout} data-testid="outstanding-topup">
         {t("finance.topupNeverExpires")}
@@ -203,8 +204,12 @@ export default function AdminHomePage() {
           <article key={label} className={styles.card}>
             <div>{label}</div>
             <p className={styles.kpi}>{formatMoney(value)}</p>
-            <span className={`${styles.badge} ${quality === "ESTIMATED" || quality === "PARTIAL" ? styles.warn : quality === "UNKNOWN" ? styles.danger : styles.ok}`}>
-              {qualityLabel(quality, qualityLabels)}
+            <span className={styles.badge}>
+              <StatusBadge
+                tone={quality === "ESTIMATED" || quality === "PARTIAL" ? "warning" : quality === "UNKNOWN" ? "danger" : "success"}
+              >
+                {qualityLabel(quality, qualityLabels)}
+              </StatusBadge>
             </span>
           </article>
         ))}

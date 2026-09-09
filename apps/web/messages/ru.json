@@ -14,13 +14,14 @@
     "settings": "Настройки",
     "security": "Безопасность",
     "billing": "Оплата",
+    "appearance": "Оформление",
     "home": "Главная",
     "chat": "Чат"
   },
   "home": {
     "eyebrow": "Vimla",
-    "heading": "Рабочее пространство",
-    "apiBase": "Базовый URL API: {url}"
+    "heading": "Одно рабочее пространство для ИИ",
+    "tagline": "Общайтесь с разными моделями в одном аккаунте. Usage остаётся понятным."
   },
   "health": {
     "title": "Состояние backend",
@@ -39,6 +40,7 @@
     "cancel": "Отмена",
     "save": "Сохранить",
     "back": "Назад",
+    "close": "Закрыть",
     "genericError": "Не получилось выполнить запрос. Попробуйте ещё раз."
   },
   "auth": {
@@ -62,6 +64,8 @@
     "sendCode": "Отправить код",
     "otp": "Код подтверждения",
     "verify": "Подтвердить",
+    "revealPassword": "Показать пароль",
+    "hidePassword": "Скрыть пароль",
     "errors": {
       "invalidCredentials": "Неверный email или пароль",
       "registrationFailed": "Не удалось завершить регистрацию. Если аккаунт уже есть, войдите или подтвердите email.",
@@ -109,6 +113,7 @@
   "settings": {
     "title": "Настройки",
     "securityTitle": "Безопасность",
+    "appearanceTitle": "Оформление",
     "email": "Email",
     "verified": "подтверждён",
     "unverified": "не подтверждён",
@@ -136,6 +141,13 @@
     "changeEmailSuccess": "Email обновлён",
     "unknownDevice": "Неизвестное устройство"
   },
+  "appearance": {
+    "theme": "Тема",
+    "description": "Выберите светлую, тёмную тему или следуйте системной. Настройка сохраняется в этом браузере.",
+    "light": "Светлая",
+    "dark": "Тёмная",
+    "system": "Системная"
+  },
   "billing": {
     "title": "Оплата",
     "currentPlan": "Текущий тариф",
@@ -144,6 +156,7 @@
     "plans": "Тарифы",
     "buy": "Купить",
     "topup": "Пополнить Usage",
+    "topupNeverExpires": "Пополнение Usage не сгорает.",
     "topupAmount": "Сумма",
     "pay": "Оплатить",
     "history": "История платежей",
@@ -170,6 +183,11 @@
     "failed": "Не удалось загрузить рабочее пространство.",
     "newChat": "Новый чат",
     "model": "Модель",
+    "mode": "Режим",
+    "pro": "PRO",
+    "auto": "AUTO",
+    "autoUnavailable": "AUTO-маршрутизация пока недоступна. Сообщения идут в выбранную в PRO модель.",
+    "openMenu": "Открыть навигацию",
     "you": "Вы",
     "assistant": "Vimla",
     "placeholder": "Сообщение для Vimla",

@@ -1,11 +1,37 @@
 "use client";
 
 import { observer } from "mobx-react-lite";
-import { useEffect, useState, type FormEvent, type ReactElement } from "react";
+import { useEffect, useState, type ReactElement } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useLocale, useTranslations } from "next-intl";
 import type { CurrentUser, UsageResponse } from "@vimla/contracts";
+import {
+  AiModeSelector,
+  Alert,
+  AppShell,
+  AssistantMessage,
+  Button,
+  ChatComposer,
+  ConversationItem,
+  Drawer,
+  EmptyState,
+  ErrorState,
+  IconButton,
+  LogOutIcon,
+  MenuIcon,
+  ModelSelector,
+  PlusIcon,
+  SettingsIcon,
+  Sidebar,
+  SidebarFooter,
+  SidebarSection,
+  Spinner,
+  UsageMeter,
+  UserMessage,
+  buttonClassName,
+  type AiInteractionMode,
+} from "@vimla/ui";
 import { AuthRequiredError, fetchCurrentUser } from "../../../auth/services/current-user";
 import { authClient } from "../../../auth/services/auth-client";
 import { fetchUsage } from "../../../billing/services/usage";
@@ -30,6 +56,8 @@ export const ChatWorkspace = observer(function ChatWorkspace(): ReactElement {
   const [store] = useState(() => new ChatWorkspaceStore());
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [boot, setBoot] = useState<"loading" | "ready" | "failed">("loading");
+  const [navOpen, setNavOpen] = useState(false);
+  const [mode, setMode] = useState<AiInteractionMode>("pro");
 
   useEffect(() => {
     let cancelled = false;
@@ -80,14 +108,15 @@ export const ChatWorkspace = observer(function ChatWorkspace(): ReactElement {
     const conversation = await createConversation();
     store.addConversation(conversation);
     await loadConversation(store, conversation.id);
+    setNavOpen(false);
   }
 
   async function onSelect(id: string): Promise<void> {
     await loadConversation(store, id);
+    setNavOpen(false);
   }
 
-  async function onSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
-    event.preventDefault();
+  async function onSubmit(): Promise<void> {
     if (store.streaming || !user?.emailVerified) {
       return;
     }
@@ -127,110 +156,141 @@ export const ChatWorkspace = observer(function ChatWorkspace(): ReactElement {
   }
 
   if (boot === "loading") {
-    return <p className={styles.status}>{t("chat.loading")}</p>;
+    return (
+      <p className={styles.status}>
+        <Spinner label={t("chat.loading")} />
+      </p>
+    );
   }
 
   if (boot === "failed" || !user) {
-    return <p className={styles.status}>{t("chat.failed")}</p>;
+    return <ErrorState title={t("chat.failed")} />;
   }
 
-  return (
-    <div className={styles.shell}>
-      <aside className={styles.sidebar}>
-        <p className={styles.brand}>{t("meta.productName")}</p>
-        <button type="button" className={styles.button} onClick={() => void onNewChat()}>
-          {t("chat.newChat")}
-        </button>
-        <nav className={styles.list}>
-          {store.conversations.map((conversation) => (
-            <button
-              type="button"
-              key={conversation.id}
-              className={conversation.id === store.activeConversationId ? styles.activeItem : styles.item}
-              onClick={() => void onSelect(conversation.id)}
-            >
-              {conversation.title ?? t("chat.newChat")}
-            </button>
-          ))}
-        </nav>
-      </aside>
-      <section className={styles.main}>
-        <header className={styles.header}>
-          <label className={styles.model}>
-            {t("chat.model")}
-            <select
-              value={store.selectedModelId}
-              onChange={(event) => store.setModel(event.target.value)}
-            >
-              {store.models.map((model) => (
-                <option key={model.id} value={model.id}>
-                  {model.displayName}
-                </option>
-              ))}
-            </select>
-          </label>
-          <UsageMeter usage={store.usage} />
-          <LanguageSwitcher />
-          <p className={styles.user}>{user.email}</p>
-          <Link href="/settings/billing" className={styles.button}>
-            {t("nav.billing")}
-          </Link>
-          <Link href="/settings/security" className={styles.button}>
-            {t("nav.settings")}
-          </Link>
-          <button type="button" className={styles.button} onClick={() => void signOut()}>
-            {t("nav.signOut")}
-          </button>
-        </header>
-        <div className={styles.messages}>
-          {store.messages.length === 0 ? <p className={styles.muted}>{t("chat.empty")}</p> : null}
-          {store.messages.map((message) => (
-            <article key={message.id} className={styles.message}>
-              <p className={styles.role}>{message.role === "USER" ? t("chat.you") : t("chat.assistant")}</p>
-              <p className={styles.content}>{message.content}</p>
-            </article>
-          ))}
-        </div>
-        {store.error ? (
-          <p className={styles.error}>{tx(t, apiErrorMessageKey(store.error))}</p>
-        ) : null}
-        {!user.emailVerified ? <p className={styles.error}>{t("chat.verifyToSend")}</p> : null}
-        <form className={styles.composer} onSubmit={(event) => void onSubmit(event)}>
-          <textarea
-            value={store.draft}
-            onChange={(event) => store.setDraft(event.target.value)}
-            placeholder={t("chat.placeholder")}
-            rows={3}
-            disabled={!user.emailVerified}
+  const sidebar = (
+    <Sidebar>
+      <p className={styles.brand}>{t("meta.productName")}</p>
+      <Button variant="secondary" onClick={() => void onNewChat()}>
+        <PlusIcon size={16} aria-hidden="true" />
+        {t("chat.newChat")}
+      </Button>
+      <SidebarSection>
+        {store.conversations.map((conversation) => (
+          <ConversationItem
+            key={conversation.id}
+            title={conversation.title ?? t("chat.newChat")}
+            active={conversation.id === store.activeConversationId}
+            onSelect={() => void onSelect(conversation.id)}
           />
-          <button
-            type="submit"
-            className={styles.send}
-            disabled={store.streaming || !user.emailVerified}
-          >
-            {t("chat.send")}
-          </button>
-        </form>
-      </section>
-    </div>
+        ))}
+      </SidebarSection>
+      <SidebarFooter>
+        <UsageBlock usage={store.usage} />
+        <LanguageSwitcher />
+        <p className={styles.user}>{user.email}</p>
+        <Link href="/settings/billing" className={buttonClassName({ variant: "ghost", size: "sm" })}>
+          {t("nav.billing")}
+        </Link>
+        <Link href="/settings/security" className={buttonClassName({ variant: "ghost", size: "sm" })}>
+          <SettingsIcon size={16} aria-hidden="true" />
+          {t("nav.settings")}
+        </Link>
+        <Button variant="ghost" size="sm" onClick={() => void signOut()}>
+          <LogOutIcon size={16} aria-hidden="true" />
+          {t("nav.signOut")}
+        </Button>
+      </SidebarFooter>
+    </Sidebar>
+  );
+
+  return (
+    <>
+      <AppShell
+        sidebar={sidebar}
+        topbar={
+          <>
+            <IconButton label={t("chat.openMenu")} onClick={() => setNavOpen(true)}>
+              <MenuIcon size={18} />
+            </IconButton>
+            <strong>{t("meta.productName")}</strong>
+          </>
+        }
+      >
+        <section className={styles.workspace}>
+          <header className={styles.header}>
+            <div className={styles.mode}>
+              <AiModeSelector
+                mode={mode}
+                onModeChange={setMode}
+                label={t("chat.mode")}
+                proLabel={t("chat.pro")}
+                autoLabel={t("chat.auto")}
+                autoEnabled={false}
+                autoHint={t("chat.autoUnavailable")}
+                proControl={
+                  <div className={styles.modelLabel}>
+                    <ModelSelector
+                      label={t("chat.model")}
+                      value={store.selectedModelId}
+                      onChange={(value) => store.setModel(value)}
+                      options={store.models.map((model) => ({ id: model.id, label: model.displayName }))}
+                    />
+                  </div>
+                }
+              />
+            </div>
+            <div className={styles.headerCluster}>
+              <UsageBlock usage={store.usage} />
+            </div>
+          </header>
+          <div className={styles.messages}>
+            {store.messages.length === 0 ? (
+              <EmptyState title={t("chat.empty")} />
+            ) : (
+              store.messages.map((message) =>
+                message.role === "USER" ? (
+                  <UserMessage key={message.id} label={t("chat.you")}>
+                    {message.content}
+                  </UserMessage>
+                ) : (
+                  <AssistantMessage key={message.id} label={t("chat.assistant")}>
+                    {message.content}
+                  </AssistantMessage>
+                ),
+              )
+            )}
+          </div>
+          {store.error ? <Alert variant="error">{tx(t, apiErrorMessageKey(store.error))}</Alert> : null}
+          {!user.emailVerified ? <Alert variant="warning">{t("chat.verifyToSend")}</Alert> : null}
+          <ChatComposer
+            value={store.draft}
+            onChange={(value) => store.setDraft(value)}
+            onSubmit={() => void onSubmit()}
+            placeholder={t("chat.placeholder")}
+            sendLabel={t("chat.send")}
+            disabled={!user.emailVerified}
+            sending={store.streaming}
+          />
+        </section>
+      </AppShell>
+      <Drawer open={navOpen} onOpenChange={setNavOpen} title={t("meta.productName")} closeLabel={t("common.close")}>
+        {sidebar}
+      </Drawer>
+    </>
   );
 });
 
-function UsageMeter({ usage }: { usage: UsageResponse | null }): ReactElement {
+function UsageBlock({ usage }: { usage: UsageResponse | null }): ReactElement {
   const t = useTranslations("chat");
   if (!usage) {
-    return <p className={styles.usage}>{t("usageUnavailable")}</p>;
+    return <p className={styles.user}>{t("usageUnavailable")}</p>;
   }
-
   return (
-    <div className={styles.usage}>
-      <p>{t("monthlyUsage")}</p>
-      <div className={styles.bar} aria-hidden="true">
-        <span style={{ width: `${usage.monthly.usedPercent}%` }} />
-      </div>
-      <p>{usage.monthly.usedPercent}%</p>
-      <p>{t("topupUsed", { percent: usage.topup.usedPercent })}</p>
-    </div>
+    <UsageMeter
+      label={t("monthlyUsage")}
+      percent={usage.monthly.usedPercent}
+      caption={`${usage.monthly.usedPercent}% · ${t("topupUsed", { percent: usage.topup.usedPercent })}`}
+    />
   );
 }
 

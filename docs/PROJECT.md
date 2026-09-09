@@ -68,6 +68,7 @@ packages/
   billing       framework-independent billing domain
   notifications EmailProvider / SmsProvider + localized templates
   shared        shared utilities
+  ui            shared design system (`@vimla/ui`) for web and admin
 ```
 
 Local PostgreSQL/Redis via Docker Compose, typed `@vimla/config`, structured logging/correlation IDs, `GET /health`, CI, and a quality gate of lint/typecheck/test/integration/build.

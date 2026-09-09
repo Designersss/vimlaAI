@@ -3,10 +3,10 @@
 import { useState, type FormEvent, type ReactElement } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
+import { Alert, Button, FormField, Input, OtpInput, Text } from "@vimla/ui";
 import { authClient } from "../../services/auth-client";
 import { authErrorMessageKey } from "../../../../shared/errors/error-keys";
 import { tx } from "../../../../shared/i18n/translate";
-import { OtpInput } from "../OtpInput/OtpInput";
 import styles from "../AuthForm/AuthForm.module.scss";
 
 export function PhoneSignInForm(): ReactElement {
@@ -73,9 +73,8 @@ export function PhoneSignInForm(): ReactElement {
 
   return (
     <form className={styles.form} noValidate onSubmit={(event) => void onSubmit(event)}>
-      <label className={styles.field} htmlFor="phone-sign-in">
-        {t("auth.phone")}
-        <input
+      <FormField label={t("auth.phone")} htmlFor="phone-sign-in">
+        <Input
           id="phone-sign-in"
           name="phone"
           inputMode="tel"
@@ -85,27 +84,24 @@ export function PhoneSignInForm(): ReactElement {
             setPhone(event.target.value);
           }}
         />
-      </label>
+      </FormField>
       {stage === "otp" ? (
-        <div className={styles.field}>
-          <span id="phone-otp-label">{t("auth.otp")}</span>
+        <div>
+          <Text as="span" tone="secondary" id="phone-otp-label">
+            {t("auth.otp")}
+          </Text>
           <OtpInput labelledBy="phone-otp-label" value={otp} onChange={setOtp} disabled={state === "submitting"} />
         </div>
       ) : null}
-      {formError ? (
-        <p className={styles.error} role="alert">
-          {formError}
-        </p>
-      ) : null}
-      <button className={styles.submit} type="submit" disabled={state === "submitting"}>
-        {state === "submitting"
-          ? t("auth.working")
-          : stage === "phone"
-            ? cooldown > 0
-              ? t("auth.verifyEmail.resendIn", { seconds: cooldown })
-              : t("auth.sendCode")
-            : t("auth.verify")}
-      </button>
+      {formError ? <Alert variant="error">{formError}</Alert> : null}
+      <Button type="submit" disabled={state === "submitting" || (stage === "phone" && cooldown > 0)} loading={state === "submitting"} block>
+        {stage === "phone"
+          ? cooldown > 0
+            ? t("auth.verifyEmail.resendIn", { seconds: cooldown })
+            : t("auth.sendCode")
+          : t("auth.verify")}
+      </Button>
+      {stage === "otp" ? <Text tone="caption">{t("auth.phoneSendSuccess")}</Text> : null}
     </form>
   );
 }

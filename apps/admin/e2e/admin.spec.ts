@@ -91,3 +91,35 @@ test("owner can create a draft, simulate and publish T199", async ({ page, reque
   });
   expect(published.ok()).toBeTruthy();
 });
+
+test("finance overview stays contained on a tablet viewport", async ({ page }) => {
+  await bootstrapOwnerSession(page);
+  await page.setViewportSize({ width: 768, height: 1024 });
+  await page.goto("/admin");
+  await expect(page.getByTestId("outstanding-topup")).toBeVisible({ timeout: 20_000 });
+  const overflowing = await page.evaluate(
+    () => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
+  );
+  expect(overflowing).toBeFalsy();
+});
+
+test.describe("visual regression", () => {
+  test.skip(!!process.env.CI, "Pixel snapshots are OS-specific; CI keeps behavioral tests.");
+
+  test.use({
+    viewport: { width: 1280, height: 800 },
+  });
+
+  test("admin auth shell", async ({ page }) => {
+    await page.goto("/sign-in");
+    await expect(page.getByRole("heading")).toBeVisible();
+    await expect(page).toHaveScreenshot("admin-auth-shell.png", { animations: "disabled" });
+  });
+
+  test("admin shell", async ({ page }) => {
+    await bootstrapOwnerSession(page);
+    await page.goto("/admin");
+    await expect(page.getByTestId("outstanding-topup")).toBeVisible({ timeout: 20_000 });
+    await expect(page).toHaveScreenshot("admin-shell.png", { animations: "disabled" });
+  });
+});

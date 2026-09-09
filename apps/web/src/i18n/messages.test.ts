@@ -18,6 +18,11 @@ describe("i18n dictionaries", () => {
     expect(ruKeys).toContain("settings.securityTitle");
     expect(ruKeys).toContain("billing.title");
     expect(ruKeys).toContain("billing.activeUntil");
+    expect(ruKeys).toContain("billing.topupNeverExpires");
+    expect(ruKeys).toContain("appearance.theme");
+    expect(ruKeys).toContain("chat.autoUnavailable");
+    expect(JSON.stringify(en)).not.toMatch(/Acme|Sarah Chen|62% used of 1,240/i);
+    expect(JSON.stringify(ru)).not.toMatch(/Acme|Sarah Chen/);
     expect(ruKeys).toContain("validation.passwordMin");
   });
 });

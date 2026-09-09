@@ -185,6 +185,19 @@ Goal: owner-only control plane, separate from consumer web.
 
 Exit criteria: ordinary users cannot reach Admin API; quality gate includes Admin tests. See `docs/ADMIN_SECURITY.md` and `docs/FINANCE_ADMIN.md`.
 
+## Phase 5.5 — Shared design system and responsive product UI
+Goal: one `@vimla/ui` design system for Web and Admin; restyle existing flows; real data only.
+
+- [x] `packages/ui` tokens, light/dark/system, primitives, AppShell, Auth/Settings patterns.
+- [x] Consumer auth, chat, settings, billing restyle without rewriting domain logic.
+- [x] Admin reuses the same system with compact density.
+- [x] AUTO/PRO selector: AUTO disabled until Auto Router exists; PRO uses the real catalog.
+- [x] `/dev/ui` local/test catalog; absent in staging/production.
+- [x] Responsive Playwright smoke + WebKit/Firefox shell coverage + selective local visual snapshots.
+- [x] `docs/DESIGN_SYSTEM.md`.
+
+Exit criteria: quality gate includes responsive tests; no screenshot data in production; no fake Projects.
+
 ## Phase 6 — Images
 - [ ] image capability interface/provider mapping.
 - [ ] async/sync strategy by model.

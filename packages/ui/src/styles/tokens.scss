@@ -1,0 +1,199 @@
+// Raw palette lives only in this file.
+// Accent #6366F1 / Light #A5B4FC / Soft #E0E7FF
+// Gray 900 #0F172A / 600 #475569 / 300 #CBD5E1 / 100 #F1F5F9
+// Success #10B981 / Warning #F59E0B / Danger #EF4444
+// Dark surfaces #0B0F19 / #111827 with accent #818CF8
+
+:root {
+  --vimla-font: "Segoe UI", system-ui, sans-serif;
+
+  --vimla-space-1: 4px;
+  --vimla-space-2: 8px;
+  --vimla-space-3: 12px;
+  --vimla-space-4: 16px;
+  --vimla-space-5: 24px;
+  --vimla-space-6: 32px;
+  --vimla-space-7: 40px;
+  --vimla-space-8: 48px;
+  --vimla-space-9: 64px;
+
+  --vimla-radius-sm: 8px;
+  --vimla-radius-md: 10px;
+  --vimla-radius-lg: 12px;
+  --vimla-radius-xl: 14px;
+  --vimla-radius-round: 999px;
+
+  --vimla-type-page-size: clamp(1.75rem, 1.4rem + 1.2vw, 2rem);
+  --vimla-type-page-line: 1.25;
+  --vimla-type-section-size: 1.25rem;
+  --vimla-type-section-line: 1.4;
+  --vimla-type-sub-size: 1.05rem;
+  --vimla-type-body-size: 1rem;
+  --vimla-type-body-line: 1.5;
+  --vimla-type-secondary-size: 0.875rem;
+  --vimla-type-secondary-line: 1.43;
+  --vimla-type-caption-size: 0.8125rem;
+  --vimla-type-caption-line: 1.4;
+  --vimla-type-label-size: 0.875rem;
+
+  --vimla-duration-fast: 140ms;
+  --vimla-duration-normal: 200ms;
+  --vimla-duration-slow: 280ms;
+  --vimla-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  --vimla-z-sticky: 300;
+  --vimla-z-dropdown: 400;
+  --vimla-z-drawer: 500;
+  --vimla-z-modal: 600;
+  --vimla-z-toast: 700;
+  --vimla-z-tooltip: 800;
+
+  --vimla-safe-top: env(safe-area-inset-top, 0px);
+  --vimla-safe-right: env(safe-area-inset-right, 0px);
+  --vimla-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --vimla-safe-left: env(safe-area-inset-left, 0px);
+
+  --vimla-page-pad: var(--vimla-space-4);
+  --vimla-control-height: 2.5rem;
+  --vimla-control-pad-x: 0.875rem;
+  --vimla-sidebar-width: 16rem;
+  --vimla-sidebar-collapsed: 4.5rem;
+  --vimla-content-max: 72rem;
+
+  --vimla-shadow-sm: 0 1px 2px rgb(15 23 42 / 0.06);
+  --vimla-shadow-md: 0 8px 24px rgb(15 23 42 / 0.12);
+}
+
+html[data-theme="light"],
+html:not([data-theme]) {
+  color-scheme: light;
+  --vimla-bg: #f8fafc;
+  --vimla-surface: #ffffff;
+  --vimla-surface-secondary: #f1f5f9;
+  --vimla-surface-hover: #e2e8f0;
+  --vimla-text: #0f172a;
+  --vimla-text-secondary: #475569;
+  --vimla-text-muted: #64748b;
+  --vimla-text-inverse: #f8fafc;
+  --vimla-border: #cbd5e1;
+  --vimla-border-strong: #94a3b8;
+  --vimla-accent: #6366f1;
+  --vimla-accent-hover: #4f46e5;
+  --vimla-accent-active: #4338ca;
+  --vimla-accent-soft: #e0e7ff;
+  --vimla-accent-text: #ffffff;
+  --vimla-success: #059669;
+  --vimla-success-soft: #d1fae5;
+  --vimla-warning: #d97706;
+  --vimla-warning-soft: #fef3c7;
+  --vimla-danger: #dc2626;
+  --vimla-danger-soft: #fee2e2;
+  --vimla-focus-ring: #6366f1;
+  --vimla-overlay: rgb(15 23 42 / 0.45);
+  --vimla-code-bg: #0f172a;
+  --vimla-code-text: #e2e8f0;
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --vimla-bg: #0b0f19;
+  --vimla-surface: #111827;
+  --vimla-surface-secondary: #1f2937;
+  --vimla-surface-hover: #334155;
+  --vimla-text: #f8fafc;
+  --vimla-text-secondary: #cbd5e1;
+  --vimla-text-muted: #94a3b8;
+  --vimla-text-inverse: #0b0f19;
+  --vimla-border: #334155;
+  --vimla-border-strong: #64748b;
+  --vimla-accent: #818cf8;
+  --vimla-accent-hover: #a5b4fc;
+  --vimla-accent-active: #6366f1;
+  --vimla-accent-soft: rgb(99 102 241 / 0.22);
+  --vimla-accent-text: #0b0f19;
+  --vimla-success: #34d399;
+  --vimla-success-soft: rgb(16 185 129 / 0.18);
+  --vimla-warning: #fbbf24;
+  --vimla-warning-soft: rgb(245 158 11 / 0.18);
+  --vimla-danger: #f87171;
+  --vimla-danger-soft: rgb(239 68 68 / 0.18);
+  --vimla-focus-ring: #a5b4fc;
+  --vimla-overlay: rgb(0 0 0 / 0.55);
+  --vimla-code-bg: #020617;
+  --vimla-code-text: #e2e8f0;
+  --vimla-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.35);
+  --vimla-shadow-md: 0 12px 32px rgb(0 0 0 / 0.4);
+}
+
+html[data-density="compact"] {
+  --vimla-control-height: 2rem;
+  --vimla-control-pad-x: 0.625rem;
+  --vimla-page-pad: var(--vimla-space-3);
+  --vimla-type-body-size: 0.875rem;
+  --vimla-type-body-line: 1.43;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  min-height: 100dvh;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  font-family: var(--vimla-font);
+  font-size: var(--vimla-type-body-size);
+  line-height: var(--vimla-type-body-line);
+  background: var(--vimla-bg);
+  color: var(--vimla-text);
+}
+
+img,
+svg,
+video,
+canvas {
+  max-width: 100%;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+:focus {
+  outline: none;
+}
+
+:focus-visible {
+  outline: 2px solid var(--vimla-focus-ring);
+  outline-offset: 2px;
+}
+
+@media (max-width: 767px) {
+  :root {
+    --vimla-page-pad: var(--vimla-space-3);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

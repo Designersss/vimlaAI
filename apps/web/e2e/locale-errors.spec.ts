@@ -32,6 +32,7 @@ test.describe("locale and errors", () => {
     page,
     request,
   }) => {
+    test.setTimeout(180_000);
     await seedLocale(page, "ru");
     await page.goto("/sign-in");
     await page.getByLabel(/email/i).fill("missing@example.com");

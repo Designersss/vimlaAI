@@ -2,6 +2,7 @@
 
 import { useLocale, useTranslations } from "next-intl";
 import type { ReactElement } from "react";
+import { Button } from "@vimla/ui";
 import { persistLocalePreference } from "../../shared/i18n/persist-locale";
 import type { VimlaLocale } from "@vimla/shared";
 import { useRouter } from "next/navigation";
@@ -22,26 +23,28 @@ export function LanguageSwitcher(): ReactElement {
 
   return (
     <div className={styles.group} role="group" aria-label={t("label")}>
-      <button
+      <Button
         type="button"
-        className={locale === "ru" ? styles.active : styles.button}
+        size="sm"
+        variant={locale === "ru" ? "primary" : "ghost"}
         aria-pressed={locale === "ru"}
         onClick={() => {
           void choose("ru");
         }}
       >
         {t("ru")}
-      </button>
-      <button
+      </Button>
+      <Button
         type="button"
-        className={locale === "en" ? styles.active : styles.button}
+        size="sm"
+        variant={locale === "en" ? "primary" : "ghost"}
         aria-pressed={locale === "en"}
         onClick={() => {
           void choose("en");
         }}
       >
         {t("en")}
-      </button>
+      </Button>
     </div>
   );
 }

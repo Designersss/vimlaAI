@@ -14,13 +14,14 @@
     "settings": "Settings",
     "security": "Security",
     "billing": "Billing",
+    "appearance": "Appearance",
     "home": "Home",
     "chat": "Chat"
   },
   "home": {
     "eyebrow": "Vimla",
-    "heading": "Workspace foundation",
-    "apiBase": "API base URL: {url}"
+    "heading": "One workspace for AI",
+    "tagline": "Chat with multiple models from a single account. Usage stays simple."
   },
   "health": {
     "title": "Backend health",
@@ -39,6 +40,7 @@
     "cancel": "Cancel",
     "save": "Save",
     "back": "Back",
+    "close": "Close",
     "genericError": "The request failed. Try again."
   },
   "auth": {
@@ -62,6 +64,8 @@
     "sendCode": "Send code",
     "otp": "Verification code",
     "verify": "Confirm",
+    "revealPassword": "Show password",
+    "hidePassword": "Hide password",
     "errors": {
       "invalidCredentials": "Invalid email or password",
       "registrationFailed": "We could not complete registration. If you already have an account, sign in or verify your email.",
@@ -109,6 +113,7 @@
   "settings": {
     "title": "Settings",
     "securityTitle": "Security",
+    "appearanceTitle": "Appearance",
     "email": "Email",
     "verified": "verified",
     "unverified": "unverified",
@@ -136,6 +141,13 @@
     "changeEmailSuccess": "Email updated",
     "unknownDevice": "Unknown device"
   },
+  "appearance": {
+    "theme": "Theme",
+    "description": "Choose light, dark, or follow the system setting. The preference is stored in this browser.",
+    "light": "Light",
+    "dark": "Dark",
+    "system": "System"
+  },
   "billing": {
     "title": "Billing",
     "currentPlan": "Current plan",
@@ -144,6 +156,7 @@
     "plans": "Plans",
     "buy": "Buy",
     "topup": "Top up usage",
+    "topupNeverExpires": "Top-up usage never expires.",
     "topupAmount": "Amount",
     "pay": "Pay",
     "history": "Payment history",
@@ -170,6 +183,11 @@
     "failed": "Unable to load the workspace.",
     "newChat": "New chat",
     "model": "Model",
+    "mode": "Mode",
+    "pro": "PRO",
+    "auto": "AUTO",
+    "autoUnavailable": "AUTO routing is not available yet. Messages use the model you select in PRO.",
+    "openMenu": "Open navigation",
     "you": "You",
     "assistant": "Vimla",
     "placeholder": "Message Vimla",

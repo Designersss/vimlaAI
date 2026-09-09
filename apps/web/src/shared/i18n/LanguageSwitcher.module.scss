@@ -1,19 +1,5 @@
 .group {
-  display: flex;
-  gap: 0.35rem;
-}
-
-.button,
-.active {
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--color-text);
-  padding: 0.35rem 0.6rem;
-  cursor: pointer;
-}
-
-.active {
-  border-color: var(--color-accent);
-  color: var(--color-accent);
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--vimla-space-1);
 }

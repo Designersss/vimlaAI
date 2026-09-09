@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { useState, type FormEvent } from "react";
+import { Alert, AuthCard, AuthLayout, Button, FormField, Heading, Input, PasswordInput } from "@vimla/ui";
 import { adminAuthClient } from "../../shared/auth/auth-client";
 import styles from "../admin/admin.module.scss";
 
@@ -30,16 +31,29 @@ export default function SignInPage() {
   }
 
   return (
-    <main className={styles.main}>
-      <h1>{t("app.signIn")}</h1>
-      <form className={styles.form} onSubmit={(event) => void onSubmit(event)}>
-        <input className={styles.input} name="email" type="email" autoComplete="username" required />
-        <input className={styles.input} name="password" type="password" autoComplete="current-password" required />
-        <button className={styles.button} type="submit">
+    <AuthLayout>
+      <AuthCard>
+        <Heading as="h1" size="page">
           {t("app.signIn")}
-        </button>
-        {error ? <p role="alert">{error}</p> : null}
-      </form>
-    </main>
+        </Heading>
+        <form className={styles.form} onSubmit={(event) => void onSubmit(event)}>
+          <FormField label={t("app.email")} htmlFor="admin-email">
+            <Input id="admin-email" name="email" type="email" autoComplete="username" required />
+          </FormField>
+          <FormField label={t("app.password")} htmlFor="admin-password">
+            <PasswordInput
+              id="admin-password"
+              name="password"
+              autoComplete="current-password"
+              required
+              revealLabel={t("app.revealPassword")}
+              hideLabel={t("app.hidePassword")}
+            />
+          </FormField>
+          <Button type="submit">{t("app.signIn")}</Button>
+          {error ? <Alert variant="error">{error}</Alert> : null}
+        </form>
+      </AuthCard>
+    </AuthLayout>
   );
 }
