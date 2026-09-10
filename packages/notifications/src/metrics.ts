@@ -1,8 +1,6 @@
 export interface NotificationMetricsSnapshot {
   emailSent: number;
   emailFailed: number;
-  smsSent: number;
-  smsFailed: number;
   otpResend: number;
   passwordResetRequests: number;
 }
@@ -10,24 +8,14 @@ export interface NotificationMetricsSnapshot {
 export class NotificationMetrics {
   private emailSent = 0;
   private emailFailed = 0;
-  private smsSent = 0;
-  private smsFailed = 0;
   private otpResend = 0;
   private passwordResetRequests = 0;
 
-  recordDelivery(channel: "email" | "sms", success: boolean): void {
-    if (channel === "email") {
-      if (success) {
-        this.emailSent += 1;
-      } else {
-        this.emailFailed += 1;
-      }
-      return;
-    }
+  recordDelivery(_channel: "email", success: boolean): void {
     if (success) {
-      this.smsSent += 1;
+      this.emailSent += 1;
     } else {
-      this.smsFailed += 1;
+      this.emailFailed += 1;
     }
   }
 
@@ -43,8 +31,6 @@ export class NotificationMetrics {
     return {
       emailSent: this.emailSent,
       emailFailed: this.emailFailed,
-      smsSent: this.smsSent,
-      smsFailed: this.smsFailed,
       otpResend: this.otpResend,
       passwordResetRequests: this.passwordResetRequests,
     };

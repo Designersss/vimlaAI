@@ -48,9 +48,6 @@ export function AccountSettings(): ReactElement {
         <Text>
           {t("auth.email")}: {user.email} ({user.emailVerified ? t("settings.verified") : t("settings.unverified")})
         </Text>
-        <Text tone="secondary">
-          {t("settings.phone")}: {user.phoneNumber ?? t("settings.notLinked")}
-        </Text>
         <Alert>{t("settings.accountHint")}</Alert>
         <Link href="/settings/security" className={buttonClassName({ variant: "secondary", size: "sm" })}>
           {t("nav.security")}

@@ -30,7 +30,7 @@ export class DevNotificationsController {
     otp: string | null;
     resetUrl: string | null;
     templateId: string | null;
-    channel: "email" | "sms" | null;
+    channel: "email" | null;
   } {
     if (!isDevNotificationInboxEnabled(this.config.appEnv)) {
       throw new HttpException(
@@ -39,15 +39,15 @@ export class DevNotificationsController {
       );
     }
 
-    if (channel !== undefined && channel !== "email" && channel !== "sms") {
+    if (channel !== undefined && channel !== "email") {
       throw new BadRequestException({
         code: "validation_error",
-        message: "channel must be email or sms",
+        message: "channel must be email",
       });
     }
 
     const delivery = memoryNotificationInbox.latestMatching({
-      channel,
+      channel: channel === "email" ? "email" : undefined,
       to: to && to.length > 0 ? to : undefined,
     });
 

@@ -9,8 +9,6 @@ describe("currentUserSchema", () => {
       name: "Ada",
       image: null,
       emailVerified: true,
-      phoneNumber: null,
-      phoneNumberVerified: false,
       locale: "ru",
       timezone: null,
     });
@@ -24,8 +22,6 @@ describe("currentUserSchema", () => {
       name: "Ada",
       image: null,
       emailVerified: false,
-      phoneNumber: "+79991234567",
-      phoneNumberVerified: true,
       locale: "en",
       timezone: null,
       password: "should-be-stripped-by-strictness-or-ignored",

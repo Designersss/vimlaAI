@@ -18,6 +18,8 @@ model User {
   email                String
   emailVerified        Boolean         @default(false)
   image                String?
+  // Dormant leftover from SMS authentication. Not used for login, OTP, or product UI.
+  // Kept to avoid a destructive migration of already-applied identity columns.
   phoneNumber          String?
   phoneNumberVerified  Boolean         @default(false)
   createdAt            DateTime        @default(now())

@@ -1,5 +1,5 @@
 import type { VimlaLocale } from "@vimla/shared";
-import type { EmailTemplateId, SmsTemplateId } from "./types.js";
+import type { EmailTemplateId } from "./types.js";
 
 interface EmailTemplateInput {
   otp?: string;
@@ -86,16 +86,6 @@ const EMAIL_TEMPLATES: Record<
   },
 };
 
-const SMS_TEMPLATES: Record<
-  SmsTemplateId,
-  Record<VimlaLocale, (otp: string) => string>
-> = {
-  phoneVerificationOtp: {
-    ru: (otp) => `Код Vimla: ${otp}. Действует 5 минут.`,
-    en: (otp) => `Vimla code: ${otp}. Expires in 5 minutes.`,
-  },
-};
-
 export function renderEmailTemplate(
   templateId: EmailTemplateId,
   locale: VimlaLocale,
@@ -104,14 +94,4 @@ export function renderEmailTemplate(
   const byLocale = EMAIL_TEMPLATES[templateId];
   const render = byLocale[locale] ?? byLocale.ru;
   return render(input);
-}
-
-export function renderSmsTemplate(
-  templateId: SmsTemplateId,
-  locale: VimlaLocale,
-  otp: string,
-): string {
-  const byLocale = SMS_TEMPLATES[templateId];
-  const render = byLocale[locale] ?? byLocale.ru;
-  return render(otp);
 }

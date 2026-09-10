@@ -9,6 +9,8 @@ Phase 6.5 delivers existing one-shot personal `WorkspaceReminder` rows over:
 - `IN_APP` (persisted `user_notification`)
 - `EMAIL` (existing `@vimla/notifications` SMTP/memory adapters)
 
+Current product identity and notifications are email-only. SMS/phone authentication is not part of the current product and may be introduced in a future phase after launch.
+
 Not in this phase: recurring reminders, Web Push, SMS, project reminders, marketing, or `@Vimla`.
 
 ## State machine (`notification_delivery.status`)

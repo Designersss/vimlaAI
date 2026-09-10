@@ -29,7 +29,6 @@ describe("local signup rate limits and notification inbox", () => {
       process.env.BETTER_AUTH_SECRET ?? "local-dev-only-change-me-use-32-chars-min";
     process.env.BETTER_AUTH_URL = process.env.BETTER_AUTH_URL ?? "http://localhost:3001";
     process.env.EMAIL_PROVIDER = "memory";
-    process.env.SMS_PROVIDER = "memory";
     process.env.AUTH_SIGNUP_IP_LIMIT_PER_MINUTE = "20";
     process.env.AI_TEXT_ENABLED = "false";
 
@@ -118,7 +117,6 @@ describe("signup HTTP rate limit", () => {
       process.env.BETTER_AUTH_SECRET ?? "local-dev-only-change-me-use-32-chars-min";
     process.env.BETTER_AUTH_URL = process.env.BETTER_AUTH_URL ?? "http://localhost:3001";
     process.env.EMAIL_PROVIDER = "memory";
-    process.env.SMS_PROVIDER = "memory";
     process.env.AUTH_SIGNUP_IP_LIMIT_PER_MINUTE = "2";
     process.env.AI_TEXT_ENABLED = "false";
 
@@ -174,9 +172,6 @@ describe("production notification inbox isolation", () => {
     process.env.SMTP_USER = "vimla";
     process.env.SMTP_PASSWORD = "smtp-secret-value";
     process.env.EMAIL_FROM = "noreply@vimla.example";
-    process.env.SMS_PROVIDER = "http";
-    process.env.SMS_HTTP_URL = "https://sms.example.com/send";
-    process.env.SMS_HTTP_AUTHORIZATION = "Bearer sms-token";
     process.env.PAYMENT_PROVIDER = "tbank";
     process.env.TBANK_ENV = "production";
     process.env.TBANK_TERMINAL_KEY = "production-terminal-key";
@@ -207,7 +202,6 @@ describe("production notification inbox isolation", () => {
     const payload = JSON.stringify(response.json());
     expect(payload).not.toContain("notification_not_found");
     expect(payload).not.toContain("smtp-secret-value");
-    expect(payload).not.toContain("sms-token");
   });
 });
 

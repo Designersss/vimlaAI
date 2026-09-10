@@ -72,8 +72,6 @@ describe("loadApiConfig", () => {
     expect(config.authOtpResendCooldownSeconds).toBe(60);
     expect(config.authDefaultLocale).toBe("ru");
     expect(config.emailProvider).toBe("memory");
-    expect(config.smsProvider).toBe("memory");
-    expect(config.notifySmsPerPhonePerHour).toBe(4);
     expect(config.authSignupIpLimitPerMinute).toBe(20);
     expect(config.reminderReconcileIntervalSeconds).toBe(60);
     expect(config.reminderMaxLatenessMinutes).toBe(1_440);
@@ -106,9 +104,6 @@ describe("loadApiConfig", () => {
         SMTP_USER: "vimla",
         SMTP_PASSWORD: "smtp-secret-value",
         EMAIL_FROM: "noreply@vimla.example",
-        SMS_PROVIDER: "http",
-        SMS_HTTP_URL: "https://sms.example.com/send",
-        SMS_HTTP_AUTHORIZATION: "Bearer sms-token",
       }),
     ).toThrow();
   });
@@ -128,9 +123,6 @@ describe("loadApiConfig", () => {
         SMTP_USER: "vimla",
         SMTP_PASSWORD: "smtp-secret-value",
         EMAIL_FROM: "noreply@vimla.example",
-        SMS_PROVIDER: "http",
-        SMS_HTTP_URL: "https://sms.example.com/send",
-        SMS_HTTP_AUTHORIZATION: "Bearer sms-token",
       }),
     ).toThrow();
   });
@@ -146,7 +138,6 @@ describe("loadApiConfig", () => {
         WEB_ORIGIN: "https://app.vimla.example",
         AI_TEXT_ENABLED: "false",
         EMAIL_PROVIDER: "memory",
-        SMS_PROVIDER: "memory",
       }),
     ).toThrow(/EMAIL_PROVIDER/);
   });
@@ -166,14 +157,11 @@ describe("loadApiConfig", () => {
         SMTP_USER: "vimla",
         SMTP_PASSWORD: "smtp-secret-value",
         EMAIL_FROM: "noreply@gmail.com",
-        SMS_PROVIDER: "http",
-        SMS_HTTP_URL: "https://sms.example.com/send",
-        SMS_HTTP_AUTHORIZATION: "Bearer sms-token",
       }),
     ).toThrow(/EMAIL_FROM/);
   });
 
-  it("loads production notification adapters when SMTP and HTTP SMS are configured", () => {
+  it("loads production notification adapters when SMTP is configured without SMS variables", () => {
     const config = loadApiConfig({
       ...validSharedEnv,
       APP_ENV: "production",
@@ -188,14 +176,10 @@ describe("loadApiConfig", () => {
       SMTP_PASSWORD: "smtp-secret-value",
       EMAIL_FROM: "noreply@vimla.example",
       EMAIL_REPLY_TO: "support@vimla.example",
-      SMS_PROVIDER: "http",
-      SMS_HTTP_URL: "https://sms.example.com/send",
-      SMS_HTTP_AUTHORIZATION: "Bearer sms-token",
       ...productionPaymentEnv,
     });
 
     expect(config.emailProvider).toBe("smtp");
-    expect(config.smsProvider).toBe("http");
     expect(config.emailFrom).toBe("noreply@vimla.example");
     expect(config.smtpPassword).toBe("smtp-secret-value");
     expect(config.paymentProvider).toBe("tbank");
@@ -229,9 +213,6 @@ describe("loadApiConfig", () => {
         SMTP_USER: "vimla",
         SMTP_PASSWORD: "smtp-secret-value",
         EMAIL_FROM: "noreply@vimla.example",
-        SMS_PROVIDER: "http",
-        SMS_HTTP_URL: "https://sms.example.com/send",
-        SMS_HTTP_AUTHORIZATION: "Bearer sms-token",
         ...productionPaymentEnv,
         PAYMENT_PROVIDER: "mock",
       }),

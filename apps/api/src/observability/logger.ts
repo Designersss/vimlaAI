@@ -66,7 +66,6 @@ export function createPinoHttpOptions(logLevel: LogLevel): Options {
         "req.body.PROXYAPI_API_KEY",
         "config.proxyapiApiKey",
         "config.smtpPassword",
-        "config.smsHttpAuthorization",
         "config.betterAuthSecret",
       ],
       remove: true,

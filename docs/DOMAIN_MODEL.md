@@ -3,7 +3,7 @@
 This document defines concepts, not final Prisma syntax.
 
 ## User
-Owns conversations, files, projects, subscriptions and usage buckets. `User.id` is the canonical identity. Email/password credentials live in Better Auth `account` rows. `emailVerified` is false until a valid email OTP. `phoneNumber` is canonical E.164 and unique when set; `phoneNumberVerified` is true only after SMS OTP while authenticated.
+Owns conversations, files, projects, subscriptions and usage buckets. `User.id` is the canonical identity. Email/password credentials live in Better Auth `account` rows. `emailVerified` is false until a valid email OTP. `phoneNumber` / `phoneNumberVerified` columns exist in PostgreSQL as dormant leftovers from an earlier identity migration; they are not used for authentication or shown in product UI.
 
 ## UserPreference
 Separate from Better Auth `User`. Stores UI/locale settings (`locale`, optional IANA `timezone`, timestamps). Timezone is written only after explicit confirmation. Numeric offsets are rejected. Phase 6.5 stores reminder channel preferences: `reminderInAppEnabled` (default true) and `reminderEmailEnabled` (default false). Email stays off until the user opts in with a verified address. See `docs/NOTIFICATIONS.md`.

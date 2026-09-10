@@ -12,7 +12,6 @@ import {
   verifyEmailOtp,
   waitForEmailOtp,
   waitForPasswordResetUrl,
-  waitForSmsOtp,
   withTestRedis,
   clearOtpResendCooldown,
 } from "../test/identity-helpers.js";
@@ -331,108 +330,22 @@ describe("identity integration", () => {
     expect(oldSession.statusCode).toBe(401);
   });
 
-  it("links a verified phone, rejects duplicates and unknown phone signup", async () => {
-    const user = await registerVerifiedUser(app, "phone");
-    const phone = `+7999${String(Date.now()).slice(-7)}`;
-
-    const malformed = await app.inject({
-      method: "POST",
-      url: "/api/auth/phone-number/send-otp",
-      headers: { origin, "content-type": "application/json" },
-      cookies: user.cookies,
-      payload: { phoneNumber: "123" },
-    });
-    expect(malformed.statusCode).toBeGreaterThanOrEqual(400);
-
+  it("does not expose phone OTP or SMS login endpoints", async () => {
     const send = await app.inject({
       method: "POST",
       url: "/api/auth/phone-number/send-otp",
       headers: { origin, "content-type": "application/json" },
-      cookies: user.cookies,
-      payload: { phoneNumber: phone },
+      payload: { phoneNumber: "+79991234567" },
     });
-    expect(send.statusCode).toBeGreaterThanOrEqual(200);
-    expect(send.statusCode).toBeLessThan(300);
-    const otp = await waitForSmsOtp(phone);
+    expect(send.statusCode).toBeGreaterThanOrEqual(400);
 
-    const wrong = await app.inject({
+    const verify = await app.inject({
       method: "POST",
       url: "/api/auth/phone-number/verify",
       headers: { origin, "content-type": "application/json" },
-      cookies: user.cookies,
-      payload: { phoneNumber: phone, code: "000000", updatePhoneNumber: true },
+      payload: { phoneNumber: "+79991234567", code: "123456" },
     });
-    expect(wrong.statusCode).toBeGreaterThanOrEqual(400);
-
-    const link = await app.inject({
-      method: "POST",
-      url: "/api/auth/phone-number/verify",
-      headers: { origin, "content-type": "application/json" },
-      cookies: user.cookies,
-      payload: { phoneNumber: phone, code: otp, updatePhoneNumber: true },
-    });
-    expect(link.statusCode).toBeGreaterThanOrEqual(200);
-    expect(link.statusCode).toBeLessThan(300);
-
-    const other = await registerVerifiedUser(app, "phone-dup");
-    const dupSend = await app.inject({
-      method: "POST",
-      url: "/api/auth/phone-number/send-otp",
-      headers: { origin, "content-type": "application/json" },
-      cookies: other.cookies,
-      payload: { phoneNumber: phone },
-    });
-    expect(dupSend.statusCode).toBeGreaterThanOrEqual(200);
-    const dupVerify = await app.inject({
-      method: "POST",
-      url: "/api/auth/phone-number/verify",
-      headers: { origin, "content-type": "application/json" },
-      cookies: other.cookies,
-      payload: { phoneNumber: phone, code: "123456", updatePhoneNumber: true },
-    });
-    expect(dupVerify.statusCode).toBeGreaterThanOrEqual(400);
-
-    const unknownPhone = `+7988${String(Date.now()).slice(-7)}`;
-    const unknownVerify = await app.inject({
-      method: "POST",
-      url: "/api/auth/phone-number/verify",
-      headers: { origin, "content-type": "application/json" },
-      payload: { phoneNumber: unknownPhone, code: "123456" },
-    });
-    expect(unknownVerify.statusCode).toBeGreaterThanOrEqual(400);
-    const prisma = app.get(PrismaService).client;
-    expect(
-      await prisma.user.findFirst({ where: { phoneNumber: unknownPhone } }),
-    ).toBeNull();
-
-    await app.inject({
-      method: "POST",
-      url: "/api/auth/sign-out",
-      headers: { origin, "content-type": "application/json" },
-      cookies: user.cookies,
-      payload: {},
-    });
-
-    await clearOtpResendCooldown();
-    memoryNotificationInbox.clear();
-
-    const loginSend = await app.inject({
-      method: "POST",
-      url: "/api/auth/phone-number/send-otp",
-      headers: { origin, "content-type": "application/json" },
-      payload: { phoneNumber: phone },
-    });
-    expect(loginSend.statusCode).toBeGreaterThanOrEqual(200);
-    expect(loginSend.statusCode).toBeLessThan(300);
-    const loginOtp = await waitForSmsOtp(phone);
-    const phoneLogin = await app.inject({
-      method: "POST",
-      url: "/api/auth/phone-number/verify",
-      headers: { origin, "content-type": "application/json" },
-      payload: { phoneNumber: phone, code: loginOtp },
-    });
-    expect(phoneLogin.statusCode).toBeGreaterThanOrEqual(200);
-    expect(phoneLogin.statusCode).toBeLessThan(300);
+    expect(verify.statusCode).toBeGreaterThanOrEqual(400);
   });
 
   it("lists and revokes only the caller's sessions", async () => {

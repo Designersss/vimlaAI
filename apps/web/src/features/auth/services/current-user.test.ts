@@ -11,8 +11,6 @@ describe("fetchCurrentUser", () => {
           name: "Ada",
           image: null,
           emailVerified: true,
-          phoneNumber: null,
-          phoneNumberVerified: false,
           locale: "ru",
           timezone: null,
         }),

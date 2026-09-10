@@ -24,11 +24,6 @@ export function uniqueEmail(label: string): string {
   return `${label}-${randomUUID()}@example.com`;
 }
 
-export function uniquePhone(): string {
-  const suffix = String(Math.floor(1_000_000 + Math.random() * 8_999_999));
-  return `+7900${suffix}`;
-}
-
 export async function fillOtp(page: Page, code: string): Promise<void> {
   const group = otpGroup(page);
   await expect(group).toBeVisible();
@@ -40,7 +35,7 @@ export async function fillOtp(page: Page, code: string): Promise<void> {
 
 export async function latestDelivery(
   request: APIRequestContext,
-  channel: "email" | "sms",
+  channel: "email",
   to: string,
   options?: { ignoreOtp?: string | null; requireResetUrl?: boolean },
 ): Promise<{ otp: string | null; resetUrl: string | null; templateId: string | null }> {

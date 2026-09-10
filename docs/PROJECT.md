@@ -66,7 +66,7 @@ packages/
   auth          Better Auth
   ai            provider abstractions, catalog, cost, streaming
   billing       framework-independent billing domain
-  notifications EmailProvider / SmsProvider + localized templates
+  notifications EmailProvider + localized templates
   shared        shared utilities
   ui            shared design system (`@vimla/ui`) for web and admin
 ```
@@ -90,28 +90,28 @@ Implemented:
 - existing unverified accounts are not auto-verified; next login reaches `/verify-email`;
 - `VerifiedEmailGuard` blocks AI generation and billing mutations until verified;
 - link-based password reset with generic responses, short-lived single-use tokens, and `revokeSessionsOnPasswordReset`;
-- verified phone linking (E.164) after a verified email account; phone-first signup stays off;
-- SMS OTP login only for an already linked verified phone; unknown numbers do not create users;
-- `/settings/security`: email/phone status, change email (current + new OTP), change password (revokes other sessions by default), list/revoke sessions;
+- `/settings/security`: email status, change email (current + new OTP), change password (revokes other sessions by default), list/revoke sessions;
 - RU/EN via `next-intl`; locale = authenticated `UserPreference` → `vimla_locale` cookie → `Accept-Language` → `ru`;
 - API returns stable error codes; the web maps codes to translation keys (no raw backend English as UX);
 - Vimla field/form validation is primary; native browser bubbles are not;
-- `@vimla/notifications` with `EmailProvider` / `SmsProvider`; local/test memory inbox.
+- `@vimla/notifications` with `EmailProvider`; local/test memory inbox.
+
+Vimla is currently email-only. Phone/SMS authentication is not part of the current product.
 
 ### Phase 3.6 — Production notification delivery and browser E2E
-Identity is exercised through Playwright against test PostgreSQL/Redis, Memory email/SMS, MockAiProvider and MockPaymentProvider.
+Identity is exercised through Playwright against test PostgreSQL/Redis, Memory email, MockAiProvider and MockPaymentProvider.
 
 Implemented:
-- provider modes: `local`/`test` use memory adapters; `staging`/`production` require SMTP email + HTTP SMS and fail startup otherwise;
-- SMTP and HTTP SMS are protocol adapters, not a chosen commercial vendor SDK;
-- rolling email/SMS cost-abuse limits (IP, destination, account, global) on top of the 60s OTP cooldown;
-- bounded email retries with idempotency keys; SMS is not auto-retried (user resend only);
+- provider modes: `local`/`test` use memory adapters; `staging`/`production` require SMTP email and fail startup otherwise;
+- SMTP is a protocol adapter, not a chosen commercial vendor SDK;
+- rolling email cost-abuse limits (IP, destination, global) on top of the 60s OTP cooldown;
+- bounded email retries with idempotency keys;
 - password-reset URLs are built only from `WEB_ORIGIN`; client `redirectTo` is ignored;
 - change-email UI uses Better Auth OTP for the current address then the new address;
 - `@SensitiveArea()` default-deny for mutating AI/billing routes so unverified users cannot hit expensive endpoints by omission;
-- Playwright `pnpm test:e2e` (not production, no live email/SMS/ProxyAPI/payments).
+- Playwright `pnpm test:e2e` (not production, no live email/ProxyAPI/payments).
 
-Email/SMS commercial vendor is still not chosen. Auth calls Vimla `NotificationService`, not a vendor SDK. Live `test:email-live` / `test:sms-live` smoke tests are not added until a vendor is chosen.
+Auth calls Vimla `NotificationService`, not a vendor SDK. Live `test:email-live` smoke tests are not added until production SMTP is operated as a real sender.
 
 ### Phase 4 — T-Bank Internet Acquiring
 Real users pay subscriptions and top-ups on the T-Bank hosted page. Vimla never accepts card PAN/CVV. Usage is granted only after a verified `CONFIRMED` notification or `GetState`/`CheckOrder` reconciliation through the same fulfillment transaction.
@@ -263,12 +263,12 @@ Default tests use `MockAiProvider` and never spend ProxyAPI money. Optional live
 ---
 
 ## Production threat model
-Vimla assumes malicious users and hostile traffic. High-value assets include credentials/sessions, conversations, payment/usage state, provider/payment/email/SMS secrets, corporate provider balance, admin privileges and audit history.
+Vimla assumes malicious users and hostile traffic. High-value assets include credentials/sessions, conversations, payment/usage state, provider/payment/email secrets, corporate provider balance, admin privileges and audit history.
 
 Trust boundaries:
 1. Browser/client → Vimla API.
 2. Vimla API → PostgreSQL/Redis/object storage.
-3. Vimla → AI/payment/email/SMS providers.
+3. Vimla → AI/payment/email providers.
 4. Queue → worker.
 5. Consumer surface → admin/control plane.
 
@@ -298,27 +298,25 @@ Phase 1 email/password cookies are not the complete production identity system.
 All later consumer/admin work must remain compatible with this lifecycle:
 - email/password registration and login;
 - mandatory email OTP verification before sensitive paid/AI access according to policy;
-- phone/SMS OTP login and verification behind a replaceable provider adapter;
 - password-reset email link with short-lived single-use tokens and session revocation on completed reset;
-- change email/phone only after re-verification;
+- change email only after re-verification;
 - session list, revoke other sessions, and sign-out;
 - strong MFA/passkey/TOTP for privileged/admin identities;
-- no automatic linking of unverified email/phone claims;
 - dedicated auth/OTP rate limits, expiry, attempt bounds, replay protection and resend cooldown;
 - enumeration-safe responses where detailed errors would leak account existence.
 
-Email/SMS vendors are not chosen yet. Auth domain logic must not depend on a specific delivery SDK.
+Vimla is currently email-only. Phone/SMS authentication is not part of the current product and may be introduced in a future phase after launch. Auth domain logic must not depend on a specific email delivery SDK.
 
 ## Localization
 Vimla supports at least Russian (`ru`) and English (`en`).
 
 Permanent rules:
-- no hard-coded end-user strings in UI, validators, notifications or email/SMS templates;
+- no hard-coded end-user strings in UI, validators, notifications or email templates;
 - centralized translation keys that describe meaning;
 - locale-aware dates, numbers, pluralization and currency formatting;
 - UTC internally; localize only at presentation;
 - persist locale preference with browser-locale fallback;
-- auth/security email and SMS use the recipient locale when known;
+- auth/security email uses the recipient locale when known;
 - a flow is not complete until it is usable in both RU and EN.
 
 Phase 3.5 localizes auth, settings, chat, usage and API error codes in `apps/web/messages/{ru,en}.json`. Model display names stay product names.
@@ -405,7 +403,7 @@ Application logs, security/admin audit logs and the append-only financial ledger
 - no unlimited expensive compute;
 - no blockchain/internal transferable currency;
 - no user-supplied provider keys as the primary business model;
-- no architectural coupling to ProxyAPI, a payment SDK, or a specific email/SMS vendor.
+- no architectural coupling to ProxyAPI, a payment SDK, or a specific email vendor.
 
 ## Architecture invariants for every later phase
 1. Never call an AI/payment provider before checking and reserving sufficient user allowance.

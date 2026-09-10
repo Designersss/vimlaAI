@@ -8,7 +8,6 @@ import {
   redisNotificationStore,
   type EmailAdapterConfig,
   type NotificationService,
-  type SmsAdapterConfig,
 } from "@vimla/notifications";
 import { API_CONFIG, type ApiRuntimeConfig } from "../config/api-config.js";
 import { PrismaService } from "../persistence/prisma.service.js";
@@ -30,18 +29,12 @@ export class AuthService {
       secret: config.betterAuthSecret,
       defaultLocale: config.authDefaultLocale,
       email: emailAdapterFromConfig(config),
-      sms: smsAdapterFromConfig(config),
       store: redisNotificationStore(redis.client),
       limits: {
         emailRetryMax: config.notifyEmailRetryMax,
-        smsRetryMax: config.notifySmsRetryMax,
         emailPerDestPerHour: config.notifyEmailPerDestPerHour,
         emailPerIpPerHour: config.notifyEmailPerIpPerHour,
         emailGlobalPerMinute: config.notifyEmailGlobalPerMinute,
-        smsPerPhonePerHour: config.notifySmsPerPhonePerHour,
-        smsPerAccountPerHour: config.notifySmsPerAccountPerHour,
-        smsPerIpPerHour: config.notifySmsPerIpPerHour,
-        smsGlobalPerMinute: config.notifySmsGlobalPerMinute,
       },
       onEvent: (event) => {
         this.logger.log({
@@ -82,19 +75,5 @@ function emailAdapterFromConfig(config: ApiRuntimeConfig): EmailAdapterConfig {
     password: config.smtpPassword,
     from: config.emailFrom,
     replyTo: config.emailReplyTo,
-  };
-}
-
-function smsAdapterFromConfig(config: ApiRuntimeConfig): SmsAdapterConfig {
-  if (config.smsProvider !== "http") {
-    return { kind: "memory" };
-  }
-  if (!config.smsHttpUrl || !config.smsHttpAuthorization) {
-    throw new Error("HTTP SMS notification configuration is incomplete");
-  }
-  return {
-    kind: "http",
-    url: config.smsHttpUrl,
-    authorization: config.smsHttpAuthorization,
   };
 }

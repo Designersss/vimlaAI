@@ -140,15 +140,3 @@ export async function clearOtpResendCooldown(): Promise<void> {
     }
   });
 }
-
-export async function waitForSmsOtp(phone: string, attempts = 40): Promise<string> {
-  for (let index = 0; index < attempts; index += 1) {
-    const otp = memoryNotificationInbox.latestOtp("sms", phone);
-    if (otp) {
-      return otp;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  }
-
-  throw new Error(`SMS OTP was not delivered for ${phone}`);
-}

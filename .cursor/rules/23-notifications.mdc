@@ -1,9 +1,9 @@
 ---
-description: Security-sensitive email/SMS notification delivery and templates
+description: Security-sensitive email notification delivery and templates
 alwaysApply: false
-globs: "packages/**/*email*.ts, packages/**/*sms*.ts, apps/api/src/**/*notification*.ts, apps/worker/src/**/*notification*.ts"
+globs: "packages/**/*email*.ts, apps/api/src/**/*notification*.ts, apps/worker/src/**/*notification*.ts"
 ---
-# Email/SMS notification rules
+# Email notification rules
 
 - Delivery providers sit behind replaceable adapters; auth/domain logic must not depend directly on a vendor SDK.
 - Separate dev/test/prod credentials and sender identities.
@@ -12,6 +12,7 @@ globs: "packages/**/*email*.ts, packages/**/*sms*.ts, apps/api/src/**/*notificat
 - Never include sensitive internal IDs, provider secrets or unnecessary personal data in templates.
 - Reset links use short-lived single-use cryptographically strong tokens generated/managed by the auth layer.
 - OTPs have bounded expiry/attempts; do not store/log raw codes unless the auth implementation requires protected temporary storage.
-- Email/SMS sending has abuse controls to prevent resend spam/cost burn.
+- Email sending has abuse controls to prevent resend spam/cost burn.
 - Provider delivery failures must not leak account existence.
 - Security-critical delivery events should be observable without logging message body secrets.
+- Current product delivery channels are EMAIL and IN_APP. SMS is not part of the current product.

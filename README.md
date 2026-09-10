@@ -132,7 +132,7 @@ Optional live smoke (not CI, max 1–2 tiny requests):
 VIMLA_PROXYAPI_LIVE=1 pnpm test:proxyapi
 ```
 
-Email verification and password-reset emails use the memory inbox in local/test (`GET /dev/notifications/latest`). Staging/production require SMTP + HTTP SMS (`EMAIL_PROVIDER=smtp`, `SMS_PROVIDER=http`) or the API will refuse to start. Do not send auth mail from a free mailbox. Configure SPF, DKIM and DMARC on the Vimla sender domain in DNS (not in this repo).
+Email verification and password-reset emails use the memory inbox in local/test (`GET /dev/notifications/latest`). Staging/production require SMTP (`EMAIL_PROVIDER=smtp`) or the API will refuse to start. Do not send auth mail from a free mailbox. Configure SPF, DKIM and DMARC on the Vimla sender domain in DNS (not in this repo).
 
 ## Tests
 
@@ -150,7 +150,7 @@ pnpm test:integration
 pnpm test:e2e
 ```
 
-`pnpm test:e2e` starts the consumer API on `http://localhost:3101` and web on `http://localhost:3100`, then Admin API on `http://localhost:3201` and `apps/admin` on `http://localhost:3202`, against `vimla_test`, memory notifications, MockAiProvider and mock purchases. It does not send real email, SMS, ProxyAPI or payment traffic, and it does not reuse a local `pnpm dev` server.
+`pnpm test:e2e` starts the consumer API on `http://localhost:3101` and web on `http://localhost:3100`, then Admin API on `http://localhost:3201` and `apps/admin` on `http://localhost:3202`, against `vimla_test`, memory notifications, MockAiProvider and mock purchases. It does not send real email, ProxyAPI or payment traffic, and it does not reuse a local `pnpm dev` server.
 
 ## Lint
 
@@ -203,7 +203,7 @@ MFA/passkey enrollment (Admin app, after identity login):
 2. Open `/enroll`, enter the password, scan the TOTP URI in an authenticator app, save backup codes (shown once), verify the TOTP code.
 3. Add at least one passkey (`/enroll`). Staging/production require a passkey (`ADMIN_REQUIRE_PASSKEY=true`).
 4. Open `/elevate`, enter TOTP or a backup code to create the privileged `AdminSession`.
-5. SMS and email OTP are not sufficient Admin factors. Lost MFA: remaining backup codes, another passkey, or server CLI disable/revoke (audited). There is no email magic-link Admin recovery.
+5. Email OTP is not a sufficient Admin factor. Lost MFA: remaining backup codes, another passkey, or server CLI disable/revoke (audited). There is no email magic-link Admin recovery.
 
 ## Money
 

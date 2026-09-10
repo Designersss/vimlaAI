@@ -27,9 +27,6 @@ export function SecuritySettings(): ReactElement {
   const [sessions, setSessions] = useState<SessionRow[]>([]);
   const [boot, setBoot] = useState<"loading" | "ready" | "failed">("loading");
   const [password, setPassword] = useState({ current: "", next: "" });
-  const [phone, setPhone] = useState("");
-  const [otp, setOtp] = useState("");
-  const [phoneStage, setPhoneStage] = useState<"idle" | "otp">("idle");
   const [newEmail, setNewEmail] = useState("");
   const [currentEmailOtp, setCurrentEmailOtp] = useState("");
   const [newEmailOtp, setNewEmailOtp] = useState("");
@@ -157,40 +154,6 @@ export function SecuritySettings(): ReactElement {
     await reload();
   }
 
-  async function onSendPhone(): Promise<void> {
-    if (!user?.emailVerified) {
-      setError(t("auth.errors.emailNotVerified"));
-      return;
-    }
-    setBusy(true);
-    const result = await authClient.phoneNumber.sendOtp({ phoneNumber: phone });
-    setBusy(false);
-    if (result.error) {
-      setError(tx(t, authErrorMessageKey(result.error.code)));
-      return;
-    }
-    setPhoneStage("otp");
-  }
-
-  async function onVerifyPhone(event: FormEvent<HTMLFormElement>): Promise<void> {
-    event.preventDefault();
-    setBusy(true);
-    const result = await authClient.phoneNumber.verify({
-      phoneNumber: phone,
-      code: otp,
-      updatePhoneNumber: true,
-    });
-    setBusy(false);
-    if (result.error) {
-      setError(tx(t, authErrorMessageKey(result.error.code)));
-      return;
-    }
-    setMessage(t("auth.phoneLinked"));
-    setPhoneStage("idle");
-    setOtp("");
-    await reload();
-  }
-
   async function revoke(token: string): Promise<void> {
     await authClient.revokeSession({ token });
     await reload();
@@ -215,10 +178,6 @@ export function SecuritySettings(): ReactElement {
       <Card>
         <Text data-testid="security-identity">
           {t("settings.email")}: {user.email} · {user.emailVerified ? t("settings.verified") : t("settings.unverified")}
-        </Text>
-        <Text>
-          {t("settings.phone")}: {user.phoneNumber ?? t("settings.notLinked")} ·{" "}
-          {user.phoneNumberVerified ? t("settings.linked") : t("settings.notLinked")}
         </Text>
       </Card>
 
@@ -317,45 +276,6 @@ export function SecuritySettings(): ReactElement {
         <Button type="submit" disabled={busy} loading={busy}>
           {t("settings.changePassword")}
         </Button>
-      </form>
-
-      <form className={styles.form} noValidate onSubmit={(event) => void onVerifyPhone(event)}>
-        <Heading as="h3" size="sub">
-          {user.phoneNumberVerified ? t("settings.changePhone") : t("settings.addPhone")}
-        </Heading>
-        <FormField label={t("auth.phone")} htmlFor="security-phone">
-          <Input
-            id="security-phone"
-            value={phone}
-            onChange={(event) => {
-              setPhone(event.target.value);
-            }}
-          />
-        </FormField>
-        {phoneStage === "otp" ? (
-          <div>
-            <Text as="span" tone="secondary" id="security-otp">
-              {t("auth.otp")}
-            </Text>
-            <OtpInput labelledBy="security-otp" value={otp} onChange={setOtp} />
-          </div>
-        ) : null}
-        {phoneStage === "idle" ? (
-          <Button
-            id="security-send-phone"
-            type="button"
-            disabled={busy || !user.emailVerified}
-            onClick={() => {
-              void onSendPhone();
-            }}
-          >
-            {t("auth.sendCode")}
-          </Button>
-        ) : (
-          <Button type="submit" disabled={busy} loading={busy}>
-            {t("auth.verify")}
-          </Button>
-        )}
       </form>
 
       <Card>

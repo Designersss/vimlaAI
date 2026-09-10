@@ -12,8 +12,6 @@ describe("toAuthenticatedUser", () => {
       name: "Ada",
       image: undefined,
       emailVerified: true,
-      phoneNumber: "+79991234567",
-      phoneNumberVerified: true,
     });
 
     expect(user).toEqual({
@@ -22,8 +20,6 @@ describe("toAuthenticatedUser", () => {
       name: "Ada",
       image: null,
       emailVerified: true,
-      phoneNumber: "+79991234567",
-      phoneNumberVerified: true,
     });
     expect(containsForbiddenAuthFields(user)).toBe(false);
   });
@@ -35,6 +31,5 @@ describe("toAuthenticatedUser", () => {
       name: "Ada",
     });
     expect(user.emailVerified).toBe(false);
-    expect(user.phoneNumberVerified).toBe(false);
   });
 });

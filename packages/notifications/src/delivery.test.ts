@@ -1,12 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { NotificationDeliveryError } from "./errors.js";
 import { createNotificationService } from "./factory.js";
-import { HttpSmsProvider } from "./http-sms-provider.js";
 import {
   MemoryNotificationInbox,
   memoryNotificationInbox,
 } from "./memory-inbox.js";
-import { MemoryEmailProvider, MemorySmsProvider } from "./memory-provider.js";
+import { MemoryEmailProvider } from "./memory-provider.js";
 import { NotificationService } from "./service.js";
 import { SmtpEmailProvider } from "./smtp-email-provider.js";
 import { MemoryNotificationStore } from "./store.js";
@@ -24,16 +23,16 @@ describe("memory notification inbox", () => {
       otp: "111111",
     });
     inbox.record({
-      channel: "sms",
-      to: "+79990000000",
-      templateId: "phoneVerificationOtp",
+      channel: "email",
+      to: "grace@example.com",
+      templateId: "passwordReset",
       locale: "ru",
       sentAt: new Date().toISOString(),
-      otp: "222222",
+      resetUrl: "https://app.example/reset-password?token=abc",
     });
-    expect(inbox.latestMatching()?.otp).toBe("222222");
-    expect(inbox.latestMatching({ channel: "email" })?.otp).toBe("111111");
-    expect(inbox.latestMatching({ to: "+79990000000" })?.otp).toBe("222222");
+    expect(inbox.latestMatching()?.resetUrl).toContain("reset-password");
+    expect(inbox.latestMatching({ to: "ada@example.com" })?.otp).toBe("111111");
+    expect(inbox.latestMatching({ channel: "email" })?.to).toBe("grace@example.com");
   });
 });
 
@@ -44,7 +43,6 @@ describe("createNotificationService", () => {
         appEnv: "production",
         secret: "production-secret-value-32-chars-min",
         email: { kind: "memory" },
-        sms: { kind: "memory" },
       }),
     ).toThrow(/smtp/);
   });
@@ -55,7 +53,6 @@ describe("createNotificationService", () => {
       appEnv: "local",
       secret: "local-dev-only-change-me-use-32-chars-min",
       email: { kind: "memory" },
-      sms: { kind: "memory" },
     });
     service.queueEmail({
       to: "ada@example.com",
@@ -71,40 +68,39 @@ describe("createNotificationService", () => {
 });
 
 describe("notification delivery security", () => {
-  it("does not retry SMS and suppresses duplicate notificationIds", async () => {
+  it("suppresses duplicate email notificationIds", async () => {
     const inbox = new MemoryNotificationInbox();
-    const sms = new MemorySmsProvider(inbox);
-    const sendSms = vi.spyOn(sms, "sendSms");
+    const email = new MemoryEmailProvider(inbox);
+    const sendEmail = vi.spyOn(email, "sendEmail");
     const service = new NotificationService({
-      email: new MemoryEmailProvider(inbox),
-      sms,
+      email,
       defaultLocale: "en",
       secret: "test-notification-secret-value",
       retryBackoffMs: 0,
       store: new MemoryNotificationStore(),
     });
 
-    service.queueSms({
-      to: "+79990000001",
-      templateId: "phoneVerificationOtp",
+    service.queueEmail({
+      to: "ada@example.com",
+      templateId: "emailVerificationOtp",
       otp: "111111",
-      notificationId: "sms-1",
+      notificationId: "email-1",
     });
-    service.queueSms({
-      to: "+79990000001",
-      templateId: "phoneVerificationOtp",
+    service.queueEmail({
+      to: "ada@example.com",
+      templateId: "emailVerificationOtp",
       otp: "111111",
-      notificationId: "sms-1",
+      notificationId: "email-1",
     });
     await service.flush();
-    expect(sendSms).toHaveBeenCalledTimes(1);
+    expect(sendEmail).toHaveBeenCalledTimes(1);
   });
 
   it("retries email on network failure then succeeds once", async () => {
     let attempts = 0;
     const email = {
       name: "smtp",
-        sendEmail: async () => {
+      sendEmail: async () => {
         attempts += 1;
         if (attempts === 1) {
           throw new NotificationDeliveryError("network", "SMTP network failure");
@@ -112,10 +108,8 @@ describe("notification delivery security", () => {
         return {};
       },
     };
-    const inbox = new MemoryNotificationInbox();
     const service = new NotificationService({
       email,
-      sms: new MemorySmsProvider(inbox),
       defaultLocale: "en",
       secret: "test-notification-secret-value",
       retryBackoffMs: 0,
@@ -135,7 +129,6 @@ describe("notification delivery security", () => {
     const inbox = new MemoryNotificationInbox();
     const service = new NotificationService({
       email: new MemoryEmailProvider(inbox),
-      sms: new MemorySmsProvider(inbox),
       defaultLocale: "en",
       secret: "test-notification-secret-value",
     });
@@ -151,20 +144,19 @@ describe("notification delivery security", () => {
     expect(inbox.latestMatching({ to: "ada@example.com" })?.templateId).toBe("reminderDue");
   });
 
-  it("enforces rolling SMS destination limits", async () => {
+  it("enforces rolling email destination limits", async () => {
     const inbox = new MemoryNotificationInbox();
     const service = new NotificationService({
       email: new MemoryEmailProvider(inbox),
-      sms: new MemorySmsProvider(inbox),
       defaultLocale: "en",
       secret: "test-notification-secret-value",
       retryBackoffMs: 0,
-      limits: { smsPerPhonePerHour: 1, smsGlobalPerMinute: 100, smsPerIpPerHour: 100 },
+      limits: { emailPerDestPerHour: 1, emailGlobalPerMinute: 100, emailPerIpPerHour: 100 },
     });
 
-    await service.consumeBudget({ channel: "sms", to: "+79990000002", ip: "127.0.0.1" });
+    await service.consumeBudget({ channel: "email", to: "ada@example.com", ip: "127.0.0.1" });
     await expect(
-      service.consumeBudget({ channel: "sms", to: "+79990000002", ip: "127.0.0.1" }),
+      service.consumeBudget({ channel: "email", to: "ada@example.com", ip: "127.0.0.1" }),
     ).rejects.toThrow(/rate limited/);
   });
 
@@ -181,7 +173,6 @@ describe("notification delivery security", () => {
     };
     const service = new NotificationService({
       email: new MemoryEmailProvider(new MemoryNotificationInbox()),
-      sms: new MemorySmsProvider(new MemoryNotificationInbox()),
       defaultLocale: "en",
       secret: "test-notification-secret-value",
       store,
@@ -226,24 +217,5 @@ describe("vendor adapters", () => {
         text: "999111",
       }),
     ).rejects.toMatchObject({ category: "rejected", message: "SMTP rejected the message" });
-  });
-
-  it("HTTP SMS adapter posts to the configured gateway without logging", async () => {
-    const fetchImpl = vi.fn<typeof fetch>(async () => new Response(null, { status: 202 }));
-    const provider = new HttpSmsProvider(
-      { url: "https://sms.example.com/send", authorization: "Bearer token" },
-      fetchImpl,
-    );
-    await provider.sendSms({
-      to: "+79990000003",
-      templateId: "phoneVerificationOtp",
-      locale: "ru",
-      text: "Код Vimla: 222333. Действует 5 минут.",
-    });
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
-    const init = fetchImpl.mock.calls[0]?.[1];
-    expect(init?.headers).toMatchObject({ authorization: "Bearer token" });
-    expect(String(init?.body)).toContain("222333");
-    expect(String(init?.body)).toContain("+79990000003");
   });
 });
