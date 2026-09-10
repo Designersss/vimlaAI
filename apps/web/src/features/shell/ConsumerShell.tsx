@@ -32,12 +32,14 @@ export function ConsumerShell({
   children,
   title,
   localNav,
+  actions,
   flush = false,
   requireVerified = true,
 }: {
   children: ReactNode;
   title: string;
   localNav?: ReactNode;
+  actions?: ReactNode;
   flush?: boolean;
   requireVerified?: boolean;
 }): ReactElement {
@@ -141,7 +143,12 @@ export function ConsumerShell({
       }
     >
       <div className={styles.page} data-testid="consumer-shell">
-        {localNav ? <div className={styles.localNav}>{localNav}</div> : null}
+        {localNav || actions ? (
+          <div className={styles.localNav}>
+            {localNav}
+            {actions ? <div className={styles.actions}>{actions}</div> : null}
+          </div>
+        ) : null}
         <div className={flush ? styles.bodyFlush : styles.body}>{children}</div>
       </div>
     </AppShell>

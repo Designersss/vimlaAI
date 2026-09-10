@@ -210,8 +210,12 @@ Goal: personal My Work (Today, Tasks, Reminders, Lists/Checklists, Notes) withou
 Exit criteria: users can manage personal work without AI; quality gate green; Phase 6.5 delivery not started.
 
 ## Phase 6.5 — Notification Platform
-- [ ] reminder/email/Web Push delivery (not scheduling data).
-- [ ] recurring reminders.
+- [x] PostgreSQL-backed in-app inbox + `NotificationDelivery` execution records.
+- [x] Reminder reconciliation (≈60s, config) and BullMQ channel workers for `IN_APP` / `EMAIL`.
+- [x] Redis loss recovery via DB reconciliation; occurrence+channel uniqueness; cancel/reschedule/stale-job safety.
+- [x] Consumer notification center + Settings → Notifications (`notificationsSettings: true`).
+- [ ] recurring reminders (explicitly out of scope for this delivery).
+- [ ] Web Push / SMS.
 
 ## Phase 7 — Secure @Vimla Operator
 - [ ] `@Vimla` operator using existing workspace services + `TrustedSourceContext`.

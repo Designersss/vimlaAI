@@ -263,9 +263,15 @@ importers:
       '@vimla/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@vimla/contracts':
+        specifier: workspace:*
+        version: link:../../packages/contracts
       '@vimla/database':
         specifier: workspace:*
         version: link:../../packages/database
+      '@vimla/notifications':
+        specifier: workspace:*
+        version: link:../../packages/notifications
       '@vimla/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -484,6 +490,12 @@ importers:
 
   packages/notifications:
     dependencies:
+      '@vimla/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@vimla/database':
+        specifier: workspace:*
+        version: link:../database
       '@vimla/shared':
         specifier: workspace:*
         version: link:../shared

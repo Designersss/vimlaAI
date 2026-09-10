@@ -26,14 +26,19 @@ test.describe("personal workspace", () => {
     await page.getByRole("button", { name: /удалить|delete/i }).click();
     await expect(page.getByText("Buy milk")).toHaveCount(0);
 
-    const nowLocal = toDatetimeLocal(new Date());
+    const laterToday = new Date();
+    laterToday.setHours(laterToday.getHours() + 2);
+    if (laterToday.getDate() !== new Date().getDate()) {
+      laterToday.setHours(23, 59, 0, 0);
+    }
+    const nowLocal = toDatetimeLocal(laterToday);
     await page.getByLabel(/название|title/i).fill("Due today task");
     await page.locator("#task-due").fill(nowLocal);
     await page.getByRole("button", { name: /создать|create/i }).click();
     await expect(page.getByText("Due today task")).toBeVisible();
 
     await page.getByRole("link", { name: /напоминания|reminders/i }).first().click();
-    await expect(page.getByText(/доставка пока не включена|delivery is not enabled yet/i)).toBeVisible();
+    await expect(page.getByText(/доставляются в приложении|delivered in the app/i)).toBeVisible();
     await expect(page.getByText(/we will email|push notification|отправим письмо/i)).toHaveCount(0);
     await page.getByLabel(/название|title/i).fill("Call dentist");
     await page.locator("#reminder-at").fill(nowLocal);
@@ -97,7 +102,9 @@ test.describe("personal workspace", () => {
     await signUp(page, { name: "Ada", email, password: "correct-horse-battery" });
     await verifyEmail(page, request, email);
 
-    const firstAt = toDatetimeLocal(new Date());
+    const first = new Date();
+    first.setHours(first.getHours() + 1);
+    const firstAt = toDatetimeLocal(first);
     const later = new Date();
     later.setHours(later.getHours() + 3);
     const laterAt = toDatetimeLocal(later);

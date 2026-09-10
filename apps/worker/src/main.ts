@@ -1,9 +1,17 @@
 import { loadWorkerConfig } from "@vimla/config/server";
 import { createPrismaClient, pingDatabase } from "@vimla/database";
+import {
+  DELIVER_JOB_NAME,
+  NOTIFICATIONS_QUEUE_NAME,
+  RECONCILE_JOB_NAME,
+  RECONCILE_SCHEDULER_ID,
+} from "@vimla/notifications";
 import { createCorrelationId } from "@vimla/shared";
-import { Worker } from "bullmq";
+import { Queue, Worker } from "bullmq";
 import { Redis } from "ioredis";
 import pino from "pino";
+import { closeHttpServer, listenWorkerHealth } from "./health.js";
+import { createNotificationRuntime, parseDeliveryJobPayload } from "./notifications.js";
 import { createWorkerPaymentService } from "./payment-reconciliation.js";
 import { MAINTENANCE_QUEUE_NAME, redisConnectionOptions } from "./queue.js";
 
@@ -22,11 +30,20 @@ async function bootstrap(): Promise<void> {
   });
 
   const redisOptions = redisConnectionOptions(config.redisUrl);
-  const connection = new Redis(redisOptions.url, {
+  const maintenanceConnection = new Redis(redisOptions.url, {
+    maxRetriesPerRequest: redisOptions.maxRetriesPerRequest,
+  });
+  const notificationConnection = new Redis(redisOptions.url, {
+    maxRetriesPerRequest: redisOptions.maxRetriesPerRequest,
+  });
+  const queueConnection = new Redis(redisOptions.url, {
+    maxRetriesPerRequest: redisOptions.maxRetriesPerRequest,
+  });
+  const storeConnection = new Redis(redisOptions.url, {
     maxRetriesPerRequest: redisOptions.maxRetriesPerRequest,
   });
 
-  await connection.ping();
+  await storeConnection.ping();
   logger.info("connected to Redis");
 
   const prisma = createPrismaClient(config.databaseUrl);
@@ -46,8 +63,16 @@ async function bootstrap(): Promise<void> {
   };
   const payments = createWorkerPaymentService(prisma, config, billingLogger);
   const reconcileAfterMs = config.paymentReconcileAfterSeconds * 1000;
+  const notificationQueue = new Queue(NOTIFICATIONS_QUEUE_NAME, { connection: queueConnection });
+  const notifications = createNotificationRuntime(
+    prisma,
+    config,
+    notificationQueue,
+    storeConnection,
+    billingLogger,
+  );
 
-  const worker = new Worker(
+  const maintenanceWorker = new Worker(
     MAINTENANCE_QUEUE_NAME,
     async (job) => {
       if (job.name === "reconcile-payments") {
@@ -58,10 +83,48 @@ async function bootstrap(): Promise<void> {
       logger.info({ jobId: job.id, name: job.name }, "maintenance job started");
       return { ok: true as const };
     },
-    { connection },
+    { connection: maintenanceConnection },
   );
 
-  const reconcileTimer = setInterval(() => {
+  const notificationWorker = new Worker(
+    NOTIFICATIONS_QUEUE_NAME,
+    async (job) => {
+      if (job.name === RECONCILE_JOB_NAME) {
+        const counters = await notifications.reconciler.reconcile();
+        return { ok: true as const, counters };
+      }
+      if (job.name === DELIVER_JOB_NAME) {
+        const payload = parseDeliveryJobPayload(job.data);
+        const result = await notifications.processor.process(payload.deliveryId);
+        return { ok: true as const, ...result };
+      }
+      logger.info({ jobId: job.id, name: job.name }, "notification job started");
+      return { ok: true as const };
+    },
+    { connection: notificationConnection, concurrency: 4 },
+  );
+
+  maintenanceWorker.on("error", (error: Error) => {
+    logger.error({ err: error.message }, "maintenance worker error");
+  });
+  notificationWorker.on("error", (error: Error) => {
+    logger.error({ err: error.message }, "notification worker error");
+  });
+  await maintenanceWorker.waitUntilReady();
+  await notificationWorker.waitUntilReady();
+
+  await notificationQueue.upsertJobScheduler(
+    RECONCILE_SCHEDULER_ID,
+    { every: config.reminderReconcileIntervalSeconds * 1000 },
+    {
+      name: RECONCILE_JOB_NAME,
+      data: { reason: "repeat" },
+    },
+  );
+  const startupCounters = await notifications.reconciler.reconcile();
+  logger.info(startupCounters, "reminder.reconcile.startup");
+
+  const paymentTimer = setInterval(() => {
     void payments
       .reconcilePending(new Date(Date.now() - reconcileAfterMs), 25)
       .catch((error: unknown) => {
@@ -72,17 +135,38 @@ async function bootstrap(): Promise<void> {
       });
   }, Math.max(reconcileAfterMs, 60_000));
 
-  worker.on("failed", (job, error: Error) => {
+  maintenanceWorker.on("failed", (job, error: Error) => {
     logger.error({ jobId: job?.id, err: error.message }, "maintenance job failed");
   });
+  notificationWorker.on("failed", (job, error: Error) => {
+    logger.error({ jobId: job?.id, err: error.message }, "notification job failed");
+  });
 
-  logger.info({ queue: MAINTENANCE_QUEUE_NAME }, "worker ready");
+  const healthServer =
+    config.workerHealthPort !== undefined
+      ? await listenWorkerHealth(config.workerHealthPort)
+      : undefined;
+
+  logger.info(
+    {
+      maintenanceQueue: MAINTENANCE_QUEUE_NAME,
+      notificationQueue: NOTIFICATIONS_QUEUE_NAME,
+      workerHealthPort: config.workerHealthPort ?? null,
+    },
+    "worker ready",
+  );
 
   const shutdown = async (signal: string): Promise<void> => {
     logger.info({ signal }, "worker shutting down");
-    clearInterval(reconcileTimer);
-    await worker.close();
-    await connection.quit();
+    clearInterval(paymentTimer);
+    await closeHttpServer(healthServer);
+    await notificationWorker.close();
+    await maintenanceWorker.close();
+    await notificationQueue.close();
+    await queueConnection.quit();
+    await maintenanceConnection.quit();
+    await notificationConnection.quit();
+    await storeConnection.quit();
     await prisma.$disconnect();
   };
 

@@ -18,6 +18,7 @@ import {
 import { AuthRequiredError, fetchCurrentUser } from "../../../auth/services/current-user";
 import { fetchConversations, createConversation } from "../../services/conversations";
 import { ChatWorkspaceStore } from "../../stores/chat-workspace-store";
+import { NotificationBell } from "../../../notifications/components/NotificationBell";
 import { ConsumerShell } from "../../../shell/ConsumerShell";
 import { readLocaleCookie, syncAuthenticatedLocale } from "../../../../shared/i18n/persist-locale";
 import styles from "./ChatWorkspace.module.scss";
@@ -91,7 +92,7 @@ export const MessagesCollection = observer(function MessagesCollection(): ReactE
   });
 
   return (
-    <ConsumerShell title={t("nav.messages")}>
+    <ConsumerShell title={t("nav.messages")} actions={<NotificationBell />}>
       <div className={styles.collection}>
         <PageHeader
           title={

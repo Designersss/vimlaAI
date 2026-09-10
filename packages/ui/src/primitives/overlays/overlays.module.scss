@@ -93,6 +93,15 @@
   animation: sheetIn var(--vimla-duration-slow) var(--vimla-ease);
 }
 
+.drawerRight {
+  left: auto;
+  right: 0;
+  width: min(24rem, 100%);
+  border-right: none;
+  border-left: 1px solid var(--vimla-border);
+  animation-name: drawerInRight;
+}
+
 .menu {
   position: absolute;
   z-index: var(--vimla-z-dropdown);
@@ -219,6 +228,18 @@
   from {
     opacity: 0;
     transform: translateX(-8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes drawerInRight {
+  from {
+    opacity: 0;
+    transform: translateX(8px);
   }
 
   to {

@@ -131,6 +131,7 @@
     "accountHint": "Identity changes stay on the Security page.",
     "securityTitle": "Security",
     "appearanceTitle": "Appearance",
+    "notificationsTitle": "Notifications",
     "email": "Email",
     "verified": "verified",
     "unverified": "unverified",
@@ -273,6 +274,7 @@
     "needTimezone": "Confirm a timezone before creating a reminder.",
     "confirmSuggestedTz": "Use {zone} for reminders",
     "scheduledSaved": "Reminder saved.",
+    "deliveryEnabled": "Reminders are delivered in the app. Email is optional in Settings → Notifications.",
     "noDelivery": "Reminders are stored on your account. Delivery is not enabled yet.",
     "plainList": "List",
     "checklist": "Checklist",
@@ -354,5 +356,24 @@
     "workspace_list_full": "This list is full.",
     "workspace_status_invalid": "This status change is not allowed.",
     "generic": "The request failed. Try again."
+  },
+  "notifications": {
+    "title": "Notifications",
+    "open": "Notifications",
+    "unreadCount": "{count} unread",
+    "empty": "No notifications yet.",
+    "failed": "Could not load notifications.",
+    "markAllRead": "Mark all as read",
+    "loadMore": "Load more",
+    "reminderDue": "Reminder",
+    "sourceUnavailable": "Item is no longer available",
+    "settingsTitle": "Notifications",
+    "remindersSection": "Reminders",
+    "remindersDescription": "Choose how Vimla delivers due reminders. Email is off until you turn it on.",
+    "inApp": "In the app",
+    "email": "By email",
+    "emailUnverified": "Verify your email to receive reminder emails.",
+    "verifyEmail": "Verify email",
+    "saved": "Notification settings saved."
   }
 }

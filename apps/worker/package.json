@@ -14,7 +14,9 @@
   "dependencies": {
     "@vimla/billing": "workspace:*",
     "@vimla/config": "workspace:*",
+    "@vimla/contracts": "workspace:*",
     "@vimla/database": "workspace:*",
+    "@vimla/notifications": "workspace:*",
     "@vimla/shared": "workspace:*",
     "bullmq": "^5.58.5",
     "ioredis": "^5.7.0",

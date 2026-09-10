@@ -9,6 +9,7 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 import { isAiError, type AiErrorCode } from "@vimla/ai";
 import { isBillingError, type BillingErrorCode } from "@vimla/billing";
 import { isWorkspaceError, type WorkspaceErrorCode } from "@vimla/workspace";
+import { isNotificationPlatformError, type NotificationPlatformError } from "@vimla/notifications";
 import {
   apiErrorResponseSchema,
   type ApiErrorCode,
@@ -53,6 +54,19 @@ export class ApiExceptionFilter implements ExceptionFilter {
         apiErrorResponseSchema.parse({
           error: {
             code: workspaceCodeToApi(exception.code),
+            message: exception.message,
+            requestId,
+          },
+        }),
+      );
+      return;
+    }
+
+    if (isNotificationPlatformError(exception)) {
+      void response.status(exception.httpStatus).send(
+        apiErrorResponseSchema.parse({
+          error: {
+            code: notificationCodeToApi(exception),
             message: exception.message,
             requestId,
           },
@@ -149,6 +163,19 @@ function workspaceCodeToApi(code: WorkspaceErrorCode): ApiErrorCode {
       return "workspace_status_invalid";
     case "CONFLICT":
       return "conflict";
+    default:
+      return "internal_error";
+  }
+}
+
+function notificationCodeToApi(error: NotificationPlatformError): ApiErrorCode {
+  switch (error.code) {
+    case "NOT_FOUND":
+      return "not_found";
+    case "EMAIL_UNVERIFIED":
+      return "email_not_verified";
+    case "VALIDATION_ERROR":
+      return "validation_error";
     default:
       return "internal_error";
   }

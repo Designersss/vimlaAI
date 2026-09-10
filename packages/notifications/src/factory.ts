@@ -38,8 +38,14 @@ export function createNotificationService(input: {
   onEvent?: (event: SanitizedNotificationEvent) => void;
   retryBackoffMs?: number;
   failClosed?: boolean;
+  requiredChannels?: { email: boolean; sms: boolean };
 }): NotificationService {
-  assertProductionAdapters(input.appEnv, input.email.kind, input.sms.kind);
+  assertProductionAdapters(
+    input.appEnv,
+    input.email.kind,
+    input.sms.kind,
+    input.requiredChannels ?? { email: true, sms: true },
+  );
 
   const defaultLocale = input.defaultLocale ?? DEFAULT_VIMLA_LOCALE;
   const options: NotificationServiceOptions = {
@@ -72,16 +78,17 @@ function assertProductionAdapters(
   appEnv: AppNotificationEnv,
   emailKind: EmailAdapterConfig["kind"],
   smsKind: SmsAdapterConfig["kind"],
+  required: { email: boolean; sms: boolean },
 ): void {
   if (appEnv !== "staging" && appEnv !== "production") {
     return;
   }
-  if (emailKind !== "smtp") {
+  if (required.email && emailKind !== "smtp") {
     throw new Error(
       "EMAIL_PROVIDER must be smtp in staging/production; memory and logging adapters cannot deliver mail",
     );
   }
-  if (smsKind !== "http") {
+  if (required.sms && smsKind !== "http") {
     throw new Error(
       "SMS_PROVIDER must be http in staging/production; memory and logging adapters cannot deliver SMS",
     );

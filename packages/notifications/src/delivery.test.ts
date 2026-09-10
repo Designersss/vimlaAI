@@ -104,11 +104,12 @@ describe("notification delivery security", () => {
     let attempts = 0;
     const email = {
       name: "smtp",
-      sendEmail: async () => {
+        sendEmail: async () => {
         attempts += 1;
         if (attempts === 1) {
           throw new NotificationDeliveryError("network", "SMTP network failure");
         }
+        return {};
       },
     };
     const inbox = new MemoryNotificationInbox();
@@ -128,6 +129,26 @@ describe("notification delivery security", () => {
     await service.flush();
     expect(attempts).toBe(2);
     expect(service.metrics.snapshot().emailSent).toBe(1);
+  });
+
+  it("sendEmailOnce awaits a single attempt and returns provider-neutral success", async () => {
+    const inbox = new MemoryNotificationInbox();
+    const service = new NotificationService({
+      email: new MemoryEmailProvider(inbox),
+      sms: new MemorySmsProvider(inbox),
+      defaultLocale: "en",
+      secret: "test-notification-secret-value",
+    });
+    const result = await service.sendEmailOnce({
+      to: "ada@example.com",
+      templateId: "reminderDue",
+      notificationId: "reminder-1",
+      reminderTitle: "Call dentist",
+      scheduledLabel: "Sep 10, 2026, 3:00 PM",
+      consumeBudget: false,
+    });
+    expect(result.duplicate).toBe(false);
+    expect(inbox.latestMatching({ to: "ada@example.com" })?.templateId).toBe("reminderDue");
   });
 
   it("enforces rolling SMS destination limits", async () => {

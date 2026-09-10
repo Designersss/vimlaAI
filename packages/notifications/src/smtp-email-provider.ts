@@ -1,4 +1,4 @@
-import type { EmailMessage, EmailProvider } from "./types.js";
+import type { EmailMessage, EmailProvider, EmailSendResult } from "./types.js";
 import { NotificationDeliveryError } from "./errors.js";
 
 export interface SmtpEmailConfig {
@@ -29,15 +29,16 @@ export class SmtpEmailProvider implements EmailProvider {
     private readonly transport: SmtpTransport,
   ) {}
 
-  async sendEmail(message: EmailMessage): Promise<void> {
+  async sendEmail(message: EmailMessage): Promise<EmailSendResult> {
     try {
-      await this.transport.sendMail({
+      const info: unknown = await this.transport.sendMail({
         from: this.config.from,
         to: message.to,
         replyTo: this.config.replyTo,
         subject: message.subject,
         text: message.text,
       });
+      return { providerMessageId: readProviderMessageId(info) };
     } catch (error: unknown) {
       throw mapSmtpError(error);
     }
@@ -70,4 +71,12 @@ function mapSmtpError(error: unknown): NotificationDeliveryError {
     return new NotificationDeliveryError("rejected", "SMTP rejected the message");
   }
   return new NotificationDeliveryError("ambiguous", "SMTP delivery failed");
+}
+
+function readProviderMessageId(info: unknown): string | undefined {
+  if (info === null || typeof info !== "object" || !("messageId" in info)) {
+    return undefined;
+  }
+  const messageId = info.messageId;
+  return typeof messageId === "string" && messageId.length > 0 ? messageId : undefined;
 }

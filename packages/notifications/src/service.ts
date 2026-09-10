@@ -185,6 +185,58 @@ export class NotificationService {
     await Promise.all([...this.pending]);
   }
 
+  async sendEmailOnce(input: {
+    to: string;
+    templateId: EmailTemplateId;
+    locale?: VimlaLocale;
+    notificationId: string;
+    ip?: string;
+    userId?: string;
+    otp?: string;
+    resetUrl?: string;
+    reminderTitle?: string;
+    scheduledLabel?: string;
+    openUrl?: string;
+    consumeBudget?: boolean;
+  }): Promise<{ duplicate: boolean; providerMessageId?: string }> {
+    if (input.consumeBudget !== false) {
+      await this.consumeBudget({
+        channel: "email",
+        to: input.to,
+        ip: input.ip,
+        userId: input.userId,
+      });
+    }
+    const claimed = await this.claimDispatch(input.notificationId);
+    if (!claimed) {
+      return { duplicate: true };
+    }
+
+    const locale = input.locale ?? this.options.defaultLocale;
+    const rendered = renderEmailTemplate(input.templateId, locale, {
+      otp: input.otp,
+      resetUrl: input.resetUrl,
+      reminderTitle: input.reminderTitle,
+      scheduledLabel: input.scheduledLabel,
+      openUrl: input.openUrl,
+    });
+    try {
+      const result = await this.options.email.sendEmail({
+        to: input.to,
+        templateId: input.templateId,
+        locale,
+        subject: rendered.subject,
+        text: rendered.text,
+      });
+      this.metrics.recordDelivery("email", true);
+      return { duplicate: false, providerMessageId: result.providerMessageId };
+    } catch (error: unknown) {
+      await this.releaseDispatch(input.notificationId);
+      this.metrics.recordDelivery("email", false);
+      throw error;
+    }
+  }
+
   private track(job: Promise<void>): void {
     this.pending.add(job);
     void job.finally(() => {

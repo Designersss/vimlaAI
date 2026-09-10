@@ -42,6 +42,9 @@ describe("Prisma persistence", () => {
           "conversation",
           "message",
           "ai_request",
+          "workspace_object",
+          "user_notification",
+          "notification_delivery",
         ]),
       );
     } finally {

@@ -178,14 +178,18 @@
   display: inline-flex;
   align-items: center;
   gap: var(--vimla-space-2);
+  min-height: 44px;
   cursor: pointer;
 }
 
 .switch input {
   position: absolute;
+  width: 2.5rem;
+  height: 1.4rem;
+  margin: 0;
   opacity: 0;
-  width: 1px;
-  height: 1px;
+  cursor: pointer;
+  z-index: 1;
 }
 
 .track {

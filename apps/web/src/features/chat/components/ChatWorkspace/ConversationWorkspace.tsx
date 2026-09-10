@@ -29,6 +29,7 @@ import { fetchAiModels } from "../../services/models";
 import { fetchConversation } from "../../services/conversations";
 import { streamAssistantMessage } from "../../services/stream-message";
 import { ChatWorkspaceStore } from "../../stores/chat-workspace-store";
+import { NotificationBell } from "../../../notifications/components/NotificationBell";
 import { ConsumerShell } from "../../../shell/ConsumerShell";
 import { readLocaleCookie, syncAuthenticatedLocale } from "../../../../shared/i18n/persist-locale";
 import { apiErrorMessageKey } from "../../../../shared/errors/error-keys";
@@ -151,6 +152,7 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
             </IconButton>
           }
           title={t("nav.messages")}
+          trailing={<NotificationBell />}
         />
         <div className={styles.messages}>
           {store.messages.length === 0 ? (

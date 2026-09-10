@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { Heading } from "@vimla/ui";
 import { CONSUMER_FEATURES } from "../../../../shared/config/consumer-features";
+import { NotificationBell } from "../../../notifications/components/NotificationBell";
 import { ConsumerShell, LocalNavLink } from "../../../shell/ConsumerShell";
 
 export function SettingsChrome({ title, children }: { title: string; children: ReactNode }): ReactElement {
@@ -14,6 +15,7 @@ export function SettingsChrome({ title, children }: { title: string; children: R
   return (
     <ConsumerShell
       title={t("nav.settings")}
+      actions={<NotificationBell />}
       localNav={
         <nav aria-label={t("nav.settings")}>
           <LocalNavLink href="/settings/account" active={pathname === "/settings/account"}>

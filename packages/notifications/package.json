@@ -18,6 +18,8 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@vimla/contracts": "workspace:*",
+    "@vimla/database": "workspace:*",
     "@vimla/shared": "workspace:*",
     "nodemailer": "^6.9.16"
   },

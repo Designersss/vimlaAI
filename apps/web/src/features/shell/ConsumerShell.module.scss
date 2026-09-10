@@ -49,6 +49,13 @@
   border-bottom: 1px solid var(--vimla-border);
 }
 
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--vimla-space-2);
+  margin-inline-start: auto;
+}
+
 .body {
   padding: var(--vimla-space-4) var(--vimla-page-pad);
   display: flex;

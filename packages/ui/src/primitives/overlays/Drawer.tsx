@@ -4,8 +4,11 @@ import { useEffect, useState, type ReactElement, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useFocusTrap } from "../../hooks/useFocusTrap";
 import { XIcon } from "../../icons";
+import { cx } from "../../utils/cx";
 import { IconButton } from "../Button/Button";
 import styles from "./overlays.module.scss";
+
+export type DrawerPlacement = "left" | "right" | "bottom";
 
 export function Drawer({
   open,
@@ -20,7 +23,7 @@ export function Drawer({
   title: ReactNode;
   children: ReactNode;
   closeLabel: string;
-  placement?: "left" | "bottom";
+  placement?: DrawerPlacement;
 }): ReactElement | null {
   const [panel, setPanel] = useState<HTMLElement | null>(null);
   const [mounted, setMounted] = useState(false);
@@ -58,7 +61,11 @@ export function Drawer({
       <div className={styles.drawerOverlay} onClick={() => onOpenChange(false)} />
       <aside
         ref={setPanel}
-        className={placement === "bottom" ? styles.sheet : styles.drawer}
+        className={
+          placement === "bottom"
+            ? styles.sheet
+            : cx(styles.drawer, placement === "right" ? styles.drawerRight : undefined)
+        }
         role="dialog"
         aria-modal="true"
         aria-label={String(title)}

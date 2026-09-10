@@ -126,6 +126,23 @@ export async function signInEmail(page: Page, email: string, password: string): 
   await page.getByRole("button", { name: /войти|sign in/i }).click();
 }
 
+export async function createDueReminder(
+  page: Page,
+  title: string,
+  options?: { timezone?: string; dueMsAgo?: number },
+): Promise<void> {
+  const scheduledAt = new Date(Date.now() - (options?.dueMsAgo ?? 60_000)).toISOString();
+  const response = await page.request.post(`${apiBase}/v1/workspace/reminders`, {
+    data: {
+      title,
+      scheduledAt,
+      timezone: options?.timezone ?? "Europe/Moscow",
+    },
+    headers: { origin: webOrigin, "content-type": "application/json" },
+  });
+  expect(response.status()).toBe(201);
+}
+
 export async function purchasePro(page: Page): Promise<void> {
   const response = await page.request.post(`${apiBase}/dev/mock-purchases/subscription`, {
     data: { planCode: "PRO" },
