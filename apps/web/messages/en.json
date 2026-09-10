@@ -221,6 +221,28 @@
     "topupUsed": "Top-up {percent}% used",
     "signedInAs": "Signed in as {email}"
   },
+  "operator": {
+    "title": "@Vimla",
+    "loading": "Loading @Vimla…",
+    "failedLoad": "Unable to open @Vimla.",
+    "empty": "Ask @Vimla to create a task, reminder, list, or note.",
+    "placeholder": "Ask @Vimla to do something",
+    "processing": "Working…",
+    "confirm": "Confirm",
+    "open": "Open",
+    "needsConfirmation": "Needs confirmation",
+    "failed": "Failed",
+    "skipped": "Skipped",
+    "ops": {
+      "listed": "Listed",
+      "read": "Viewed",
+      "created": "Created",
+      "updated": "Updated",
+      "deleted": "Deleted",
+      "pinned": "Pinned",
+      "item_added": "Item added"
+    }
+  },
   "work": {
     "loading": "Loading My Work…",
     "failed": "Unable to load My Work.",
@@ -340,6 +362,13 @@
     "workspace_reorder_invalid": "The list order is invalid.",
     "workspace_list_full": "This list is full.",
     "workspace_status_invalid": "This status change is not allowed.",
+    "operator_disabled": "@Vimla is temporarily disabled.",
+    "operator_run_in_progress": "This @Vimla request is already running.",
+    "operator_confirmation_required": "Confirm the @Vimla action to continue.",
+    "operator_confirmation_invalid": "That confirmation is invalid or has expired.",
+    "operator_clarification_required": "A clarification is needed before continuing.",
+    "operator_plan_invalid": "@Vimla could not understand that request. Try a more specific instruction.",
+    "operator_tool_denied": "That action is not available to @Vimla.",
     "generic": "The request failed. Try again."
   },
   "notifications": {

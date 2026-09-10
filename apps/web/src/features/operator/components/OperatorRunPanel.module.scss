@@ -1,0 +1,7 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--vimla-space-3);
+  min-width: 0;
+  max-width: min(36rem, 100%);
+}

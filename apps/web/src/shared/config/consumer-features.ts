@@ -1,6 +1,6 @@
 export const CONSUMER_FEATURES = {
   projects: false,
-  vimlaOperator: false,
+  vimlaOperator: true,
   directChats: false,
   autoRouter: false,
   notificationsSettings: true,

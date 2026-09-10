@@ -19,5 +19,6 @@ import { WorkspaceRateLimitGuard } from "./workspace-rate-limit.guard.js";
     WorkspaceNotesController,
   ],
   providers: [WorkspaceFacade, WorkspaceRateLimitGuard],
+  exports: [WorkspaceFacade],
 })
 export class WorkspaceModule {}

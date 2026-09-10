@@ -221,6 +221,28 @@
     "topupUsed": "Докупленный пакет: {percent}% использовано",
     "signedInAs": "Вы вошли как {email}"
   },
+  "operator": {
+    "title": "@Vimla",
+    "loading": "Загружаем @Vimla…",
+    "failedLoad": "Не удалось открыть @Vimla.",
+    "empty": "Напишите @Vimla, чтобы создать задачу, напоминание, список или заметку.",
+    "placeholder": "Попросите @Vimla что-нибудь сделать",
+    "processing": "Выполняю…",
+    "confirm": "Подтвердить",
+    "open": "Открыть",
+    "needsConfirmation": "Нужно подтверждение",
+    "failed": "Ошибка",
+    "skipped": "Пропущено",
+    "ops": {
+      "listed": "Список",
+      "read": "Просмотр",
+      "created": "Создано",
+      "updated": "Обновлено",
+      "deleted": "Удалено",
+      "pinned": "Закреплено",
+      "item_added": "Пункт добавлен"
+    }
+  },
   "work": {
     "loading": "Загружаем Мои дела…",
     "failed": "Не удалось загрузить Мои дела.",
@@ -340,6 +362,13 @@
     "workspace_reorder_invalid": "Некорректный порядок пунктов.",
     "workspace_list_full": "В списке больше нет места.",
     "workspace_status_invalid": "Такой статус недопустим.",
+    "operator_disabled": "@Vimla временно отключён.",
+    "operator_run_in_progress": "Этот запрос @Vimla уже выполняется.",
+    "operator_confirmation_required": "Подтвердите действие @Vimla.",
+    "operator_confirmation_invalid": "Подтверждение недействительно или устарело.",
+    "operator_clarification_required": "Нужно уточнение, прежде чем продолжить.",
+    "operator_plan_invalid": "@Vimla не смог понять запрос. Сформулируйте конкретнее.",
+    "operator_tool_denied": "Это действие недоступно для @Vimla.",
     "generic": "Не получилось выполнить запрос. Попробуйте ещё раз."
   },
   "notifications": {

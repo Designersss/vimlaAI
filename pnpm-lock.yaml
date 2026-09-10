@@ -138,6 +138,9 @@ importers:
       '@vimla/notifications':
         specifier: workspace:*
         version: link:../../packages/notifications
+      '@vimla/operator':
+        specifier: workspace:*
+        version: link:../../packages/operator
       '@vimla/shared':
         specifier: workspace:*
         version: link:../../packages/shared
@@ -509,6 +512,34 @@ importers:
       '@types/nodemailer':
         specifier: ^6.4.17
         version: 6.4.24
+      eslint:
+        specifier: ^9.35.0
+        version: 9.39.5(jiti@2.7.0)
+      typescript:
+        specifier: ^5.9.2
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.7(@types/node@24.13.3)(jiti@2.7.0)(sass@1.104.0)(tsx@4.23.13)
+
+  packages/operator:
+    dependencies:
+      '@vimla/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@vimla/notifications':
+        specifier: workspace:*
+        version: link:../notifications
+      '@vimla/workspace':
+        specifier: workspace:*
+        version: link:../workspace
+      zod:
+        specifier: ^4.1.5
+        version: 4.5.4
+    devDependencies:
+      '@types/node':
+        specifier: ^24.3.1
+        version: 24.13.3
       eslint:
         specifier: ^9.35.0
         version: 9.39.5(jiti@2.7.0)

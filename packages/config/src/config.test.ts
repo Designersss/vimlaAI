@@ -63,6 +63,8 @@ describe("loadApiConfig", () => {
     expect(config.betterAuthUrl).toBe("http://localhost:3001");
     expect(config.billingTopupRatioBps).toBe("3500");
     expect(config.aiTextEnabled).toBe(true);
+    expect(config.operatorEnabled).toBe(true);
+    expect(config.operatorMaxToolsPerRun).toBe(8);
     expect(config.aiTextProvider).toBe("mock");
     expect(config.proxyapiBaseUrl).toBe("https://api.proxyapi.ru/v1");
     expect(config.proxyapiApiKey).toBeUndefined();

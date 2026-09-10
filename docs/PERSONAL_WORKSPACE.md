@@ -52,6 +52,8 @@ Centralized in `WORKSPACE_LIMITS` (`@vimla/contracts`): title 1–200; task/remi
 
 ## Out of scope
 
-`@Vimla`, VIMLA_OPERATOR, Command Segments, Tool Registry, ActionPolicyEngine, ActionInvocation, recurring reminders, Web Push, SMS, Projects, Project/Personal Brain, Files/RAG, Images, Video, Agents, Auto Router.
+Recurring reminders, Web Push, SMS, Projects, Project/Personal Brain, Files/RAG, Images, Video, Agents, Auto Router.
+
+Phase 7 `@Vimla` is implemented in `@vimla/operator` and calls these same workspace/notification services. It does not duplicate CRUD.
 
 Do not seed demo personal workspace rows in `pnpm db:seed`.

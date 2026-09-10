@@ -18,6 +18,7 @@ vimla/
     billing/
     notifications/
     workspace/
+    operator/
     shared/
     ui/
   .cursor/rules/
@@ -68,6 +69,7 @@ Protected Vimla routes:
   GET /v1/me
   PATCH /v1/me/preferences (locale and/or IANA timezone; OriginGuard)
   /v1/workspace/* personal objects (AuthGuard + OriginGuard + SensitiveArea + mutation rate limit)
+  /v1/operator/conversation and /v1/operator/runs* (AuthGuard + OriginGuard + SensitiveArea + operator rate limit)
 ```
 
 `User.id` is the canonical identifier for later billing, usage, conversations and generations. Public routes such as `GET /health` stay unauthenticated. Verification, password-reset and session endpoints stay available for unverified sessions.
@@ -316,6 +318,19 @@ Streaming: ProxyAPI SSE is parsed internally and rewritten as Vimla events (`sta
 Kill switch: `AI_TEXT_ENABLED=false` blocks new provider calls; auth/billing/conversation reads continue. Rate limit and per-user concurrency use Redis for coordination (fail closed in staging/production if Redis is down). Cookie mutating chat routes require `Origin === WEB_ORIGIN`.
 
 Default tests use `MockAiProvider`. Optional live smoke: `VIMLA_PROXYAPI_LIVE=1 pnpm test:proxyapi` (not CI).
+
+## @Vimla operator (Phase 7)
+
+```text
+Browser
+  -> POST /v1/operator/runs
+  -> OperatorService (session userId)
+  -> planner via TextChatService.completeInternalPrompt (metered, no visible planner JSON)
+  -> @vimla/operator policy + executor
+  -> existing Workspace / NotificationPreference services (ActorContext)
+```
+
+Typed tools only (tasks, reminders, notes, lists, today, safe profile, notification preferences). No Prisma/SQL/Redis/shell/fs/env/Admin/HTTP tools. Destructive deletes and notification preference updates require confirmation. Unique `(userId, clientRequestId)` plus step compare-and-swap make retries safe. Config: `OPERATOR_ENABLED`, `OPERATOR_MAX_TOOLS_PER_RUN` (default 8), confirmation TTL, per-user rate limit.
 
 ## Payments
 Use `PaymentProvider` abstraction (`MockPaymentProvider` | `TBankPaymentProvider`). Billing domain does not call T-Bank HTTP. Token/notification verification lives in the adapter. Domain must not depend on a T-Bank SDK.

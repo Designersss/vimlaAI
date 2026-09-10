@@ -161,6 +161,45 @@
   gap: var(--vimla-space-2);
 }
 
+.operatorCard {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--vimla-space-3);
+  min-width: 0;
+  padding: var(--vimla-space-3);
+  border: 1px solid var(--vimla-border);
+  border-radius: var(--vimla-radius-lg);
+  background: var(--vimla-surface);
+}
+
+.operatorCard[data-tone="success"] {
+  border-color: var(--vimla-success);
+}
+
+.operatorCard[data-tone="warning"] {
+  border-color: var(--vimla-warning);
+}
+
+.operatorCard[data-tone="danger"] {
+  border-color: var(--vimla-danger);
+}
+
+.operatorCardBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--vimla-space-1);
+  min-width: 0;
+}
+
+.operatorCardActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--vimla-space-2);
+  align-items: center;
+}
+
 @keyframes pulse {
   0%,
   100% {

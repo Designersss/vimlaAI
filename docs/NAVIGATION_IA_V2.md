@@ -35,7 +35,7 @@ Project collection -> Project detail. Future domain implementation remains in it
 
 ## ◆ Vimla
 
-Dedicated operator destination. No Auto/PRO. Future operator logic remains Phase 7. Phase 6.1 may prepare its presentational components only in dev/reference scope, or feature-gated shell without fake behavior.
+Dedicated operator destination (`/vimla`). No Auto/PRO model selector. Explicit `@Vimla` mention in ordinary AI chat also creates an operator run on that conversation. Feature flag `vimlaOperator`.
 
 ## Settings
 

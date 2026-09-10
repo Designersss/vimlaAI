@@ -10,5 +10,6 @@ import { NotificationsFacade } from "./notifications.facade.js";
   imports: [PersistenceModule, AuthModule],
   controllers: [NotificationsController, NotificationPreferencesController],
   providers: [NotificationsFacade, NotificationRateLimitGuard],
+  exports: [NotificationsFacade],
 })
 export class NotificationsModule {}

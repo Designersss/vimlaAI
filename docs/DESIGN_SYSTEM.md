@@ -80,7 +80,7 @@ Settings local nav: Account / Security / Billing / Appearance. Notifications sta
 
 Primitives and patterns are exported from `@vimla/ui`. Composer model selection lives only in the AI composer. Auto is truthfully gated until Auto Router exists. PRO opens `ModelPickerDialog` against the real catalog. Concrete models never appear in the root menu.
 
-`◆ @Vimla` is a structured mention control. Phase 6.1 does not execute operator actions.
+`◆ @Vimla` is a structured mention control. Phase 7 executes operator actions through `/v1/operator/runs`; the dedicated `/vimla` composer has no model selector.
 
 ## Real data
 

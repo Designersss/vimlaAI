@@ -217,8 +217,10 @@ Exit criteria: users can manage personal work without AI; quality gate green; Ph
 - [ ] Web Push / SMS.
 
 ## Phase 7 — Secure @Vimla Operator
-- [ ] `@Vimla` operator using existing workspace services + `TrustedSourceContext`.
-- [ ] Command Segments / Tool Registry / ActionPolicyEngine (not in Phase 6).
+- [x] `@Vimla` operator using existing workspace services + `TrustedSourceContext`.
+- [x] Command Segments / Tool Registry / ActionPolicyEngine (not in Phase 6).
+- [x] Planner separate from executor; confirmation for destructive tools; idempotent runs; audit for writes.
+- [x] Consumer `/vimla` + in-chat `◆ @Vimla` mention; feature flag `vimlaOperator` on; Projects/directChats/autoRouter still off.
 
 ## Phase 7.5 — Vimla Home
 

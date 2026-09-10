@@ -30,6 +30,7 @@ import {
   ModelModeControl,
   ModelPickerDialog,
   NoteRow,
+  OperatorActionCard,
   OtpInput,
   Pagination,
   PasswordInput,
@@ -214,6 +215,19 @@ export function UiCatalog(): ReactElement {
           placeholder="Message Vimla"
           sendLabel="Send"
           mentionControl={<Button variant="ghost" size="sm">◆ @Vimla</Button>}
+        />
+        <OperatorActionCard
+          title="Buy tickets"
+          detail="Tomorrow"
+          statusLabel="Created"
+          tone="success"
+        />
+        <OperatorActionCard
+          title="Delete task"
+          statusLabel="Needs confirmation"
+          tone="warning"
+          confirmLabel="Confirm"
+          cancelLabel="Cancel"
         />
         <ModelPickerDialog
           open={pickerOpen}

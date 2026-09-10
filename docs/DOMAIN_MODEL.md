@@ -95,10 +95,13 @@ Financial status: `NONE`, `RESERVED`, `SETTLED`, `RELEASED`, `ANOMALY`, `RECONCI
 Stores `providerActualCostMicroRub` (full COGS, always retained when known) and `userSettledUsageMicroRub` (what buckets could cover). `providerRequestId` stores ProxyAPI `X-Request-ID` for support/reconciliation, not for the browser.
 
 ## Conversation / Message
-User-owned chat history. Roles in Phase 3: `USER`, `ASSISTANT`. The API builds provider context from PostgreSQL; the browser never submits a `messages[]` array or system prompt.
+User-owned chat history. Roles in Phase 3: `USER`, `ASSISTANT`. `Conversation.kind` is `CHAT` (ordinary AI) or `OPERATOR` (dedicated `@Vimla` thread; at most one per user). The API builds provider context from PostgreSQL; the browser never submits a `messages[]` array or system prompt. Planner JSON is stored on `OperatorRun.plannerOutput` / `AiRequest.outputText`, never as a user-visible message.
+
+## OperatorRun / OperatorRunStep / OperatorAuditEvent
+Phase 7 `@Vimla` execution record. Unique `(userId, clientRequestId)` for idempotent create. Status includes planning, clarification, confirmation, executing, succeeded, failed, canceled, and partial. Steps store tool name and public card fields; `inputJson` is server-only. Write tools emit `OperatorAuditEvent`. Confirmation tokens are HMAC-hashed; plaintext is issued only while `AWAITING_CONFIRMATION`. The model never supplies `userId` or permissions — `ActorContext` comes from the session.
 
 ## WorkspaceObject
-Personal (Phase 6) owned row for `TASK`, `REMINDER`, `LIST`, or `NOTE`. `scopeType` is `PERSONAL` only. Child tables hold kind-specific fields. Soft delete uses `deletedAt`; archive uses `archivedAt`. Source conversation/message IDs are server-only provenance for a later `@Vimla` writer. Phase 8 may add PROJECT scope with a real project FK; do not store a dangling `projectId` now. See `docs/PERSONAL_WORKSPACE.md`.
+Personal (Phase 6) owned row for `TASK`, `REMINDER`, `LIST`, or `NOTE`. `scopeType` is `PERSONAL` only. Child tables hold kind-specific fields. Soft delete uses `deletedAt`; archive uses `archivedAt`. Source conversation/message IDs are server-only provenance for `@Vimla` writes. Phase 8 may add PROJECT scope with a real project FK; do not store a dangling `projectId` now. See `docs/PERSONAL_WORKSPACE.md`.
 
 Reminders store schedule data (`PENDING` / `CANCELED` / `DELIVERED` / `FAILED`). Delivery is Phase 6.5: see `docs/NOTIFICATIONS.md`. PostgreSQL `notification_delivery` / `user_notification` are source of truth; Redis is transport only.
 

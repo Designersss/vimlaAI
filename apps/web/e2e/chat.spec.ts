@@ -24,11 +24,13 @@ test.describe("AI verification gate", () => {
     await composer.fill("Hello");
     await page.getByRole("button", { name: /отправить|send/i }).click();
     await expect(page.getByText("Hello from Vimla")).toBeVisible({ timeout: 20_000 });
-    await expect(page.getByRole("button", { name: /◆ @vimla/i })).toBeVisible();
-    await page.getByRole("button", { name: /◆ @vimla/i }).click();
-    await expect(page.getByText("◆ @Vimla").first()).toBeVisible();
     await page.getByRole("button", { name: /^pro ·|^про ·/i }).click();
     await expect(page.getByRole("menuitem", { name: /^pro$|^про$/i })).toBeVisible();
     await expect(page.getByText(/auto routing is not available|auto-маршрутизация пока недоступна/i)).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("button", { name: /◆ @vimla/i })).toBeVisible();
+    await page.getByRole("button", { name: /◆ @vimla/i }).click();
+    await expect(page.getByText("◆ @Vimla").first()).toBeVisible();
+    await expect(page.getByRole("button", { name: /^pro ·|^про ·/i })).toHaveCount(0);
   });
 });

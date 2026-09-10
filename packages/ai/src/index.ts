@@ -3,6 +3,7 @@ export type { AiCapability, AiGateway, AiProvider as LegacyAiProvider, AiProvide
 export { VimlaAiGateway } from "./gateway.js";
 export { ProxyApiProvider } from "./proxyapi-provider.js";
 export { MockAiProvider, type MockProviderScenario } from "./mock-provider.js";
+export { isOperatorPlannerPrompt, mockOperatorPlannerResponse } from "./mock-operator-plan.js";
 export { createNativeHttpTransport, joinUrl } from "./http-transport.js";
 export { OpenAiCompatSseParser, encodeVimlaSse, parseSseBlock } from "./sse.js";
 export {

@@ -35,6 +35,7 @@ import { OriginGuard } from "../auth/origin.guard.js";
 import { sseResponseHeaders } from "./sse-headers.js";
 import { AiRateLimitGuard } from "./ai-rate-limit.guard.js";
 import { TextChatService } from "./text-chat.service.js";
+import { buildOperatorRunView } from "../operator/view.js";
 
 @Controller("v1/conversations")
 @SensitiveArea()
@@ -92,6 +93,7 @@ export class ConversationsController {
         content: message.content,
         status: message.status,
         createdAt: message.createdAt.toISOString(),
+        operatorRun: message.operatorRun ? buildOperatorRunView(message.operatorRun, null) : null,
       })),
     });
   }

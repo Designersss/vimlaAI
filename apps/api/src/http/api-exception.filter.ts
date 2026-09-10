@@ -9,6 +9,7 @@ import type { FastifyReply, FastifyRequest } from "fastify";
 import { isAiError, type AiErrorCode } from "@vimla/ai";
 import { isBillingError, type BillingErrorCode } from "@vimla/billing";
 import { isWorkspaceError, type WorkspaceErrorCode } from "@vimla/workspace";
+import { isOperatorError, type OperatorErrorCode } from "@vimla/operator";
 import { isNotificationPlatformError, type NotificationPlatformError } from "@vimla/notifications";
 import {
   apiErrorResponseSchema,
@@ -41,6 +42,19 @@ export class ApiExceptionFilter implements ExceptionFilter {
         apiErrorResponseSchema.parse({
           error: {
             code: billingCodeToApi(exception.code),
+            message: exception.message,
+            requestId,
+          },
+        }),
+      );
+      return;
+    }
+
+    if (isOperatorError(exception)) {
+      void response.status(exception.httpStatus).send(
+        apiErrorResponseSchema.parse({
+          error: {
+            code: operatorCodeToApi(exception.code),
             message: exception.message,
             requestId,
           },
@@ -138,6 +152,32 @@ function aiCodeToApi(code: AiErrorCode): ApiErrorCode {
       return "ai_reconciliation_required";
     case "PROVIDER_REJECTED":
       return "internal_error";
+    default:
+      return "internal_error";
+  }
+}
+
+function operatorCodeToApi(code: OperatorErrorCode): ApiErrorCode {
+  switch (code) {
+    case "NOT_FOUND":
+      return "not_found";
+    case "DISABLED":
+      return "operator_disabled";
+    case "VALIDATION_ERROR":
+    case "PLAN_INVALID":
+      return "operator_plan_invalid";
+    case "IN_PROGRESS":
+      return "operator_run_in_progress";
+    case "CONFIRMATION_REQUIRED":
+      return "operator_confirmation_required";
+    case "CONFIRMATION_INVALID":
+      return "operator_confirmation_invalid";
+    case "CLARIFICATION_REQUIRED":
+      return "operator_clarification_required";
+    case "TOOL_DENIED":
+      return "operator_tool_denied";
+    case "CONFLICT":
+      return "conflict";
     default:
       return "internal_error";
   }
