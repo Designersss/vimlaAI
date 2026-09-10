@@ -61,7 +61,11 @@ export function Drawer({
       <div className={styles.drawerOverlay} onClick={() => onOpenChange(false)} />
       <aside
         ref={setPanel}
-        className={drawerPanelClassName(placement)}
+        className={
+          placement === "bottom"
+            ? styles.sheet
+            : cx(styles.drawer, placement === "right" ? styles.drawerRight : undefined)
+        }
         role="dialog"
         aria-modal="true"
         aria-label={String(title)}
@@ -83,11 +87,4 @@ export function Sheet(
   props: Omit<Parameters<typeof Drawer>[0], "placement">,
 ): ReactElement | null {
   return <Drawer {...props} placement="bottom" />;
-}
-
-function drawerPanelClassName(placement: DrawerPlacement): string {
-  if (placement === "bottom") {
-    return styles.sheet;
-  }
-  return cx(styles.drawer, placement === "right" ? styles.drawerRight : undefined);
 }
