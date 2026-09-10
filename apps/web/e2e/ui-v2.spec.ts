@@ -30,7 +30,7 @@ test.describe("UI system v2", () => {
 
     await page.setViewportSize({ width: 768, height: 1024 });
     await page.goto("/app");
-    await expect(page.getByRole("heading", { name: /сообщения|messages/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /сообщения|messages/i, level: 1 })).toBeVisible();
     await page.getByRole("button", { name: /новый разговор|new conversation/i }).click();
     await expect(page.getByPlaceholder(/сообщение для vimla|message vimla/i)).toBeVisible();
     await page.getByRole("button", { name: /◆ @vimla/i }).focus();

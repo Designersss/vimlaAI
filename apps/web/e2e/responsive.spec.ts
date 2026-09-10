@@ -42,13 +42,13 @@ test.describe("responsive smoke", () => {
     await signUp(page, { name: "Ada", email, password: "correct-horse-battery" });
     await verifyEmail(page, request, email);
     await page.goto("/settings/security");
-    await expect(page.getByRole("heading", { name: /безопасность|security/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /безопасность|security/i, level: 1 })).toBeVisible();
     await assertNoDocumentOverflow(page);
     await page.goto("/settings/billing");
-    await expect(page.getByRole("heading", { name: /оплата|billing/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /оплата|billing/i, level: 1 })).toBeVisible();
     await assertNoDocumentOverflow(page);
     await page.goto("/settings/appearance");
-    await expect(page.getByRole("heading", { name: /оформление|appearance/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /оформление|appearance/i, level: 1 })).toBeVisible();
     await assertNoDocumentOverflow(page);
   });
 

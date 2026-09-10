@@ -40,7 +40,7 @@ test.describe("visual regression", () => {
     await signUp(page, { name: "Ada", email, password: "correct-horse-battery" });
     await verifyEmail(page, request, email);
     await page.goto("/settings/security");
-    await expect(page.getByRole("heading", { name: /безопасность|security/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /безопасность|security/i, level: 1 })).toBeVisible();
     await expect(page).toHaveScreenshot("settings-shell.png", {
       animations: "disabled",
       maxDiffPixelRatio: 0.02,

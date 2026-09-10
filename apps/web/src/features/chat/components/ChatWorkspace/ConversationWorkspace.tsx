@@ -12,6 +12,7 @@ import {
   EmptyState,
   ErrorState,
   IconButton,
+  Button,
   ChevronLeftIcon,
   ModelModeControl,
   ModelPickerDialog,
@@ -186,13 +187,15 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
             ) : null
           }
           mentionControl={
-            <IconButton
-              label={t("chat.mentionVimla")}
+            <Button
               variant={mention ? "primary" : "ghost"}
+              size="sm"
+              aria-pressed={mention}
               onClick={() => setMention((value) => !value)}
             >
-              <VimlaMark size={16} />
-            </IconButton>
+              <VimlaMark size={16} aria-hidden="true" />
+              {t("chat.mentionVimla")}
+            </Button>
           }
           modelControl={
             <ModelModeControl

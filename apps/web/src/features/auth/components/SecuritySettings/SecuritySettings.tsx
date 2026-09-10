@@ -213,9 +213,6 @@ export function SecuritySettings(): ReactElement {
   return (
     <div className={panel.stack}>
       <Card>
-        <Heading as="h2" size="section">
-          {t("settings.securityTitle")}
-        </Heading>
         <Text>
           {t("settings.email")}: {user.email} · {user.emailVerified ? t("settings.verified") : t("settings.unverified")}
         </Text>
