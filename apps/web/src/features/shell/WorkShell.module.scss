@@ -21,14 +21,6 @@
   display: flex;
   flex-wrap: wrap;
   gap: var(--vimla-space-2);
-  min-width: 0;
-  flex: 1;
-}
-
-.workHeader {
-  display: flex;
-  align-items: center;
-  gap: var(--vimla-space-2);
   padding: var(--vimla-space-3) var(--vimla-page-pad);
   border-bottom: 1px solid var(--vimla-border);
 }
