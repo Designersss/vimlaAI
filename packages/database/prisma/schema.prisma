@@ -34,6 +34,8 @@ model User {
   aiRequests                 AiRequest[]
   ownedWorkspaceObjects      WorkspaceObject[] @relation("WorkspacePersonalOwner")
   createdWorkspaceObjects    WorkspaceObject[] @relation("WorkspaceCreatedBy")
+  userNotifications          UserNotification[]
+  notificationDeliveries     NotificationDelivery[]
   twoFactorEnabled           Boolean           @default(false)
   twoFactor            TwoFactor?
   passkeys             Passkey[]
@@ -45,12 +47,14 @@ model User {
 }
 
 model UserPreference {
-  userId    String   @id
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  locale    String
-  timezone  String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  userId                 String   @id
+  user                   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  locale                 String
+  timezone               String?
+  reminderInAppEnabled   Boolean  @default(true)
+  reminderEmailEnabled   Boolean  @default(false)
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
 
   @@map("user_preference")
 }
@@ -802,4 +806,60 @@ model WorkspaceNote {
 
   @@index([pinnedAt])
   @@map("workspace_note")
+}
+
+// Phase 6.5: persisted in-app inbox. PostgreSQL is source of truth; Redis/BullMQ is transport only.
+model UserNotification {
+  id             String    @id @default(uuid())
+  userId         String
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type           String
+  sourceType     String
+  sourceId       String?
+  occurrenceKey  String
+  title          String
+  body           String?
+  hrefPath       String?
+  createdAt      DateTime  @default(now())
+  readAt         DateTime?
+  deliveries     NotificationDelivery[]
+
+  @@unique([userId, type, occurrenceKey])
+  @@index([userId, createdAt])
+  @@index([userId, readAt])
+  @@map("user_notification")
+}
+
+// Phase 6.5: durable delivery intent. Unique per source occurrence + channel.
+model NotificationDelivery {
+  id                   String    @id @default(uuid())
+  userId               String
+  user                 User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  notificationType     String
+  sourceType           String
+  sourceId             String
+  occurrenceKey        String
+  channel              String
+  status               String
+  scheduledFor         DateTime
+  nextAttemptAt        DateTime?
+  attemptCount         Int       @default(0)
+  processingToken      String?
+  processingUntil      DateTime?
+  deliveredAt          DateTime?
+  failedAt             DateTime?
+  skippedAt            DateTime?
+  providerMessageId    String?
+  errorCode            String?
+  errorClass           String?
+  userNotificationId   String?
+  userNotification     UserNotification? @relation(fields: [userNotificationId], references: [id], onDelete: SetNull)
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  @@unique([sourceType, sourceId, occurrenceKey, channel])
+  @@index([status, nextAttemptAt])
+  @@index([userId, createdAt])
+  @@index([sourceType, sourceId])
+  @@map("notification_delivery")
 }

@@ -75,6 +75,9 @@ describe("loadApiConfig", () => {
     expect(config.smsProvider).toBe("memory");
     expect(config.notifySmsPerPhonePerHour).toBe(4);
     expect(config.authSignupIpLimitPerMinute).toBe(20);
+    expect(config.reminderReconcileIntervalSeconds).toBe(60);
+    expect(config.reminderMaxLatenessMinutes).toBe(1_440);
+    expect(config.notifyDeliveryMaxAttempts).toBe(6);
   });
 
   it("treats an empty ProxyAPI key as unset", () => {
@@ -250,5 +253,8 @@ describe("loadWorkerConfig", () => {
   it("loads validated worker config from an env record", () => {
     const config = loadWorkerConfig(validSharedEnv);
     expect(config.redisUrl).toBe("redis://localhost:6379");
+    expect(config.emailProvider).toBe("memory");
+    expect(config.reminderReconcileIntervalSeconds).toBe(60);
+    expect(config.webOrigin).toBe("http://localhost:3000");
   });
 });

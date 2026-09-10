@@ -160,6 +160,14 @@ export const apiEnvSchema = z
     PAYMENT_PROVIDER: z.enum(["mock", "tbank"]).optional(),
     PAYMENT_CHECKOUT_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).default(10),
     WORKSPACE_MUTATION_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).default(60),
+    NOTIFY_INBOX_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).default(60),
+    REMINDER_RECONCILE_INTERVAL_SECONDS: z.coerce.number().int().min(15).max(3_600).default(60),
+    REMINDER_RECONCILE_BATCH: z.coerce.number().int().min(1).max(500).default(100),
+    REMINDER_MAX_LATENESS_MINUTES: z.coerce.number().int().min(5).max(10_080).default(1_440),
+    NOTIFY_DELIVERY_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(12).default(6),
+    NOTIFY_DELIVERY_BACKOFF_BASE_MS: z.coerce.number().int().min(100).max(600_000).default(5_000),
+    NOTIFY_DELIVERY_BACKOFF_CAP_MS: z.coerce.number().int().min(1_000).max(3_600_000).default(300_000),
+    NOTIFY_DELIVERY_LEASE_SECONDS: z.coerce.number().int().min(15).max(900).default(120),
     PAYMENT_WEBHOOK_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).default(120),
     PAYMENT_RECONCILE_AFTER_SECONDS: z.coerce.number().int().min(30).max(86_400).default(120),
     TBANK_ENV: z.enum(["test", "production"]).default("test"),
@@ -501,6 +509,14 @@ export const apiConfigSchema = z.object({
   paymentProvider: z.enum(["mock", "tbank"]),
   paymentCheckoutLimitPerMinute: z.number().int().min(1),
   workspaceMutationLimitPerMinute: z.number().int().min(1),
+  notifyInboxLimitPerMinute: z.number().int().min(1),
+  reminderReconcileIntervalSeconds: z.number().int().min(15).max(3_600),
+  reminderReconcileBatch: z.number().int().min(1).max(500),
+  reminderMaxLatenessMinutes: z.number().int().min(5).max(10_080),
+  notifyDeliveryMaxAttempts: z.number().int().min(1).max(12),
+  notifyDeliveryBackoffBaseMs: z.number().int().min(100).max(600_000),
+  notifyDeliveryBackoffCapMs: z.number().int().min(1_000).max(3_600_000),
+  notifyDeliveryLeaseSeconds: z.number().int().min(15).max(900),
   paymentWebhookLimitPerMinute: z.number().int().min(1),
   paymentReconcileAfterSeconds: z.number().int().min(30),
   tbankEnv: z.enum(["test", "production"]),
@@ -528,6 +544,28 @@ export const workerEnvSchema = z
     LOG_LEVEL: logLevelSchema.default("info"),
     DATABASE_URL: z.url(),
     REDIS_URL: z.url(),
+    WEB_ORIGIN: z.url().default("http://localhost:3000"),
+    BETTER_AUTH_SECRET: z.string().min(32).default("local-dev-only-change-me-use-32-chars-min"),
+    AUTH_DEFAULT_LOCALE: z.enum(["ru", "en"]).default("ru"),
+    EMAIL_PROVIDER: emailProviderKindSchema.optional(),
+    SMTP_HOST: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+    SMTP_PORT: portSchema.default(587),
+    SMTP_SECURE: z.enum(["true", "false"]).default("false"),
+    SMTP_USER: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+    SMTP_PASSWORD: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+    EMAIL_FROM: z.preprocess(emptyToUndefined, z.email().optional()),
+    EMAIL_REPLY_TO: z.preprocess(emptyToUndefined, z.email().optional()),
+    NOTIFY_EMAIL_RETRY_MAX: z.coerce.number().int().min(1).max(3).default(2),
+    NOTIFY_EMAIL_PER_DEST_PER_HOUR: z.coerce.number().int().min(1).default(8),
+    NOTIFY_EMAIL_PER_IP_PER_HOUR: z.coerce.number().int().min(1).default(20),
+    NOTIFY_EMAIL_GLOBAL_PER_MINUTE: z.coerce.number().int().min(1).default(40),
+    REMINDER_RECONCILE_INTERVAL_SECONDS: z.coerce.number().int().min(15).max(3_600).default(60),
+    REMINDER_RECONCILE_BATCH: z.coerce.number().int().min(1).max(500).default(100),
+    REMINDER_MAX_LATENESS_MINUTES: z.coerce.number().int().min(5).max(10_080).default(1_440),
+    NOTIFY_DELIVERY_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(12).default(6),
+    NOTIFY_DELIVERY_BACKOFF_BASE_MS: z.coerce.number().int().min(100).max(600_000).default(5_000),
+    NOTIFY_DELIVERY_BACKOFF_CAP_MS: z.coerce.number().int().min(1_000).max(3_600_000).default(300_000),
+    NOTIFY_DELIVERY_LEASE_SECONDS: z.coerce.number().int().min(15).max(900).default(120),
     PAYMENT_PROVIDER: z.enum(["mock", "tbank"]).optional(),
     PAYMENT_RECONCILE_AFTER_SECONDS: z.coerce.number().int().min(30).max(86_400).default(120),
     BILLING_MIN_TOPUP_MICRORUB: integerStringSchema.default("100000000"),
@@ -548,6 +586,37 @@ export const workerEnvSchema = z
           message: "Mock payment provider is not allowed in staging/production",
         });
       }
+      const secret = value.BETTER_AUTH_SECRET.toLowerCase();
+      if (LOCAL_AUTH_SECRET_MARKERS.some((marker) => secret.includes(marker))) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["BETTER_AUTH_SECRET"],
+          message:
+            "BETTER_AUTH_SECRET must be a unique production secret, not a local example value",
+        });
+      }
+      if (value.EMAIL_PROVIDER !== "smtp") {
+        ctx.addIssue({
+          code: "custom",
+          path: ["EMAIL_PROVIDER"],
+          message:
+            "EMAIL_PROVIDER must be smtp in staging/production; memory and logging providers are not allowed",
+        });
+      } else if (!value.SMTP_HOST || !value.SMTP_USER || !value.SMTP_PASSWORD || !value.EMAIL_FROM) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["EMAIL_PROVIDER"],
+          message: "SMTP_HOST, SMTP_USER, SMTP_PASSWORD and EMAIL_FROM are required for smtp",
+        });
+      }
+    } else if (value.EMAIL_PROVIDER === "smtp") {
+      if (!value.SMTP_HOST || !value.SMTP_USER || !value.SMTP_PASSWORD || !value.EMAIL_FROM) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["EMAIL_PROVIDER"],
+          message: "SMTP_HOST, SMTP_USER, SMTP_PASSWORD and EMAIL_FROM are required for smtp",
+        });
+      }
     }
   });
 export type WorkerEnv = z.infer<typeof workerEnvSchema>;
@@ -558,6 +627,28 @@ export const workerConfigSchema = z.object({
   logLevel: logLevelSchema,
   databaseUrl: z.url(),
   redisUrl: z.url(),
+  webOrigin: z.url(),
+  betterAuthSecret: z.string().min(32),
+  authDefaultLocale: z.enum(["ru", "en"]),
+  emailProvider: emailProviderKindSchema,
+  smtpHost: z.string().min(1).optional(),
+  smtpPort: portSchema,
+  smtpSecure: z.boolean(),
+  smtpUser: z.string().min(1).optional(),
+  smtpPassword: z.string().min(1).optional(),
+  emailFrom: z.email().optional(),
+  emailReplyTo: z.email().optional(),
+  notifyEmailRetryMax: z.number().int().min(1).max(3),
+  notifyEmailPerDestPerHour: z.number().int().min(1),
+  notifyEmailPerIpPerHour: z.number().int().min(1),
+  notifyEmailGlobalPerMinute: z.number().int().min(1),
+  reminderReconcileIntervalSeconds: z.number().int().min(15).max(3_600),
+  reminderReconcileBatch: z.number().int().min(1).max(500),
+  reminderMaxLatenessMinutes: z.number().int().min(5).max(10_080),
+  notifyDeliveryMaxAttempts: z.number().int().min(1).max(12),
+  notifyDeliveryBackoffBaseMs: z.number().int().min(100).max(600_000),
+  notifyDeliveryBackoffCapMs: z.number().int().min(1_000).max(3_600_000),
+  notifyDeliveryLeaseSeconds: z.number().int().min(15).max(900),
   paymentProvider: z.enum(["mock", "tbank"]),
   paymentReconcileAfterSeconds: z.number().int().min(30),
   billingMinTopupMicroRub: z.string().regex(/^\d+$/),
