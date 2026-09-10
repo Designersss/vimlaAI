@@ -18,11 +18,6 @@ export function useNotificationInbox() {
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [listOpen, setListOpen] = useState(false);
 
-  const refreshUnread = useCallback(async (): Promise<void> => {
-    const result = await fetchUnreadCount();
-    setUnread(result.count);
-  }, []);
-
   const refreshList = useCallback(async (): Promise<void> => {
     setStatus("loading");
     try {
@@ -64,10 +59,70 @@ export function useNotificationInbox() {
 
   useEffect(() => {
     let cancelled = false;
-    void refreshUnread()
-      .then(() => {
+    void fetchUnreadCount()
+      .then((result) => {
+        if (cancelled) {
+          return;
+        }
+        setUnread(result.count);
+        setStatus("ready");
+      })
+      .catch(() => {
         if (!cancelled) {
-          setStatus("ready");
+          setStatus("error");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    function onFocus(): void {
+      void fetchUnreadCount()
+        .then((result) => setUnread(result.count))
+        .catch(() => undefined);
+    }
+    function onVisibility(): void {
+      if (document.visibilityState === "visible") {
+        onFocus();
+      }
+    }
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") {
+        void fetchUnreadCount()
+          .then((result) => setUnread(result.count))
+          .catch(() => undefined);
+      }
+    }, POLL_MS);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    if (!listOpen) {
+      return;
+    }
+    let cancelled = false;
+    void fetchNotifications()
+      .then(async (page) => {
+        if (cancelled) {
+          return;
+        }
+        setItems(page.items);
+        setNextCursor(page.nextCursor);
+        setStatus("ready");
+        const count = await fetchUnreadCount();
+        if (!cancelled) {
+          setUnread(count.count);
         }
       })
       .catch(() => {
@@ -78,42 +133,7 @@ export function useNotificationInbox() {
     return () => {
       cancelled = true;
     };
-  }, [refreshUnread]);
-
-  useEffect(() => {
-    function onFocus(): void {
-      void refreshUnread().catch(() => undefined);
-    }
-    function onVisibility(): void {
-      if (document.visibilityState === "visible") {
-        void refreshUnread().catch(() => undefined);
-      }
-    }
-    window.addEventListener("focus", onFocus);
-    document.addEventListener("visibilitychange", onVisibility);
-    return () => {
-      window.removeEventListener("focus", onFocus);
-      document.removeEventListener("visibilitychange", onVisibility);
-    };
-  }, [refreshUnread]);
-
-  useEffect(() => {
-    if (document.visibilityState !== "visible") {
-      return;
-    }
-    const timer = window.setInterval(() => {
-      if (document.visibilityState === "visible") {
-        void refreshUnread().catch(() => undefined);
-      }
-    }, POLL_MS);
-    return () => window.clearInterval(timer);
-  }, [refreshUnread]);
-
-  useEffect(() => {
-    if (listOpen) {
-      void refreshList().catch(() => undefined);
-    }
-  }, [listOpen, refreshList]);
+  }, [listOpen]);
 
   return {
     unread,

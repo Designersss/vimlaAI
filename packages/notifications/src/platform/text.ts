@@ -1,5 +1,8 @@
-const CONTROL_CHARS = /[\u0000-\u001f\u007f]/g;
-
 export function sanitizeUserText(value: string, maxLength: number): string {
-  return value.replace(CONTROL_CHARS, " ").replace(/\s+/g, " ").trim().slice(0, maxLength);
+  let cleaned = "";
+  for (const char of value) {
+    const code = char.charCodeAt(0);
+    cleaned += code < 32 || code === 127 ? " " : char;
+  }
+  return cleaned.replace(/\s+/g, " ").trim().slice(0, maxLength);
 }

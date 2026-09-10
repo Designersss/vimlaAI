@@ -1,5 +1,10 @@
 import type { Prisma, PrismaClient } from "@vimla/database";
-import type { NotificationsResponse, UnreadCountResponse, UserNotificationView } from "@vimla/contracts";
+import {
+  userNotificationViewSchema,
+  type NotificationsResponse,
+  type UnreadCountResponse,
+  type UserNotificationView,
+} from "@vimla/contracts";
 import { decodeNotificationCursor, encodeNotificationCursor } from "./cursor.js";
 import { sanitizeHrefPath } from "./destinations.js";
 import { NotificationPlatformError } from "./errors.js";
@@ -112,10 +117,10 @@ function toView(
   },
   sourceAvailable: boolean,
 ): UserNotificationView {
-  return {
+  return userNotificationViewSchema.parse({
     id: row.id,
-    type: row.type as UserNotificationView["type"],
-    sourceType: row.sourceType as UserNotificationView["sourceType"],
+    type: row.type,
+    sourceType: row.sourceType,
     sourceId: row.sourceId,
     title: row.title,
     body: row.body,
@@ -123,5 +128,5 @@ function toView(
     createdAt: row.createdAt.toISOString(),
     readAt: iso(row.readAt),
     sourceAvailable,
-  };
+  });
 }

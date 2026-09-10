@@ -1,4 +1,4 @@
-import { Queue } from "bullmq";
+import type { Queue } from "bullmq";
 import type { PrismaClient } from "@vimla/database";
 import type { WorkerConfig } from "@vimla/config";
 import {

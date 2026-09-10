@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useTranslations } from "next-intl";
 import type { NotificationPreferencesView } from "@vimla/contracts";
 import { Alert, Card, Heading, Switch, Text } from "@vimla/ui";
-import { AuthRequiredError } from "../../../auth/services/current-user";
+import { AuthRequiredError } from "../../auth/services/current-user";
 import { SettingsChrome } from "../../settings/components/SettingsChrome/SettingsChrome";
 import {
   fetchNotificationPreferences,

@@ -1,17 +1,13 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { NestFastifyApplication } from "@nestjs/platform-fastify";
-import { Queue } from "bullmq";
-import { Redis } from "ioredis";
 import { loadApiConfig } from "@vimla/config/server";
 import { createPrismaClient, type PrismaClient } from "@vimla/database";
 import {
   createNotificationService,
-  DELIVER_JOB_NAME,
-  deliveryJobId,
   memoryNotificationInbox,
   NotificationDeliveryError,
   NotificationDeliveryProcessor,
-  NOTIFICATIONS_QUEUE_NAME,
+  reminderOccurrenceKey,
   ReminderReconciler,
   silentPlatformLogger,
 } from "@vimla/notifications";
@@ -28,8 +24,6 @@ const origin = "http://localhost:3000";
 describe("notification platform", () => {
   let app: NestFastifyApplication;
   let prisma: PrismaClient;
-  let redis: Redis;
-  let queue: Queue;
 
   beforeAll(async () => {
     process.env.NODE_ENV = "test";
@@ -50,13 +44,9 @@ describe("notification platform", () => {
     await app.init();
     await app.getHttpAdapter().getInstance().ready();
     prisma = createPrismaClient(testDatabaseUrl);
-    redis = new Redis(process.env.REDIS_URL ?? "redis://localhost:6379");
-    queue = new Queue(NOTIFICATIONS_QUEUE_NAME, { connection: redis.duplicate() });
   });
 
   afterAll(async () => {
-    await queue.close();
-    await redis.quit();
     await prisma.$disconnect();
     if (app) {
       await app.close();
@@ -83,33 +73,32 @@ describe("notification platform", () => {
     expect(enqueued.length).toBeGreaterThan(0);
   });
 
-  it("requeues pending DB deliveries when the BullMQ job is missing and skips DELIVERED", async () => {
+  it("requeues pending DB deliveries when the execution job is missing and skips DELIVERED", async () => {
     const user = await registerVerifiedUser(app, "notify-requeue");
     await confirmTimezone(app, user.cookies);
     const reminder = await createDueReminder(app, user.cookies, "Requeue me");
+    const enqueued: string[] = [];
     const reconciler = makeReconciler(prisma, async (deliveryId) => {
-      await queue.add(DELIVER_JOB_NAME, { deliveryId }, { jobId: deliveryJobId(deliveryId), removeOnComplete: true, removeOnFail: true });
+      enqueued.push(deliveryId);
     });
     await reconciler.reconcile();
     const delivery = await prisma.notificationDelivery.findFirstOrThrow({
       where: { sourceId: reminder.id, channel: "IN_APP" },
     });
-    const job = await queue.getJob(deliveryJobId(delivery.id));
-    await job?.remove();
-    expect(await queue.getJob(deliveryJobId(delivery.id))).toBeUndefined();
+    expect(enqueued).toContain(delivery.id);
 
+    enqueued.length = 0;
     await reconciler.reconcile();
-    expect(await queue.getJob(deliveryJobId(delivery.id))).toBeTruthy();
+    expect(enqueued).toContain(delivery.id);
+    expect(await prisma.notificationDelivery.count({ where: { sourceId: reminder.id, channel: "IN_APP" } })).toBe(1);
 
     await prisma.notificationDelivery.update({
       where: { id: delivery.id },
       data: { status: "DELIVERED", deliveredAt: new Date(), nextAttemptAt: null },
     });
-    await (await queue.getJob(deliveryJobId(delivery.id)))?.remove();
-    const before = await queue.getJob(deliveryJobId(delivery.id));
-    expect(before).toBeUndefined();
+    enqueued.length = 0;
     await reconciler.reconcile();
-    expect(await queue.getJob(deliveryJobId(delivery.id))).toBeUndefined();
+    expect(enqueued).not.toContain(delivery.id);
   });
 
   it("skips cancel and reschedule, then delivers the new occurrence", async () => {
@@ -203,19 +192,21 @@ describe("notification platform", () => {
       await prisma.notificationDelivery.count({ where: { sourceId: disabled.id, channel: "EMAIL" } }),
     ).toBe(0);
 
-    const retryable = await prisma.notificationDelivery.create({
-      data: {
-        userId: user.id,
-        notificationType: "REMINDER_DUE",
-        sourceType: "WORKSPACE_REMINDER",
-        sourceId: reminder.id,
-        occurrenceKey: `reminder:${reminder.id}:retry`,
-        channel: "EMAIL",
-        status: "PENDING",
-        scheduledFor: new Date(),
-        nextAttemptAt: new Date(),
-      },
+    await app.inject({
+      method: "PATCH",
+      url: "/v1/notification-preferences",
+      headers: jsonHeaders(),
+      cookies: user.cookies,
+      payload: { reminderEmailEnabled: true },
     });
+    const retryReminder = await createDueReminder(app, user.cookies, "Retry smtp", "America/New_York");
+    await reconciler.reconcile();
+    const retryable = await prisma.notificationDelivery.findFirstOrThrow({
+      where: { sourceId: retryReminder.id, channel: "EMAIL" },
+    });
+    expect(retryable.occurrenceKey).toBe(
+      reminderOccurrenceKey(retryReminder.id, (await prisma.workspaceReminder.findUniqueOrThrow({ where: { objectId: retryReminder.id } })).scheduledAt),
+    );
     const failing = new NotificationDeliveryProcessor(
       prisma,
       processorPolicy(),
@@ -230,18 +221,10 @@ describe("notification platform", () => {
     expect(retried.status).toBe("RETRYABLE");
     expect(retried.nextAttemptAt).toBeTruthy();
 
-    const permanent = await prisma.notificationDelivery.create({
-      data: {
-        userId: user.id,
-        notificationType: "REMINDER_DUE",
-        sourceType: "WORKSPACE_REMINDER",
-        sourceId: reminder.id,
-        occurrenceKey: `reminder:${reminder.id}:perm`,
-        channel: "EMAIL",
-        status: "PENDING",
-        scheduledFor: new Date(),
-        nextAttemptAt: new Date(),
-      },
+    const permanentReminder = await createDueReminder(app, user.cookies, "Permanent smtp", "America/New_York");
+    await reconciler.reconcile();
+    const permanent = await prisma.notificationDelivery.findFirstOrThrow({
+      where: { sourceId: permanentReminder.id, channel: "EMAIL" },
     });
     const rejecting = new NotificationDeliveryProcessor(
       prisma,
@@ -298,7 +281,7 @@ describe("notification platform", () => {
     const stolenRead = await app.inject({
       method: "PATCH",
       url: `/v1/notifications/${notificationId}/read`,
-      headers: jsonHeaders(),
+      headers: { origin },
       cookies: stranger.cookies,
     });
     expect(stolenRead.statusCode).toBe(404);
@@ -306,13 +289,13 @@ describe("notification platform", () => {
     const readOnce = await app.inject({
       method: "PATCH",
       url: `/v1/notifications/${notificationId}/read`,
-      headers: jsonHeaders(),
+      headers: { origin },
       cookies: owner.cookies,
     });
     const readTwice = await app.inject({
       method: "PATCH",
       url: `/v1/notifications/${notificationId}/read`,
-      headers: jsonHeaders(),
+      headers: { origin },
       cookies: owner.cookies,
     });
     expect(readOnce.statusCode).toBe(200);
@@ -333,7 +316,7 @@ describe("notification platform", () => {
     await app.inject({
       method: "POST",
       url: "/v1/notifications/read-all",
-      headers: jsonHeaders(),
+      headers: { origin },
       cookies: owner.cookies,
     });
     const strangerUnread = await app.inject({
@@ -364,9 +347,9 @@ describe("notification platform", () => {
       headers: { origin },
       cookies: owner.cookies,
     });
-    const remaining = (afterDelete.json().items as Array<{ sourceAvailable: boolean; hrefPath: string | null }>).find(
-      (item) => item.hrefPath === "/work/reminders",
-    );
+    const remaining = (
+      afterDelete.json().items as Array<{ sourceId: string | null; sourceAvailable: boolean }>
+    ).find((item) => item.sourceId === reminder.id);
     expect(remaining?.sourceAvailable).toBe(false);
   });
 
@@ -407,12 +390,13 @@ describe("notification platform", () => {
     const doomedDelivery = await prisma.notificationDelivery.findFirstOrThrow({
       where: { sourceId: doomed.id, channel: "IN_APP" },
     });
-    await app.inject({
+    const deleted = await app.inject({
       method: "DELETE",
       url: `/v1/workspace/reminders/${doomed.id}`,
-      headers: jsonHeaders(),
+      headers: { origin },
       cookies: user.cookies,
     });
+    expect(deleted.statusCode).toBe(204);
     const skippedDeleted = await makeProcessor(prisma).process(doomedDelivery.id);
     expect(skippedDeleted.outcome).toContain("skipped:deleted");
     expect(await prisma.userNotification.count({ where: { userId: user.id, sourceId: doomed.id } })).toBe(0);
