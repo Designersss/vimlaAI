@@ -11,8 +11,6 @@ interface UserDetail {
   id: string;
   email: string;
   emailVerified: boolean;
-  phoneNumber: string | null;
-  phoneNumberVerified: boolean | null;
   createdAt: string;
   twoFactorEnabled: boolean;
   sessions: Array<{ id: string; createdAt: string; expiresAt: string }>;
@@ -61,12 +59,6 @@ export default function UserDetailPage() {
           <tr>
             <th>{t("explorer.verified")}</th>
             <td>{data.emailVerified ? t("explorer.verified") : t("explorer.unverified")}</td>
-          </tr>
-          <tr>
-            <th>phone</th>
-            <td>
-              {data.phoneNumber ?? "—"} / {data.phoneNumberVerified ? t("explorer.verified") : t("explorer.unverified")}
-            </td>
           </tr>
           <tr>
             <th>TOTP</th>

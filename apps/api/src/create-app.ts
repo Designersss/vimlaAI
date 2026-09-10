@@ -71,7 +71,7 @@ export async function createVimlaApiApp(
   if (!options?.quiet && isDevNotificationInboxEnabled(config.appEnv)) {
     const logger = new NestLogger("DevNotifications");
     logger.log(
-      `GET /dev/notifications/latest registered (APP_ENV=${config.appEnv}, EMAIL_PROVIDER=${config.emailProvider}, SMS_PROVIDER=${config.smsProvider})`,
+      `GET /dev/notifications/latest registered (APP_ENV=${config.appEnv}, EMAIL_PROVIDER=${config.emailProvider})`,
     );
   }
 

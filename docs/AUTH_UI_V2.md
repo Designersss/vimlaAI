@@ -4,12 +4,11 @@ Reference `08-auth-layout-concept.png` is a composition reference only. Restyle 
 
 ## Existing flows to visually cover
 
-- Sign in — email/password + phone alternative where existing flow supports it.
+- Sign in — email/password.
 - Sign up.
 - Email OTP verification.
 - Forgot password / reset initiation.
 - New/reset password.
-- Phone sign-in and OTP states supported by current auth implementation.
 - Loading, disabled, validation/error, resend and success states as required by existing routes.
 
 Do not invent OAuth/social providers or auth methods not backed by current implementation.

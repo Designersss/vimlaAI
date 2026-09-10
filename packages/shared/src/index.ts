@@ -14,5 +14,4 @@ export {
   parseVimlaLocale,
   type VimlaLocale,
 } from "./locale.js";
-export { isE164PhoneNumber, maskPhoneNumber, normalizeE164 } from "./phone.js";
 export { maskEmail } from "./email.js";

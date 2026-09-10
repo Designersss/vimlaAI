@@ -16,7 +16,6 @@ export {
   workerConfigSchema,
   workerEnvSchema,
   emailProviderKindSchema,
-  smsProviderKindSchema,
   isFreeMailboxDomain,
   resolveDefaultPaymentProvider,
   type ApiConfig,
@@ -31,5 +30,4 @@ export {
   type WorkerConfig,
   type WorkerEnv,
   type EmailProviderKind,
-  type SmsProviderKind,
 } from "./schemas.js";

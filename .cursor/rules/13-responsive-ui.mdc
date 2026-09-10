@@ -821,7 +821,7 @@ The standard test suite must not use live:
 
 - T-Bank;
 - ProxyAPI;
-- email/SMS providers.
+- email providers.
 
 Use existing mocks/test infrastructure.
 

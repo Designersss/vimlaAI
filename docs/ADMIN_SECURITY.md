@@ -26,7 +26,7 @@ Privileged access requires:
 3. strong Admin authentication: TOTP (required) and, in staging/production, at least one enrolled passkey;
 4. a short-lived server-side `AdminSession` cookie (`vimla_admin_session`).
 
-Ordinary user session cookies never become Admin sessions. Email OTP or phone OTP alone cannot elevate.
+Ordinary user session cookies never become Admin sessions. Email OTP alone cannot elevate.
 
 Bootstrap (idempotent, no password, existing verified user only):
 
@@ -40,7 +40,7 @@ Production bootstrap is a manual operator action on the server.
 
 ## MFA
 
-Better Auth `twoFactor` (TOTP + encrypted backup codes) and `@better-auth/passkey` are used. Vimla never stores passkey private material. WebAuthn `rpID` / origin are explicit config (`ADMIN_WEBAUTHN_RP_ID`, `ADMIN_WEBAUTHN_ORIGIN`). SMS is not an Admin MFA factor. Email OTP is not a sufficient privileged factor.
+Better Auth `twoFactor` (TOTP + encrypted backup codes) and `@better-auth/passkey` are used. Vimla never stores passkey private material. WebAuthn `rpID` / origin are explicit config (`ADMIN_WEBAUTHN_RP_ID`, `ADMIN_WEBAUTHN_ORIGIN`). SMS is not an Admin MFA factor and is not part of the current product. Email OTP is not a sufficient privileged factor.
 
 Enrollment:
 

@@ -8,7 +8,7 @@ globs: "apps/web/**/*.{ts,tsx}, apps/admin/**/*.{ts,tsx}, packages/contracts/**/
 Vimla supports at least Russian (`ru`) and English (`en`).
 
 ## Strings
-- No user-facing hard-coded strings in components, form validators, notifications or email/SMS templates.
+- No user-facing hard-coded strings in components, form validators, notifications or email templates.
 - Use centralized translation keys/dictionaries.
 - Translation keys must describe meaning, not copy text (`auth.signIn`, not `sign_in_text_1`).
 - Missing translations must be detectable in development/tests.
@@ -27,4 +27,4 @@ Vimla supports at least Russian (`ru`) and English (`en`).
 
 ## Product flows
 - New UI flows must be usable in both RU and EN before they are considered complete.
-- Auth emails/SMS and security notifications must use the recipient's locale when known.
+- Auth emails and security notifications must use the recipient's locale when known.

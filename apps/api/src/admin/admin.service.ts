@@ -392,7 +392,6 @@ export class AdminFacade {
       ...(typeof query.email === "string"
         ? { email: { contains: query.email, mode: "insensitive" as const } }
         : {}),
-      ...(typeof query.phone === "string" ? { phoneNumber: { contains: query.phone } } : {}),
       ...(query.emailVerified === "true" ? { emailVerified: true } : {}),
       ...(query.emailVerified === "false" ? { emailVerified: false } : {}),
     };
@@ -403,8 +402,6 @@ export class AdminFacade {
           id: true,
           email: true,
           emailVerified: true,
-          phoneNumber: true,
-          phoneNumberVerified: true,
           createdAt: true,
           twoFactorEnabled: true,
         },
@@ -424,8 +421,6 @@ export class AdminFacade {
         id: true,
         email: true,
         emailVerified: true,
-        phoneNumber: true,
-        phoneNumberVerified: true,
         createdAt: true,
         twoFactorEnabled: true,
         sessions: { select: { id: true, createdAt: true, expiresAt: true }, take: 20, orderBy: { createdAt: "desc" } },

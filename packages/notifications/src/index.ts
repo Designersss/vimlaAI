@@ -9,19 +9,15 @@ export type {
   NotificationErrorCategory,
   NotificationInbox,
   SanitizedNotificationEvent,
-  SmsMessage,
-  SmsProvider,
-  SmsTemplateId,
 } from "./types.js";
-export { renderEmailTemplate, renderSmsTemplate } from "./templates.js";
+export { renderEmailTemplate } from "./templates.js";
 export {
   MemoryNotificationInbox,
   memoryNotificationInbox,
 } from "./memory-inbox.js";
-export { MemoryEmailProvider, MemorySmsProvider } from "./memory-provider.js";
-export { LoggingEmailProvider, LoggingSmsProvider } from "./logging-provider.js";
+export { MemoryEmailProvider } from "./memory-provider.js";
+export { LoggingEmailProvider } from "./logging-provider.js";
 export { SmtpEmailProvider } from "./smtp-email-provider.js";
-export { HttpSmsProvider } from "./http-sms-provider.js";
 export { NotificationService } from "./service.js";
 export { NotificationMetrics } from "./metrics.js";
 export { MemoryNotificationStore, redisNotificationStore } from "./store.js";
@@ -35,7 +31,6 @@ export {
   createNotificationService,
   isDevNotificationInboxEnabled,
   type EmailAdapterConfig,
-  type SmsAdapterConfig,
 } from "./factory.js";
 export { NotificationPlatformError, isNotificationPlatformError } from "./platform/errors.js";
 export { reminderOccurrenceKey, scheduledInstantFromOccurrenceKey } from "./platform/occurrence-key.js";

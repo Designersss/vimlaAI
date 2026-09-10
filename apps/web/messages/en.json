@@ -73,9 +73,6 @@
     "panelVerify": "Confirm your email to start using Vimla.",
     "panelReset": "Choose a strong password to protect your account.",
     "emailTab": "Email",
-    "emailTab": "Email",
-    "phoneTab": "Phone",
-    "phone": "Phone",
     "sendCode": "Send code",
     "otp": "Verification code",
     "verify": "Confirm",
@@ -93,8 +90,6 @@
       "invalidResetToken": "This reset link is invalid.",
       "resetTokenExpired": "This reset link has expired. Request a new one.",
       "emailNotVerified": "Verify your email first.",
-      "phoneAlreadyInUse": "This number is already linked to another account.",
-      "invalidPhone": "Enter a number in international format, for example +79991234567.",
       "sessionNotFound": "Session not found."
     },
     "verifyEmail": {
@@ -113,9 +108,7 @@
       "title": "Set a new password",
       "submit": "Save password",
       "success": "Password updated. Sign in with your new password. Previous sessions were signed out."
-    },
-    "phoneSendSuccess": "If this number is linked to an account, we've sent a code.",
-    "phoneLinked": "Phone number verified"
+    }
   },
   "validation": {
     "required": "This field is required",
@@ -135,11 +128,6 @@
     "email": "Email",
     "verified": "verified",
     "unverified": "unverified",
-    "phone": "Phone",
-    "linked": "linked",
-    "notLinked": "not linked",
-    "addPhone": "Add phone",
-    "changePhone": "Change phone",
     "password": "Password",
     "changePassword": "Change password",
     "revokeOtherSessions": "Sign out other sessions",
@@ -333,9 +321,6 @@
     "otp_expired": "This code has expired.",
     "otp_too_many_attempts": "Too many attempts. Request a new code.",
     "otp_resend_too_soon": "You can request another code later.",
-    "phone_not_verified": "Phone number is not verified.",
-    "phone_already_in_use": "This number is already in use.",
-    "invalid_phone_number": "Invalid phone number.",
     "invalid_reset_token": "This reset link is invalid.",
     "reset_token_expired": "This reset link has expired.",
     "session_not_found": "Session not found.",

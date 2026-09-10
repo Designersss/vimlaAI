@@ -1,5 +1,5 @@
 import { hmacSha256Hex } from "@vimla/shared";
-import type { EmailMessage, EmailProvider, EmailSendResult, SmsMessage, SmsProvider } from "./types.js";
+import type { EmailMessage, EmailProvider, EmailSendResult } from "./types.js";
 
 export class LoggingEmailProvider implements EmailProvider {
   readonly name = "logging";
@@ -11,17 +11,5 @@ export class LoggingEmailProvider implements EmailProvider {
       `notification email queued template=${message.templateId} to=${hmacSha256Hex(this.secret, message.to)}\n`,
     );
     return {};
-  }
-}
-
-export class LoggingSmsProvider implements SmsProvider {
-  readonly name = "logging";
-
-  constructor(private readonly secret: string) {}
-
-  async sendSms(message: SmsMessage): Promise<void> {
-    process.stderr.write(
-      `notification sms queued template=${message.templateId} to=${hmacSha256Hex(this.secret, message.to)}\n`,
-    );
   }
 }

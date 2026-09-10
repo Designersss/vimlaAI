@@ -7,7 +7,7 @@
 - Database: PostgreSQL + Prisma.
 - Queue/cache: Redis + BullMQ.
 - Architecture: modular monolith API + separate worker.
-- Authentication: Better Auth, self-hosted, PostgreSQL/Prisma, email/password plus email OTP verification and optional verified-phone SMS login, cookie and database-backed sessions.
+- Authentication: Better Auth, self-hosted, PostgreSQL/Prisma, email/password plus email OTP verification, cookie and database-backed sessions.
 - First AI gateway/provider: ProxyAPI.
 - ProxyAPI is hidden behind Vimla provider abstraction.
 - Corporate model for first commercial release: Russian LLC -> provider/payment accounts.
@@ -18,7 +18,7 @@
 - Reservation/settlement is mandatory before/after AI calls.
 - Billing core: versioned plans, T-Bank hosted checkout + mock provider, usage buckets, reservation/settlement, append-only ledger, PostgreSQL constraints and locking.
 - Phase 3 text chat: AiGateway + ProxyApiProvider, curated versioned model catalog, reservation before provider, Vimla SSE, no blind provider retry.
-- Phase 3.5 identity: next-intl RU/EN, UserPreference locale, email OTP (HMAC-stored), link-based password reset with session revocation, phone linking after verified email (no phone-first signup), notification provider abstraction without a commercial vendor.
+- Phase 3.5 identity: next-intl RU/EN, UserPreference locale, email OTP (HMAC-stored), link-based password reset with session revocation, notification provider abstraction without a commercial vendor.
 
 ## AI / ProxyAPI
 - Unified text endpoint: `POST {PROXYAPI_BASE_URL}/chat/completions` with full model ids (`openai/...`). Native `fetch`, no OpenAI SDK.
@@ -40,8 +40,8 @@
 - Email verification uses Better Auth Email OTP (6 digits / 5 minutes / 3 attempts / 60s resend), not a signup magic link. Password recovery stays link-based.
 - `requireEmailVerification` stays false at the Better Auth session layer so unverified users can reach `/verify-email`; expensive operations are gated by `VerifiedEmailGuard`.
 - OTP storage uses HMAC with the server Better Auth secret. Unsalted SHA of a 6-digit code is not acceptable if the verification table leaks.
-- Phone-first signup is off so one person cannot accidentally create a second account by entering an unknown number. Link phone from a verified account, then allow SMS login.
-- Notification delivery: Better Auth / identity → `@vimla/notifications` → `EmailProvider` / `SmsProvider` → SMTP or HTTP gateway adapter. Local/test uses an in-memory inbox. Staging/production require real SMTP + HTTP SMS configuration and fail startup on memory/logging providers. A commercial email/SMS vendor is not chosen.
+- Vimla is currently email-only. Phone/SMS authentication is not part of the current product and may return in a future phase after launch.
+- Notification delivery: Better Auth / identity → `@vimla/notifications` → `EmailProvider` → SMTP adapter. Local/test uses an in-memory inbox. Staging/production require real SMTP configuration and fail startup on memory/logging providers.
 - Frontend localization is `next-intl` with dictionaries in `apps/web/messages`. Default locale is `ru`.
 - Phase 5 Admin is a separate Next.js app (`apps/admin`) with Better Auth TOTP + passkey, hashed AdminSession, default-deny permissions, and append-only audit. Ordinary user sessions cannot be reused.
 - Phase 5.5 UI: one `@vimla/ui` SCSS-module design system for Web and Admin; light/dark/system; no screenshot data in production.
@@ -49,7 +49,7 @@
 - Phase 6.5 Notification Platform: PostgreSQL is delivery truth; email defaults off; in-app defaults on; no Web Push/SMS/recurring; see `docs/NOTIFICATIONS.md`.
 - Verified expensive mutations: `@SensitiveArea()` on AI/billing controllers with default-deny for mutating methods, not a global verified-email guard.
 - Browser E2E uses Playwright + test infrastructure only (`pnpm test:e2e`).
-- Signup HTTP validation is a layered limiter (`AUTH_SIGNUP_IP_LIMIT_PER_MINUTE`, default 20), overriding Better Auth's built-in `/sign-up*` 3/10s rule so a legitimate email typo is not treated as abuse. OTP send/verify, SMS and password-reset remain stricter. Notification budget keys HMAC destination and IP; they never store raw email.
+- Signup HTTP validation is a layered limiter (`AUTH_SIGNUP_IP_LIMIT_PER_MINUTE`, default 20), overriding Better Auth's built-in `/sign-up*` 3/10s rule so a legitimate email typo is not treated as abuse. OTP send/verify and password-reset remain stricter. Notification budget keys HMAC destination and IP; they never store raw email.
 
 ## Billing
 - Authoritative money is integer microRUB (`bigint` / `BIGINT`). JSON uses decimal strings. JavaScript `number` is forbidden for money.
@@ -81,7 +81,7 @@
 - these ratios are **not** final product economics; new grants are published PlanVersions after simulation.
 
 ## Not decided yet
-- email/SMS vendor (SMTP and HTTP SMS adapters exist; commercial provider not chosen);
+- email vendor (SMTP adapter exists; commercial provider not chosen);
 - S3-compatible object storage vendor;
 - hosting/VPS/cloud provider;
 - exact plan feature limits;

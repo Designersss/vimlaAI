@@ -38,8 +38,6 @@ export class MeController {
       name: user.name,
       image: user.image,
       emailVerified: user.emailVerified,
-      phoneNumber: user.phoneNumber,
-      phoneNumberVerified: user.phoneNumberVerified,
       locale: parseVimlaLocale(preference?.locale, this.config.authDefaultLocale),
       timezone: preference?.timezone ?? null,
     });

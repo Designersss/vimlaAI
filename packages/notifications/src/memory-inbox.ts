@@ -7,7 +7,7 @@ export class MemoryNotificationInbox implements NotificationInbox {
     this.deliveries.push(delivery);
   }
 
-  latest(channel: "email" | "sms", to: string): NotificationDelivery | null {
+  latest(channel: "email", to: string): NotificationDelivery | null {
     for (let index = this.deliveries.length - 1; index >= 0; index -= 1) {
       const delivery = this.deliveries[index];
       if (delivery && delivery.channel === channel && delivery.to === to) {
@@ -19,7 +19,7 @@ export class MemoryNotificationInbox implements NotificationInbox {
   }
 
   latestMatching(filter: {
-    channel?: "email" | "sms";
+    channel?: "email";
     to?: string;
   } = {}): NotificationDelivery | null {
     for (let index = this.deliveries.length - 1; index >= 0; index -= 1) {
@@ -39,7 +39,7 @@ export class MemoryNotificationInbox implements NotificationInbox {
     return null;
   }
 
-  latestOtp(channel: "email" | "sms", to: string): string | null {
+  latestOtp(channel: "email", to: string): string | null {
     return this.latest(channel, to)?.otp ?? null;
   }
 

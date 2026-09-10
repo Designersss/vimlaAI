@@ -465,7 +465,6 @@ function makeProcessor(prisma: PrismaClient): NotificationDeliveryProcessor {
     secret: "test-notification-secret-value-32ch",
     defaultLocale: "ru",
     email: { kind: "memory" },
-    sms: { kind: "memory" },
   });
   return new NotificationDeliveryProcessor(
     prisma,

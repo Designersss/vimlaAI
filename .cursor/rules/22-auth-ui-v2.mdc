@@ -2,7 +2,7 @@
 description: Vimla auth layout and visual behavior
 globs:
   - "apps/web/**/*auth*.{ts,tsx,scss}"
-  - "apps/web/**/{sign-in,sign-up,enroll,verify*,reset*,forgot*,phone*}/**/*.{ts,tsx,scss}"
+  - "apps/web/**/{sign-in,sign-up,enroll,verify*,reset*,forgot*}/**/*.{ts,tsx,scss}"
   - "packages/ui/**/*.{ts,tsx,scss}"
 alwaysApply: false
 ---
@@ -11,7 +11,7 @@ alwaysApply: false
 
 Use `08-auth-layout-concept.png` only for composition. Restyle with the v2 dark/light system.
 
-Do not change Better Auth flows/domain/security merely for styling. Preserve OTP/password/phone behavior and stable error codes.
+Do not change Better Auth flows/domain/security merely for styling. Preserve OTP/password behavior and stable error codes.
 
 Desktop prefers a clean split layout; tablet compact split/stacked; mobile single column. Avoid fake metrics/marketing claims. Use localized copy.
 

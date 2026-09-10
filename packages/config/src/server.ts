@@ -87,18 +87,10 @@ export function loadApiConfig(
     smtpPassword: parsed.SMTP_PASSWORD,
     emailFrom: parsed.EMAIL_FROM,
     emailReplyTo: parsed.EMAIL_REPLY_TO,
-    smsProvider: resolveSmsProvider(parsed),
-    smsHttpUrl: parsed.SMS_HTTP_URL,
-    smsHttpAuthorization: parsed.SMS_HTTP_AUTHORIZATION,
     notifyEmailRetryMax: parsed.NOTIFY_EMAIL_RETRY_MAX,
-    notifySmsRetryMax: parsed.NOTIFY_SMS_RETRY_MAX,
     notifyEmailPerDestPerHour: parsed.NOTIFY_EMAIL_PER_DEST_PER_HOUR,
     notifyEmailPerIpPerHour: parsed.NOTIFY_EMAIL_PER_IP_PER_HOUR,
     notifyEmailGlobalPerMinute: parsed.NOTIFY_EMAIL_GLOBAL_PER_MINUTE,
-    notifySmsPerPhonePerHour: parsed.NOTIFY_SMS_PER_PHONE_PER_HOUR,
-    notifySmsPerAccountPerHour: parsed.NOTIFY_SMS_PER_ACCOUNT_PER_HOUR,
-    notifySmsPerIpPerHour: parsed.NOTIFY_SMS_PER_IP_PER_HOUR,
-    notifySmsGlobalPerMinute: parsed.NOTIFY_SMS_GLOBAL_PER_MINUTE,
     paymentProvider: parsed.PAYMENT_PROVIDER ?? resolveDefaultPaymentProvider(parsed.APP_ENV),
     paymentCheckoutLimitPerMinute: parsed.PAYMENT_CHECKOUT_LIMIT_PER_MINUTE,
     workspaceMutationLimitPerMinute: parsed.WORKSPACE_MUTATION_LIMIT_PER_MINUTE,
@@ -157,17 +149,6 @@ function resolveEmailProvider(parsed: {
   }
 
   return parsed.APP_ENV === "local" || parsed.APP_ENV === "test" ? "memory" : "smtp";
-}
-
-function resolveSmsProvider(parsed: {
-  APP_ENV: string;
-  SMS_PROVIDER?: "memory" | "http";
-}): "memory" | "http" {
-  if (parsed.SMS_PROVIDER) {
-    return parsed.SMS_PROVIDER;
-  }
-
-  return parsed.APP_ENV === "local" || parsed.APP_ENV === "test" ? "memory" : "http";
 }
 
 export function resolveTbankApiBaseUrl(

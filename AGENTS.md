@@ -131,7 +131,7 @@ Data/infrastructure:
 - Never log secrets, authorization headers, full payment data or raw sensitive file contents.
 
 ## Admin control plane
-Privileged operator UI lives in `apps/admin` (`http://localhost:3002`, production `admin.<domain>`). APIs are `/admin/v1/*` behind `AdminGuard` + `@RequireAdminPermission`. Ordinary sessions and email/phone OTP cannot become Admin. Bootstrap: `pnpm admin:bootstrap --user-id <uuid>`. See `docs/ADMIN_SECURITY.md` and `docs/FINANCE_ADMIN.md`.
+Privileged operator UI lives in `apps/admin` (`http://localhost:3002`, production `admin.<domain>`). APIs are `/admin/v1/*` behind `AdminGuard` + `@RequireAdminPermission`. Ordinary sessions and email OTP cannot become Admin. Bootstrap: `pnpm admin:bootstrap --user-id <uuid>`. See `docs/ADMIN_SECURITY.md` and `docs/FINANCE_ADMIN.md`.
 
 ## Sources of truth
 Use these documents in this order when making architectural decisions:

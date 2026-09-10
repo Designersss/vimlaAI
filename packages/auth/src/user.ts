@@ -6,8 +6,6 @@ export interface AuthenticatedUser {
   name: string;
   image: string | null;
   emailVerified: boolean;
-  phoneNumber: string | null;
-  phoneNumberVerified: boolean;
 }
 
 export interface AuthSessionUser {
@@ -16,8 +14,6 @@ export interface AuthSessionUser {
   name: string;
   image?: string | null;
   emailVerified?: boolean;
-  phoneNumber?: string | null;
-  phoneNumberVerified?: boolean;
 }
 
 export function toAuthenticatedUser(user: AuthSessionUser): AuthenticatedUser {
@@ -27,8 +23,6 @@ export function toAuthenticatedUser(user: AuthSessionUser): AuthenticatedUser {
     name: user.name,
     image: user.image ?? null,
     emailVerified: user.emailVerified === true,
-    phoneNumber: user.phoneNumber ?? null,
-    phoneNumberVerified: user.phoneNumberVerified === true,
   };
 }
 

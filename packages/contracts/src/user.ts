@@ -9,8 +9,6 @@ export const currentUserSchema = z.object({
   name: z.string(),
   image: z.string().nullable(),
   emailVerified: z.boolean(),
-  phoneNumber: z.string().nullable(),
-  phoneNumberVerified: z.boolean(),
   locale: vimlaLocaleSchema,
   timezone: z.string().nullable(),
 });

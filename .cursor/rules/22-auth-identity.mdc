@@ -10,9 +10,8 @@ Authentication is a security boundary. Prefer Better Auth/core proven functional
 ## Required product direction
 - Email/password registration and login.
 - Mandatory email verification with OTP/code before sensitive product access.
-- Phone-number sign-in/verification with SMS OTP.
 - Secure password-reset link via email.
-- Change email/phone requires re-verification.
+- Change email requires re-verification.
 - Session list/revocation and sign-out-other-sessions.
 - Strong MFA/passkey/TOTP for privileged/admin identities.
 
@@ -25,7 +24,6 @@ Authentication is a security boundary. Prefer Better Auth/core proven functional
 - Password reset/change and sensitive identity changes should revoke or rotate relevant sessions.
 - Never log passwords, OTP codes, recovery tokens, cookies or session tokens.
 - Auth endpoints have dedicated abuse/rate limits.
-- Do not merge/link phone/email identities automatically based on unverified client claims. Linking requires authenticated/re-verified proof.
 - Backend remains auth authority for every protected request.
 
 ## UX

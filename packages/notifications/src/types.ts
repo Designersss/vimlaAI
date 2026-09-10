@@ -7,20 +7,11 @@ export type EmailTemplateId =
   | "changeEmailOtp"
   | "reminderDue";
 
-export type SmsTemplateId = "phoneVerificationOtp";
-
 export interface EmailMessage {
   to: string;
   templateId: EmailTemplateId;
   locale: VimlaLocale;
   subject: string;
-  text: string;
-}
-
-export interface SmsMessage {
-  to: string;
-  templateId: SmsTemplateId;
-  locale: VimlaLocale;
   text: string;
 }
 
@@ -31,11 +22,6 @@ export interface EmailProvider {
 
 export interface EmailSendResult {
   providerMessageId?: string;
-}
-
-export interface SmsProvider {
-  readonly name: string;
-  sendSms(message: SmsMessage): Promise<void>;
 }
 
 export type NotificationErrorCategory =
@@ -49,19 +35,14 @@ export type NotificationErrorCategory =
 
 export interface NotificationAbuseLimits {
   emailRetryMax: number;
-  smsRetryMax: number;
   emailPerDestPerHour: number;
   emailPerIpPerHour: number;
   emailGlobalPerMinute: number;
-  smsPerPhonePerHour: number;
-  smsPerAccountPerHour: number;
-  smsPerIpPerHour: number;
-  smsGlobalPerMinute: number;
 }
 
 export interface SanitizedNotificationEvent {
-  channel: "email" | "sms";
-  templateId: EmailTemplateId | SmsTemplateId;
+  channel: "email";
+  templateId: EmailTemplateId;
   provider: string;
   success: boolean;
   latencyMs: number;
@@ -78,9 +59,9 @@ export interface NotificationCoordinationStore {
 }
 
 export interface NotificationDelivery {
-  channel: "email" | "sms";
+  channel: "email";
   to: string;
-  templateId: EmailTemplateId | SmsTemplateId;
+  templateId: EmailTemplateId;
   locale: VimlaLocale;
   sentAt: string;
   otp?: string;
@@ -89,7 +70,7 @@ export interface NotificationDelivery {
 
 export interface NotificationInbox {
   record(delivery: NotificationDelivery): void;
-  latest(channel: "email" | "sms", to: string): NotificationDelivery | null;
-  latestOtp(channel: "email" | "sms", to: string): string | null;
+  latest(channel: "email", to: string): NotificationDelivery | null;
+  latestOtp(channel: "email", to: string): string | null;
   clear(): void;
 }

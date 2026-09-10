@@ -69,8 +69,7 @@ Composition reference for currently implemented:
 - Sign in;
 - Sign up;
 - email verification;
-- password recovery/reset;
-- phone login/OTP.
+- password recovery/reset.
 
 Use real existing auth state, validation, rate-limit behavior, and localized errors.
 

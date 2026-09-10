@@ -1,15 +1,14 @@
 import { betterAuth, type BetterAuthOptions } from "better-auth";
 import { prismaAdapter } from "better-auth/adapters/prisma";
 import { APIError, createAuthMiddleware, getSessionFromCtx } from "better-auth/api";
-import { emailOTP, phoneNumber, twoFactor } from "better-auth/plugins";
+import { emailOTP, twoFactor } from "better-auth/plugins";
 import { passkey } from "@better-auth/passkey";
 import type { ApiConfig } from "@vimla/config";
 import type { PrismaClient } from "@vimla/database";
 import { isNotificationAbuseError, type NotificationService } from "@vimla/notifications";
-import { DEFAULT_VIMLA_LOCALE, normalizeE164, type VimlaLocale } from "@vimla/shared";
+import { DEFAULT_VIMLA_LOCALE, type VimlaLocale } from "@vimla/shared";
 import type { Redis } from "ioredis";
 import { hashIdentifier, hashOtp } from "./otp-hash.js";
-import { replacePhoneOtpWithHmac, verifyHashedPhoneOtp } from "./phone-otp.js";
 import { claimResendSlot, resendCooldownKey } from "./resend-cooldown.js";
 import { createRedisSecondaryStorage } from "./redis-storage.js";
 import { buildTrustedPasswordResetUrl } from "./reset-url.js";
@@ -145,7 +144,7 @@ export function createVimlaAuth(options: CreateVimlaAuthOptions) {
       storage: secondaryStorage ? "secondary-storage" : "memory",
       customRules: {
         // Overrides Better Auth's built-in `/sign-up*` special rule (3 / 10s).
-        // Duplicate-email validation is cheap; OTP/SMS/reset stay on their own
+        // Duplicate-email validation is cheap; OTP/reset stay on their own
         // stricter customRules below.
         "/sign-up*": {
           window: 60,
@@ -204,14 +203,6 @@ export function createVimlaAuth(options: CreateVimlaAuthOptions) {
           max: options.rateLimits.otpSendPerMinute,
         },
         "/email-otp/change-email": {
-          window: 60,
-          max: options.rateLimits.otpVerifyPerMinute,
-        },
-        "/phone-number/send-otp": {
-          window: 60,
-          max: options.rateLimits.otpSendPerMinute,
-        },
-        "/phone-number/verify": {
           window: 60,
           max: options.rateLimits.otpVerifyPerMinute,
         },
@@ -294,70 +285,6 @@ export function createVimlaAuth(options: CreateVimlaAuthOptions) {
               ip: clientIp(ctx),
             });
           }
-          return;
-        }
-
-        if (!ctx.path.startsWith("/phone-number")) {
-          return;
-        }
-
-        if (!body || !("phoneNumber" in body)) {
-          return;
-        }
-
-        const canonical = normalizeE164(String(body.phoneNumber));
-        if (!canonical) {
-          throw APIError.from("BAD_REQUEST", {
-            message: "Invalid phone number",
-            code: "INVALID_PHONE_NUMBER",
-          });
-        }
-
-        body.phoneNumber = canonical;
-
-        if (ctx.path === "/phone-number/send-otp") {
-          await enforceOtpResendCooldown(options, "phone", canonical);
-          const session = await getSessionFromCtx(ctx).catch(() => null);
-          await consumeDeliveryBudget(options, {
-            channel: "sms",
-            to: canonical,
-            ip: clientIp(ctx),
-            userId: session?.user.id,
-          });
-        }
-
-        if ("updatePhoneNumber" in body && body.updatePhoneNumber === true) {
-          const session = await getSessionFromCtx(ctx);
-          if (!session) {
-            throw APIError.from("UNAUTHORIZED", {
-              message: "Authentication required",
-              code: "UNAUTHORIZED",
-            });
-          }
-          if (session.user.emailVerified !== true) {
-            throw APIError.from("FORBIDDEN", {
-              message: "Email is not verified",
-              code: "EMAIL_NOT_VERIFIED",
-            });
-          }
-        }
-
-        if (ctx.path === "/phone-number/verify") {
-          const updatePhoneNumber =
-            "updatePhoneNumber" in body && body.updatePhoneNumber === true;
-          if (updatePhoneNumber) {
-            return;
-          }
-
-          const user = await options.prisma.user.findFirst({
-            where: { phoneNumber: canonical, phoneNumberVerified: true },
-          });
-          if (!user) {
-            throw APIError.from("BAD_REQUEST", {
-              message: "Invalid OTP",
-              code: "INVALID_OTP",
-            });
-          }
         }
       }),
       after: createAuthMiddleware(async (ctx) => {
@@ -430,56 +357,6 @@ export function createVimlaAuth(options: CreateVimlaAuthOptions) {
           });
         },
       }),
-      phoneNumber({
-        otpLength: options.otp.digits,
-        expiresIn: options.otp.expiresSeconds,
-        allowedAttempts: options.otp.maxAttempts,
-        phoneNumberValidator: async (value) => normalizeE164(value) !== null,
-        sendOTP: async ({ phoneNumber: rawPhone, code }, ctx) => {
-          const canonical = normalizeE164(rawPhone) ?? rawPhone;
-          await replacePhoneOtpWithHmac({
-            prisma: options.prisma,
-            redis: options.redis,
-            identifier: rawPhone,
-            otp: code,
-            secret: options.secret,
-          });
-
-          const session = ctx
-            ? await getSessionFromCtx(ctx).catch(() => null)
-            : null;
-          const linked = await options.prisma.user.findFirst({
-            where: { phoneNumber: canonical, phoneNumberVerified: true },
-            select: { id: true },
-          });
-
-          const isLinking =
-            session?.user.emailVerified === true &&
-            (!linked || linked.id === session.user.id);
-          const isPhoneLogin = Boolean(linked) && !session;
-
-          if (!isLinking && !isPhoneLogin) {
-            return;
-          }
-
-          options.notifications.queueSms({
-            to: canonical,
-            templateId: "phoneVerificationOtp",
-            locale: options.defaultLocale,
-            otp: code,
-            budgetConsumed: true,
-          });
-        },
-        verifyOTP: async ({ phoneNumber: rawPhone, code }) => {
-          return verifyHashedPhoneOtp({
-            prisma: options.prisma,
-            identifier: rawPhone,
-            otp: code,
-            secret: options.secret,
-            maxAttempts: options.otp.maxAttempts,
-          });
-        },
-      }),
       twoFactor({
         issuer: "Vimla",
         skipVerificationOnEnable: false,
@@ -500,7 +377,7 @@ export function createVimlaAuth(options: CreateVimlaAuthOptions) {
 
 async function enforceOtpResendCooldown(
   options: CreateVimlaAuthOptions,
-  kind: "email" | "phone",
+  kind: "email",
   subject: string,
 ): Promise<void> {
   const allowed = await claimResendSlot({
@@ -518,7 +395,7 @@ async function enforceOtpResendCooldown(
 
 async function consumeDeliveryBudget(
   options: CreateVimlaAuthOptions,
-  input: { channel: "email" | "sms"; to: string; ip: string; userId?: string },
+  input: { channel: "email"; to: string; ip: string; userId?: string },
 ): Promise<void> {
   try {
     await options.notifications.consumeBudget(input);

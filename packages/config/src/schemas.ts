@@ -28,9 +28,6 @@ const LOCAL_AUTH_SECRET_MARKERS = ["local-dev-only", "change-me"] as const;
 export const emailProviderKindSchema = z.enum(["memory", "smtp"]);
 export type EmailProviderKind = z.infer<typeof emailProviderKindSchema>;
 
-export const smsProviderKindSchema = z.enum(["memory", "http"]);
-export type SmsProviderKind = z.infer<typeof smsProviderKindSchema>;
-
 const FREE_MAILBOX_DOMAINS = new Set([
   "gmail.com",
   "googlemail.com",
@@ -145,18 +142,10 @@ export const apiEnvSchema = z
     SMTP_PASSWORD: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
     EMAIL_FROM: z.preprocess(emptyToUndefined, z.email().optional()),
     EMAIL_REPLY_TO: z.preprocess(emptyToUndefined, z.email().optional()),
-    SMS_PROVIDER: smsProviderKindSchema.optional(),
-    SMS_HTTP_URL: z.preprocess(emptyToUndefined, z.url().optional()),
-    SMS_HTTP_AUTHORIZATION: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
     NOTIFY_EMAIL_RETRY_MAX: z.coerce.number().int().min(1).max(3).default(2),
-    NOTIFY_SMS_RETRY_MAX: z.coerce.number().int().min(1).max(2).default(1),
     NOTIFY_EMAIL_PER_DEST_PER_HOUR: z.coerce.number().int().min(1).default(8),
     NOTIFY_EMAIL_PER_IP_PER_HOUR: z.coerce.number().int().min(1).default(20),
     NOTIFY_EMAIL_GLOBAL_PER_MINUTE: z.coerce.number().int().min(1).default(40),
-    NOTIFY_SMS_PER_PHONE_PER_HOUR: z.coerce.number().int().min(1).default(4),
-    NOTIFY_SMS_PER_ACCOUNT_PER_HOUR: z.coerce.number().int().min(1).default(4),
-    NOTIFY_SMS_PER_IP_PER_HOUR: z.coerce.number().int().min(1).default(8),
-    NOTIFY_SMS_GLOBAL_PER_MINUTE: z.coerce.number().int().min(1).default(20),
     PAYMENT_PROVIDER: z.enum(["mock", "tbank"]).optional(),
     PAYMENT_CHECKOUT_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).default(10),
     WORKSPACE_MUTATION_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).default(60),
@@ -263,30 +252,6 @@ export const apiEnvSchema = z
         }
       }
 
-      if (value.SMS_PROVIDER !== "http") {
-        ctx.addIssue({
-          code: "custom",
-          path: ["SMS_PROVIDER"],
-          message:
-            "SMS_PROVIDER must be http in staging/production; memory and logging providers are not allowed",
-        });
-      } else {
-        if (!value.SMS_HTTP_URL) {
-          ctx.addIssue({
-            code: "custom",
-            path: ["SMS_HTTP_URL"],
-            message: "SMS_HTTP_URL is required when SMS_PROVIDER=http",
-          });
-        }
-        if (!value.SMS_HTTP_AUTHORIZATION) {
-          ctx.addIssue({
-            code: "custom",
-            path: ["SMS_HTTP_AUTHORIZATION"],
-            message: "SMS_HTTP_AUTHORIZATION is required when SMS_PROVIDER=http",
-          });
-        }
-      }
-
       if (!value.ADMIN_ORIGIN.startsWith("https://")) {
         ctx.addIssue({
           code: "custom",
@@ -364,14 +329,6 @@ export const apiEnvSchema = z
           code: "custom",
           path: ["EMAIL_PROVIDER"],
           message: "SMTP_HOST, SMTP_USER, SMTP_PASSWORD and EMAIL_FROM are required for smtp",
-        });
-      }
-    } else if (value.SMS_PROVIDER === "http") {
-      if (!value.SMS_HTTP_URL || !value.SMS_HTTP_AUTHORIZATION) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["SMS_PROVIDER"],
-          message: "SMS_HTTP_URL and SMS_HTTP_AUTHORIZATION are required for http SMS",
         });
       }
     }
@@ -494,18 +451,10 @@ export const apiConfigSchema = z.object({
   smtpPassword: z.string().min(1).optional(),
   emailFrom: z.email().optional(),
   emailReplyTo: z.email().optional(),
-  smsProvider: smsProviderKindSchema,
-  smsHttpUrl: z.url().optional(),
-  smsHttpAuthorization: z.string().min(1).optional(),
   notifyEmailRetryMax: z.number().int().min(1).max(3),
-  notifySmsRetryMax: z.number().int().min(1).max(2),
   notifyEmailPerDestPerHour: z.number().int().min(1),
   notifyEmailPerIpPerHour: z.number().int().min(1),
   notifyEmailGlobalPerMinute: z.number().int().min(1),
-  notifySmsPerPhonePerHour: z.number().int().min(1),
-  notifySmsPerAccountPerHour: z.number().int().min(1),
-  notifySmsPerIpPerHour: z.number().int().min(1),
-  notifySmsGlobalPerMinute: z.number().int().min(1),
   paymentProvider: z.enum(["mock", "tbank"]),
   paymentCheckoutLimitPerMinute: z.number().int().min(1),
   workspaceMutationLimitPerMinute: z.number().int().min(1),

@@ -1,4 +1,4 @@
-import type { EmailMessage, EmailProvider, EmailSendResult, SmsMessage, SmsProvider } from "./types.js";
+import type { EmailMessage, EmailProvider, EmailSendResult } from "./types.js";
 import {
   memoryNotificationInbox,
   type MemoryNotificationInbox,
@@ -20,23 +20,6 @@ export class MemoryEmailProvider implements EmailProvider {
       resetUrl: extractResetUrl(message.text),
     });
     return {};
-  }
-}
-
-export class MemorySmsProvider implements SmsProvider {
-  readonly name = "memory";
-
-  constructor(private readonly inbox: MemoryNotificationInbox = memoryNotificationInbox) {}
-
-  async sendSms(message: SmsMessage): Promise<void> {
-    this.inbox.record({
-      channel: "sms",
-      to: message.to,
-      templateId: message.templateId,
-      locale: message.locale,
-      sentAt: new Date().toISOString(),
-      otp: extractOtp(message.text),
-    });
   }
 }
 

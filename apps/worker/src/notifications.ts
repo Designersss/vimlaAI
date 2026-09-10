@@ -32,7 +32,6 @@ export function createNotificationRuntime(
     secret: config.betterAuthSecret,
     defaultLocale: config.authDefaultLocale,
     email: emailAdapterFromConfig(config),
-    sms: { kind: "memory" },
     store: redisNotificationStore(redis),
     limits: {
       emailRetryMax: 1,
@@ -41,7 +40,6 @@ export function createNotificationRuntime(
       emailGlobalPerMinute: config.notifyEmailGlobalPerMinute,
     },
     failClosed: config.appEnv === "staging" || config.appEnv === "production",
-    requiredChannels: { email: true, sms: false },
     onEvent: (event) => {
       logger.info(
         {

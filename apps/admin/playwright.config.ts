@@ -52,12 +52,9 @@ const e2eEnv: Record<string, string> = {
   AI_TEXT_ENABLED: "true",
   AI_TEXT_PROVIDER: "mock",
   EMAIL_PROVIDER: "memory",
-  SMS_PROVIDER: "memory",
   AUTH_OTP_RESEND_COOLDOWN_SECONDS: "2",
   NOTIFY_EMAIL_PER_IP_PER_HOUR: "1000",
   NOTIFY_EMAIL_GLOBAL_PER_MINUTE: "1000",
-  NOTIFY_SMS_PER_IP_PER_HOUR: "1000",
-  NOTIFY_SMS_GLOBAL_PER_MINUTE: "1000",
 };
 
 export default defineConfig({

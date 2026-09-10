@@ -10,8 +10,6 @@ interface UserRow {
   id: string;
   email: string;
   emailVerified: boolean;
-  phoneNumber: string | null;
-  phoneNumberVerified: boolean | null;
   createdAt: string;
   twoFactorEnabled: boolean;
 }
@@ -53,7 +51,7 @@ export default function UsersPage() {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
     const next: Record<string, string> = {};
-    for (const key of ["userId", "email", "phone", "emailVerified"]) {
+    for (const key of ["userId", "email", "emailVerified"]) {
       const value = String(form.get(key) ?? "").trim();
       if (value) {
         next[key] = value;
@@ -69,7 +67,6 @@ export default function UsersPage() {
       <form className={styles.filters} onSubmit={onSearch}>
         <input className={styles.input} name="userId" placeholder={t("explorer.userId")} />
         <input className={styles.input} name="email" placeholder="email" />
-        <input className={styles.input} name="phone" placeholder="phone" />
         <select className={styles.input} name="emailVerified" defaultValue="">
           <option value="">{t("explorer.verifiedAny")}</option>
           <option value="true">{t("explorer.verified")}</option>
@@ -85,7 +82,6 @@ export default function UsersPage() {
             <th>ID</th>
             <th>email</th>
             <th>{t("explorer.verified")}</th>
-            <th>phone</th>
             <th>{t("finance.date")}</th>
           </tr>
         </thead>
@@ -97,7 +93,6 @@ export default function UsersPage() {
               </td>
               <td>{item.email}</td>
               <td>{item.emailVerified ? t("explorer.verified") : t("explorer.unverified")}</td>
-              <td>{item.phoneNumber ?? "—"}</td>
               <td>{item.createdAt}</td>
             </tr>
           ))}
