@@ -1,15 +1,19 @@
 "use client";
 
 import { useEffect, useId, useRef, useState, type ReactElement, type ReactNode } from "react";
+import { ChevronDownIcon } from "../../icons";
 import { Button } from "../Button/Button";
+import { cx } from "../../utils/cx";
 import styles from "./overlays.module.scss";
 
 export function DropdownMenu({
   label,
   children,
+  variant = "secondary",
 }: {
   label: ReactNode;
   children: ReactNode;
+  variant?: "primary" | "secondary" | "ghost";
 }): ReactElement {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -37,7 +41,7 @@ export function DropdownMenu({
   return (
     <div ref={rootRef} className={styles.anchor}>
       <Button
-        variant="secondary"
+        variant={variant}
         size="sm"
         aria-haspopup="menu"
         aria-expanded={open}
@@ -58,21 +62,62 @@ export function DropdownMenu({
 export function DropdownMenuItem({
   children,
   onSelect,
+  disabled,
+  danger,
 }: {
   children: ReactNode;
   onSelect: () => void;
+  disabled?: boolean;
+  danger?: boolean;
 }): ReactElement {
   return (
     <button
       type="button"
       role="menuitem"
       className={styles.menuItem}
+      disabled={disabled}
       onClick={() => {
-        onSelect();
+        if (!disabled) {
+          onSelect();
+        }
       }}
+      style={danger ? { color: "var(--vimla-danger)" } : undefined}
     >
       {children}
     </button>
+  );
+}
+
+export function DropdownSubmenu({
+  label,
+  children,
+  disabled,
+}: {
+  label: ReactNode;
+  children: ReactNode;
+  disabled?: boolean;
+}): ReactElement {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div>
+      <button
+        type="button"
+        role="menuitem"
+        className={styles.menuItem}
+        disabled={disabled}
+        aria-expanded={open}
+        onClick={() => {
+          if (!disabled) {
+            setOpen((value) => !value);
+          }
+        }}
+      >
+        <span>{label}</span>
+        <ChevronDownIcon size={14} aria-hidden="true" />
+      </button>
+      {open && !disabled ? <div className={cx(styles.submenu)}>{children}</div> : null}
+    </div>
   );
 }
 

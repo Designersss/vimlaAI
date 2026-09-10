@@ -1,10 +1,33 @@
 .composer {
-  display: grid;
-  grid-template-columns: 1fr;
+  display: flex;
+  flex-direction: column;
   gap: var(--vimla-space-2);
   padding: var(--vimla-space-3) var(--vimla-page-pad) calc(var(--vimla-safe-bottom) + var(--vimla-space-3));
   border-top: 1px solid var(--vimla-border);
   background: var(--vimla-surface);
+}
+
+.chipRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--vimla-space-2);
+}
+
+.mentionChip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--vimla-space-1);
+  padding: 0.2rem 0.6rem;
+  border-radius: var(--vimla-radius-round);
+  background: var(--vimla-brand-soft);
+  color: var(--vimla-brand);
+  font-size: var(--vimla-type-caption-size);
+  font-weight: 600;
+}
+
+.composerField {
+  min-height: 2.75rem;
+  resize: none;
 }
 
 .composerActions {
@@ -12,23 +35,44 @@
   flex-wrap: wrap;
   gap: var(--vimla-space-2);
   align-items: center;
-  justify-content: space-between;
 }
 
-.message {
-  max-width: 48rem;
+.composerGrow {
+  flex: 1;
   min-width: 0;
 }
 
-.role {
-  margin: 0 0 var(--vimla-space-1);
-  color: var(--vimla-accent);
-  font-size: var(--vimla-type-caption-size);
-  font-weight: 600;
+.message {
+  max-width: min(36rem, 100%);
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--vimla-space-1);
 }
 
-.userRole {
+.messageUser {
+  margin-inline-start: auto;
+}
+
+.bubble {
+  margin: 0;
+  padding: var(--vimla-space-3);
+  border-radius: var(--vimla-radius-lg);
+  background: var(--vimla-surface-secondary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.bubbleUser {
+  background: var(--vimla-accent);
+  color: var(--vimla-accent-text);
+}
+
+.role {
+  margin: 0;
   color: var(--vimla-text-muted);
+  font-size: var(--vimla-type-caption-size);
+  font-weight: 600;
 }
 
 .content {
@@ -37,18 +81,20 @@
   overflow-wrap: anywhere;
 }
 
-.code {
-  overflow-x: auto;
-  background: var(--vimla-code-bg);
-  color: var(--vimla-code-text);
-  border-radius: var(--vimla-radius-md);
+.attachment {
+  display: flex;
+  align-items: center;
+  gap: var(--vimla-space-3);
   padding: var(--vimla-space-3);
-  font-size: var(--vimla-type-caption-size);
+  border: 1px solid var(--vimla-border);
+  border-radius: var(--vimla-radius-md);
+  background: var(--vimla-surface);
+  min-width: 0;
 }
 
 .stream {
   display: inline-flex;
-  gap: 4px;
+  gap: var(--vimla-space-1);
   align-items: center;
 }
 
@@ -81,6 +127,40 @@
   align-items: center;
 }
 
+.pickerList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--vimla-space-1);
+  max-height: 16rem;
+  overflow: auto;
+}
+
+.pickerItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--vimla-space-3);
+  width: 100%;
+  text-align: left;
+  border: 1px solid transparent;
+  border-radius: var(--vimla-radius-md);
+  background: transparent;
+  color: var(--vimla-text);
+  padding: var(--vimla-space-3);
+  cursor: pointer;
+}
+
+.pickerItem:hover,
+.pickerItemSelected {
+  background: var(--vimla-surface-hover);
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--vimla-space-2);
+}
+
 @keyframes pulse {
   0%,
   100% {
@@ -91,9 +171,8 @@
   }
 }
 
-@media (min-width: 768px) {
+@media (max-width: 767px) {
   .composer {
-    grid-template-columns: 1fr auto;
-    align-items: end;
+    padding-bottom: calc(var(--vimla-safe-bottom) + var(--vimla-space-3));
   }
 }

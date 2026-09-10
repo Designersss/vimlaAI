@@ -20,18 +20,18 @@ test.describe("responsive smoke", () => {
     });
   }
 
-  test("mobile chat uses a drawer and a reachable composer", async ({ page, request }) => {
+  test("mobile messages collection drills into a conversation composer", async ({ page, request }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     const email = uniqueEmail("e2e-responsive-chat");
     await signUp(page, { name: "Ada", email, password: "correct-horse-battery" });
     await verifyEmail(page, request, email);
     await page.goto("/app");
+    await expect(page.getByRole("heading", { name: /сообщения|messages/i })).toBeVisible();
+    await page.getByRole("button", { name: /новый разговор|new conversation/i }).click();
     const composer = page.getByPlaceholder(/сообщение для vimla|message vimla/i);
     await expect(composer).toBeVisible();
     await assertReachable(page, page.getByRole("button", { name: /отправить|send/i }));
-    await page.getByRole("button", { name: /открыть навигацию|open navigation/i }).click();
-    await expect(page.getByRole("dialog")).toBeVisible();
-    await page.keyboard.press("Escape");
+    await expect(page.getByRole("navigation", { name: /vimla/i }).last()).toBeVisible();
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await assertNoDocumentOverflow(page);
   });
@@ -42,13 +42,13 @@ test.describe("responsive smoke", () => {
     await signUp(page, { name: "Ada", email, password: "correct-horse-battery" });
     await verifyEmail(page, request, email);
     await page.goto("/settings/security");
-    await expect(page.getByRole("heading", { name: /безопасность|security/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /безопасность|security/i, level: 1 })).toBeVisible();
     await assertNoDocumentOverflow(page);
     await page.goto("/settings/billing");
-    await expect(page.getByRole("heading", { name: /оплата|billing/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /оплата|billing/i, level: 1 })).toBeVisible();
     await assertNoDocumentOverflow(page);
     await page.goto("/settings/appearance");
-    await expect(page.getByRole("heading", { name: /оформление|appearance/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /оформление|appearance/i, level: 1 })).toBeVisible();
     await assertNoDocumentOverflow(page);
   });
 

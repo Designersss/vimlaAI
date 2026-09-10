@@ -49,7 +49,7 @@ export function NotificationBell(): ReactElement {
         onOpenChange={inbox.setListOpen}
         title={t("notifications.title")}
         closeLabel={t("common.close")}
-        side="right"
+        placement="right"
       >
         <div className={styles.panel}>
           <div className={styles.actions}>

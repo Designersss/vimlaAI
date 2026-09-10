@@ -14,7 +14,7 @@ test.describe("billing checkout", () => {
     await signUp(page, { name: "Ada", email, password });
     await verifyEmail(page, request, email);
     await page.goto("/settings/billing");
-    await expect(page.getByRole("heading", { name: /оплата|billing/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /оплата|billing/i, level: 1 })).toBeVisible();
 
     const buyPro = page.locator("li").filter({ hasText: "Pro" }).getByRole("button", { name: /купить|buy/i });
     await buyPro.dblclick();

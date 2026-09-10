@@ -1,0 +1,83 @@
+.row,
+.staticRow {
+  display: flex;
+  align-items: center;
+  gap: var(--vimla-space-3);
+  width: 100%;
+  min-width: 0;
+  min-height: 3.25rem;
+  padding: var(--vimla-space-2) var(--vimla-space-3);
+  border: 0;
+  border-radius: var(--vimla-radius-md);
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color var(--vimla-duration-fast) var(--vimla-ease);
+}
+
+.staticRow {
+  cursor: default;
+}
+
+.row:hover,
+.row:focus-visible {
+  background: var(--vimla-surface-hover);
+}
+
+.selected {
+  background: var(--vimla-accent-soft);
+}
+
+.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.leading,
+.trailing,
+.meta {
+  flex-shrink: 0;
+}
+
+.main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subtitle,
+.meta {
+  color: var(--vimla-text-secondary);
+  font-size: var(--vimla-type-caption-size);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: var(--vimla-space-3);
+  padding: var(--vimla-space-3) var(--vimla-page-pad);
+  border-bottom: 1px solid var(--vimla-border);
+  background: var(--vimla-surface);
+  min-width: 0;
+}
+
+@media (pointer: coarse) {
+  .row,
+  .staticRow {
+    min-height: 44px;
+  }
+}

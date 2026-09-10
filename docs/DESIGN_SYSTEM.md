@@ -2,20 +2,26 @@
 
 Authoritative implementation: `packages/ui` (`@vimla/ui`).
 
-Visual references live in `docs/design/references/`. They define appearance and composition, not production data.
+Visual references for Phase 6.1 live in `docs/design/references-v2/` and the v2 text specs (`docs/REFERENCE_INDEX_V2.md`, `docs/VISUAL_SYSTEM_V2.md`, `docs/COMPONENT_SPEC_V2.md`, `docs/PAGE_PATTERNS_V2.md`, `docs/NAVIGATION_IA_V2.md`, `docs/RESPONSIVE_V2.md`, `docs/MOTION_V2.md`, `docs/AUTH_UI_V2.md`, `docs/REFERENCE_POLICY_V2.md`).
+
+Historical v1 images remain in `docs/design/references/` and must not override v2.
 
 ## Principles
 
-Vimla should feel clean, minimal, calm, and modern. Reuse shared primitives before composing page layouts. Feature SCSS is for layout only.
+Vimla is a serious mass-market product. Reuse shared primitives before composing page layouts. Feature SCSS is for layout only.
 
 ## Reference hierarchy
 
 1. Security and product/domain correctness
 2. Backend/API/contracts and persisted state
 3. This document and `@vimla/ui`
-4. `docs/design/references/00-master-design-system.png`
-5. Screen-specific reference images
-6. Responsive rules in `.cursor/rules/13-responsive-ui.mdc`
+4. Foundation PNGs (theme/tokens)
+5. Component PNGs
+6. Page-pattern PNGs
+7. Text specs / i18n
+8. Responsive rules
+
+`08-auth-layout-concept.png` is composition-only. Its old palette is not canonical.
 
 ## Tokens
 
@@ -25,55 +31,62 @@ Raw palette (token file only):
 
 | Token role | Light | Dark |
 | --- | --- | --- |
-| Accent | `#6366F1` | `#818CF8` |
-| Text | `#0F172A` | `#F8FAFC` |
-| Surface | `#FFFFFF` | `#111827` |
-| Background | `#F8FAFC` | `#0B0F19` |
-| Success / Warning / Danger | `#10B981` / `#F59E0B` / `#EF4444` | lightened equivalents |
+| Background | `#FAFBFD` | `#0B1220` |
+| Surface | `#FFFFFF` / `#F3F6FA` | `#111827` / `#1A2332` |
+| Interactive accent (system blue) | `#007AFF` | `#3B82F6` |
+| Identity / ◆ Vimla | `#6366F1` | `#6366F1` |
+| Text | `#0F172A` | `#F1F5F9` |
+| Success / Warning / Danger | `#22C55E` / `#F59E0B` / `#EF4444` | same family |
 
-Components consume `--vimla-*` variables, never raw hex.
+`--vimla-accent` is system blue. `--vimla-brand` is identity only. Components consume `--vimla-*`, never raw hex.
 
 ### Spacing
 
-4 / 8 / 12 / 16 / 24 / 32 / 40 / 48 / 64 (`--vimla-space-1` … `--vimla-space-9`)
+4 / 8 / 12 / 16 / 20 / 24 / 32 / 40 / 48 / 64
 
 ### Radii
 
-8 / 10 / 12 / 14 / round (`sm` `md` `lg` `xl` `round`)
+4 / 8 / 10 / 12 / 16 / round (`xs` `sm` `md` `lg` `xl` `round`)
 
 ### Typography
 
-System UI / Segoe UI. Page title ~32/40 bold, section ~20/28 semibold, body 16/24, secondary 14/20, caption 12–13.
+System/SF Pro/Inter-like. Page 28/34 bold, section 20/26 semibold, body 16/24, secondary 14/20, caption 12/17.
 
 ### Motion
 
-fast 140ms, normal 200ms, slow 280ms. `prefers-reduced-motion` disables non-essential animation.
+fast ~130ms, normal ~180ms, overlays ~240ms. `prefers-reduced-motion` disables non-essential animation.
 
 ### Breakpoints
 
 xs 0, sm 480, md 768, lg 1024, xl 1280, 2xl 1536. Mixins: `packages/ui/src/styles/breakpoints.scss`.
 
+Desktop: one global sidebar + main. Tablet (≥768): narrower sidebar, true reflow. Mobile (<768): bottom navigation, no desktop sidebar.
+
 ## Themes
 
-`light` / `dark` / `system` via cookie `vimla_appearance`. `ThemeScript` prevents a flash. Admin uses `data-density="compact"`.
+`light` / `dark` / `system` via cookie `vimla_appearance`. `ThemeScript` prevents a flash. Dark is the primary reference. Admin uses `data-density="compact"` on the same foundation.
 
 ## Canonical navigation
 
-Consumer: Chat, Settings (Security, Billing, Appearance). No production Projects/Library items until those domains exist.
+Exactly one global layer: Messages, My Work, Settings. Projects and ◆ Vimla stay feature-gated (`CONSUMER_FEATURES`) until their domain phases. No conversation history, folders, or work lists in the global sidebar.
 
-Admin: finance, tariffs, AI, users, security, economics — driven by real `/admin` routes.
+List/detail are separate routes (`/app` collection, `/app/[id]` conversation).
+
+My Work local tabs: Today / Tasks / Reminders / Lists / Notes.
+
+Settings local nav: Account / Security / Billing / Appearance. Notifications stay gated.
 
 ## Components
 
-Primitives and patterns are exported from `@vimla/ui`. Product chat pieces (`ChatComposer`, `AiModeSelector`, …) live in the same package and receive real data from the apps.
+Primitives and patterns are exported from `@vimla/ui`. Composer model selection lives only in the AI composer. Auto is truthfully gated until Auto Router exists. PRO opens `ModelPickerDialog` against the real catalog. Concrete models never appear in the root menu.
 
-AUTO is presentational/disabled in production until Auto Router exists. PRO shows the real model catalog. AUTO never reveals a hidden routed model.
+`◆ @Vimla` is a structured mention control. Phase 6.1 does not execute operator actions.
 
 ## Real data
 
 Production UI must not copy screenshot names, prices, usage, messages, or finance metrics. Empty/loading/error states use `EmptyState` / `Skeleton` / `ErrorState`.
 
-Future Project primitives may appear only in `/dev/ui` with explicit DEMO fixtures.
+Future Direct Chat / Projects / operator patterns may appear only in `/dev/ui` with explicit DEMO fixtures.
 
 ## `/dev/ui`
 
@@ -81,7 +94,7 @@ Local/test catalog at `/dev/ui`. Gated on `APP_ENV=local|test`. Absent in stagin
 
 ## Responsive strategy
 
-Fluid grid/flex first. Mobile chat uses a drawer. Composer and auth submit stay reachable. Tables scroll inside a contained region. Safe-area insets and `dvh` are used on shells.
+Fluid grid/flex first. Do not imitate references with arbitrary absolute offsets. Mobile uses bottom navigation and collection → detail drill-down. Composer is keyboard/safe-area aware. Tables scroll inside a contained region.
 
 ## Playwright matrix
 
@@ -91,7 +104,7 @@ Focused smoke: 320×568, 390×844, 768×1024, 1280×800.
 
 Cross-browser: WebKit iPhone-style and Firefox run `responsive-cross-browser` only.
 
-Selective pixel snapshots (`toHaveScreenshot`) cover `/dev/ui`, auth shells, chat empty, settings, and the admin shell. They run locally; CI skips them because Chromium font rendering differs between macOS and Ubuntu. Behavioral overflow/reachability tests remain the gate.
+Selective pixel snapshots (`toHaveScreenshot`) cover `/dev/ui`, auth shells, messages collection, settings, and the admin shell. They run locally; CI skips them because Chromium font rendering differs between macOS and Ubuntu. Behavioral overflow/reachability tests remain the gate.
 
 ## Accessibility
 

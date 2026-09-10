@@ -6,13 +6,19 @@ export function Tabs({
   label,
   children,
   className,
+  variant = "segmented",
 }: {
   label: string;
   children: ReactNode;
   className?: string;
+  variant?: "segmented" | "underline";
 }): ReactElement {
   return (
-    <div className={cx(styles.tabs, className)} role="tablist" aria-label={label}>
+    <div
+      className={cx(styles.tabs, variant === "underline" ? styles.underlineTabs : undefined, className)}
+      role="tablist"
+      aria-label={label}
+    >
       {children}
     </div>
   );

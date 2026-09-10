@@ -3,7 +3,7 @@
 import { useEffect, useState, type FormEvent, type ReactElement } from "react";
 import { useTranslations } from "next-intl";
 import type { TaskStatus, TaskView } from "@vimla/contracts";
-import { Alert, Button, Card, Checkbox, EmptyState, FormField, Heading, Input, NativeSelect } from "@vimla/ui";
+import { Alert, Button, Card, Checkbox, EmptyState, FormField, Heading, Input, NativeSelect, TaskRow } from "@vimla/ui";
 import { apiErrorMessageKey } from "../../../shared/errors/error-keys";
 import { tx } from "../../../shared/i18n/translate";
 import { WorkspaceApiError, createTask, deleteTask, fetchTasks, updateTask } from "../services/api";
@@ -129,35 +129,40 @@ export function WorkTasks(): ReactElement {
           {visible.map((task) => (
             <li key={task.id}>
               <Card>
-                <div className={styles.item}>
-                  <Checkbox
-                    checked={task.status === "DONE"}
-                    label={task.title}
-                    onChange={() => void onToggle(task)}
-                  />
-                  <div className={styles.row}>
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      onClick={() => void updateTask(task.id, { status: "IN_PROGRESS" }).then(reload)}
-                    >
-                      {t("work.statusIN_PROGRESS")}
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() =>
-                        void deleteTask(task.id)
-                          .then(reload)
-                          .catch((caught: unknown) => {
-                            setError(caught instanceof WorkspaceApiError ? caught.code : "internal_error");
-                          })
-                      }
-                    >
-                      {t("work.delete")}
-                    </Button>
-                  </div>
-                </div>
+                <TaskRow
+                  title=""
+                  leading={
+                    <Checkbox
+                      checked={task.status === "DONE"}
+                      label={task.title}
+                      onChange={() => void onToggle(task)}
+                    />
+                  }
+                  trailing={
+                    <div className={styles.row}>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => void updateTask(task.id, { status: "IN_PROGRESS" }).then(reload)}
+                      >
+                        {t("work.statusIN_PROGRESS")}
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() =>
+                          void deleteTask(task.id)
+                            .then(reload)
+                            .catch((caught: unknown) => {
+                              setError(caught instanceof WorkspaceApiError ? caught.code : "internal_error");
+                            })
+                        }
+                      >
+                        {t("work.delete")}
+                      </Button>
+                    </div>
+                  }
+                />
               </Card>
             </li>
           ))}

@@ -34,7 +34,10 @@
   border-radius: var(--vimla-radius-md);
   background: var(--vimla-surface);
   color: var(--vimla-text);
-  transition: border-color var(--vimla-duration-fast) var(--vimla-ease);
+  transition:
+    border-color var(--vimla-duration-fast) var(--vimla-ease),
+    box-shadow var(--vimla-duration-fast) var(--vimla-ease),
+    background-color var(--vimla-duration-fast) var(--vimla-ease);
 }
 
 .textarea {
@@ -42,6 +45,19 @@
   padding: var(--vimla-space-3);
   resize: vertical;
   line-height: var(--vimla-type-body-line);
+}
+
+.control:hover:not(:disabled),
+.select:hover:not(:disabled),
+.textarea:hover:not(:disabled) {
+  border-color: var(--vimla-border-strong);
+}
+
+.control:focus-visible,
+.select:focus-visible,
+.textarea:focus-visible {
+  border-color: var(--vimla-accent);
+  box-shadow: 0 0 0 3px var(--vimla-accent-soft);
 }
 
 .control:disabled,
@@ -108,9 +124,53 @@
 
 .check input,
 .radio input {
-  width: 1.1rem;
-  height: 1.1rem;
-  accent-color: var(--vimla-accent);
+  appearance: none;
+  width: 1.125rem;
+  height: 1.125rem;
+  margin: 0;
+  border: 1px solid var(--vimla-border);
+  background: var(--vimla-surface);
+  display: grid;
+  place-content: center;
+  transition:
+    background-color var(--vimla-duration-fast) var(--vimla-ease),
+    border-color var(--vimla-duration-fast) var(--vimla-ease);
+}
+
+.check input {
+  border-radius: var(--vimla-radius-xs);
+}
+
+.radio input {
+  border-radius: var(--vimla-radius-round);
+}
+
+.check input:checked,
+.radio input:checked {
+  background: var(--vimla-accent);
+  border-color: var(--vimla-accent);
+}
+
+.check input:checked::after {
+  content: "";
+  width: 0.35rem;
+  height: 0.6rem;
+  border: solid var(--vimla-accent-text);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg) translate(-1px, -1px);
+}
+
+.radio input:checked::after {
+  content: "";
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 50%;
+  background: var(--vimla-accent-text);
+}
+
+.check input:disabled,
+.radio input:disabled {
+  opacity: 0.5;
 }
 
 .switch {
@@ -168,6 +228,10 @@
   outline-offset: 2px;
 }
 
+.switch input:disabled + .track {
+  opacity: 0.5;
+}
+
 @media (max-width: 479px) {
   .otpCell {
     width: 2.25rem;
@@ -179,6 +243,12 @@
   .select,
   .textarea,
   .otpCell {
+    min-height: 44px;
+  }
+
+  .check,
+  .radio,
+  .switch {
     min-height: 44px;
   }
 }

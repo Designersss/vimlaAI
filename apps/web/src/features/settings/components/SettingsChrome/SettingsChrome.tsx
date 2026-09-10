@@ -1,50 +1,47 @@
 "use client";
 
 import type { ReactElement, ReactNode } from "react";
-import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { Heading, SettingsLayout, buttonClassName } from "@vimla/ui";
-import { LanguageSwitcher } from "../../../../shared/i18n/LanguageSwitcher";
+import { Heading } from "@vimla/ui";
 import { CONSUMER_FEATURES } from "../../../../shared/config/consumer-features";
+import { NotificationBell } from "../../../notifications/components/NotificationBell";
+import { ConsumerShell, LocalNavLink } from "../../../shell/ConsumerShell";
 
 export function SettingsChrome({ title, children }: { title: string; children: ReactNode }): ReactElement {
   const t = useTranslations();
   const pathname = usePathname();
 
-  function item(href: string, label: string): ReactElement {
-    const active = pathname === href;
-    return (
-      <Link href={href} className={buttonClassName({ variant: active ? "primary" : "ghost", size: "sm" })}>
-        {label}
-      </Link>
-    );
-  }
-
   return (
-    <SettingsLayout
-      navigation={
-        <>
-          {item("/settings/security", t("nav.security"))}
-          {item("/settings/billing", t("nav.billing"))}
-          {item("/settings/appearance", t("nav.appearance"))}
-          {CONSUMER_FEATURES.notificationsSettings
-            ? item("/settings/notifications", t("nav.notifications"))
-            : null}
-          <Link href="/work" className={buttonClassName({ variant: "ghost", size: "sm" })}>
-            {t("nav.work")}
-          </Link>
-          <Link href="/app" className={buttonClassName({ variant: "ghost", size: "sm" })}>
-            {t("nav.chat")}
-          </Link>
-          <LanguageSwitcher />
-        </>
+    <ConsumerShell
+      title={t("nav.settings")}
+      actions={<NotificationBell />}
+      localNav={
+        <nav aria-label={t("nav.settings")}>
+          <LocalNavLink href="/settings/account" active={pathname === "/settings/account"}>
+            {t("nav.account")}
+          </LocalNavLink>
+          <LocalNavLink href="/settings/security" active={pathname === "/settings/security"}>
+            {t("nav.security")}
+          </LocalNavLink>
+          <LocalNavLink href="/settings/billing" active={pathname === "/settings/billing"}>
+            {t("nav.billing")}
+          </LocalNavLink>
+          <LocalNavLink href="/settings/appearance" active={pathname === "/settings/appearance"}>
+            {t("nav.appearance")}
+          </LocalNavLink>
+          {CONSUMER_FEATURES.notificationsSettings ? (
+            <LocalNavLink href="/settings/notifications" active={pathname === "/settings/notifications"}>
+              {t("nav.notifications")}
+            </LocalNavLink>
+          ) : null}
+        </nav>
       }
     >
       <Heading as="h1" size="page">
         {title}
       </Heading>
       {children}
-    </SettingsLayout>
+    </ConsumerShell>
   );
 }

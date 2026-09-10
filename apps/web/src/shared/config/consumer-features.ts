@@ -1,7 +1,9 @@
 export const CONSUMER_FEATURES = {
-  notificationsSettings: true,
   projects: false,
   vimlaOperator: false,
   directChats: false,
   autoRouter: false,
+  notificationsSettings: true,
 } as const;
+
+export type ConsumerFeature = keyof typeof CONSUMER_FEATURES;

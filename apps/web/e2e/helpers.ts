@@ -152,3 +152,14 @@ export async function purchasePro(page: Page): Promise<void> {
   const body = (await response.json()) as { subscriptionId: string | null };
   expect(body.subscriptionId).toBeTruthy();
 }
+
+export function pageHeading(page: Page, name: RegExp): Locator {
+  return page.getByRole("heading", { name, level: 1 });
+}
+
+export async function startNewConversation(page: Page): Promise<void> {
+  await page.goto("/app");
+  await expect(pageHeading(page, /сообщения|messages/i)).toBeVisible();
+  await page.getByRole("button", { name: /новый разговор|new conversation/i }).click();
+  await expect(page.getByPlaceholder(/сообщение для vimla|message vimla/i)).toBeVisible();
+}
