@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { Heading, SettingsLayout, buttonClassName } from "@vimla/ui";
 import { LanguageSwitcher } from "../../../../shared/i18n/LanguageSwitcher";
+import { CONSUMER_FEATURES } from "../../../../shared/config/consumer-features";
 
 export function SettingsChrome({ title, children }: { title: string; children: ReactNode }): ReactElement {
   const t = useTranslations();
@@ -27,6 +28,9 @@ export function SettingsChrome({ title, children }: { title: string; children: R
           {item("/settings/security", t("nav.security"))}
           {item("/settings/billing", t("nav.billing"))}
           {item("/settings/appearance", t("nav.appearance"))}
+          {CONSUMER_FEATURES.notificationsSettings
+            ? item("/settings/notifications", t("nav.notifications"))
+            : null}
           <Link href="/work" className={buttonClassName({ variant: "ghost", size: "sm" })}>
             {t("nav.work")}
           </Link>

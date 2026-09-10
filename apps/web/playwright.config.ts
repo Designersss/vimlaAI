@@ -6,6 +6,7 @@ import { config as loadDotenv } from "dotenv";
 const webRoot = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(webRoot, "../..");
 const apiRoot = resolve(repoRoot, "apps/api");
+const workerRoot = resolve(repoRoot, "apps/worker");
 
 loadDotenv({ path: resolve(repoRoot, ".env"), override: false });
 
@@ -52,6 +53,8 @@ const e2eEnv: Record<string, string> = {
   NOTIFY_EMAIL_GLOBAL_PER_MINUTE: "1000",
   NOTIFY_SMS_PER_IP_PER_HOUR: "1000",
   NOTIFY_SMS_GLOBAL_PER_MINUTE: "1000",
+  REMINDER_RECONCILE_INTERVAL_SECONDS: "2",
+  REMINDER_MAX_LATENESS_MINUTES: "1440",
 };
 
 export default defineConfig({
@@ -85,6 +88,13 @@ export default defineConfig({
       command: "pnpm exec tsx src/main.ts",
       cwd: apiRoot,
       url: `${apiBase}/health`,
+      reuseExistingServer: false,
+      timeout: 180_000,
+      env: e2eEnv,
+    },
+    {
+      command: "pnpm exec tsx src/main.ts",
+      cwd: workerRoot,
       reuseExistingServer: false,
       timeout: 180_000,
       env: e2eEnv,

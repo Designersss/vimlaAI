@@ -117,7 +117,7 @@ export function WorkReminders(): ReactElement {
       <Heading as="h1" size="page">
         {t("work.reminders")}
       </Heading>
-      <Alert variant="info">{t("work.noDelivery")}</Alert>
+      <Alert variant="info">{t("work.deliveryEnabled")}</Alert>
       {user?.timezone ? (
         <Text tone="secondary">
           {t("work.timezone")}: {user.timezone}

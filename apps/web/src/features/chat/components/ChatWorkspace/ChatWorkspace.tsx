@@ -45,6 +45,7 @@ import { streamAssistantMessage } from "../../services/stream-message";
 import { ChatWorkspaceStore } from "../../stores/chat-workspace-store";
 import { LanguageSwitcher } from "../../../../shared/i18n/LanguageSwitcher";
 import { CanonicalNav } from "../../../shell/CanonicalNav";
+import { NotificationBell } from "../../../notifications/components/NotificationBell";
 import { readLocaleCookie, syncAuthenticatedLocale } from "../../../../shared/i18n/persist-locale";
 import { apiErrorMessageKey } from "../../../../shared/errors/error-keys";
 import { tx } from "../../../../shared/i18n/translate";
@@ -244,6 +245,7 @@ export const ChatWorkspace = observer(function ChatWorkspace(): ReactElement {
               />
             </div>
             <div className={styles.headerCluster}>
+              <NotificationBell />
               <UsageBlock usage={store.usage} />
             </div>
           </header>

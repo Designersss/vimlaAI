@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactElement, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useFocusTrap } from "../../hooks/useFocusTrap";
 import { XIcon } from "../../icons";
+import { cx } from "../../utils/cx";
 import { IconButton } from "../Button/Button";
 import styles from "./overlays.module.scss";
 
@@ -13,12 +14,14 @@ export function Drawer({
   title,
   children,
   closeLabel,
+  side = "left",
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: ReactNode;
   children: ReactNode;
   closeLabel: string;
+  side?: "left" | "right";
 }): ReactElement | null {
   const [panel, setPanel] = useState<HTMLElement | null>(null);
   const [mounted, setMounted] = useState(false);
@@ -54,7 +57,13 @@ export function Drawer({
   return createPortal(
     <>
       <div className={styles.drawerOverlay} onClick={() => onOpenChange(false)} />
-      <aside ref={setPanel} className={styles.drawer} role="dialog" aria-modal="true" aria-label={String(title)}>
+      <aside
+        ref={setPanel}
+        className={cx(styles.drawer, side === "right" ? styles.drawerRight : undefined)}
+        role="dialog"
+        aria-modal="true"
+        aria-label={String(title)}
+      >
         <div className={styles.header}>
           <strong>{title}</strong>
           <IconButton label={closeLabel} onClick={() => onOpenChange(false)}>

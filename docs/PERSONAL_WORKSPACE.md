@@ -22,7 +22,7 @@ Internal concept: `WorkspaceObject` with kinds `TASK | REMINDER | LIST | NOTE`.
 
 ## Scheduling vs delivery
 
-Phase 6 persists reminder **schedule data** (`PENDING` / `CANCELED`). It does not send email, SMS, or Web Push. UI copy is “saved/scheduled” only. Delivery is Phase 6.5.
+Phase 6 persists reminder **schedule data** (`PENDING` / `CANCELED`). UI copy describes in-app delivery after Phase 6.5; email is opt-in in Settings. Recurring reminders, Web Push, and SMS remain out of scope. See `docs/NOTIFICATIONS.md`.
 
 ## Security
 
@@ -52,6 +52,6 @@ Centralized in `WORKSPACE_LIMITS` (`@vimla/contracts`): title 1–200; task/remi
 
 ## Out of scope
 
-`@Vimla`, VIMLA_OPERATOR, Command Segments, Tool Registry, ActionPolicyEngine, ActionInvocation, notification delivery, recurring reminders, Projects, Project/Personal Brain, Files/RAG, Images, Video, Agents, Auto Router.
+`@Vimla`, VIMLA_OPERATOR, Command Segments, Tool Registry, ActionPolicyEngine, ActionInvocation, recurring reminders, Web Push, SMS, Projects, Project/Personal Brain, Files/RAG, Images, Video, Agents, Auto Router.
 
 Do not seed demo personal workspace rows in `pnpm db:seed`.

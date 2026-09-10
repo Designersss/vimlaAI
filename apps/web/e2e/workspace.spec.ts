@@ -33,7 +33,7 @@ test.describe("personal workspace", () => {
     await expect(page.getByText("Due today task")).toBeVisible();
 
     await page.getByRole("link", { name: /напоминания|reminders/i }).first().click();
-    await expect(page.getByText(/доставка пока не включена|delivery is not enabled yet/i)).toBeVisible();
+    await expect(page.getByText(/доставляются в приложении|delivered in the app/i)).toBeVisible();
     await expect(page.getByText(/we will email|push notification|отправим письмо/i)).toHaveCount(0);
     await page.getByLabel(/название|title/i).fill("Call dentist");
     await page.locator("#reminder-at").fill(nowLocal);

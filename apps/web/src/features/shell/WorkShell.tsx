@@ -22,6 +22,7 @@ import { AuthRequiredError, fetchCurrentUser } from "../auth/services/current-us
 import { authClient } from "../auth/services/auth-client";
 import { LanguageSwitcher } from "../../shared/i18n/LanguageSwitcher";
 import { CanonicalNav } from "./CanonicalNav";
+import { NotificationBell } from "../notifications/components/NotificationBell";
 import styles from "./WorkShell.module.scss";
 
 export function WorkShell({ children }: { children: ReactNode }): ReactElement {
@@ -110,13 +111,16 @@ export function WorkShell({ children }: { children: ReactNode }): ReactElement {
         }
       >
         <div data-testid="work-shell">
-          <nav className={styles.subnav} aria-label={t("nav.work")}>
-            {subnav("/work", t("work.today"), pathname === "/work")}
-            {subnav("/work/tasks", t("work.tasks"), pathname.startsWith("/work/tasks"))}
-            {subnav("/work/reminders", t("work.reminders"), pathname.startsWith("/work/reminders"))}
-            {subnav("/work/lists", t("work.lists"), pathname.startsWith("/work/lists"))}
-            {subnav("/work/notes", t("work.notes"), pathname.startsWith("/work/notes"))}
-          </nav>
+          <div className={styles.workHeader}>
+            <nav className={styles.subnav} aria-label={t("nav.work")}>
+              {subnav("/work", t("work.today"), pathname === "/work")}
+              {subnav("/work/tasks", t("work.tasks"), pathname.startsWith("/work/tasks"))}
+              {subnav("/work/reminders", t("work.reminders"), pathname.startsWith("/work/reminders"))}
+              {subnav("/work/lists", t("work.lists"), pathname.startsWith("/work/lists"))}
+              {subnav("/work/notes", t("work.notes"), pathname.startsWith("/work/notes"))}
+            </nav>
+            <NotificationBell />
+          </div>
           <div className={styles.page}>{children}</div>
         </div>
       </AppShell>

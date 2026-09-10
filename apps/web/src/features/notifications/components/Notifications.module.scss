@@ -1,0 +1,93 @@
+.bellWrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.dot {
+  position: absolute;
+  top: 0.35rem;
+  right: 0.35rem;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  background: var(--vimla-accent);
+  pointer-events: none;
+}
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--vimla-space-3);
+  min-height: 0;
+  flex: 1;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--vimla-space-1);
+  min-width: 0;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--vimla-space-2);
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  padding: var(--vimla-space-3);
+  border: 0;
+  border-radius: var(--vimla-radius-md);
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.row:hover,
+.row:focus-visible {
+  background: var(--vimla-surface-hover);
+}
+
+.unreadRow {
+  background: var(--vimla-accent-soft);
+}
+
+.rowBody {
+  display: grid;
+  gap: var(--vimla-space-1);
+  min-width: 0;
+}
+
+.title {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.meta {
+  margin: 0;
+  color: var(--vimla-text-secondary);
+  font-size: var(--vimla-type-caption-size);
+  overflow-wrap: anywhere;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--vimla-space-2);
+  align-items: center;
+}
+
+.prefRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--vimla-space-3);
+  min-width: 0;
+  min-height: 44px;
+}

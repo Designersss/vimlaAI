@@ -6,7 +6,7 @@ This document defines concepts, not final Prisma syntax.
 Owns conversations, files, projects, subscriptions and usage buckets. `User.id` is the canonical identity. Email/password credentials live in Better Auth `account` rows. `emailVerified` is false until a valid email OTP. `phoneNumber` is canonical E.164 and unique when set; `phoneNumberVerified` is true only after SMS OTP while authenticated.
 
 ## UserPreference
-Separate from Better Auth `User`. Stores UI/locale settings (`locale`, optional IANA `timezone`, timestamps). Timezone is written only after explicit confirmation. Numeric offsets are rejected.
+Separate from Better Auth `User`. Stores UI/locale settings (`locale`, optional IANA `timezone`, timestamps). Timezone is written only after explicit confirmation. Numeric offsets are rejected. Phase 6.5 stores reminder channel preferences: `reminderInAppEnabled` (default true) and `reminderEmailEnabled` (default false). Email stays off until the user opts in with a verified address. See `docs/NOTIFICATIONS.md`.
 
 ## Plan / PlanVersion
 `Plan` is stable identity (`LITE`, `START`, `PRO`, `FREE`, draft `T199`/`T499`/`T999`). `PlanVersion` snapshots commercial values. Lifecycle: `DRAFT` (editable, not sellable) → `PUBLISHED` (immutable commercial fields) → `RETIRED` (not sellable; historical payments remain valid). Price changes insert a new version.
@@ -100,7 +100,7 @@ User-owned chat history. Roles in Phase 3: `USER`, `ASSISTANT`. The API builds p
 ## WorkspaceObject
 Personal (Phase 6) owned row for `TASK`, `REMINDER`, `LIST`, or `NOTE`. `scopeType` is `PERSONAL` only. Child tables hold kind-specific fields. Soft delete uses `deletedAt`; archive uses `archivedAt`. Source conversation/message IDs are server-only provenance for a later `@Vimla` writer. Phase 8 may add PROJECT scope with a real project FK; do not store a dangling `projectId` now. See `docs/PERSONAL_WORKSPACE.md`.
 
-Reminders store schedule data. Delivery (email/push) is Phase 6.5, not this model.
+Reminders store schedule data (`PENDING` / `CANCELED` / `DELIVERED` / `FAILED`). Delivery is Phase 6.5: see `docs/NOTIFICATIONS.md`. PostgreSQL `notification_delivery` / `user_notification` are source of truth; Redis is transport only.
 
 ## GenerationJob
 Persistent async image/video/agent job state. Queue IDs are execution references, not source of truth.

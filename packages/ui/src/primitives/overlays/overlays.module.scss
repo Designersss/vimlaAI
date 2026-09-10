@@ -71,6 +71,14 @@
   gap: var(--vimla-space-4);
 }
 
+.drawerRight {
+  left: auto;
+  right: 0;
+  width: min(24rem, 100%);
+  border-right: none;
+  border-left: 1px solid var(--vimla-border);
+}
+
 .menu {
   position: absolute;
   z-index: var(--vimla-z-dropdown);

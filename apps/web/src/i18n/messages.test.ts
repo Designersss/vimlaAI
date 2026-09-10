@@ -23,6 +23,9 @@ describe("i18n dictionaries", () => {
     expect(ruKeys).toContain("nav.work");
     expect(ruKeys).toContain("work.today");
     expect(ruKeys).toContain("work.noDelivery");
+    expect(ruKeys).toContain("work.deliveryEnabled");
+    expect(ruKeys).toContain("nav.notifications");
+    expect(ruKeys).toContain("notifications.title");
     expect(JSON.stringify(en)).not.toMatch(/Acme|Sarah Chen|62% used of 1,240/i);
     expect(JSON.stringify(ru)).not.toMatch(/Acme|Sarah Chen/);
     expect(ruKeys).toContain("validation.passwordMin");
