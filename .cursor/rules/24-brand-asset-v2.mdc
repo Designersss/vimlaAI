@@ -1,0 +1,13 @@
+---
+description: Vimla brand asset consistency
+globs:
+  - "apps/web/**/*.{ts,tsx,scss}"
+  - "packages/ui/**/*.{ts,tsx,scss}"
+alwaysApply: true
+---
+
+# Brand consistency
+
+Generated reference images contain small variations of the Vimla mark. Do not recreate those variations. Use one canonical repository logo/brand asset everywhere.
+
+Vimla brand blue-violet is an identity accent, not the default color for all UI surfaces.

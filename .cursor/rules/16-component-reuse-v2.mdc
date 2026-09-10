@@ -1,0 +1,15 @@
+---
+description: Reuse canonical @vimla/ui components
+globs:
+  - "apps/web/**/*.{ts,tsx,scss}"
+  - "packages/ui/**/*.{ts,tsx,scss}"
+alwaysApply: true
+---
+
+# Canonical component reuse
+
+Before creating UI, search `@vimla/ui`. Reuse first, extend second, create page-local only for genuinely unique domain composition.
+
+Never create page-local substitutes for shared buttons, inputs, select, tabs, segmented controls, switches, checkboxes, menu/dropdown, dialog/sheet, toast/alert, list rows, navigation, composer or model selector.
+
+If multiple pages need a new visual pattern, it belongs in `@vimla/ui`.

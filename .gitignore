@@ -47,3 +47,10 @@ packages/database/generated/
 # Misc
 *.local
 .cache/
+
+# Cursor local/runtime files
+.cursor/*
+
+# But keep repository rules
+!.cursor/rules/
+!.cursor/rules/*.mdc

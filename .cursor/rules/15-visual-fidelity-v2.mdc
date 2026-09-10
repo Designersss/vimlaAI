@@ -1,0 +1,19 @@
+---
+description: Vimla v2 visual fidelity and reference hierarchy
+globs:
+  - "apps/web/**/*.{ts,tsx,scss,css}"
+  - "packages/ui/**/*.{ts,tsx,scss,css}"
+alwaysApply: true
+---
+
+# Vimla v2 visual fidelity
+
+Use `docs/design/references-v2` as the approved visual reference set.
+
+- Foundation PNGs define theme/color/type/radii/density/icon direction.
+- Component PNGs define reusable component proportions and states.
+- Desktop/tablet/mobile PNGs define composition patterns.
+- `08-auth-layout-concept.png` defines AUTH COMPOSITION ONLY; its old palette is not authoritative.
+- Domain/contracts/i18n override generated screenshot text/data.
+
+References are not vague inspiration. Match them closely using the shared system, but never pixel-trace via arbitrary coordinates.

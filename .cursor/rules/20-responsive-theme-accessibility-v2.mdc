@@ -1,0 +1,17 @@
+---
+description: Dark/light responsive and accessible Vimla UI
+globs:
+  - "apps/web/**/*.{ts,tsx,scss,css}"
+  - "packages/ui/**/*.{ts,tsx,scss,css}"
+alwaysApply: true
+---
+
+# Responsive/theme/accessibility
+
+Dark is primary; light is an equivalent theme using the same geometry. Use semantic tokens only.
+
+Test representative viewports: 320x568, 375x667, 390x844, 768x1024, 1024x768, 1280x800, 1440x900, 1920x1080.
+
+Tablet is a true reflow, not scaled desktop. Mobile has no desktop sidebar and uses safe-area/dvh/keyboard-aware layout.
+
+Coarse pointer targets >=44px. No hover-only critical action. Preserve keyboard navigation, focus-visible, labels and adequate contrast. No accidental document horizontal overflow.

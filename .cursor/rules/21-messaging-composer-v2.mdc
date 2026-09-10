@@ -1,0 +1,19 @@
+---
+description: Messages, @Vimla and model selector UI architecture
+globs:
+  - "apps/web/**/*.{ts,tsx,scss}"
+  - "packages/ui/**/*.{ts,tsx,scss}"
+alwaysApply: true
+---
+
+# Messaging / AI composer
+
+Model selection belongs only inside ordinary AI Composer. Never render page-level AUTO/PRO controls.
+
+Root: Auto > / PRO. Auto submenu: Minimum / Medium / Maximum. PRO opens a separate model picker with search/capability filters. Concrete models appear only in PRO picker.
+
+AI Composer includes a dedicated `◆ @Vimla` control. It must be designed for structured mention insertion, not regex side effects from arbitrary text.
+
+Direct/project human composer has no model selector by default. Dedicated Vimla operator conversation has no model selector at all.
+
+Phase 6.1 may implement presentation/readiness for structured mentions but must not implement Phase 7 operator execution backend.

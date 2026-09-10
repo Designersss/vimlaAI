@@ -1,0 +1,27 @@
+---
+description: One global navigation and drill-down page architecture
+globs:
+  - "apps/web/**/*.{ts,tsx,scss}"
+  - "packages/ui/**/*.{ts,tsx,scss}"
+alwaysApply: true
+---
+
+# Navigation
+
+Desktop/tablet have exactly one global navigation layer. Canonical destinations: Messages, My Work, Projects, ◆ Vimla, Settings.
+
+Never put recent conversations, folders, tasks, notes, reminders, lists, favorites, archive or project lists in the global sidebar.
+
+List/detail is drill-down:
+- Messages -> separate conversation page
+- Projects -> separate project page
+- Notes/Lists -> separate detail page
+
+No persistent ChatGPT-style second conversation sidebar.
+
+My Work local nav: Today / Tasks / Reminders / Lists / Notes.
+Project local nav: Overview / Chats / Work / Context / Members.
+
+Mobile bottom nav has exactly Messages / My Work / Projects / Vimla. Settings/profile via account UI.
+
+Do not create fake production routes for future features. Use real feature gates or dev-only presentation until the roadmap phase implements them.

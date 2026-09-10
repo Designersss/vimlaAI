@@ -1,0 +1,17 @@
+---
+description: Vimla subtle motion and interaction states
+globs:
+  - "apps/web/**/*.{tsx,scss,css}"
+  - "packages/ui/**/*.{tsx,scss,css}"
+alwaysApply: true
+---
+
+# Motion
+
+All interactive components require deliberate hover, focus-visible, pressed, disabled and selected/loading/error states where applicable.
+
+Use shared motion tokens: ~120–140ms fast, ~160–200ms standard, ~220–280ms overlays.
+
+Buttons may use tiny pressed scale. Inputs animate border/ring without layout shift. Menus fade/translate a few pixels. Dialogs fade + subtle scale/translate. Switch/checkbox/tabs animate state.
+
+No exaggerated bounce/glow. Respect prefers-reduced-motion. Functionality must not depend on animation.

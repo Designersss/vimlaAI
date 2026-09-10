@@ -1,0 +1,17 @@
+---
+description: Responsive Flex/Grid layout instead of screenshot coordinates
+globs:
+  - "apps/web/**/*.{tsx,scss,css}"
+  - "packages/ui/**/*.{tsx,scss,css}"
+alwaysApply: true
+---
+
+# Layout engineering
+
+Reconstruct layout logic using normal flow, Flexbox, CSS Grid, gap, padding, min-width:0, minmax(), clamp(), intrinsic sizing, max-width and auto margins.
+
+Do not use arbitrary absolute positioning, top/left coordinates, translateX/Y or magic margins for ordinary layout.
+
+Absolute/fixed/sticky only when semantics justify it: overlays, popovers, tooltips, badges, sticky header/composer, mobile bottom nav, decorative layers.
+
+A screenshot match achieved through brittle X/Y placement is a failed implementation.

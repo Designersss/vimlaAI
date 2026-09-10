@@ -1,0 +1,17 @@
+---
+description: Real data only and no fake future features
+globs:
+  - "apps/web/**/*.{ts,tsx}"
+  - "packages/ui/**/*.{ts,tsx}"
+alwaysApply: true
+---
+
+# Real product data
+
+Production UI must read real API/session/domain data. Never copy demo content from design PNGs.
+
+No fake production routes, arrays, users, projects, conversations, counts, prices, usage or notification states.
+
+Missing future features (Direct Chats, full Projects, @Vimla operator, Brain, Files, Images/Video, Agents, etc.) may appear only as dev/test presentation fixtures or behind genuine feature gates with no fake behavior.
+
+Empty/loading/error/disabled states are preferred to pretending a missing backend exists.
