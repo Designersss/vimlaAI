@@ -4,6 +4,9 @@ import type { EmailTemplateId, SmsTemplateId } from "./types.js";
 interface EmailTemplateInput {
   otp?: string;
   resetUrl?: string;
+  reminderTitle?: string;
+  scheduledLabel?: string;
+  openUrl?: string;
 }
 
 interface RenderedEmail {
@@ -55,6 +58,32 @@ const EMAIL_TEMPLATES: Record<
       text: `Your email-change verification code is ${otp ?? ""}.\nIt expires in 5 minutes.`,
     }),
   },
+  reminderDue: {
+    ru: ({ reminderTitle, scheduledLabel, openUrl }) => ({
+      subject: "Напоминание Vimla",
+      text: [
+        "Напоминание Vimla",
+        reminderTitle ? `«${reminderTitle}»` : "",
+        scheduledLabel ? `Запланировано на: ${scheduledLabel}` : "",
+        openUrl ? `Открыть в Vimla: ${openUrl}` : "",
+        "Если это письмо пришло по ошибке, проигнорируйте его.",
+      ]
+        .filter((line) => line.length > 0)
+        .join("\n"),
+    }),
+    en: ({ reminderTitle, scheduledLabel, openUrl }) => ({
+      subject: "Vimla reminder",
+      text: [
+        "Vimla reminder",
+        reminderTitle ? `"${reminderTitle}"` : "",
+        scheduledLabel ? `Scheduled for: ${scheduledLabel}` : "",
+        openUrl ? `Open in Vimla: ${openUrl}` : "",
+        "If you did not expect this email, you can ignore it.",
+      ]
+        .filter((line) => line.length > 0)
+        .join("\n"),
+    }),
+  },
 };
 
 const SMS_TEMPLATES: Record<
@@ -72,7 +101,9 @@ export function renderEmailTemplate(
   locale: VimlaLocale,
   input: EmailTemplateInput,
 ): RenderedEmail {
-  return EMAIL_TEMPLATES[templateId][locale](input);
+  const byLocale = EMAIL_TEMPLATES[templateId];
+  const render = byLocale[locale] ?? byLocale.ru;
+  return render(input);
 }
 
 export function renderSmsTemplate(
@@ -80,5 +111,7 @@ export function renderSmsTemplate(
   locale: VimlaLocale,
   otp: string,
 ): string {
-  return SMS_TEMPLATES[templateId][locale](otp);
+  const byLocale = SMS_TEMPLATES[templateId];
+  const render = byLocale[locale] ?? byLocale.ru;
+  return render(otp);
 }

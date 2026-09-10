@@ -4,7 +4,8 @@ export type EmailTemplateId =
   | "emailVerificationOtp"
   | "passwordReset"
   | "securityPasswordChanged"
-  | "changeEmailOtp";
+  | "changeEmailOtp"
+  | "reminderDue";
 
 export type SmsTemplateId = "phoneVerificationOtp";
 
@@ -25,7 +26,11 @@ export interface SmsMessage {
 
 export interface EmailProvider {
   readonly name: string;
-  sendEmail(message: EmailMessage): Promise<void>;
+  sendEmail(message: EmailMessage): Promise<EmailSendResult>;
+}
+
+export interface EmailSendResult {
+  providerMessageId?: string;
 }
 
 export interface SmsProvider {

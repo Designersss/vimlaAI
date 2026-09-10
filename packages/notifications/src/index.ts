@@ -1,6 +1,7 @@
 export type {
   EmailMessage,
   EmailProvider,
+  EmailSendResult,
   EmailTemplateId,
   NotificationAbuseLimits,
   NotificationCoordinationStore,
@@ -36,3 +37,25 @@ export {
   type EmailAdapterConfig,
   type SmsAdapterConfig,
 } from "./factory.js";
+export { NotificationPlatformError, isNotificationPlatformError } from "./platform/errors.js";
+export { reminderOccurrenceKey, scheduledInstantFromOccurrenceKey } from "./platform/occurrence-key.js";
+export { isPastMaxLateness } from "./platform/late-policy.js";
+export { classifyDeliveryError, nextAttemptAt, shouldRetry } from "./platform/retry-policy.js";
+export {
+  DEFAULT_REMINDER_PREFERENCES,
+  desiredReminderChannels,
+  resolveReminderPreferences,
+} from "./platform/preferences.js";
+export { evaluateReminderDelivery } from "./platform/eligibility.js";
+export { formatReminderInstant } from "./platform/format-time.js";
+export { sanitizeUserText } from "./platform/text.js";
+export { reminderHrefPath, reminderOpenUrl, sanitizeHrefPath } from "./platform/destinations.js";
+export { NotificationInboxService } from "./platform/inbox-service.js";
+export { NotificationPreferenceService } from "./platform/preference-service.js";
+export { ReminderReconciler } from "./platform/reconciler.js";
+export { NotificationDeliveryProcessor } from "./platform/delivery-processor.js";
+export type { ReminderEmailSendInput } from "./platform/delivery-processor.js";
+export type { ReminderReconcileCounters } from "./platform/reconciler.js";
+export type { PlatformLogger } from "./platform/logger.js";
+export { silentPlatformLogger } from "./platform/logger.js";
+export { deliveryJobId, NOTIFICATIONS_QUEUE_NAME, RECONCILE_JOB_NAME, DELIVER_JOB_NAME } from "./platform/queue-names.js";
