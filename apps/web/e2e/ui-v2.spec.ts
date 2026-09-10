@@ -33,12 +33,14 @@ test.describe("UI system v2", () => {
     await expect(page.getByRole("heading", { name: /сообщения|messages/i, level: 1 })).toBeVisible();
     await page.getByRole("button", { name: /новый разговор|new conversation/i }).click();
     await expect(page.getByPlaceholder(/сообщение для vimla|message vimla/i)).toBeVisible();
+    await page.getByRole("button", { name: /^pro ·|^про ·/i }).click();
+    await expect(page.getByRole("menuitem", { name: /^auto$/i })).toBeDisabled();
+    await page.keyboard.press("Escape");
     await page.getByRole("button", { name: /◆ @vimla/i }).focus();
     await expect(page.getByRole("button", { name: /◆ @vimla/i })).toBeFocused();
     await page.getByRole("button", { name: /◆ @vimla/i }).click();
     await expect(page.getByText("◆ @Vimla").first()).toBeVisible();
-    await page.getByRole("button", { name: /^pro ·/i }).click();
-    await expect(page.getByRole("menuitem", { name: /^auto$/i })).toBeDisabled();
+    await expect(page.getByRole("button", { name: /^pro ·|^про ·/i })).toHaveCount(0);
     await assertNoDocumentOverflow(page);
   });
 });
