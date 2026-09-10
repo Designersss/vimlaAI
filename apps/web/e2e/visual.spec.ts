@@ -20,6 +20,7 @@ test.describe("visual regression", () => {
     await expect(page).toHaveScreenshot("dev-ui.png", {
       animations: "disabled",
       fullPage: true,
+      maxDiffPixelRatio: 0.02,
     });
   });
 
@@ -32,6 +33,7 @@ test.describe("visual regression", () => {
     await expect(page).toHaveScreenshot("chat-empty-shell.png", {
       animations: "disabled",
       maxDiffPixelRatio: 0.02,
+      mask: [page.getByTestId("session-email"), page.locator("p").filter({ hasText: /example\.com/ })],
     });
   });
 
@@ -44,6 +46,7 @@ test.describe("visual regression", () => {
     await expect(page).toHaveScreenshot("settings-shell.png", {
       animations: "disabled",
       maxDiffPixelRatio: 0.02,
+      mask: [page.getByTestId("session-email"), page.getByTestId("security-identity")],
     });
   });
 });

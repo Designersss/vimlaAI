@@ -213,7 +213,7 @@ export function SecuritySettings(): ReactElement {
   return (
     <div className={panel.stack}>
       <Card>
-        <Text>
+        <Text data-testid="security-identity">
           {t("settings.email")}: {user.email} · {user.emailVerified ? t("settings.verified") : t("settings.unverified")}
         </Text>
         <Text>

@@ -101,7 +101,9 @@ export function ConsumerShell({
       </GlobalNav>
       <SidebarFooter>
         <LanguageSwitcher />
-        <p className={styles.user}>{user.email}</p>
+        <p className={styles.user} data-testid="session-email">
+          {user.email}
+        </p>
         <Button variant="ghost" size="sm" onClick={() => void signOut()}>
           <LogOutIcon size={16} aria-hidden="true" />
           {t("nav.signOut")}
