@@ -33,6 +33,10 @@ export class ChatWorkspaceStore {
     this.selectedModelId = models[0]?.id ?? "";
   }
 
+  setConversations(conversations: ConversationSummary[]): void {
+    this.conversations = conversations;
+  }
+
   setUsage(usage: UsageResponse): void {
     this.usage = usage;
   }

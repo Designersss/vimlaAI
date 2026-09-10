@@ -12,6 +12,8 @@ export default async function ForgotPasswordPage(): Promise<ReactElement> {
     <AuthPageFrame
       eyebrow={t("home.eyebrow")}
       title={t("auth.forgot.title")}
+      panelTitle={t("auth.panelTitle")}
+      panelBody={t("auth.panelForgot")}
       footer={
         <Text>
           <Link href="/sign-in">{t("auth.signIn")}</Link>

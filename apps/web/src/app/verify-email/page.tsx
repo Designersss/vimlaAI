@@ -7,7 +7,12 @@ export default async function VerifyEmailPage(): Promise<ReactElement> {
   const t = await getTranslations();
 
   return (
-    <AuthPageFrame eyebrow={t("home.eyebrow")} title={t("auth.verifyEmail.title")}>
+    <AuthPageFrame
+      eyebrow={t("home.eyebrow")}
+      title={t("auth.verifyEmail.title")}
+      panelTitle={t("auth.panelTitle")}
+      panelBody={t("auth.panelVerify")}
+    >
       <VerifyEmailForm />
     </AuthPageFrame>
   );

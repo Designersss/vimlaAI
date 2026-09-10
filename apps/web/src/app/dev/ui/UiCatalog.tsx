@@ -2,31 +2,44 @@
 
 import { useState, type ReactElement } from "react";
 import {
-  AiModeSelector,
+  AIConversationRow,
   Alert,
+  AttachmentCard,
   Avatar,
   AvatarGroup,
   Badge,
+  BaseListRow,
+  BrandLockup,
   Button,
   Card,
   Checkbox,
+  ChatComposer,
+  ConversationHeader,
   Dialog,
+  DirectConversationRow,
   Divider,
   Drawer,
   EmptyState,
   ErrorState,
+  FolderRow,
   FormField,
   Heading,
   IconButton,
   Input,
   MemberAvatarGroup,
+  ModelModeControl,
+  ModelPickerDialog,
+  NoteRow,
   OtpInput,
   Pagination,
   PasswordInput,
   PlanLockedBanner,
+  PlusIcon,
   Progress,
   ProjectCard,
   ProjectListItem,
+  ProjectLocalNav,
+  ProjectRow,
   ProjectStatusBadge,
   Radio,
   SearchInput,
@@ -37,15 +50,15 @@ import {
   StatusBadge,
   Switch,
   Table,
-  Tabs,
   Tab,
+  Tabs,
+  TaskRow,
   Text,
   Textarea,
   UsageMeter,
+  VimlaMentionChip,
   useAppearance,
   useToast,
-  ChatComposer,
-  PlusIcon,
 } from "@vimla/ui";
 
 export function UiCatalog(): ReactElement {
@@ -56,6 +69,8 @@ export function UiCatalog(): ReactElement {
   const [otp, setOtp] = useState("");
   const [mode, setMode] = useState<"pro" | "auto">("pro");
   const [draft, setDraft] = useState("");
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [selectedModel, setSelectedModel] = useState("demo-1");
 
   return (
     <main>
@@ -171,16 +186,26 @@ export function UiCatalog(): ReactElement {
 
       <section>
         <Heading as="h2" size="section">
-          AUTO / PRO
+          Brand / Composer / Model picker (DEMO)
         </Heading>
-        <AiModeSelector
+        <BrandLockup label="Vimla" />
+        <VimlaMentionChip label="◆ @Vimla" />
+        <ModelModeControl
           mode={mode}
-          onModeChange={setMode}
-          label="Mode"
-          proLabel="PRO"
-          autoLabel="AUTO"
+          autoLevel="medium"
           autoEnabled
-          autoHint="Catalog demo only. AUTO does not reveal a hidden model."
+          selectedModelLabel="Demo model"
+          autoLabel="Auto"
+          proLabel="PRO"
+          minimumLabel="Minimum"
+          mediumLabel="Medium"
+          maximumLabel="Maximum"
+          autoUnavailableHint="Catalog demo only."
+          onSelectAuto={() => setMode("auto")}
+          onSelectPro={() => {
+            setMode("pro");
+            setPickerOpen(true);
+          }}
         />
         <ChatComposer
           value={draft}
@@ -188,6 +213,25 @@ export function UiCatalog(): ReactElement {
           onSubmit={() => undefined}
           placeholder="Message Vimla"
           sendLabel="Send"
+          mentionControl={<Button variant="ghost" size="sm">◆ @Vimla</Button>}
+        />
+        <ModelPickerDialog
+          open={pickerOpen}
+          onOpenChange={setPickerOpen}
+          title="Choose a model"
+          searchLabel="Search models"
+          allLabel="All"
+          streamingLabel="Streaming"
+          cancelLabel="Cancel"
+          applyLabel="Apply"
+          emptyLabel="No models"
+          closeLabel="Close"
+          selectedId={selectedModel}
+          onApply={setSelectedModel}
+          models={[
+            { id: "demo-1", displayName: "Demo GPT", vendor: "openai", supportsStreaming: true },
+            { id: "demo-2", displayName: "Demo Claude", vendor: "anthropic", supportsStreaming: true },
+          ]}
         />
       </section>
 
@@ -221,7 +265,7 @@ export function UiCatalog(): ReactElement {
 
       <section>
         <Heading as="h2" size="section">
-          Future project primitives (DEMO FIXTURES)
+          Future page patterns (DEMO FIXTURES)
         </Heading>
         <Card>
           <ProjectListItem
@@ -233,6 +277,32 @@ export function UiCatalog(): ReactElement {
             <MemberAvatarGroup names={["Ada", "Ben"]} />
           </ProjectCard>
           <PlanLockedBanner title="DEMO: Plan locked" description="Presentational only." />
+          <ProjectLocalNav label="Project">
+            <Button size="sm" variant="ghost">
+              Overview
+            </Button>
+            <Button size="sm" variant="ghost">
+              Chats
+            </Button>
+            <Button size="sm" variant="ghost">
+              Work
+            </Button>
+            <Button size="sm" variant="ghost">
+              Context
+            </Button>
+            <Button size="sm" variant="ghost">
+              Members
+            </Button>
+          </ProjectLocalNav>
+          <AIConversationRow title="DEMO AI conversation" preview="Presentational only" time="10:24" />
+          <DirectConversationRow name="DEMO Person" preview="Not production data" time="10:24" />
+          <FolderRow title="DEMO folder" meta="Presentational" />
+          <NoteRow title="DEMO note" subtitle="Presentational" />
+          <ProjectRow title="DEMO project" subtitle="Presentational" members={<MemberAvatarGroup names={["Ada"]} />} />
+          <TaskRow title="DEMO task" subtitle="Presentational" />
+          <ConversationHeader title="DEMO conversation" />
+          <AttachmentCard name="DEMO.pdf" meta="Presentational" />
+          <BaseListRow title="DEMO list row" subtitle="Presentational" />
         </Card>
       </section>
 

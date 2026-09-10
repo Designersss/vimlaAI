@@ -92,8 +92,8 @@ html[data-theme="dark"] .badgeAccent {
   display: inline-flex;
 }
 
-.avatarGroup .avatar {
-  margin-left: -0.4rem;
+.avatarGroup .avatar + .avatar {
+  margin-left: calc(var(--vimla-space-2) * -1);
   border: 2px solid var(--vimla-surface);
 }
 

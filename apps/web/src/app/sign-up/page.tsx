@@ -12,6 +12,8 @@ export default async function SignUpPage(): Promise<ReactElement> {
     <AuthPageFrame
       eyebrow={t("home.eyebrow")}
       title={t("auth.signUp")}
+      panelTitle={t("auth.panelTitle")}
+      panelBody={t("auth.panelSignUp")}
       footer={
         <Text>
           {t("auth.hasAccount")} <Link href="/sign-in">{t("auth.signIn")}</Link>

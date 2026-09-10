@@ -1,6 +1,6 @@
 import type { FormEvent, ReactElement, ReactNode } from "react";
-import { SendIcon } from "../../icons";
-import { Button } from "../../primitives/Button/Button";
+import { SendIcon, VimlaMark, XIcon } from "../../icons";
+import { IconButton } from "../../primitives/Button/Button";
 import { Textarea } from "../../primitives/forms/Input";
 import { Segment, SegmentedControl } from "../../primitives/controls/Tabs";
 import { NativeSelect } from "../../primitives/forms/Input";
@@ -12,6 +12,28 @@ import { Text } from "../../primitives/typography/Typography";
 import { cx } from "../../utils/cx";
 import styles from "./chat.module.scss";
 
+export function VimlaMentionChip({
+  label,
+  onRemove,
+  removeLabel,
+}: {
+  label: string;
+  onRemove?: () => void;
+  removeLabel?: string;
+}): ReactElement {
+  return (
+    <span className={styles.mentionChip}>
+      <VimlaMark size={12} />
+      {label}
+      {onRemove && removeLabel ? (
+        <IconButton label={removeLabel} size="sm" onClick={onRemove}>
+          <XIcon size={12} />
+        </IconButton>
+      ) : null}
+    </span>
+  );
+}
+
 export function ChatComposer({
   value,
   onChange,
@@ -21,6 +43,10 @@ export function ChatComposer({
   disabled,
   sending,
   extra,
+  mentionControl,
+  modelControl,
+  chips,
+  variant = "ai",
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -30,6 +56,10 @@ export function ChatComposer({
   disabled?: boolean;
   sending?: boolean;
   extra?: ReactNode;
+  mentionControl?: ReactNode;
+  modelControl?: ReactNode;
+  chips?: ReactNode;
+  variant?: "ai" | "direct" | "operator";
 }): ReactElement {
   function handleSubmit(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
@@ -37,20 +67,24 @@ export function ChatComposer({
   }
 
   return (
-    <form className={styles.composer} onSubmit={handleSubmit}>
+    <form className={styles.composer} onSubmit={handleSubmit} data-composer-variant={variant}>
+      {chips ? <div className={styles.chipRow}>{chips}</div> : null}
       <Textarea
+        className={styles.composerField}
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
-        rows={3}
+        rows={2}
         disabled={disabled}
       />
       <div className={styles.composerActions}>
+        {mentionControl}
+        {modelControl}
         {extra}
-        <Button type="submit" disabled={disabled || sending} loading={sending}>
+        <span className={styles.composerGrow} />
+        <IconButton type="submit" variant="primary" disabled={disabled || sending} loading={sending} label={sendLabel}>
           <SendIcon size={16} aria-hidden="true" />
-          {sendLabel}
-        </Button>
+        </IconButton>
       </div>
     </form>
   );
@@ -64,9 +98,9 @@ export function UserMessage({
   children: ReactNode;
 }): ReactElement {
   return (
-    <article className={styles.message}>
-      <p className={cx(styles.role, styles.userRole)}>{label}</p>
-      <p className={styles.content}>{children}</p>
+    <article className={cx(styles.message, styles.messageUser)}>
+      <p className={styles.role}>{label}</p>
+      <p className={cx(styles.bubble, styles.bubbleUser)}>{children}</p>
     </article>
   );
 }
@@ -81,8 +115,28 @@ export function AssistantMessage({
   return (
     <article className={styles.message}>
       <p className={styles.role}>{label}</p>
-      <p className={styles.content}>{children}</p>
+      <p className={cx(styles.bubble)}>{children}</p>
     </article>
+  );
+}
+
+export function AttachmentCard({
+  name,
+  meta,
+  trailing,
+}: {
+  name: string;
+  meta?: string;
+  trailing?: ReactNode;
+}): ReactElement {
+  return (
+    <div className={styles.attachment}>
+      <div className={styles.projectMeta}>
+        <strong>{name}</strong>
+        {meta ? <Text tone="caption">{meta}</Text> : null}
+      </div>
+      {trailing}
+    </div>
   );
 }
 
@@ -113,6 +167,7 @@ export function ConversationItem({
 }
 
 export type AiInteractionMode = "pro" | "auto";
+export type AutoEffortLevel = "minimum" | "medium" | "maximum";
 
 export function AiModeSelector({
   mode,
@@ -253,5 +308,13 @@ export function ProjectWorkspaceHeader({ title, actions }: { title: string; acti
       <strong>{title}</strong>
       {actions}
     </header>
+  );
+}
+
+export function ProjectLocalNav({ children, label }: { children: ReactNode; label: string }): ReactElement {
+  return (
+    <nav aria-label={label} className={styles.filters}>
+      {children}
+    </nav>
   );
 }

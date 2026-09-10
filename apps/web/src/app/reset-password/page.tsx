@@ -9,7 +9,12 @@ export default async function ResetPasswordPage(): Promise<ReactElement> {
   const t = await getTranslations();
 
   return (
-    <AuthPageFrame eyebrow={t("home.eyebrow")} title={t("auth.reset.title")}>
+    <AuthPageFrame
+      eyebrow={t("home.eyebrow")}
+      title={t("auth.reset.title")}
+      panelTitle={t("auth.panelTitle")}
+      panelBody={t("auth.panelReset")}
+    >
       <Suspense fallback={<Spinner label={t("common.loading")} />}>
         <ResetPasswordForm />
       </Suspense>

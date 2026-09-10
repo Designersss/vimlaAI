@@ -22,8 +22,13 @@ export {
   CheckSquareIcon,
   ChevronDownIcon,
   ChevronLeftIcon,
+  ChevronRightIcon,
+  CircleUserIcon,
+  DownloadIcon,
   EyeIcon,
   EyeOffIcon,
+  FileTextIcon,
+  FolderIcon,
   FolderKanbanIcon,
   ListIcon,
   LoaderCircleIcon,
@@ -33,13 +38,17 @@ export {
   MessageSquareIcon,
   MonitorIcon,
   MoonIcon,
+  MoreHorizontalIcon,
+  PaperclipIcon,
   PinIcon,
   PlusIcon,
   SearchIcon,
   SendIcon,
   SettingsIcon,
+  SparklesIcon,
   StickyNoteIcon,
   SunIcon,
+  VimlaMark,
   XIcon,
 } from "./icons";
 export { Button, IconButton, buttonClassName, type ButtonProps, type ButtonSize, type ButtonVariant } from "./primitives/Button/Button";
@@ -51,8 +60,8 @@ export { FormField } from "./primitives/forms/FormField";
 export { OtpInput } from "./primitives/forms/OtpInput";
 export { Checkbox, Radio, Switch } from "./primitives/forms/Choice";
 export { Dialog, Modal } from "./primitives/overlays/Dialog";
-export { Drawer } from "./primitives/overlays/Drawer";
-export { DropdownMenu, DropdownMenuItem, Popover, Tooltip } from "./primitives/overlays/Menus";
+export { Drawer, Sheet } from "./primitives/overlays/Drawer";
+export { DropdownMenu, DropdownMenuItem, DropdownSubmenu, Popover, Tooltip } from "./primitives/overlays/Menus";
 export { ToastProvider, useToast, type ToastVariant } from "./primitives/overlays/Toast";
 export {
   Alert,
@@ -77,8 +86,12 @@ export {
   AppShell,
   AuthCard,
   AuthLayout,
+  BrandLockup,
   DataTableShell,
   FilterBar,
+  GlobalNav,
+  MobileBottomNavigation,
+  MobileNavItem,
   PageHeader,
   PageSection,
   SettingsLayout,
@@ -88,10 +101,13 @@ export {
   SidebarFooter,
   SidebarItem,
   SidebarSection,
+  mobileNavItemClassName,
+  sidebarItemClassName,
 } from "./patterns/AppShell";
 export {
   AiModeSelector,
   AssistantMessage,
+  AttachmentCard,
   ChatComposer,
   ConversationItem,
   MemberAvatarGroup,
@@ -99,9 +115,26 @@ export {
   PlanLockedBanner,
   ProjectCard,
   ProjectListItem,
+  ProjectLocalNav,
   ProjectStatusBadge,
   ProjectWorkspaceHeader,
   StreamingIndicator,
   UserMessage,
+  VimlaMentionChip,
   type AiInteractionMode,
+  type AutoEffortLevel,
 } from "./components/chat/Chat";
+export { ModelModeControl, ModelPickerDialog } from "./components/chat/ModelPicker";
+export { filterCatalogModels, uniqueModelVendors, type CatalogModelOption } from "./components/chat/model-filters";
+export {
+  AIConversationRow,
+  BaseListRow,
+  ConversationHeader,
+  DirectConversationRow,
+  FolderRow,
+  ListRow,
+  NoteRow,
+  ProjectRow,
+  ReminderRow,
+  TaskRow,
+} from "./components/rows/Rows";

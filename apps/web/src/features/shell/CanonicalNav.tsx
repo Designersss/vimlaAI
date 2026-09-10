@@ -4,31 +4,102 @@ import type { ReactElement } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { BriefcaseIcon, MessageSquareIcon, SettingsIcon, buttonClassName } from "@vimla/ui";
+import {
+  BriefcaseIcon,
+  CheckSquareIcon,
+  FolderIcon,
+  MessageSquareIcon,
+  SettingsIcon,
+  VimlaMark,
+  mobileNavItemClassName,
+  sidebarItemClassName,
+} from "@vimla/ui";
+import { CONSUMER_FEATURES } from "../../shared/config/consumer-features";
 
-export function CanonicalNav(): ReactElement {
+export function CanonicalNav({ compact = false }: { compact?: boolean }): ReactElement {
   const t = useTranslations();
   const pathname = usePathname();
+  const messagesActive = pathname === "/app" || pathname.startsWith("/app/");
+  const workActive = pathname === "/work" || pathname.startsWith("/work/");
+  const settingsActive = pathname.startsWith("/settings");
+
+  const items = [
+    {
+      href: "/app",
+      label: t("nav.messages"),
+      active: messagesActive,
+      icon: compact ? <MessageSquareIcon size={18} aria-hidden="true" /> : <MessageSquareIcon size={16} aria-hidden="true" />,
+    },
+    {
+      href: "/work",
+      label: compact ? t("nav.workShort") : t("nav.work"),
+      active: workActive,
+      icon: compact ? <CheckSquareIcon size={18} aria-hidden="true" /> : <BriefcaseIcon size={16} aria-hidden="true" />,
+    },
+  ];
+
+  if (CONSUMER_FEATURES.projects) {
+    items.push({
+      href: "/projects",
+      label: t("nav.projects"),
+      active: pathname.startsWith("/projects"),
+      icon: <FolderIcon size={compact ? 18 : 16} aria-hidden="true" />,
+    });
+  }
+
+  if (CONSUMER_FEATURES.vimlaOperator) {
+    items.push({
+      href: "/vimla",
+      label: t("nav.vimla"),
+      active: pathname.startsWith("/vimla"),
+      icon: <VimlaMark size={compact ? 18 : 16} />,
+    });
+  }
+
+  if (!compact) {
+    items.push({
+      href: "/settings/account",
+      label: t("nav.settings"),
+      active: settingsActive,
+      icon: <SettingsIcon size={16} aria-hidden="true" />,
+    });
+  }
+
+  if (compact) {
+    return (
+      <>
+        {items.map((item) => (
+          <Link
+            key={item.href}
+            href={item.href}
+            className={mobileNavItemClassName({
+              active: item.active,
+              brand: item.href === "/vimla",
+            })}
+          >
+            {item.icon}
+            <span>{item.label}</span>
+          </Link>
+        ))}
+      </>
+    );
+  }
 
   return (
-    <nav aria-label={t("work.title")}>
-      {item("/app", t("nav.chat"), pathname === "/app", <MessageSquareIcon size={16} aria-hidden="true" />)}
-      {item("/work", t("nav.work"), pathname === "/work" || pathname.startsWith("/work/"), <BriefcaseIcon size={16} aria-hidden="true" />)}
-      {item(
-        "/settings/security",
-        t("nav.settings"),
-        pathname.startsWith("/settings"),
-        <SettingsIcon size={16} aria-hidden="true" />,
-      )}
-    </nav>
-  );
-}
-
-function item(href: string, label: string, active: boolean, icon: ReactElement): ReactElement {
-  return (
-    <Link href={href} className={buttonClassName({ variant: active ? "primary" : "ghost", size: "sm" })}>
-      {icon}
-      {label}
-    </Link>
+    <>
+      {items.map((item) => (
+        <Link
+          key={item.href}
+          href={item.href}
+          className={sidebarItemClassName({
+            active: item.active,
+            brand: item.href === "/vimla",
+          })}
+        >
+          {item.icon}
+          {item.label}
+        </Link>
+      ))}
+    </>
   );
 }

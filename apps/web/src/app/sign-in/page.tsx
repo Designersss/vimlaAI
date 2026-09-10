@@ -17,6 +17,8 @@ export default function SignInPage(): ReactElement {
     <AuthPageFrame
       eyebrow={t("home.eyebrow")}
       title={t("auth.signIn")}
+      panelTitle={t("auth.panelTitle")}
+      panelBody={t("auth.panelBody")}
       footer={
         <>
           {tab === "email" ? (

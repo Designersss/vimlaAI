@@ -18,12 +18,18 @@
     background-color var(--vimla-duration-fast) var(--vimla-ease),
     border-color var(--vimla-duration-fast) var(--vimla-ease),
     color var(--vimla-duration-fast) var(--vimla-ease),
-    opacity var(--vimla-duration-fast) var(--vimla-ease);
+    opacity var(--vimla-duration-fast) var(--vimla-ease),
+    transform var(--vimla-duration-fast) var(--vimla-ease),
+    box-shadow var(--vimla-duration-fast) var(--vimla-ease);
 }
 
 .button:disabled {
   cursor: not-allowed;
-  opacity: 0.55;
+  opacity: 0.45;
+}
+
+.button:active:not(:disabled) {
+  transform: scale(var(--vimla-press-scale));
 }
 
 .primary {
@@ -60,16 +66,17 @@
 }
 
 .destructive {
-  background: var(--vimla-danger);
-  color: var(--vimla-text-inverse);
+  background: transparent;
+  color: var(--vimla-danger);
+  border-color: var(--vimla-danger);
 }
 
 .destructive:hover:not(:disabled) {
-  filter: brightness(1.05);
+  background: var(--vimla-danger-soft);
 }
 
 .sm {
-  min-height: 2rem;
+  min-height: 2.25rem;
   padding-inline: var(--vimla-space-3);
   font-size: var(--vimla-type-caption-size);
 }
@@ -107,6 +114,10 @@
 .iconButton {
   width: var(--vimla-control-height);
   padding: 0;
+}
+
+.iconButton.primary {
+  border-radius: var(--vimla-radius-md);
 }
 
 @media (pointer: coarse) {

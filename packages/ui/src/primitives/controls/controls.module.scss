@@ -20,6 +20,15 @@
   cursor: pointer;
   font-weight: 600;
   font-size: var(--vimla-type-secondary-size);
+  transition:
+    background-color var(--vimla-duration-fast) var(--vimla-ease),
+    color var(--vimla-duration-fast) var(--vimla-ease),
+    box-shadow var(--vimla-duration-fast) var(--vimla-ease);
+}
+
+.tab:hover:not(:disabled),
+.segment:hover:not(:disabled) {
+  color: var(--vimla-text);
 }
 
 .tab[aria-selected="true"],
@@ -33,6 +42,29 @@
 .segment:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+.underlineTabs {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  gap: var(--vimla-space-4);
+  border-bottom: 1px solid var(--vimla-border);
+  border-radius: 0;
+}
+
+.underlineTabs .tab {
+  border-radius: 0;
+  padding-inline: 0;
+  box-shadow: none;
+  border-bottom: 2px solid transparent;
+}
+
+.underlineTabs .tab[aria-selected="true"] {
+  background: transparent;
+  color: var(--vimla-accent);
+  border-bottom-color: var(--vimla-accent);
+  box-shadow: none;
 }
 
 @media (pointer: coarse) {
