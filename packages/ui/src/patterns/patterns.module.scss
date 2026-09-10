@@ -31,8 +31,13 @@
 .content {
   flex: 1;
   min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
+}
+
+.mobileContentPad {
+  padding-bottom: calc(var(--vimla-bottom-nav-height) + var(--vimla-safe-bottom));
 }
 
 .sidebar {
@@ -40,6 +45,7 @@
   flex-direction: column;
   gap: var(--vimla-space-4);
   min-height: 100%;
+  min-width: 0;
 }
 
 .sidebarNav {
@@ -75,11 +81,33 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  transition:
+    background-color var(--vimla-duration-fast) var(--vimla-ease),
+    color var(--vimla-duration-fast) var(--vimla-ease);
+}
+
+.item:hover {
+  background: var(--vimla-surface-hover);
+  color: var(--vimla-text);
 }
 
 .itemActive {
   background: var(--vimla-accent-soft);
   color: var(--vimla-text);
+}
+
+.itemBrand {
+  color: var(--vimla-brand);
+}
+
+.itemBrand.itemActive {
+  background: var(--vimla-brand-soft);
+  color: var(--vimla-brand);
+}
+
+.itemDisabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .footer {
@@ -90,12 +118,89 @@
   padding-top: var(--vimla-space-4);
 }
 
+.brandRow {
+  display: flex;
+  align-items: center;
+  gap: var(--vimla-space-2);
+  color: var(--vimla-text);
+  font-weight: 700;
+  min-width: 0;
+}
+
+.brandMark {
+  color: var(--vimla-brand);
+  display: inline-flex;
+}
+
+.globalNav {
+  display: flex;
+  flex-direction: column;
+  gap: var(--vimla-space-1);
+  min-width: 0;
+}
+
+.bottomNav {
+  display: flex;
+  align-items: stretch;
+  justify-content: space-around;
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: var(--vimla-z-nav);
+  min-height: var(--vimla-bottom-nav-height);
+  padding: var(--vimla-space-1) var(--vimla-space-2) calc(var(--vimla-safe-bottom) + var(--vimla-space-1));
+  border-top: 1px solid var(--vimla-border);
+  background: var(--vimla-surface);
+}
+
+.bottomItem {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+  min-height: 44px;
+  padding: var(--vimla-space-1);
+  border: 0;
+  background: transparent;
+  color: var(--vimla-text-muted);
+  text-decoration: none;
+  font-size: var(--vimla-type-caption-size);
+  font-weight: 600;
+}
+
+.bottomItemActive {
+  color: var(--vimla-accent);
+}
+
+.bottomItemBrand {
+  color: var(--vimla-brand);
+}
+
+.bottomLabel {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .auth {
   min-height: 100dvh;
   display: grid;
-  place-items: center;
-  padding: calc(var(--vimla-safe-top) + var(--vimla-space-4)) var(--vimla-page-pad)
-    calc(var(--vimla-safe-bottom) + var(--vimla-space-4));
+  grid-template-columns: 1fr;
+  background: var(--vimla-bg);
+}
+
+.authMain {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+  padding: calc(var(--vimla-safe-top) + var(--vimla-space-5)) var(--vimla-page-pad)
+    calc(var(--vimla-safe-bottom) + var(--vimla-space-5));
 }
 
 .authCard {
@@ -103,6 +208,23 @@
   display: flex;
   flex-direction: column;
   gap: var(--vimla-space-4);
+  margin: 0 auto;
+}
+
+.authPanel {
+  display: none;
+  min-width: 0;
+  padding: var(--vimla-space-8) var(--vimla-space-6);
+  background: var(--vimla-surface-secondary);
+  border-inline-start: 1px solid var(--vimla-border);
+}
+
+.authPanelInner {
+  display: flex;
+  flex-direction: column;
+  gap: var(--vimla-space-3);
+  max-width: 22rem;
+  margin: auto 0;
 }
 
 .settings {
@@ -139,9 +261,9 @@
   position: relative;
 }
 
-@media (min-width: 1024px) {
+@media (min-width: 768px) {
   .shell {
-    grid-template-columns: var(--vimla-sidebar-width) 1fr;
+    grid-template-columns: var(--vimla-sidebar-tablet) 1fr;
   }
 
   .shellCollapsed {
@@ -160,7 +282,46 @@
     top: 0;
   }
 
-  .mobileTopbar {
+  .mobileTopbar,
+  .bottomNav {
+    display: none;
+  }
+
+  .mobileContentPad {
+    padding-bottom: 0;
+  }
+
+  .auth {
+    grid-template-columns: minmax(0, 1.1fr) minmax(16rem, 0.9fr);
+  }
+
+  .auth:not(:has(.authPanel)) {
+    grid-template-columns: 1fr;
+  }
+
+  .authPanel {
+    display: flex;
+  }
+
+  .settings {
+    grid-template-columns: 13rem minmax(0, 1fr);
+    align-items: start;
+  }
+
+  .settingsNav {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
+
+@media (min-width: 1024px) {
+  .shell {
+    grid-template-columns: var(--vimla-sidebar-width) 1fr;
+  }
+}
+
+@media (max-width: 767px) {
+  .authPanel {
     display: none;
   }
 }

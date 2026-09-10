@@ -1,6 +1,6 @@
 import type { ReactElement } from "react";
-import { ChatWorkspace } from "../../features/chat/components/ChatWorkspace/ChatWorkspace";
+import { MessagesCollection } from "../../features/chat/components/ChatWorkspace/MessagesCollection";
 
 export default function AppHomePage(): ReactElement {
-  return <ChatWorkspace />;
+  return <MessagesCollection />;
 }

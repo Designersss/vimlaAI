@@ -1,3 +1,17 @@
+.collection {
+  display: flex;
+  flex-direction: column;
+  gap: var(--vimla-space-4);
+  min-width: 0;
+}
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--vimla-space-1);
+  min-width: 0;
+}
+
 .workspace {
   flex: 1;
   min-width: 0;
@@ -15,60 +29,6 @@
   min-width: 0;
 }
 
-.header {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--vimla-space-3);
-  align-items: center;
-  padding: var(--vimla-space-3) var(--vimla-page-pad);
-  border-bottom: 1px solid var(--vimla-border);
-  background: var(--vimla-surface);
-}
-
-.headerCluster {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--vimla-space-2);
-  align-items: center;
-  min-width: 0;
-}
-
-.user {
-  margin: 0;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--vimla-text-secondary);
-  font-size: var(--vimla-type-caption-size);
-}
-
-.brand {
-  margin: 0;
-  font-weight: 700;
-}
-
-.canonical {
-  display: grid;
-  gap: var(--vimla-space-2);
-}
-
 .status {
   padding: var(--vimla-space-6);
-}
-
-.mode {
-  display: flex;
-  flex-direction: column;
-  gap: var(--vimla-space-2);
-  min-width: 0;
-}
-
-.modelLabel {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--vimla-space-2);
-  align-items: center;
-  color: var(--vimla-text-secondary);
-  font-size: var(--vimla-type-secondary-size);
 }

@@ -16,17 +16,17 @@ test.describe("registration", () => {
   test("registers, verifies OTP and reaches the app in RU", async ({ page, request }) => {
     const email = uniqueEmail("e2e-ru");
     await signUp(page, { name: "Ada", email, password: "correct-horse-battery" }, "ru");
-    await expect(page.getByRole("heading")).toContainText(/подтвердите email/i);
+    await expect(page.getByRole("heading", { name: /подтвердите email/i })).toBeVisible();
     await verifyEmail(page, request, email);
-    await expect(page.getByRole("button", { name: /отправить/i })).toBeVisible();
+    await expect(page.getByRole("button", { name: /новый разговор/i })).toBeVisible();
   });
 
   test("registers a representative EN path", async ({ page, request }) => {
     const email = uniqueEmail("e2e-en");
     await signUp(page, { name: "Ada", email, password: "correct-horse-battery" }, "en");
-    await expect(page.getByRole("heading")).toContainText(/verify/i);
+    await expect(page.getByRole("heading", { name: /verify/i })).toBeVisible();
     await verifyEmail(page, request, email);
-    await expect(page.getByRole("button", { name: /send/i })).toBeVisible();
+    await expect(page.getByRole("button", { name: /new conversation/i })).toBeVisible();
   });
 
   test("shows a localized Vimla password error and does not create an account", async ({ page }) => {

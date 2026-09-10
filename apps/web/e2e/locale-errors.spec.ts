@@ -19,13 +19,13 @@ test.describe("locale and errors", () => {
     await signUp(page, { name: "Ada", email, password });
     await verifyEmail(page, request, email);
     await switchLocale(page, "en");
-    await expect(page.getByRole("button", { name: /new chat/i })).toBeVisible();
+    await expect(page.getByRole("button", { name: /new conversation/i })).toBeVisible();
     await page.reload();
-    await expect(page.getByRole("button", { name: /new chat/i })).toBeVisible();
+    await expect(page.getByRole("button", { name: /new conversation/i })).toBeVisible();
     await page.getByRole("button", { name: /sign out/i }).click();
     await signInEmail(page, email, password);
     await expect(page).toHaveURL(/\/app/);
-    await expect(page.getByRole("button", { name: /new chat/i })).toBeVisible();
+    await expect(page.getByRole("button", { name: /new conversation/i })).toBeVisible();
   });
 
   test("shows localized Vimla errors for credentials, verification, OTP, rate limit and AI", async ({
@@ -51,13 +51,14 @@ test.describe("locale and errors", () => {
 
     await verifyEmail(page, request, email);
     await page.goto("/app");
-    await page.getByRole("button", { name: /новый чат|new chat/i }).click();
+    await page.getByRole("button", { name: /новый разговор|new conversation/i }).click();
     await page.getByPlaceholder(/сообщение для vimla|message vimla/i).fill("Need usage");
     await page.getByRole("button", { name: /отправить|send/i }).click();
     await expect(page.locator("p").filter({ hasText: /недостаточно|not enough|usage/i }).first()).toBeVisible();
 
     await purchasePro(page);
     await page.goto("/app");
+    await page.getByRole("button", { name: /новый разговор|new conversation/i }).click();
     const composer = page.getByPlaceholder(/сообщение для vimla|message vimla/i);
     await expect(composer).toBeVisible();
     await composer.fill("Hello 0");
