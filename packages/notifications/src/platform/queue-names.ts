@@ -4,5 +4,5 @@ export const RECONCILE_SCHEDULER_ID = "reminder-reconcile";
 export const DELIVER_JOB_NAME = "deliver-notification";
 
 export function deliveryJobId(deliveryId: string): string {
-  return `notification-delivery:${deliveryId}`;
+  return `notification-delivery-${deliveryId}`;
 }

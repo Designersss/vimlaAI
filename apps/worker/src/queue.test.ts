@@ -10,7 +10,7 @@ describe("worker queue foundation", () => {
   it("uses a dedicated notifications queue with stable delivery job ids", () => {
     expect(NOTIFICATIONS_QUEUE_NAME).toBe("vimla-notifications");
     expect(deliveryJobId("11111111-1111-4111-8111-111111111111")).toBe(
-      "notification-delivery:11111111-1111-4111-8111-111111111111",
+      "notification-delivery-11111111-1111-4111-8111-111111111111",
     );
     expect(RECONCILE_SCHEDULER_ID).toBe("reminder-reconcile");
   });

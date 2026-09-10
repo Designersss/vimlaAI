@@ -51,7 +51,7 @@ Worker-owned retries use PostgreSQL + reconciliation, not BullMQ `attempts`.
 
 Occurrence key: `reminder:{reminderId}:{scheduledAt.toISOString()}`.
 
-Unique DB constraint: `(sourceType, sourceId, occurrenceKey, channel)`. In-app unique: `(userId, type, occurrenceKey)`. BullMQ `jobId` is `notification-delivery:{deliveryId}` and is extra protection only.
+Unique DB constraint: `(sourceType, sourceId, occurrenceKey, channel)`. In-app unique: `(userId, type, occurrenceKey)`. BullMQ `jobId` is `notification-delivery-{deliveryId}` (no colon; BullMQ rejects `:` in custom ids). This is extra protection only.
 
 ## Reconciliation
 
