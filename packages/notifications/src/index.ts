@@ -58,4 +58,10 @@ export type { ReminderEmailSendInput } from "./platform/delivery-processor.js";
 export type { ReminderReconcileCounters } from "./platform/reconciler.js";
 export type { PlatformLogger } from "./platform/logger.js";
 export { silentPlatformLogger } from "./platform/logger.js";
-export { deliveryJobId, NOTIFICATIONS_QUEUE_NAME, RECONCILE_JOB_NAME, DELIVER_JOB_NAME } from "./platform/queue-names.js";
+export {
+  deliveryJobId,
+  NOTIFICATIONS_QUEUE_NAME,
+  RECONCILE_JOB_NAME,
+  RECONCILE_SCHEDULER_ID,
+  DELIVER_JOB_NAME,
+} from "./platform/queue-names.js";

@@ -256,5 +256,14 @@ describe("loadWorkerConfig", () => {
     expect(config.emailProvider).toBe("memory");
     expect(config.reminderReconcileIntervalSeconds).toBe(60);
     expect(config.webOrigin).toBe("http://localhost:3000");
+    expect(config.workerHealthPort).toBeUndefined();
+  });
+
+  it("accepts an optional loopback health port", () => {
+    const config = loadWorkerConfig({
+      ...validSharedEnv,
+      WORKER_HEALTH_PORT: "3102",
+    });
+    expect(config.workerHealthPort).toBe(3102);
   });
 });

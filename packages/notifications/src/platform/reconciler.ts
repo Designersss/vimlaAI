@@ -42,7 +42,17 @@ export class ReminderReconciler {
     const now = this.now();
 
     try {
-      await this.createDueDeliveries(now, counters);
+      const maxRounds = 20;
+      for (let round = 0; round < maxRounds; round += 1) {
+        const createdBefore = counters.deliveryCreated;
+        const skippedBefore = counters.skipped;
+        const dueCount = await this.createDueDeliveries(now, counters);
+        const progressed =
+          counters.deliveryCreated > createdBefore || counters.skipped > skippedBefore;
+        if (dueCount < this.policy.batchSize || !progressed) {
+          break;
+        }
+      }
       await this.requeueExecutable(now, counters);
     } catch (error: unknown) {
       counters.failed += 1;
@@ -67,7 +77,7 @@ export class ReminderReconciler {
     return counters;
   }
 
-  private async createDueDeliveries(now: Date, counters: ReminderReconcileCounters): Promise<void> {
+  private async createDueDeliveries(now: Date, counters: ReminderReconcileCounters): Promise<number> {
     const due = await this.db.workspaceReminder.findMany({
       where: {
         status: "PENDING",
@@ -148,6 +158,7 @@ export class ReminderReconciler {
         }
       }
     }
+    return due.length;
   }
 
   private async ensureDelivery(input: {
@@ -211,7 +222,7 @@ export class ReminderReconciler {
       },
       select: { id: true },
       orderBy: [{ scheduledFor: "asc" }, { id: "asc" }],
-      take: this.policy.batchSize,
+      take: Math.min(this.policy.batchSize * 10, 2_000),
     });
 
     for (const row of executable) {

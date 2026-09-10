@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { signUp, uniqueEmail, verifyEmail } from "./helpers";
+import { createDueReminder, signUp, uniqueEmail, verifyEmail } from "./helpers";
 import { assertNoDocumentOverflow, assertReachable } from "./responsive-helpers";
 
 test.describe("notification platform", () => {
@@ -34,27 +34,19 @@ test.describe("notification platform", () => {
     await expect(page.getByText(/уведомлений пока нет|no notifications yet/i)).toBeVisible();
     await page.keyboard.press("Escape");
 
-    await page.getByRole("link", { name: /напоминания|reminders/i }).first().click();
-    await page.getByLabel(/название|title/i).fill("E2E reminder ping");
-    const due = toDatetimeLocal(new Date(Date.now() - 60_000));
-    await page.locator("#reminder-at").fill(due);
-    const tzConfirm = page.getByRole("checkbox", { name: /использовать|use /i });
-    if (await tzConfirm.count()) {
-      await tzConfirm.check();
-    }
-    await page.getByRole("button", { name: /создать|create/i }).click();
-    await expect(page.getByText("E2E reminder ping")).toBeVisible();
+    await createDueReminder(page, "E2E reminder ping");
 
-    await expect(page.getByTestId("notification-unread-dot")).toBeVisible({ timeout: 30_000 });
-    await page.getByTestId("notification-bell").click();
-    const item = page.getByRole("button", { name: /E2E reminder ping/i });
-    await expect(item).toBeVisible();
-    await item.click();
-    await expect(page.getByTestId("notification-unread-dot")).toHaveCount(0);
-
-    await page.getByTestId("notification-bell").click();
+    const item = page.getByTestId("notification-item").filter({ hasText: "E2E reminder ping" });
+    await expect(async () => {
+      await page.keyboard.press("Escape");
+      await page.getByTestId("notification-bell").click();
+      await expect(item).toBeVisible({ timeout: 2_000 });
+    }).toPass({ timeout: 45_000 });
+    await expect(page.getByTestId("notification-unread-dot")).toBeVisible();
     await page.getByRole("button", { name: /отметить все|mark all as read/i }).click();
-    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("notification-unread-dot")).toHaveCount(0);
+    await item.click();
+    await expect(page).toHaveURL(/\/work\/reminders/);
   });
 
   test("notification center fits mobile and desktop", async ({ page, request }) => {
@@ -77,8 +69,3 @@ test.describe("notification platform", () => {
     }
   });
 });
-
-function toDatetimeLocal(date: Date): string {
-  const pad = (value: number): string => String(value).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-}

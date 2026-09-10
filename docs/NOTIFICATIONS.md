@@ -55,12 +55,18 @@ Unique DB constraint: `(sourceType, sourceId, occurrenceKey, channel)`. In-app u
 
 ## Reconciliation
 
-Repeatable BullMQ job every `REMINDER_RECONCILE_INTERVAL_SECONDS` (default 60), plus a startup run. It:
+Repeatable BullMQ scheduler `reminder-reconcile` every `REMINDER_RECONCILE_INTERVAL_SECONDS` (default 60). The worker also runs one in-process reconcile after it is ready, so a Redis wipe + worker restart restores pending deliveries without waiting for the next tick. The scheduler uses BullMQ `upsertJobScheduler` (not `removeOnComplete: true` on a repeatable job) so cadence survives job completion.
+
+Optional `WORKER_HEALTH_PORT` serves `GET /health` on `127.0.0.1` after PostgreSQL, Redis, workers, the scheduler, and the startup reconcile are ready. It is not a public API.
+
+Each reconcile pass:
 
 1. Finds due `PENDING` reminders that are not archived/deleted
 2. Idempotently inserts needed `notification_delivery` rows (honoring current preferences, or `SKIPPED` if expired)
 3. Recovers expired `PROCESSING` leases
-4. Enqueues `PENDING`/`RETRYABLE` rows whose `nextAttemptAt` is due
+4. Enqueues `PENDING`/`RETRYABLE` rows whose `nextAttemptAt` is due (up to 10× batch size per pass)
+
+Expired due reminders are drained across additional rounds in the same pass (capped) so a large stale backlog cannot block newer occurrences forever.
 
 ## Worker claim
 

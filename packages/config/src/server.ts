@@ -214,6 +214,7 @@ export function loadWorkerConfig(
     notifyDeliveryBackoffBaseMs: parsed.NOTIFY_DELIVERY_BACKOFF_BASE_MS,
     notifyDeliveryBackoffCapMs: parsed.NOTIFY_DELIVERY_BACKOFF_CAP_MS,
     notifyDeliveryLeaseSeconds: parsed.NOTIFY_DELIVERY_LEASE_SECONDS,
+    workerHealthPort: parsed.WORKER_HEALTH_PORT,
     paymentProvider: parsed.PAYMENT_PROVIDER ?? resolveDefaultPaymentProvider(parsed.APP_ENV),
     paymentReconcileAfterSeconds: parsed.PAYMENT_RECONCILE_AFTER_SECONDS,
     billingMinTopupMicroRub: parsed.BILLING_MIN_TOPUP_MICRORUB,

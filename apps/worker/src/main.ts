@@ -4,11 +4,13 @@ import {
   DELIVER_JOB_NAME,
   NOTIFICATIONS_QUEUE_NAME,
   RECONCILE_JOB_NAME,
+  RECONCILE_SCHEDULER_ID,
 } from "@vimla/notifications";
 import { createCorrelationId } from "@vimla/shared";
 import { Queue, Worker } from "bullmq";
 import { Redis } from "ioredis";
 import pino from "pino";
+import { closeHttpServer, listenWorkerHealth } from "./health.js";
 import { createNotificationRuntime, parseDeliveryJobPayload } from "./notifications.js";
 import { createWorkerPaymentService } from "./payment-reconciliation.js";
 import { MAINTENANCE_QUEUE_NAME, redisConnectionOptions } from "./queue.js";
@@ -99,23 +101,28 @@ async function bootstrap(): Promise<void> {
       logger.info({ jobId: job.id, name: job.name }, "notification job started");
       return { ok: true as const };
     },
-    { connection: notificationConnection },
+    { connection: notificationConnection, concurrency: 4 },
   );
 
-  await notificationQueue.add(
-    RECONCILE_JOB_NAME,
-    { reason: "repeat" },
+  maintenanceWorker.on("error", (error: Error) => {
+    logger.error({ err: error.message }, "maintenance worker error");
+  });
+  notificationWorker.on("error", (error: Error) => {
+    logger.error({ err: error.message }, "notification worker error");
+  });
+  await maintenanceWorker.waitUntilReady();
+  await notificationWorker.waitUntilReady();
+
+  await notificationQueue.upsertJobScheduler(
+    RECONCILE_SCHEDULER_ID,
+    { every: config.reminderReconcileIntervalSeconds * 1000 },
     {
-      repeat: { every: config.reminderReconcileIntervalSeconds * 1000 },
-      removeOnComplete: true,
-      removeOnFail: true,
+      name: RECONCILE_JOB_NAME,
+      data: { reason: "repeat" },
     },
   );
-  await notificationQueue.add(
-    RECONCILE_JOB_NAME,
-    { reason: "startup" },
-    { removeOnComplete: true, removeOnFail: true },
-  );
+  const startupCounters = await notifications.reconciler.reconcile();
+  logger.info(startupCounters, "reminder.reconcile.startup");
 
   const paymentTimer = setInterval(() => {
     void payments
@@ -135,14 +142,24 @@ async function bootstrap(): Promise<void> {
     logger.error({ jobId: job?.id, err: error.message }, "notification job failed");
   });
 
+  const healthServer =
+    config.workerHealthPort !== undefined
+      ? await listenWorkerHealth(config.workerHealthPort)
+      : undefined;
+
   logger.info(
-    { maintenanceQueue: MAINTENANCE_QUEUE_NAME, notificationQueue: NOTIFICATIONS_QUEUE_NAME },
+    {
+      maintenanceQueue: MAINTENANCE_QUEUE_NAME,
+      notificationQueue: NOTIFICATIONS_QUEUE_NAME,
+      workerHealthPort: config.workerHealthPort ?? null,
+    },
     "worker ready",
   );
 
   const shutdown = async (signal: string): Promise<void> => {
     logger.info({ signal }, "worker shutting down");
     clearInterval(paymentTimer);
+    await closeHttpServer(healthServer);
     await notificationWorker.close();
     await maintenanceWorker.close();
     await notificationQueue.close();

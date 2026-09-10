@@ -83,6 +83,7 @@ export function NotificationBell(): ReactElement {
                   key={item.id}
                   type="button"
                   className={`${styles.row} ${item.readAt ? "" : styles.unreadRow}`.trim()}
+                  data-testid="notification-item"
                   onClick={() => void onOpenItem(item.id, item.hrefPath)}
                 >
                   <span className={styles.rowBody}>
