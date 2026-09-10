@@ -29,6 +29,7 @@ coverage/
 playwright-report/
 test-results/
 blob-report/
+dump.rdb
 
 # OS / editor
 .DS_Store
