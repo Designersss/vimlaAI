@@ -34,7 +34,15 @@ export function OperatorRunPanel({
           key={`${action.kind}-${action.title}-${index}`}
           title={action.title}
           detail={action.detail}
-          statusLabel={statusLabel(t, action)}
+          statusLabel={
+            action.status === "pending_confirmation"
+              ? t("operator.needsConfirmation")
+              : action.status === "error"
+                ? t("operator.failed")
+                : action.status === "skipped"
+                  ? t("operator.skipped")
+                  : t(`operator.ops.${action.operation}` as never)
+          }
           tone={toneOf(action.status)}
           hrefLabel={action.hrefPath ? t("operator.open") : undefined}
           onOpen={action.hrefPath ? () => router.push(action.hrefPath ?? "/work") : undefined}
@@ -60,20 +68,4 @@ function toneOf(status: OperatorAction["status"]): "neutral" | "success" | "warn
     return "danger";
   }
   return "neutral";
-}
-
-function statusLabel(
-  t: ReturnType<typeof useTranslations>,
-  action: OperatorAction,
-): string {
-  if (action.status === "pending_confirmation") {
-    return t("operator.needsConfirmation");
-  }
-  if (action.status === "error") {
-    return t("operator.failed");
-  }
-  if (action.status === "skipped") {
-    return t("operator.skipped");
-  }
-  return t(`operator.ops.${action.operation}`);
 }

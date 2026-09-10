@@ -51,6 +51,7 @@ export class OperatorRunsController {
   }
 
   @Post(":id/confirm")
+  @HttpCode(200)
   async confirm(
     @AuthUser() user: AuthenticatedUser,
     @Param("id") id: string,
@@ -61,6 +62,7 @@ export class OperatorRunsController {
   }
 
   @Post(":id/continue")
+  @HttpCode(200)
   async continueRun(
     @AuthUser() user: AuthenticatedUser,
     @Param("id") id: string,
@@ -71,6 +73,7 @@ export class OperatorRunsController {
   }
 
   @Post(":id/cancel")
+  @HttpCode(200)
   async cancel(@AuthUser() user: AuthenticatedUser, @Param("id") id: string): Promise<OperatorRunView> {
     return this.operator.cancelRun(user.id, id);
   }

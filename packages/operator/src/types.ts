@@ -1,11 +1,11 @@
 import type {
+  ActorContext,
   ListService,
   NoteService,
   ReminderService,
   TaskService,
+  TrustedSourceContext,
   WorkspaceTodayService,
-  type ActorContext,
-  type TrustedSourceContext,
 } from "@vimla/workspace";
 import type { NotificationPreferenceService } from "@vimla/notifications";
 import type { OperatorActionCard } from "@vimla/contracts";

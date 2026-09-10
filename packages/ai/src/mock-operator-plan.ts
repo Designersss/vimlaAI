@@ -1,5 +1,3 @@
-import { z } from "zod";
-
 const PLANNER_MARKER = "VIMLA_OPERATOR_PLANNER_V1";
 
 const uuidRe = /[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/i;
@@ -240,9 +238,3 @@ function nextNoonIso(): string {
   date.setUTCHours(12, 0, 0, 0);
   return date.toISOString();
 }
-
-export const mockOperatorPlanSchema = z.object({
-  intent: z.enum(["act", "clarify", "refuse"]),
-  userMessage: z.string(),
-  commands: z.array(z.unknown()),
-});
