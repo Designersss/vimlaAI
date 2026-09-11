@@ -22,6 +22,9 @@ export function parsePlannerOutput(raw: string): PlannerPlan {
   if (parsed.data.intent === "act" && parsed.data.commands.length === 0) {
     throw new OperatorError("PLAN_INVALID", "Act plan must include commands");
   }
+  if (parsed.data.intent === "answer" && parsed.data.commands.length > 0) {
+    throw new OperatorError("PLAN_INVALID", "Answer plan cannot include commands");
+  }
 
   if (parsed.data.intent === "clarify" && !parsed.data.clarificationQuestion) {
     throw new OperatorError("PLAN_INVALID", "Clarification plan must include a question");

@@ -176,6 +176,14 @@ async function dispatch(
       return { card: card("task", "read", task.title, null, "/work/tasks"), objectId: task.id };
     }
     case "tasks.create": {
+      const hint = optionalString(args.assigneeHint);
+      const resolved = context.invocation.resolveTaskOwner(hint);
+      if (resolved.type === "clarify") {
+        throw new OperatorError("CLARIFICATION_REQUIRED", resolved.question);
+      }
+      if (resolved.type === "deny") {
+        throw new OperatorError("TOOL_DENIED", resolved.message);
+      }
       const created = await context.services.tasks.create(
         actor,
         {
@@ -186,8 +194,15 @@ async function dispatch(
           dueAt: optionalString(args.dueAt),
         },
         source,
+        {
+          ownerUserId: resolved.ownerUserId,
+          assignedByUserId: resolved.assignedByUserId,
+          assignmentSourceType: resolved.assignmentSourceType,
+          assignmentSourceId: resolved.assignmentSourceId,
+        },
       );
-      return { card: card("task", "created", created.title, null, "/work/tasks"), objectId: created.id };
+      const detail = resolved.assignedByUserId ? "Assigned from Direct Chat" : null;
+      return { card: card("task", "created", created.title, detail, "/work/tasks"), objectId: created.id };
     }
     case "tasks.update": {
       const updated = await context.services.tasks.update(actor, String(args.id), {

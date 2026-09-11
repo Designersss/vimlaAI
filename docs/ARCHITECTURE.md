@@ -19,6 +19,9 @@ vimla/
     notifications/
     workspace/
     operator/
+    projects/
+    direct-chats/
+    e2ee/
     shared/
     ui/
   .cursor/rules/
@@ -342,6 +345,18 @@ Browser
 ```
 
 Non-members receive 404. Mutations are OriginGuard + SensitiveArea + per-user rate limit. `PROJECTS_ENABLED` defaults to false (`projects_disabled`). UI gate `CONSUMER_FEATURES.projects` is off unless `NEXT_PUBLIC_VIMLA_PROJECTS=true`. `lastOpenedAt` is written only by `POST /v1/projects/:id/open`. List and GET do not update it. Invite tokens are HMAC-hashed; the plaintext token is returned once to the inviter.
+
+## Direct Chats (Phase 9)
+```text
+Browser (IndexedDB keys)
+  -> /app, /app/direct/:id
+  -> /v1/direct-chats*
+  -> DirectChatsFacade -> @vimla/direct-chats
+  -> ciphertext + public device material in PostgreSQL
+  -> optional @Vimla OperatorRun (invocationScope=DIRECT_CHAT)
+```
+
+Server never stores Direct Chat plaintext or private keys. See `docs/DIRECT_CHATS.md`. `DIRECT_CHATS_ENABLED` / `NEXT_PUBLIC_VIMLA_DIRECT_CHATS` default false (`direct_chats_disabled`).
 
 ## Payments
 Use `PaymentProvider` abstraction (`MockPaymentProvider` | `TBankPaymentProvider`). Billing domain does not call T-Bank HTTP. Token/notification verification lives in the adapter. Domain must not depend on a T-Bank SDK.

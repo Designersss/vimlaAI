@@ -16,6 +16,7 @@ import { WorkspaceModule } from "./workspace/workspace.module.js";
 import { NotificationsModule } from "./notifications/notifications.module.js";
 import { OperatorModule } from "./operator/operator.module.js";
 import { ProjectsModule } from "./projects/projects.module.js";
+import { DirectChatsModule } from "./direct-chats/direct-chats.module.js";
 import { createPinoHttpOptions } from "./observability/logger.js";
 
 @Module({})
@@ -40,6 +41,7 @@ export class AppModule {
       NotificationsModule,
       OperatorModule,
       ProjectsModule,
+      DirectChatsModule,
     ];
 
     if (isDevBillingEnvironment(config.appEnv)) {

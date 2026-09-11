@@ -14,12 +14,14 @@ export {
 export { operatorToolNames, operatorToolInputSchemas, plannerOutputSchema } from "./tools/schemas.js";
 export type { OperatorToolName } from "./tools/schemas.js";
 export type {
+  OperatorInvocation,
   OperatorToolContext,
   OperatorToolServices,
   ParsedCommand,
   PlannerPlan,
   PreparedStep,
   SafeProfile,
+  TaskOwnerResolution,
   ToolHandlerResult,
   WorkspaceSnapshot,
   WorkspaceSnapshotItem,

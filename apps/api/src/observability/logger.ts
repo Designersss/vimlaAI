@@ -16,7 +16,11 @@ export function shouldSkipPinoAutoLogging(url: string | undefined): boolean {
   }
 
   const path = url.split("?")[0] ?? "";
-  return /\/v1\/conversations\/[^/]+\/messages$/.test(path);
+  return (
+    /\/v1\/conversations\/[^/]+\/messages$/.test(path) ||
+    /\/v1\/direct-chats\/[^/]+\/messages$/.test(path) ||
+    /\/v1\/operator\/runs/.test(path)
+  );
 }
 
 export function createPinoHttpOptions(logLevel: LogLevel): Options {
@@ -53,6 +57,13 @@ export function createPinoHttpOptions(logLevel: LogLevel): Options {
         "req.body.description",
         "req.body.text",
         "req.body.title",
+        "req.body.content",
+        "req.body.userText",
+        "req.body.contextBundle",
+        "req.body.envelopes",
+        "req.body.ciphertextB64",
+        "req.body.headerB64",
+        "req.body.senderSignatureB64",
         "req.body.cardNumber",
         "req.body.cvv",
         "req.body.Token",

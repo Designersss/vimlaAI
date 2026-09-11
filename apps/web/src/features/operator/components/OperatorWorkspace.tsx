@@ -191,6 +191,11 @@ export function OperatorWorkspace(): ReactElement {
                       errorCode: null,
                       actions: [],
                       conversationId: "",
+                      invocationScope: "PERSONAL",
+                      directConversationId: null,
+                      contextOwnIncluded: false,
+                      contextPeerIncluded: false,
+                      contextPeerDenied: false,
                       createdAt: message.createdAt,
                       updatedAt: message.createdAt,
                     }

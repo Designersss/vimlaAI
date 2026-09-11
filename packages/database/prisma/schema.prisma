@@ -43,6 +43,10 @@ model User {
   notificationDeliveries     NotificationDelivery[]
   operatorRuns               OperatorRun[]
   operatorAuditEvents        OperatorAuditEvent[]
+  cryptoDevices              UserCryptoDevice[]
+  directMemberships          DirectConversationMember[]
+  directMessagesSent         DirectMessage[]            @relation("DirectMessageSender")
+  assignedWorkspaceTasks     WorkspaceTask[]            @relation("TaskAssignedBy")
   twoFactorEnabled           Boolean           @default(false)
   twoFactor            TwoFactor?
   passkeys             Passkey[]
@@ -816,8 +820,13 @@ model WorkspaceTask {
   priority     String?
   dueAt        DateTime?
   completedAt  DateTime?
+  assignedByUserId         String?
+  assignedBy               User?    @relation("TaskAssignedBy", fields: [assignedByUserId], references: [id], onDelete: Restrict)
+  assignmentSourceType     String?
+  assignmentSourceId       String?
 
   @@index([status, dueAt])
+  @@index([assignedByUserId])
   @@map("workspace_task")
 }
 
@@ -955,6 +964,12 @@ model OperatorRun {
   confirmationExpiresAt    DateTime?
   plannerOutput            String?
   errorCode                String?
+  invocationScope          String   @default("PERSONAL")
+  directConversationId     String?
+  directConversation       DirectConversation? @relation(fields: [directConversationId], references: [id], onDelete: Restrict)
+  contextOwnIncluded       Boolean  @default(false)
+  contextPeerIncluded      Boolean  @default(false)
+  contextPeerDenied        Boolean  @default(false)
   createdAt                DateTime @default(now())
   updatedAt                DateTime @updatedAt
   steps                    OperatorRunStep[]
@@ -964,6 +979,7 @@ model OperatorRun {
   @@unique([userId, clientRequestId])
   @@index([userId, createdAt])
   @@index([conversationId, createdAt])
+  @@index([directConversationId, createdAt])
   @@index([status, updatedAt])
   @@map("operator_run")
 }
@@ -1008,4 +1024,113 @@ model OperatorAuditEvent {
   @@index([userId, createdAt])
   @@index([runId, createdAt])
   @@map("operator_audit_event")
+}
+
+// Phase 9: E2EE Direct Chats. Server stores ciphertext + public device material only.
+model UserCryptoDevice {
+  id                      String   @id @default(uuid())
+  userId                  String
+  user                    User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  identityEd25519Public   String
+  identityX25519Public    String
+  signedPrekeyId          Int
+  signedPrekeyPublic      String
+  signedPrekeySignature   String
+  label                   String?
+  revokedAt               DateTime?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+  oneTimePrekeys          DirectOneTimePrekey[]
+  sentMessages            DirectMessage[]
+  receivedEnvelopes       DirectMessageEnvelope[]
+
+  @@index([userId, revokedAt])
+  @@map("user_crypto_device")
+}
+
+model DirectOneTimePrekey {
+  id          String           @id @default(uuid())
+  deviceId    String
+  device      UserCryptoDevice @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+  keyId       Int
+  publicKey   String
+  consumedAt  DateTime?
+  createdAt   DateTime         @default(now())
+
+  @@unique([deviceId, keyId])
+  @@index([deviceId, consumedAt])
+  @@map("direct_one_time_prekey")
+}
+
+model DirectConversation {
+  id            String   @id @default(uuid())
+  pairKey       String   @unique
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  lastMessageAt DateTime @default(now())
+  members       DirectConversationMember[]
+  messages      DirectMessage[]
+  operatorRuns  OperatorRun[]
+
+  @@index([lastMessageAt])
+  @@map("direct_conversation")
+}
+
+model DirectConversationMember {
+  id                              String             @id @default(uuid())
+  conversationId                  String
+  conversation                    DirectConversation @relation(fields: [conversationId], references: [id], onDelete: Restrict)
+  userId                          String
+  user                            User               @relation(fields: [userId], references: [id], onDelete: Restrict)
+  lastReadAt                      DateTime?
+  lastReadMessageCreatedAt        DateTime?
+  shareOwnHistoryWithVimla        Boolean            @default(false)
+  includePeerHistoryWhenInvoking  Boolean            @default(false)
+  createdAt                       DateTime           @default(now())
+  updatedAt                       DateTime           @updatedAt
+
+  @@unique([conversationId, userId])
+  @@index([userId, lastReadAt])
+  @@map("direct_conversation_member")
+}
+
+model DirectMessage {
+  id             String             @id @default(uuid())
+  conversationId String
+  conversation   DirectConversation @relation(fields: [conversationId], references: [id], onDelete: Restrict)
+  senderUserId   String
+  sender         User               @relation("DirectMessageSender", fields: [senderUserId], references: [id], onDelete: Restrict)
+  senderDeviceId String
+  senderDevice   UserCryptoDevice   @relation(fields: [senderDeviceId], references: [id], onDelete: Restrict)
+  clientMessageId String
+  kind           String
+  createdAt      DateTime           @default(now())
+  envelopes      DirectMessageEnvelope[]
+
+  @@unique([conversationId, senderUserId, clientMessageId])
+  @@index([conversationId, createdAt])
+  @@index([senderDeviceId, createdAt])
+  @@map("direct_message")
+}
+
+model DirectMessageEnvelope {
+  id                   String           @id @default(uuid())
+  messageId            String
+  message              DirectMessage    @relation(fields: [messageId], references: [id], onDelete: Restrict)
+  recipientDeviceId    String
+  recipientDevice      UserCryptoDevice @relation(fields: [recipientDeviceId], references: [id], onDelete: Restrict)
+  senderDeviceId       String
+  headerB64            String
+  ciphertextB64        String
+  dhPublicB64          String
+  messageNumber        Int
+  previousChainLength  Int
+  senderSignatureB64   String
+  x3dhInitJson         String?
+  createdAt            DateTime         @default(now())
+
+  @@unique([messageId, recipientDeviceId])
+  @@unique([senderDeviceId, recipientDeviceId, dhPublicB64, messageNumber])
+  @@index([recipientDeviceId, createdAt])
+  @@map("direct_message_envelope")
 }

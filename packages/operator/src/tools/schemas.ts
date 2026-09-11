@@ -54,7 +54,9 @@ export const operatorToolInputSchemas = {
     })
     .strict(),
   "tasks.get": z.object({ id: objectIdSchema }).strict(),
-  "tasks.create": createTaskSchema,
+  "tasks.create": createTaskSchema.extend({
+    assigneeHint: z.string().trim().min(1).max(120).optional(),
+  }),
   "tasks.update": z
     .object({
       id: objectIdSchema,
@@ -149,7 +151,7 @@ export const plannerCommandSchema = z
 
 export const plannerOutputSchema = z
   .object({
-    intent: z.enum(["act", "clarify", "refuse"]),
+    intent: z.enum(["act", "clarify", "refuse", "answer"]),
     userMessage: z.string().trim().min(1).max(2_000),
     clarificationQuestion: z.string().trim().min(1).max(500).nullable().optional(),
     commands: z.array(plannerCommandSchema).max(8),

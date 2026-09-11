@@ -32,6 +32,8 @@ function toTaskView(row: {
     priority: string | null;
     dueAt: Date | null;
     completedAt: Date | null;
+    assignedByUserId: string | null;
+    assignedBy: { id: string; name: string } | null;
   } | null;
 }): TaskView {
   if (!row.task) {
@@ -49,7 +51,16 @@ function toTaskView(row: {
     archivedAt: iso(row.archivedAt),
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
+    assignedByUserId: row.task.assignedByUserId,
+    assignedByName: row.task.assignedBy?.name ?? null,
   };
+}
+
+export interface TaskAssignment {
+  ownerUserId: string;
+  assignedByUserId: string | null;
+  assignmentSourceType: string | null;
+  assignmentSourceId: string | null;
 }
 
 export function completedAtForStatus(status: string, at: Date): Date | null {
@@ -63,17 +74,21 @@ export class TaskService {
     actor: ActorContext,
     input: CreateTask,
     source?: TrustedSourceContext,
+    assignment?: TaskAssignment,
   ): Promise<TaskView> {
     const status = input.status ?? "TODO";
     if (status === "DONE") {
       throw new WorkspaceError("STATUS_INVALID", "New tasks cannot start as DONE");
     }
+    const ownerUserId = assignment?.ownerUserId ?? actor.userId;
+    const assignedByUserId =
+      assignment?.assignedByUserId && assignment.assignedByUserId !== ownerUserId ? assignment.assignedByUserId : null;
     const now = new Date();
     const created = await this.db.workspaceObject.create({
       data: {
         kind: "TASK",
         scopeType: "PERSONAL",
-        personalOwnerUserId: actor.userId,
+        personalOwnerUserId: ownerUserId,
         createdByUserId: actor.userId,
         sourceConversationId: source?.conversationId,
         sourceMessageId: source?.messageId,
@@ -85,10 +100,13 @@ export class TaskService {
             priority: input.priority ?? null,
             dueAt: input.dueAt ? new Date(input.dueAt) : null,
             completedAt: completedAtForStatus(status, now),
+            assignedByUserId,
+            assignmentSourceType: assignedByUserId ? assignment?.assignmentSourceType ?? null : null,
+            assignmentSourceId: assignedByUserId ? assignment?.assignmentSourceId ?? null : null,
           },
         },
       },
-      include: { task: true },
+      include: { task: { include: { assignedBy: { select: { id: true, name: true } } } } },
     });
     return toTaskView(created);
   }
@@ -198,7 +216,7 @@ export class TaskService {
     };
     return this.db.workspaceObject.findMany({
       where,
-      include: { task: true },
+      include: { task: { include: { assignedBy: { select: { id: true, name: true } } } } },
       orderBy: group === "a" ? activeOrderBy : finishedOrderBy,
       take,
     });
@@ -243,7 +261,7 @@ export class TaskService {
   private async load(actor: ActorContext, id: string) {
     const row = await this.db.workspaceObject.findFirst({
       where: { id, personalOwnerUserId: actor.userId, kind: "TASK", deletedAt: null },
-      include: { task: true },
+      include: { task: { include: { assignedBy: { select: { id: true, name: true } } } } },
     });
     if (!row) {
       throw new WorkspaceError("NOT_FOUND", "Task not found");

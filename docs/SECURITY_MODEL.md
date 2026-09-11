@@ -80,6 +80,9 @@ The LLM never receives Prisma, SQL, Redis, shell, filesystem, env, Admin API, or
 ### Projects (Phase 8)
 Project membership is server-authoritative. Non-members receive 404 (not 403). Owner plan is the only entitlement subject; a paid member cannot unlock `PLAN_LOCKED`. There is no ownership-transfer API. Invite tokens are HMAC-hashed; accept requires the authenticated email to match. `lastOpenedAt` is not updated by list or prefetch. `PROJECTS_ENABLED` defaults to false; disabled endpoints return `projects_disabled`. UI entry points stay behind `CONSUMER_FEATURES.projects`.
 
+### Direct Chats (Phase 9)
+Direct Chat plaintext is E2EE: the API stores ciphertext, public keys and metadata only. Membership and sender device ownership are server-authoritative (IDOR 404, no sender spoof). Envelopes are signed and bound to conversation/sender/recipient/kind; replay rows are unique. `@Vimla` does not decrypt history; the client may send a bounded context bundle that the server re-filters with both consent flags. Peer workspace objects stay out of reach. Task assignees are resolved from chat membership, never from model-supplied user ids. `DIRECT_CHATS_ENABLED` defaults to false (`direct_chats_disabled`). See `docs/DIRECT_CHATS.md`.
+
 ### Infrastructure
 Private DB/Redis, WAF/DDoS layer, TLS/security headers, least-privilege containers, secure management access, backups and restore tests.
 

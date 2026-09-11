@@ -93,12 +93,27 @@ export function mockOperatorPlannerResponse(messages: ReadonlyArray<{ content: s
     });
   }
 
-  const title = extractQuoted(userText) ?? extractTaskTitle(userText) ?? "New task";
+  if (isAssignTaskIntent(lower) || isTaskIntent(lower)) {
+    const title = extractQuoted(userText) ?? extractTaskTitle(userText) ?? "New task";
+    const assigneeHint = extractAssigneeHint(userText);
+    return JSON.stringify({
+      intent: "act",
+      userMessage: `I will create the task «${title}».`,
+      clarificationQuestion: null,
+      commands: [
+        {
+          tool: "tasks.create",
+          args: assigneeHint ? { title, assigneeHint } : { title },
+        },
+      ],
+    });
+  }
+
   return JSON.stringify({
-    intent: "act",
-    userMessage: `I will create the task «${title}».`,
+    intent: "answer",
+    userMessage: answerFor(userText),
     clarificationQuestion: null,
-    commands: [{ tool: "tasks.create", args: { title } }],
+    commands: [],
   });
 }
 
@@ -148,6 +163,31 @@ function isListIntent(lower: string): boolean {
 
 function isReminderIntent(lower: string): boolean {
   return lower.includes("напоминан") || lower.includes("reminder");
+}
+
+function isAssignTaskIntent(lower: string): boolean {
+  return lower.includes("поставь") || lower.includes("назнач") || lower.includes("assign");
+}
+
+function isTaskIntent(lower: string): boolean {
+  return lower.includes("задач") || lower.includes("task") || lower.includes("создай") || lower.includes("create");
+}
+
+function extractAssigneeHint(value: string): string | undefined {
+  const assign = value.match(/(?:поставь|назначь|assign)\s+(.+?)\s+(?:задач|(?:a\s+)?task)/i);
+  const captured = assign?.[1]?.trim();
+  if (!captured) {
+    return undefined;
+  }
+  const cleaned = captured.replace(/^мне$|^себе$|^меня$|^me$|^myself$/i, "").trim();
+  return cleaned.length > 0 ? cleaned.slice(0, 80) : undefined;
+}
+
+function answerFor(userText: string): string {
+  if (/гран-при|grand prix|победи|who won/i.test(userText)) {
+    return "I don't have a live sports feed in this phase, but I can help with tasks in this chat.";
+  }
+  return "I can help with that from this Direct Chat without changing workspace items.";
 }
 
 function detectDeleteKind(lower: string): "tasks" | "reminders" | "notes" | "lists" {

@@ -10,7 +10,7 @@ loadDotenv({
 });
 
 const nextConfig: NextConfig = {
-  transpilePackages: ["@vimla/config", "@vimla/contracts", "@vimla/shared", "@vimla/ui", "better-auth"],
+  transpilePackages: ["@vimla/config", "@vimla/contracts", "@vimla/shared", "@vimla/ui", "@vimla/e2ee", "better-auth"],
   distDir: process.env.NEXT_DIST_DIR ?? ".next",
   sassOptions: {
     implementation: "sass",

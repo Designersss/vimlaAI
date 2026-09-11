@@ -81,8 +81,10 @@ export function DirectConversationRow(props: {
   name: string;
   preview?: string;
   time?: string;
+  unreadCount?: number;
   href?: string;
   onSelect?: () => void;
+  selected?: boolean;
 }): ReactElement {
   return (
     <BaseListRow
@@ -90,8 +92,10 @@ export function DirectConversationRow(props: {
       title={props.name}
       subtitle={props.preview}
       meta={props.time}
+      trailing={props.unreadCount ? <Badge variant="accent">{props.unreadCount}</Badge> : undefined}
       href={props.href}
       onClick={props.onSelect}
+      selected={props.selected}
     />
   );
 }

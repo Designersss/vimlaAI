@@ -1,0 +1,44 @@
+.workspace {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+}
+
+.messages {
+  overflow: auto;
+  padding: var(--vimla-space-4) var(--vimla-page-pad);
+  display: flex;
+  flex-direction: column;
+  gap: var(--vimla-space-4);
+  min-width: 0;
+}
+
+.privacy {
+  display: flex;
+  flex-direction: column;
+  gap: var(--vimla-space-2);
+  padding: var(--vimla-space-3) var(--vimla-page-pad);
+}
+
+.kind {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--vimla-space-2);
+}
+
+.undecryptable {
+  opacity: 0.8;
+}
+
+.status {
+  padding: var(--vimla-space-6);
+}
+
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--vimla-space-3);
+  align-items: center;
+}

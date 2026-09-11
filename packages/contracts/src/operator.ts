@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { operatorContextBundleSchema } from "./direct-chats.js";
 
 export const OPERATOR_LIMITS = {
   contentMin: 1,
@@ -61,6 +62,9 @@ export const operatorActionCardSchema = z.object({
 });
 export type OperatorActionCard = z.infer<typeof operatorActionCardSchema>;
 
+export const operatorInvocationScopeSchema = z.enum(["PERSONAL", "DIRECT_CHAT"]);
+export type OperatorInvocationScope = z.infer<typeof operatorInvocationScopeSchema>;
+
 export const operatorRunViewSchema = z.object({
   id: z.string().uuid(),
   status: operatorRunStatusSchema,
@@ -71,6 +75,11 @@ export const operatorRunViewSchema = z.object({
   errorCode: z.string().nullable(),
   actions: z.array(operatorActionCardSchema),
   conversationId: z.string().min(1),
+  invocationScope: operatorInvocationScopeSchema,
+  directConversationId: z.string().uuid().nullable(),
+  contextOwnIncluded: z.boolean(),
+  contextPeerIncluded: z.boolean(),
+  contextPeerDenied: z.boolean(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -96,8 +105,35 @@ export const createOperatorRunSchema = z
     clientRequestId: z.string().uuid(),
     content: z.string().trim().min(OPERATOR_LIMITS.contentMin).max(OPERATOR_LIMITS.contentMax),
     conversationId: z.string().min(1).max(64).optional(),
+    invocationScope: operatorInvocationScopeSchema.optional(),
+    directConversationId: z.string().uuid().optional(),
+    contextBundle: operatorContextBundleSchema.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, ctx) => {
+    const scope = value.invocationScope ?? "PERSONAL";
+    if (scope === "DIRECT_CHAT" && !value.directConversationId) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["directConversationId"],
+        message: "directConversationId is required for Direct Chat operator runs",
+      });
+    }
+    if (scope === "PERSONAL" && value.directConversationId) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["directConversationId"],
+        message: "directConversationId is not allowed for personal operator runs",
+      });
+    }
+    if (scope === "PERSONAL" && value.contextBundle) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["contextBundle"],
+        message: "contextBundle is only allowed for Direct Chat operator runs",
+      });
+    }
+  });
 export type CreateOperatorRun = z.infer<typeof createOperatorRunSchema>;
 
 export const confirmOperatorRunSchema = z

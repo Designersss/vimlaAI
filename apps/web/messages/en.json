@@ -221,6 +221,31 @@
     "topupUsed": "Top-up {percent}% used",
     "signedInAs": "Signed in as {email}"
   },
+  "direct": {
+    "loading": "Loading Direct Chat…",
+    "failed": "Unable to open this Direct Chat.",
+    "newChat": "New Direct Chat",
+    "start": "Start chat",
+    "peerEmail": "Participant email",
+    "inbox": "Inbox type",
+    "tabAll": "All",
+    "tabAi": "AI",
+    "tabDirect": "Direct",
+    "empty": "Send an end-to-end encrypted message.",
+    "emptyList": "No Direct Chats yet.",
+    "placeholder": "Message this person",
+    "e2eeSubtitle": "End-to-end encrypted",
+    "shareOwn": "Allow @Vimla to use my messages in this chat",
+    "includePeer": "Include the other person's messages when I mention @Vimla",
+    "peerAllowed": "The other person allows their messages to be used as @Vimla context.",
+    "peerDenied": "The other person's messages stay out of @Vimla unless they also allow it.",
+    "loadOlder": "Load earlier messages",
+    "undecryptable": "This message cannot be decrypted on this device.",
+    "invoke": "@Vimla request",
+    "contextShared": "Chat context sent to @Vimla",
+    "contextDenied": "No extra chat history sent",
+    "action": "@Vimla action"
+  },
   "operator": {
     "title": "@Vimla",
     "loading": "Loading @Vimla…",
@@ -421,6 +446,10 @@
     "project_invite_invalid": "This invite is invalid or has expired.",
     "project_invite_email_mismatch": "This invite belongs to a different email.",
     "project_role_forbidden": "That role change is not allowed.",
+    "direct_chats_disabled": "Direct Chats are temporarily disabled.",
+    "direct_chat_device_revoked": "This device was revoked for Direct Chats.",
+    "direct_chat_recipient_device_missing": "The other person has no active device yet.",
+    "direct_chat_context_denied": "Chat context was not shared with @Vimla.",
     "generic": "The request failed. Try again."
   },
   "notifications": {

@@ -17,6 +17,7 @@
     "@vimla/contracts": "workspace:*",
     "@vimla/shared": "workspace:*",
     "@vimla/ui": "workspace:*",
+    "@vimla/e2ee": "workspace:*",
     "better-auth": "^1.7.3",
     "mobx": "^6.13.7",
     "mobx-react-lite": "^4.1.0",
