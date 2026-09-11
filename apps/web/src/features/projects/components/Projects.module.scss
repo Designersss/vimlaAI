@@ -1,0 +1,60 @@
+.stack {
+  display: grid;
+  gap: var(--vimla-space-4);
+  min-width: 0;
+}
+
+.form {
+  display: grid;
+  gap: var(--vimla-space-3);
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--vimla-space-2);
+  align-items: center;
+}
+
+.grow {
+  flex: 1;
+  min-width: 12rem;
+}
+
+.list {
+  display: grid;
+  gap: var(--vimla-space-2);
+  min-width: 0;
+}
+
+.cardLink {
+  display: block;
+  min-width: 0;
+  text-decoration: none;
+  color: inherit;
+}
+
+.memberRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--vimla-space-3);
+  align-items: center;
+}
+
+.memberMeta {
+  display: grid;
+  gap: var(--vimla-space-1);
+  min-width: 0;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--vimla-space-2);
+  align-items: center;
+}
+
+.inviteLink {
+  overflow-wrap: anywhere;
+  min-width: 0;
+}

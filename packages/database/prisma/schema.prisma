@@ -36,6 +36,9 @@ model User {
   aiRequests                 AiRequest[]
   ownedWorkspaceObjects      WorkspaceObject[] @relation("WorkspacePersonalOwner")
   createdWorkspaceObjects    WorkspaceObject[] @relation("WorkspaceCreatedBy")
+  ownedProjects              Project[]         @relation("ProjectOwner")
+  projectMemberships         ProjectMember[]
+  projectInvitesCreated      ProjectInvite[]   @relation("ProjectInviteCreatedBy")
   userNotifications          UserNotification[]
   notificationDeliveries     NotificationDelivery[]
   operatorRuns               OperatorRun[]
@@ -722,7 +725,60 @@ model AdminSecurityEvent {
   @@map("admin_security_event")
 }
 
-// Phase 6: personal Workspace objects. PROJECT scope is a Phase 8 migration; do not add a dangling projectId.
+// Phase 8: Projects + collaboration. Entitlement lock state is computed from owner/member
+// plans and ProjectMember.lastOpenedAt; it is never stored as a durable project status.
+model Project {
+  id          String          @id @default(uuid())
+  ownerUserId String
+  owner       User            @relation("ProjectOwner", fields: [ownerUserId], references: [id], onDelete: Restrict)
+  name        String
+  description String?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  members     ProjectMember[]
+  invites     ProjectInvite[]
+
+  @@index([ownerUserId, createdAt])
+  @@map("project")
+}
+
+model ProjectMember {
+  id           String   @id @default(uuid())
+  projectId    String
+  project      Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  role         String
+  lastOpenedAt DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([projectId, userId])
+  @@index([userId, lastOpenedAt])
+  @@index([projectId, role])
+  @@map("project_member")
+}
+
+model ProjectInvite {
+  id              String    @id @default(uuid())
+  projectId       String
+  project         Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  email           String
+  role            String
+  tokenHash       String    @unique
+  createdByUserId String
+  createdBy       User      @relation("ProjectInviteCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  expiresAt       DateTime
+  acceptedAt      DateTime?
+  revokedAt       DateTime?
+  createdAt       DateTime  @default(now())
+
+  @@index([projectId, email])
+  @@index([email, expiresAt])
+  @@map("project_invite")
+}
+
+// Phase 6: personal Workspace objects. PROJECT scope remains a later migration; do not add a dangling projectId.
 model WorkspaceObject {
   id                     String     @id @default(uuid())
   kind                   String

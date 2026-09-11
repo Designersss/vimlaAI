@@ -220,17 +220,19 @@ Exit criteria: users can manage personal work without AI; quality gate green; Ph
 - [x] `@Vimla` operator using existing workspace services + `TrustedSourceContext`.
 - [x] Command Segments / Tool Registry / ActionPolicyEngine (not in Phase 6).
 - [x] Planner separate from executor; confirmation for destructive tools; idempotent runs; audit for writes.
-- [x] Consumer `/vimla` + in-chat `◆ @Vimla` mention; `vimlaOperator` / `OPERATOR_ENABLED` off by default (explicit local/test enable); Projects/directChats/autoRouter still off.
+- [x] Consumer `/vimla` + in-chat `◆ @Vimla` mention; `vimlaOperator` / `OPERATOR_ENABLED` off by default (explicit local/test enable); `directChats`/`autoRouter` still off.
 
 ## Phase 7.5 — Vimla Home
 
 ## Phase 8 — Projects & Collaboration
-- [ ] projects.
+- [x] projects (create/list/open/edit, members, invites, roles, server-side entitlements, PLAN_LOCKED).
+- [x] ownership/security (IDOR 404, owner plan is billing subject, no ownership transfer).
 - [ ] files/object metadata.
 - [ ] signed access/upload.
-- [ ] ownership/security.
 - [ ] project context in chats.
 - [ ] PROJECT-scoped workspace objects (migrate from PERSONAL-only).
+
+`PROJECTS_ENABLED` and `CONSUMER_FEATURES.projects` stay off unless explicitly enabled. Do not turn Projects on automatically for staging/production.
 
 ## Phase 8.5 — Project-scoped @Vimla
 

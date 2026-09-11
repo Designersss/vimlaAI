@@ -10,6 +10,7 @@ import { isAiError, type AiErrorCode } from "@vimla/ai";
 import { isBillingError, type BillingErrorCode } from "@vimla/billing";
 import { isWorkspaceError, type WorkspaceErrorCode } from "@vimla/workspace";
 import { isOperatorError, type OperatorErrorCode } from "@vimla/operator";
+import { isProjectError, type ProjectErrorCode } from "@vimla/projects";
 import { isNotificationPlatformError, type NotificationPlatformError } from "@vimla/notifications";
 import {
   apiErrorResponseSchema,
@@ -55,6 +56,19 @@ export class ApiExceptionFilter implements ExceptionFilter {
         apiErrorResponseSchema.parse({
           error: {
             code: operatorCodeToApi(exception.code),
+            message: exception.message,
+            requestId,
+          },
+        }),
+      );
+      return;
+    }
+
+    if (isProjectError(exception)) {
+      void response.status(exception.httpStatus).send(
+        apiErrorResponseSchema.parse({
+          error: {
+            code: projectCodeToApi(exception.code),
             message: exception.message,
             requestId,
           },
@@ -178,6 +192,37 @@ function operatorCodeToApi(code: OperatorErrorCode): ApiErrorCode {
       return "operator_tool_denied";
     case "CONFLICT":
       return "conflict";
+    default:
+      return "internal_error";
+  }
+}
+
+function projectCodeToApi(code: ProjectErrorCode): ApiErrorCode {
+  switch (code) {
+    case "NOT_FOUND":
+      return "not_found";
+    case "DISABLED":
+      return "projects_disabled";
+    case "VALIDATION_ERROR":
+      return "validation_error";
+    case "FORBIDDEN":
+      return "forbidden";
+    case "CONFLICT":
+      return "conflict";
+    case "PLAN_LOCKED":
+      return "project_plan_locked";
+    case "ENTITLEMENT_DENIED":
+      return "project_entitlement_denied";
+    case "OWNED_LIMIT":
+      return "project_owned_limit";
+    case "MEMBER_LIMIT":
+      return "project_member_limit";
+    case "INVITE_INVALID":
+      return "project_invite_invalid";
+    case "INVITE_EMAIL_MISMATCH":
+      return "project_invite_email_mismatch";
+    case "ROLE_FORBIDDEN":
+      return "project_role_forbidden";
     default:
       return "internal_error";
   }

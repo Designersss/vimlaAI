@@ -356,14 +356,17 @@ Permanent rules:
 
 Initial operator surfaces include users, plans/subscriptions/payments/usage, provider COGS, model catalog, kill switch, incidents/security signals and the audit log.
 
-## Projects (Phase 8 mechanics, documented now)
+## Projects (Phase 8)
 
-Projects are not implemented in Phase 5. Agreed rules:
+Projects are implemented as a feature-gated foundation (`PROJECTS_ENABLED` / `NEXT_PUBLIC_VIMLA_PROJECTS`, both default false).
 
 - owner plan determines entitlements (`ownedActiveMax`, `externalActiveMax`, `membersPerOwnedProjectMax`);
+- ranking uses server-side `ProjectMember.lastOpenedAt` only (not lastModified, messages, or tasks);
+- `lastOpenedAt` is written only by `POST /v1/projects/:id/open`;
 - no paid-participant rescue, no automatic ownership transfer, no billing fallback to another member;
-- downgrade keeps the most recently active owned project ACTIVE and locks the rest as `PLAN_LOCKED` without deleting data;
+- downgrade keeps the last opened owned project ACTIVE and locks the rest as `PLAN_LOCKED` without deleting data;
 - excess members become `READ_ONLY_BY_OWNER_PLAN`; excess external memberships become `READ_ONLY_BY_MEMBER_PLAN`;
+- restoring paid access recomputes locks; data is never deleted on downgrade;
 - AI usage is personal (`User A` spends `User A` Usage) unless a future `PROJECT_USAGE` mode is selected;
 - anti-churn quotas/cooldowns/trash retention are BusinessGuardrail settings, not plan entitlements.
 

@@ -18,7 +18,7 @@ TOPUP never expires (`expiresAt` is always NULL). Admin has no expiry / inactivi
 
 PlanVersion lifecycle: DRAFT → PUBLISH → RETIRE. Published commercial fields are immutable (DB trigger). New prices require a new version. Negative or below-target margin publish requires recent step-up, explicit acknowledgement, reason, typed plan code, and an audit row.
 
-Canonical project entitlements (schema only; Projects are not implemented):
+Canonical project entitlements:
 
 - `projects.ownedActiveMax`
 - `projects.externalActiveMax`
@@ -28,13 +28,14 @@ Deprecated `projects.max` / `projects.membersPerProject` remain readable on hist
 
 Anti-churn knobs (`projectCreationWindowDays`, creation limits, reallocation cooldown, trash retention) live on `BusinessGuardrailVersion`, not on Plan entitlements. Seeded values are UNVERIFIED; do not invent production numbers.
 
-## Project policy (documented now, not implemented)
+## Project policy
 
 - Owner plan determines project capability. A paid participant cannot rescue a project.
 - No automatic ownership transfer and no billing fallback to another member.
-- Downgrade to FREE: most recently meaningfully active owned project stays ACTIVE; others `PLAN_LOCKED` (read-only for all members). No data deletion.
-- In the remaining Free owned project: owner + most recently active other member stay ACTIVE; other memberships `READ_ONLY_BY_OWNER_PLAN`.
-- External memberships beyond `externalActiveMax` become `READ_ONLY_BY_MEMBER_PLAN`.
+- Downgrade to FREE: last owned project the owner opened (`ProjectMember.lastOpenedAt`) stays ACTIVE; others `PLAN_LOCKED` (read-only for all members). No data deletion.
+- In an ACTIVE Free owned project: owner + most recently opened other members up to `membersPerOwnedProjectMax` stay ACTIVE; other memberships `READ_ONLY_BY_OWNER_PLAN`.
+- External memberships beyond `externalActiveMax` become `READ_ONLY_BY_MEMBER_PLAN` for that member only.
+- Restoring a paid subscription recomputes access automatically.
 - AI usage is billed to the initiating user unless a future explicit `PROJECT_USAGE` mode is selected.
 
 ## Merchant / accounting values still required from the owner

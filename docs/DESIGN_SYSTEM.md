@@ -68,7 +68,7 @@ Desktop: one global sidebar + main. Tablet (≥768): narrower sidebar, true refl
 
 ## Canonical navigation
 
-Exactly one global layer: Messages, My Work, Settings. Projects and ◆ Vimla stay feature-gated (`CONSUMER_FEATURES`) until their domain phases. No conversation history, folders, or work lists in the global sidebar.
+Exactly one global layer: Messages, My Work, Projects, ◆ Vimla, Settings. Projects and ◆ Vimla stay feature-gated (`CONSUMER_FEATURES`) until explicitly enabled. No conversation history, folders, or work lists in the global sidebar.
 
 List/detail are separate routes (`/app` collection, `/app/[id]` conversation).
 

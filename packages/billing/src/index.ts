@@ -34,11 +34,17 @@ export {
   encodeEntitlement,
   isDeprecatedProjectEntitlementKey,
   isTopupAllowed,
+  projectEntitlementLimits,
+  isWithinCountLimit,
+  countLimitValue,
   type PlanEntitlementKey,
   type PlanEntitlementRecord,
   type EntitlementValue,
+  type CountLimit,
+  type ProjectEntitlementLimits,
 } from "./entitlements.js";
 export { EffectivePlanResolver, FREE_PLAN_CODE } from "./effective-plan.js";
+export type { EffectivePlan } from "./effective-plan.js";
 export { FinanceQueryService } from "./finance-query.js";
 export type {
   FinanceOverview,
