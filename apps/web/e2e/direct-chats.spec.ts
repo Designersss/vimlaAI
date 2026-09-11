@@ -55,7 +55,10 @@ test.describe("Secure Direct Chats", () => {
     const mentionButton = alicePage.getByRole("button", { name: /◆ @vimla/i });
     await mentionButton.click();
     await expect(mentionButton).toHaveAttribute("aria-pressed", "true");
-    await composer.fill("@Vimla, кто победил в гран-при 2026?");
+    await composer.click();
+    await composer.fill("");
+    await composer.pressSequentially("@Vimla, кто победил в гран-при 2026?", { delay: 15 });
+    await expect(composer).toHaveValue("@Vimla, кто победил в гран-при 2026?");
     await alicePage.getByRole("button", { name: /отправить|send/i }).click();
     await expect(alicePage.getByTestId("direct-message-invoke")).toBeVisible({ timeout: 20_000 });
     await expect(alicePage.getByTestId("direct-message-response")).toBeVisible({ timeout: 20_000 });

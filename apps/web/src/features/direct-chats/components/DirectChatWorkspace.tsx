@@ -65,6 +65,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
   const [conversation, setConversation] = useState<DirectConversationView | null>(null);
   const [rows, setRows] = useState<DecryptedRow[]>([]);
   const [draft, setDraft] = useState("");
+  const draftRef = useRef("");
   const [mention, setMention] = useState(false);
   const mentionRef = useRef(false);
   const [sending, setSending] = useState(false);
@@ -129,10 +130,11 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
   }
 
   async function onSend(): Promise<void> {
-    if (sending || operatorBusy || draft.trim().length === 0 || !conversation || !userId) {
+    const text = draftRef.current.trim();
+    if (sending || operatorBusy || text.length === 0 || !conversation || !userId) {
       return;
     }
-    const text = draft.trim();
+    draftRef.current = "";
     setDraft("");
     if (CONSUMER_FEATURES.vimlaOperator && mentionRef.current) {
       mentionRef.current = false;
@@ -368,7 +370,10 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         <ChatComposer
           variant="direct"
           value={draft}
-          onChange={setDraft}
+          onChange={(value) => {
+            draftRef.current = value;
+            setDraft(value);
+          }}
           onSubmit={() => void onSend()}
           placeholder={t("direct.placeholder")}
           sendLabel={t("chat.send")}
