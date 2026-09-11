@@ -75,7 +75,7 @@ OTP and password-reset tokens never appear in logs, URLs (except the single-use 
 Separate control plane, strong MFA/passkey, infrastructure access restriction where practical, explicit RBAC/permissions, step-up re-authentication and append-only audit trail.
 
 ### @Vimla operator (Phase 7)
-The LLM never receives Prisma, SQL, Redis, shell, filesystem, env, Admin API, or arbitrary HTTP tools. Tool arguments are Zod-strict and reject `userId` / owner / permission fields. Execution uses the authenticated session `ActorContext` and existing workspace/notification services (other users’ objects 404). Destructive tools require a hashed confirmation token. Operator runs are owner-scoped (foreign IDs 404). Planner output is not returned to the browser.
+The LLM never receives Prisma, SQL, Redis, shell, filesystem, env, Admin API, or arbitrary HTTP tools. Tool arguments are Zod-strict and reject `userId` / owner / permission fields. Execution uses the authenticated session `ActorContext` and existing workspace/notification services (other users’ objects 404). Destructive tools require a hashed confirmation token. Operator runs are owner-scoped (foreign IDs 404). Planner output is not returned to the browser. `OPERATOR_ENABLED` defaults to false; disabled endpoints return `operator_disabled`. UI entry points stay behind `CONSUMER_FEATURES.vimlaOperator`.
 
 ### Infrastructure
 Private DB/Redis, WAF/DDoS layer, TLS/security headers, least-privilege containers, secure management access, backups and restore tests.

@@ -285,6 +285,66 @@ describe("operator API", () => {
   });
 });
 
+describe("operator API disabled", () => {
+  let app: NestFastifyApplication;
+
+  beforeAll(async () => {
+    process.env.NODE_ENV = "test";
+    process.env.APP_ENV = "test";
+    process.env.LOG_LEVEL = "error";
+    process.env.API_HOST = "127.0.0.1";
+    process.env.API_PORT = "3001";
+    process.env.WEB_ORIGIN = origin;
+    process.env.DATABASE_URL = testDatabaseUrl;
+    process.env.REDIS_URL = process.env.REDIS_URL ?? "redis://localhost:6379";
+    process.env.BETTER_AUTH_SECRET =
+      process.env.BETTER_AUTH_SECRET ?? "local-dev-only-change-me-use-32-chars-min";
+    process.env.BETTER_AUTH_URL = process.env.BETTER_AUTH_URL ?? "http://localhost:3001";
+    process.env.AI_TEXT_ENABLED = "true";
+    process.env.AI_TEXT_PROVIDER = "mock";
+    process.env.OPERATOR_ENABLED = "false";
+
+    const prisma = createPrismaClient(testDatabaseUrl);
+    await seedVimlaPlans(prisma);
+    await seedVimlaAiModels(prisma);
+    await prisma.$disconnect();
+
+    const config = loadApiConfig(process.env);
+    expect(config.operatorEnabled).toBe(false);
+    app = await createVimlaApiApp(config, { quiet: true });
+    await app.init();
+    await app.getHttpAdapter().getInstance().ready();
+  });
+
+  afterAll(async () => {
+    if (app) {
+      await app.close();
+    }
+  });
+
+  it("fails closed on operator endpoints when OPERATOR_ENABLED is false", async () => {
+    const user = await registerVerifiedUser(app, "op-disabled");
+    const conversation = await app.inject({
+      method: "GET",
+      url: "/v1/operator/conversation",
+      headers: jsonHeaders(),
+      cookies: user.cookies,
+    });
+    expect(conversation.statusCode).toBe(503);
+    expect(conversation.json().error?.code).toBe("operator_disabled");
+
+    const run = await app.inject({
+      method: "POST",
+      url: "/v1/operator/runs",
+      headers: jsonHeaders(),
+      cookies: user.cookies,
+      payload: { clientRequestId: randomUUID(), content: "@Vimla создай задачу" },
+    });
+    expect(run.statusCode).toBe(503);
+    expect(run.json().error?.code).toBe("operator_disabled");
+  });
+});
+
 async function readyUser(app: NestFastifyApplication, label: string) {
   const user = await registerVerifiedUser(app, label);
   const purchased = await app.inject({

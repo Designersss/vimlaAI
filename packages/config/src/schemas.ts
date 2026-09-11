@@ -149,7 +149,7 @@ export const apiEnvSchema = z
     PAYMENT_PROVIDER: z.enum(["mock", "tbank"]).optional(),
     PAYMENT_CHECKOUT_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).default(10),
     WORKSPACE_MUTATION_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).default(60),
-    OPERATOR_ENABLED: z.enum(["true", "false"]).default("true"),
+    OPERATOR_ENABLED: z.enum(["true", "false"]).default("false"),
     OPERATOR_MAX_TOOLS_PER_RUN: z.coerce.number().int().min(1).max(16).default(8),
     OPERATOR_CONFIRMATION_TTL_SECONDS: z.coerce.number().int().min(60).max(3_600).default(900),
     OPERATOR_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).default(20),

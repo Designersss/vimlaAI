@@ -330,7 +330,7 @@ Browser
   -> existing Workspace / NotificationPreference services (ActorContext)
 ```
 
-Typed tools only (tasks, reminders, notes, lists, today, safe profile, notification preferences). No Prisma/SQL/Redis/shell/fs/env/Admin/HTTP tools. Destructive deletes and notification preference updates require confirmation. Unique `(userId, clientRequestId)` plus step compare-and-swap make retries safe. Config: `OPERATOR_ENABLED`, `OPERATOR_MAX_TOOLS_PER_RUN` (default 8), confirmation TTL, per-user rate limit.
+Typed tools only (tasks, reminders, notes, lists, today, safe profile, notification preferences). No Prisma/SQL/Redis/shell/fs/env/Admin/HTTP tools. Destructive deletes and notification preference updates require confirmation. Unique `(userId, clientRequestId)` plus step compare-and-swap make retries safe. Config: `OPERATOR_ENABLED` (default `false`; fail closed with `operator_disabled`), `OPERATOR_MAX_TOOLS_PER_RUN` (default 8), confirmation TTL, per-user rate limit. UI gate `CONSUMER_FEATURES.vimlaOperator` is off unless `NEXT_PUBLIC_VIMLA_OPERATOR=true`. Routes do not enable the capability.
 
 ## Payments
 Use `PaymentProvider` abstraction (`MockPaymentProvider` | `TBankPaymentProvider`). Billing domain does not call T-Bank HTTP. Token/notification verification lives in the adapter. Domain must not depend on a T-Bank SDK.

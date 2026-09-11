@@ -63,7 +63,7 @@ describe("loadApiConfig", () => {
     expect(config.betterAuthUrl).toBe("http://localhost:3001");
     expect(config.billingTopupRatioBps).toBe("3500");
     expect(config.aiTextEnabled).toBe(true);
-    expect(config.operatorEnabled).toBe(true);
+    expect(config.operatorEnabled).toBe(false);
     expect(config.operatorMaxToolsPerRun).toBe(8);
     expect(config.aiTextProvider).toBe("mock");
     expect(config.proxyapiBaseUrl).toBe("https://api.proxyapi.ru/v1");
@@ -182,6 +182,7 @@ describe("loadApiConfig", () => {
     });
 
     expect(config.emailProvider).toBe("smtp");
+    expect(config.operatorEnabled).toBe(false);
     expect(config.emailFrom).toBe("noreply@vimla.example");
     expect(config.smtpPassword).toBe("smtp-secret-value");
     expect(config.paymentProvider).toBe("tbank");

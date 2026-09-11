@@ -35,7 +35,7 @@ Project collection -> Project detail. Future domain implementation remains in it
 
 ## ◆ Vimla
 
-Dedicated operator destination (`/vimla`). No Auto/PRO model selector. Explicit `@Vimla` mention in ordinary AI chat also creates an operator run on that conversation. Feature flag `vimlaOperator`.
+Dedicated operator destination (`/vimla`). No Auto/PRO model selector. Explicit `@Vimla` mention in ordinary AI chat also creates an operator run on that conversation. Feature flag `vimlaOperator` is off by default.
 
 ## Settings
 
