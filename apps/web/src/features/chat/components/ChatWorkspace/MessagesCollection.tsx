@@ -60,7 +60,7 @@ export const MessagesCollection = observer(function MessagesCollection(): ReactE
     void Promise.all([
       fetchCurrentUser(),
       fetchConversations(),
-      CONSUMER_FEATURES.directChats ? fetchDirectConversations().catch(() => ({ items: [], nextCursor: null })) : Promise.resolve({ items: [], nextCursor: null }),
+      CONSUMER_FEATURES.directChats ? fetchDirectConversations() : Promise.resolve({ items: [], nextCursor: null }),
     ])
       .then(async ([currentUser, conversations, directPage]) => {
         if (cancelled) {
