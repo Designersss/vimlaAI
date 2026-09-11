@@ -43,8 +43,10 @@ test.describe("Secure Direct Chats", () => {
     });
 
     await nikitaPage.goto("/app");
-    await nikitaPage.getByRole("button", { name: /личные|direct/i }).click();
-    await nikitaPage.getByRole("button", { name: /Alice/i }).click();
+    await expect(nikitaPage.getByRole("heading", { name: /сообщения|messages/i })).toBeVisible();
+    await nikitaPage.getByRole("radio", { name: /личные|direct/i }).click();
+    await expect(nikitaPage.getByRole("button", { name: /^Alice$/i })).toBeVisible({ timeout: 20_000 });
+    await nikitaPage.getByRole("button", { name: /^Alice$/i }).click();
     await expect(nikitaPage.getByTestId("direct-chat-shell")).toBeVisible({ timeout: 20_000 });
     await expect(nikitaPage.getByTestId("direct-message-human").filter({ hasText: "hello from alice" })).toBeVisible({
       timeout: 20_000,
