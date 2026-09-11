@@ -19,7 +19,7 @@ export async function registerUnverifiedUser(
   app: NestFastifyApplication,
   label: string,
 ): Promise<{ cookies: Record<string, string>; id: string; email: string; password: string }> {
-  const email = `${label}-${randomUUID()}@example.com`;
+  const email = `${label}-${randomUUID()}@example.com`.toLowerCase();
   const password = "correct-horse-battery";
   const signUp = await app.inject({
     method: "POST",

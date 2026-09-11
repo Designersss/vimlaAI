@@ -14,6 +14,7 @@ export function BaseListRow({
   onClick,
   selected,
   disabled,
+  testId,
 }: {
   leading?: ReactNode;
   title: ReactNode;
@@ -24,6 +25,7 @@ export function BaseListRow({
   onClick?: () => void;
   selected?: boolean;
   disabled?: boolean;
+  testId?: string;
 }): ReactElement {
   const className = cx(styles.row, selected ? styles.selected : undefined, disabled ? styles.disabled : undefined);
   const body = (
@@ -40,14 +42,14 @@ export function BaseListRow({
 
   if (href && !disabled) {
     return (
-      <a className={className} href={href}>
+      <a className={className} href={href} data-testid={testId}>
         {body}
       </a>
     );
   }
 
   return (
-    <button type="button" className={className} onClick={onClick} disabled={disabled}>
+    <button type="button" className={className} onClick={onClick} disabled={disabled} data-testid={testId}>
       {body}
     </button>
   );
@@ -81,8 +83,10 @@ export function DirectConversationRow(props: {
   name: string;
   preview?: string;
   time?: string;
+  unreadCount?: number;
   href?: string;
   onSelect?: () => void;
+  selected?: boolean;
 }): ReactElement {
   return (
     <BaseListRow
@@ -90,8 +94,11 @@ export function DirectConversationRow(props: {
       title={props.name}
       subtitle={props.preview}
       meta={props.time}
+      trailing={props.unreadCount ? <Badge variant="accent">{props.unreadCount}</Badge> : undefined}
       href={props.href}
       onClick={props.onSelect}
+      selected={props.selected}
+      testId="direct-conversation-row"
     />
   );
 }

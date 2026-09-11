@@ -117,6 +117,8 @@ export const taskViewSchema = z.object({
   archivedAt: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
+  assignedByUserId: z.string().nullable(),
+  assignedByName: z.string().nullable(),
 });
 export type TaskView = z.infer<typeof taskViewSchema>;
 

@@ -68,6 +68,8 @@ describe("loadApiConfig", () => {
     expect(config.projectsEnabled).toBe(false);
     expect(config.projectsMutationLimitPerMinute).toBe(60);
     expect(config.projectsInviteTtlDays).toBe(7);
+    expect(config.directChatsEnabled).toBe(false);
+    expect(config.directChatsMutationLimitPerMinute).toBe(60);
     expect(config.aiTextProvider).toBe("mock");
     expect(config.proxyapiBaseUrl).toBe("https://api.proxyapi.ru/v1");
     expect(config.proxyapiApiKey).toBeUndefined();

@@ -236,9 +236,19 @@ Exit criteria: users can manage personal work without AI; quality gate green; Ph
 
 ## Phase 8.5 — Project-scoped @Vimla
 
-## Phase 9 — Personal Brain + Project Brain
+## Phase 9 — Secure Direct Chats + Contextual @Vimla
+- [x] 1:1 Direct Chat list/history/send/read/unread/pagination; unique pair; separate type from AI/operator conversations.
+- [x] E2EE: X3DH + Double Ratchet (`@vimla/e2ee`), ciphertext-only server storage, device register/rotate/revoke.
+- [x] Phase 7 `@Vimla` invocation scope `DIRECT_CHAT`; client context bundle + server consent filter; no server-side history decrypt.
+- [x] Cross-user task assignment from chat membership only (`assigneeHint` is a name, never a userId).
+- [x] Feature flag `directChats` / `DIRECT_CHATS_ENABLED` default OFF, backend fail-closed.
+- [x] Unit/integration/e2e/security tests. See `docs/DIRECT_CHATS.md`.
 
-## Phase 9.x — Auto Router
+Do not implement Auto Router, Brain, or Project Chats in this phase.
+
+## Phase 9.x — Personal Brain + Project Brain
+
+## Phase 9.y — Auto Router
 - [ ] task/capability classification.
 - [ ] configurable routing rules.
 - [ ] cost/quality/latency weighting.

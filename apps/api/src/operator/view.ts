@@ -11,6 +11,11 @@ export interface OperatorRunViewSource {
   clarificationQuestion: string | null;
   errorCode: string | null;
   conversationId: string;
+  invocationScope?: string | null;
+  directConversationId?: string | null;
+  contextOwnIncluded?: boolean;
+  contextPeerIncluded?: boolean;
+  contextPeerDenied?: boolean;
   createdAt: Date;
   updatedAt: Date;
   steps: Array<{
@@ -50,6 +55,11 @@ export function buildOperatorRunView(run: OperatorRunViewSource, confirmationTok
     errorCode: run.errorCode,
     actions,
     conversationId: run.conversationId,
+    invocationScope: run.invocationScope === "DIRECT_CHAT" ? "DIRECT_CHAT" : "PERSONAL",
+    directConversationId: run.directConversationId ?? null,
+    contextOwnIncluded: run.contextOwnIncluded ?? false,
+    contextPeerIncluded: run.contextPeerIncluded ?? false,
+    contextPeerDenied: run.contextPeerDenied ?? false,
     createdAt: run.createdAt.toISOString(),
     updatedAt: run.updatedAt.toISOString(),
   });

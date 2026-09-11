@@ -74,6 +74,8 @@ export class WorkspaceTodayService {
               archivedAt: iso(row.archivedAt),
               createdAt: row.createdAt.toISOString(),
               updatedAt: row.updatedAt.toISOString(),
+              assignedByUserId: row.task.assignedByUserId,
+              assignedByName: null,
             },
           ]
         : [],
@@ -93,6 +95,8 @@ export class WorkspaceTodayService {
               archivedAt: iso(row.archivedAt),
               createdAt: row.createdAt.toISOString(),
               updatedAt: row.updatedAt.toISOString(),
+              assignedByUserId: row.task.assignedByUserId,
+              assignedByName: null,
             },
           ]
         : [],

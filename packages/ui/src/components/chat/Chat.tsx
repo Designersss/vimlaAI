@@ -82,7 +82,14 @@ export function ChatComposer({
         {variant === "operator" ? null : modelControl}
         {extra}
         <span className={styles.composerGrow} />
-        <IconButton type="submit" variant="primary" disabled={disabled || sending} loading={sending} label={sendLabel}>
+        <IconButton
+          type="submit"
+          variant="primary"
+          disabled={disabled || sending}
+          loading={sending}
+          label={sendLabel}
+          data-testid="chat-composer-send"
+        >
           <SendIcon size={16} aria-hidden="true" />
         </IconButton>
       </div>

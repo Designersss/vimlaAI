@@ -28,6 +28,8 @@
     "@vimla/workspace": "workspace:*",
     "@vimla/operator": "workspace:*",
     "@vimla/projects": "workspace:*",
+    "@vimla/direct-chats": "workspace:*",
+    "@vimla/e2ee": "workspace:*",
     "better-auth": "^1.7.3",
     "fastify": "^5.11.3",
     "ioredis": "^5.7.0",

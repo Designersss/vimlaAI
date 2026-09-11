@@ -11,6 +11,7 @@ import { isBillingError, type BillingErrorCode } from "@vimla/billing";
 import { isWorkspaceError, type WorkspaceErrorCode } from "@vimla/workspace";
 import { isOperatorError, type OperatorErrorCode } from "@vimla/operator";
 import { isProjectError, type ProjectErrorCode } from "@vimla/projects";
+import { isDirectChatError, type DirectChatErrorCode } from "@vimla/direct-chats";
 import { isNotificationPlatformError, type NotificationPlatformError } from "@vimla/notifications";
 import {
   apiErrorResponseSchema,
@@ -69,6 +70,19 @@ export class ApiExceptionFilter implements ExceptionFilter {
         apiErrorResponseSchema.parse({
           error: {
             code: projectCodeToApi(exception.code),
+            message: exception.message,
+            requestId,
+          },
+        }),
+      );
+      return;
+    }
+
+    if (isDirectChatError(exception)) {
+      void response.status(exception.httpStatus).send(
+        apiErrorResponseSchema.parse({
+          error: {
+            code: directChatCodeToApi(exception.code),
             message: exception.message,
             requestId,
           },
@@ -192,6 +206,28 @@ function operatorCodeToApi(code: OperatorErrorCode): ApiErrorCode {
       return "operator_tool_denied";
     case "CONFLICT":
       return "conflict";
+    default:
+      return "internal_error";
+  }
+}
+
+function directChatCodeToApi(code: DirectChatErrorCode): ApiErrorCode {
+  switch (code) {
+    case "NOT_FOUND":
+      return "not_found";
+    case "DISABLED":
+      return "direct_chats_disabled";
+    case "VALIDATION_ERROR":
+    case "TAMPERED":
+      return "validation_error";
+    case "FORBIDDEN":
+      return "forbidden";
+    case "CONFLICT":
+      return "conflict";
+    case "DEVICE_REVOKED":
+      return "direct_chat_device_revoked";
+    case "RECIPIENT_DEVICE_MISSING":
+      return "direct_chat_recipient_device_missing";
     default:
       return "internal_error";
   }

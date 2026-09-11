@@ -21,12 +21,15 @@ import {
   type OperatorToolContext,
   type PreparedStep,
   type SafeProfile,
+  type TaskOwnerResolution,
 } from "@vimla/operator";
+import { filterOperatorContextBundle, resolveDirectChatAssignee } from "@vimla/direct-chats";
 import { WorkspaceError } from "@vimla/workspace";
 import { NotificationPlatformError } from "@vimla/notifications";
 import { API_CONFIG, type ApiRuntimeConfig } from "../config/api-config.js";
 import { PrismaService } from "../persistence/prisma.service.js";
 import { TextChatService } from "../ai/text-chat.service.js";
+import { DirectChatsFacade } from "../direct-chats/direct-chats.facade.js";
 import { WorkspaceFacade } from "../workspace/workspace.facade.js";
 import { NotificationsFacade } from "../notifications/notifications.facade.js";
 import { parseVimlaLocale } from "@vimla/shared";
@@ -41,6 +44,7 @@ export class OperatorService {
     @Inject(WorkspaceFacade) private readonly workspace: WorkspaceFacade,
     @Inject(NotificationsFacade) private readonly notifications: NotificationsFacade,
     @Inject(TextChatService) private readonly chat: TextChatService,
+    @Inject(DirectChatsFacade) private readonly directChats: DirectChatsFacade,
     @Inject(API_CONFIG) private readonly config: ApiRuntimeConfig,
   ) {}
 
@@ -95,6 +99,10 @@ export class OperatorService {
   ): Promise<OperatorRunView> {
     this.assertEnabled();
     const input = createOperatorRunSchema.parse(body);
+    const scope = input.invocationScope ?? "PERSONAL";
+    if (scope === "DIRECT_CHAT") {
+      this.directChats.assertEnabled();
+    }
     const existing = await this.prisma.operatorRun.findUnique({
       where: { userId_clientRequestId: { userId, clientRequestId: input.clientRequestId } },
       include: { steps: { orderBy: { sequence: "asc" } } },
@@ -103,32 +111,43 @@ export class OperatorService {
       return this.resumeExisting(existing, correlationId);
     }
 
-    const conversation = await this.resolveConversation(userId, input.conversationId);
+    const conversation = await this.resolveConversation(userId, scope === "DIRECT_CHAT" ? undefined : input.conversationId);
     const locale = await this.userLocale(userId);
-    const userMessage = await this.prisma.message.create({
-      data: {
-        conversationId: conversation.id,
-        role: "USER",
-        content: input.content,
-        status: "COMPLETE",
-      },
-    });
+    let userMessageId: string | null = null;
+    if (scope !== "DIRECT_CHAT") {
+      const userMessage = await this.prisma.message.create({
+        data: {
+          conversationId: conversation.id,
+          role: "USER",
+          content: input.content,
+          status: "COMPLETE",
+        },
+      });
+      userMessageId = userMessage.id;
+    }
+
+    const scoped = await this.resolveDirectChatScope(userId, scope, input.directConversationId, input.contextBundle);
 
     try {
       const run = await this.prisma.operatorRun.create({
         data: {
           userId,
           conversationId: conversation.id,
-          userMessageId: userMessage.id,
+          userMessageId,
           clientRequestId: input.clientRequestId,
           plannerClientRequestId: randomUUID(),
           status: "PLANNING",
           userText: input.content,
           locale,
+          invocationScope: scope,
+          directConversationId: scoped.directConversationId,
+          contextOwnIncluded: scoped.ownIncluded,
+          contextPeerIncluded: scoped.peerIncluded,
+          contextPeerDenied: scoped.peerDenied,
         },
         include: { steps: { orderBy: { sequence: "asc" } } },
       });
-      return await this.planAndMaybeExecute(run, correlationId, null);
+      return await this.planAndMaybeExecute(run, correlationId, null, scoped.untrustedContext);
     } catch (error: unknown) {
       if (isUniqueConstraint(error)) {
         const replay = await this.prisma.operatorRun.findUnique({
@@ -151,8 +170,11 @@ export class OperatorService {
       return this.toView(run, null);
     }
     if (run.status === "EXECUTING") {
-      const context = await this.toolContext(userId, run.conversationId, run.userMessageId);
+      const context = await this.toolContext(run);
       const executed = await this.executePersistedSteps(run.id, context, correlationId, true);
+      if (executed.status === "CLARIFY") {
+        return this.awaitClarification(run.id, executed.publicMessage, executed.question);
+      }
       return this.finishRun(run.id, executed.publicMessage, executed.status, executed.confirmationToken);
     }
     if (run.status !== "AWAITING_CONFIRMATION") {
@@ -170,8 +192,11 @@ export class OperatorService {
       data: { status: "EXECUTING", confirmationTokenHash: null, confirmationExpiresAt: null },
     });
 
-    const context = await this.toolContext(userId, run.conversationId, run.userMessageId);
+    const context = await this.toolContext(run);
     const executed = await this.executePersistedSteps(run.id, context, correlationId, true);
+    if (executed.status === "CLARIFY") {
+      return this.awaitClarification(run.id, executed.publicMessage, executed.question);
+    }
     return this.finishRun(run.id, executed.publicMessage, executed.status, executed.confirmationToken);
   }
 
@@ -191,14 +216,16 @@ export class OperatorService {
       throw new OperatorError("CLARIFICATION_REQUIRED", "This run is not waiting for clarification");
     }
 
-    await this.prisma.message.create({
-      data: {
-        conversationId: run.conversationId,
-        role: "USER",
-        content: input.content,
-        status: "COMPLETE",
-      },
-    });
+    if (run.invocationScope !== "DIRECT_CHAT") {
+      await this.prisma.message.create({
+        data: {
+          conversationId: run.conversationId,
+          role: "USER",
+          content: input.content,
+          status: "COMPLETE",
+        },
+      });
+    }
 
     await this.prisma.operatorRun.update({
       where: { id: run.id },
@@ -234,14 +261,18 @@ export class OperatorService {
     run: RunRecord,
     correlationId: string,
     previousClarification: string | null,
+    untrustedContext: string | null = null,
   ): Promise<OperatorRunView> {
-    const context = await this.toolContext(run.userId, run.conversationId, run.userMessageId);
+    const context = await this.toolContext(run);
     const snapshot = await loadWorkspaceSnapshot(context);
     const prompt = buildPlannerPrompt({
       userText: run.userText,
       locale: run.locale,
       snapshot,
       previousClarification,
+      invocationScope: run.invocationScope === "DIRECT_CHAT" ? "DIRECT_CHAT" : "PERSONAL",
+      participantNames: context.invocation.participantNames,
+      untrustedContext,
     });
 
     let plannerOutput = run.plannerOutput;
@@ -271,7 +302,7 @@ export class OperatorService {
     if (plan.intent === "clarify") {
       return this.awaitClarification(run.id, plan.userMessage, plan.clarificationQuestion ?? "Could you clarify?");
     }
-    if (plan.intent === "refuse" || plan.commands.length === 0) {
+    if (plan.intent === "answer" || plan.intent === "refuse" || plan.commands.length === 0) {
       return this.succeedWithoutTools(run.id, plan.userMessage);
     }
 
@@ -310,6 +341,9 @@ export class OperatorService {
       data: { status: "EXECUTING", publicMessage: sanitizePublicText(plan.userMessage, 2_000) },
     });
     const executed = await this.executePersistedSteps(run.id, context, correlationId, false);
+    if (executed.status === "CLARIFY") {
+      return this.awaitClarification(run.id, executed.publicMessage, executed.question);
+    }
     return this.finishRun(run.id, executed.publicMessage || plan.userMessage, executed.status, null);
   }
 
@@ -318,7 +352,12 @@ export class OperatorService {
     context: OperatorToolContext,
     correlationId: string,
     confirmed: boolean,
-  ): Promise<{ status: "SUCCEEDED" | "PARTIAL" | "FAILED"; publicMessage: string; confirmationToken: string | null }> {
+  ): Promise<{
+    status: "SUCCEEDED" | "PARTIAL" | "FAILED" | "CLARIFY";
+    publicMessage: string;
+    confirmationToken: string | null;
+    question: string;
+  }> {
     const steps = await this.prisma.operatorRunStep.findMany({
       where: { runId },
       orderBy: { sequence: "asc" },
@@ -383,6 +422,14 @@ export class OperatorService {
         executed += 1;
         titles.push(result.card.title);
       } catch (error: unknown) {
+        if (error instanceof OperatorError && error.code === "CLARIFICATION_REQUIRED") {
+          return {
+            status: "CLARIFY",
+            publicMessage: error.message,
+            confirmationToken: null,
+            question: error.message,
+          };
+        }
         const code = errorCodeOf(error);
         await this.prisma.operatorRunStep.update({
           where: { id: step.id },
@@ -410,7 +457,7 @@ export class OperatorService {
         : status === "PARTIAL"
           ? "Some actions completed, others failed."
           : "I could not complete that action.";
-    return { status, publicMessage, confirmationToken: null };
+    return { status, publicMessage, confirmationToken: null, question: "" };
   }
 
   private async finishRun(
@@ -485,9 +532,12 @@ export class OperatorService {
   }
 
   private async persistAssistant(
-    run: { id: string; conversationId: string; assistantMessageId: string | null },
+    run: { id: string; conversationId: string; assistantMessageId: string | null; invocationScope?: string | null },
     content: string,
   ): Promise<void> {
+    if (run.invocationScope === "DIRECT_CHAT") {
+      return;
+    }
     const text = sanitizePublicText(content, 2_000) || "Done.";
     if (run.assistantMessageId) {
       await this.prisma.message.update({
@@ -525,16 +575,54 @@ export class OperatorService {
     });
   }
 
-  private async toolContext(
-    userId: string,
-    conversationId: string,
-    messageId: string | null,
-  ): Promise<OperatorToolContext> {
-    const timezone = await this.workspace.storedTimezone(userId);
-    const locale = await this.userLocale(userId);
+  private async toolContext(run: RunRecord): Promise<OperatorToolContext> {
+    const timezone = await this.workspace.storedTimezone(run.userId);
+    const locale = await this.userLocale(run.userId);
+    const scope = run.invocationScope === "DIRECT_CHAT" ? "DIRECT_CHAT" : "PERSONAL";
+    const participants =
+      scope === "DIRECT_CHAT" && run.directConversationId
+        ? await this.directChats.chats.participants(run.userId, run.directConversationId)
+        : [];
+    const resolveTaskOwner = (hint?: string): TaskOwnerResolution => {
+      if (scope !== "DIRECT_CHAT") {
+        if (!hint || ["me", "myself", "мне", "себе", "меня", "я"].includes(hint.trim().toLocaleLowerCase("en"))) {
+          return {
+            type: "ok",
+            ownerUserId: run.userId,
+            assignedByUserId: null,
+            assignmentSourceType: null,
+            assignmentSourceId: null,
+          };
+        }
+        return { type: "deny", message: "Tasks can only be created for you in this conversation." };
+      }
+      const resolved = resolveDirectChatAssignee(hint, run.userId, participants);
+      if (resolved.type === "self") {
+        return {
+          type: "ok",
+          ownerUserId: run.userId,
+          assignedByUserId: null,
+          assignmentSourceType: null,
+          assignmentSourceId: null,
+        };
+      }
+      if (resolved.type === "peer") {
+        return {
+          type: "ok",
+          ownerUserId: resolved.userId,
+          assignedByUserId: run.userId,
+          assignmentSourceType: "DIRECT_CHAT",
+          assignmentSourceId: run.directConversationId,
+        };
+      }
+      if (resolved.type === "clarify") {
+        return { type: "clarify", question: "Who should I assign this task to in this chat?" };
+      }
+      return { type: "deny", message: "That person is not a participant in this Direct Chat." };
+    };
     return {
-      actor: this.workspace.actor(userId),
-      source: { conversationId, messageId: messageId ?? undefined },
+      actor: this.workspace.actor(run.userId),
+      source: { conversationId: run.conversationId, messageId: run.userMessageId ?? undefined },
       timezone,
       locale,
       defaultLocale: this.config.authDefaultLocale,
@@ -548,6 +636,56 @@ export class OperatorService {
         notifications: this.notifications.preferences,
         getSafeProfile: (id) => this.getSafeProfile(id),
       },
+      invocation: {
+        scope,
+        directConversationId: run.directConversationId,
+        participantNames: participants.map((participant) => participant.name),
+        contextMessages: [],
+        resolveTaskOwner,
+      },
+    };
+  }
+
+  private async resolveDirectChatScope(
+    userId: string,
+    scope: "PERSONAL" | "DIRECT_CHAT",
+    directConversationId: string | undefined,
+    contextBundle: { messages: Array<{ senderUserId: string; sentAt: string; text: string }> } | undefined,
+  ): Promise<{
+    directConversationId: string | null;
+    ownIncluded: boolean;
+    peerIncluded: boolean;
+    peerDenied: boolean;
+    untrustedContext: string | null;
+  }> {
+    if (scope !== "DIRECT_CHAT" || !directConversationId) {
+      return {
+        directConversationId: null,
+        ownIncluded: false,
+        peerIncluded: false,
+        peerDenied: false,
+        untrustedContext: null,
+      };
+    }
+    const consent = await this.directChats.chats.consent(userId, directConversationId);
+    const filtered = filterOperatorContextBundle({
+      actorUserId: userId,
+      memberIds: consent.memberIds,
+      consent,
+      messages: contextBundle?.messages ?? [],
+    });
+    const untrustedContext =
+      filtered.messages.length === 0
+        ? null
+        : filtered.messages
+            .map((message) => `${message.senderUserId === userId ? "self" : "peer"} at ${message.sentAt}: ${message.text}`)
+            .join("\n");
+    return {
+      directConversationId,
+      ownIncluded: filtered.ownIncluded,
+      peerIncluded: filtered.peerIncluded,
+      peerDenied: filtered.peerDenied,
+      untrustedContext,
     };
   }
 
@@ -634,8 +772,11 @@ export class OperatorService {
       return this.planAndMaybeExecute(run, correlationId, run.clarificationQuestion);
     }
     if (run.status === "EXECUTING") {
-      const context = await this.toolContext(run.userId, run.conversationId, run.userMessageId);
+      const context = await this.toolContext(run);
       const executed = await this.executePersistedSteps(run.id, context, correlationId, false);
+      if (executed.status === "CLARIFY") {
+        return this.awaitClarification(run.id, executed.publicMessage, executed.question);
+      }
       return this.finishRun(run.id, executed.publicMessage, executed.status, null);
     }
     if (run.status === "AWAITING_CONFIRMATION") {
