@@ -152,7 +152,7 @@ describe("direct chats API", () => {
 
     const evePage = await app.inject({
       method: "GET",
-      url: `/v1/direct-chats/${chat.id}/messages?deviceId=${encodeURIComponent(stranger.id)}`,
+      url: `/v1/direct-chats/${chat.id}/messages?deviceId=${randomUUID()}`,
       headers: { origin },
       cookies: stranger.cookies,
     });

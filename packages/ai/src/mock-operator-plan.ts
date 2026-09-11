@@ -8,7 +8,7 @@ export function isOperatorPlannerPrompt(messages: ReadonlyArray<{ content: strin
 
 export function mockOperatorPlannerResponse(messages: ReadonlyArray<{ content: string }>): string {
   const joined = messages.map((message) => message.content).join("\n");
-  const userText = extractSection(joined, "USER_REQUEST:", "WORKSPACE_SNAPSHOT:") ?? joined;
+  const userText = extractUserRequest(joined);
   const snapshot = extractSection(joined, "WORKSPACE_SNAPSHOT:") ?? "";
   const lower = userText.toLowerCase();
 
@@ -115,6 +115,20 @@ export function mockOperatorPlannerResponse(messages: ReadonlyArray<{ content: s
     clarificationQuestion: null,
     commands: [],
   });
+}
+
+function extractUserRequest(text: string): string {
+  const startToken = "USER_REQUEST:";
+  const start = text.indexOf(startToken);
+  if (start === -1) {
+    return text;
+  }
+  const from = start + startToken.length;
+  const boundaries = ["UNTRUSTED_CHAT_CONTEXT:", "WORKSPACE_SNAPSHOT:"]
+    .map((token) => text.indexOf(token, from))
+    .filter((index) => index >= 0);
+  const end = boundaries.length > 0 ? Math.min(...boundaries) : -1;
+  return (end === -1 ? text.slice(from) : text.slice(from, end)).trim();
 }
 
 function extractSection(text: string, start: string, end?: string): string | null {

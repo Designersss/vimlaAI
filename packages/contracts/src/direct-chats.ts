@@ -234,7 +234,7 @@ export type CryptoDevicesResponse = z.infer<typeof cryptoDevicesResponseSchema>;
 
 export const operatorContextMessageSchema = z
   .object({
-    senderUserId: z.string().uuid(),
+    senderUserId: z.string().min(1).max(64),
     sentAt: z.string().datetime({ offset: true }),
     text: z.string().trim().min(1).max(DIRECT_CHAT_LIMITS.contextTextMax),
   })
