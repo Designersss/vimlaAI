@@ -1,145 +1,119 @@
-# Vimla — Project Instructions
+# Vimla — Codex Repository Instructions
 
-## Product
-Vimla is a consumer/prosumer AI workspace that gives users one account and one interface for multiple AI capabilities.
+## Mission
+Vimla is a public AI-native SaaS/workspace for real users, real money and hostile Internet traffic. It combines multi-model AI, personal workspace objects, projects/collaboration, notifications, a privileged Admin control plane, the `@Vimla` system operator, and E2EE 1:1 Direct Chats.
 
-Core product direction:
-- multi-model chat (GPT, Claude, Gemini and additional models);
-- manual model selection and future `Auto` routing;
-- image generation;
-- video generation;
-- projects and files;
-- AI agents/workflows;
-- subscription plans plus arbitrary top-ups;
-- simple usage UI for users instead of token accounting.
+Treat security, financial correctness, privacy, abuse resistance, recovery and auditability as product requirements, not later polish.
 
-The first AI provider/gateway is ProxyAPI. Vimla must never be architecturally coupled to ProxyAPI. All provider access goes through Vimla's own AI provider abstraction.
+## How Codex should work in this repository
+1. Read this file before non-trivial work.
+2. Read `docs/CODEX_CONTEXT.md` for the current architecture/domain map.
+3. Read every applicable nested `AGENTS.md` for files you will touch.
+4. Read the relevant `.cursor/rules/*.mdc` files referenced by those instructions. Cursor rules remain shared engineering policy; Codex `AGENTS.md` files translate their scope into Codex-native directory instructions.
+5. Inspect the existing implementation and tests before proposing a rewrite.
+6. Implement only the explicit task/PR/issue scope. Do not silently expand the roadmap.
+7. Add regression tests for correctness/security bugs.
+8. Run the narrowest relevant tests first, then the repository quality gates that the environment supports.
+9. Review your own diff before finishing and report unresolved risks honestly.
 
-## Current commercial model
-Vimla is operated by the user's Russian LLC. Customer revenue is received by the LLC. ProxyAPI is replenished from the LLC settlement account under the provider's B2B flow.
+Task-specific instructions in the active prompt/PR/issue may narrow scope, but must not weaken the invariants below unless the task explicitly changes product policy.
 
-Initial published catalog (historical, not the final tariff set):
-- Lite: 150 RUB;
-- Start: 300 RUB;
-- Pro: 990 RUB;
-- arbitrary top-up amount.
-
-Target 199 / 499 / 999 plans exist as inactive DRAFT PlanVersions without invented monthly AI grants. Included AI Usage is versioned `PlanVersion.providerBudgetMicroRub` / `TopupPolicyVersion.usageGrantRatioBps` in PostgreSQL — not `.env` and not a product-frozen 20/25/30/35%. Historical Lite/Start/Pro versions stay published and must not be rewritten.
-
-## User-facing usage model
-For subscriptions, users see a simple percentage such as `62% used / 38% remaining`.
-
-The percentage is presentation only. It is never authoritative financial state.
-
-The backend stores exact integer usage/billing values and derives the percentage.
-
-Top-ups create a separate **non-expiring** usage bucket (`expiresAt = NULL`). Subscription allowance is spent before top-up allowance. Top-up never burns from inactivity or a calendar timer.
+## Non-negotiable global invariants
+- TypeScript strict. Do not introduce `any` in application/domain code.
+- Validate untrusted HTTP, webhook, provider, queue and environment data at boundaries.
+- Browser/client is never authoritative for identity, ownership, roles, permissions, prices, provider IDs, model IDs, costs, grants or limits.
+- Authentication is not authorization. Scope protected resources with server-established actor/permission context.
+- Secrets stay server-side and out of logs, URLs, client bundles, fixtures and commits.
+- PostgreSQL is authoritative for persistent, financial and audit-grade state.
+- Redis is cache/queue/rate-limit coordination only; never financial truth.
+- Financial values use integer microRUB (`1 RUB = 1_000_000 microRUB`) with PostgreSQL `BIGINT` / TypeScript `bigint`; never JS floating point as authoritative money.
+- Controllers/routes remain thin. Domain/business behavior belongs in services/packages.
+- External integrations sit behind replaceable adapters.
+- Use UTC internally; localize only at presentation boundaries.
+- Expensive/security-sensitive operations require explicit authz, validation, size/rate/concurrency/cost limits, idempotency and recovery semantics.
+- Never weaken or skip security/financial tests just to make CI green.
+- Never edit already-applied migrations. Add a new additive migration.
+- Never use `prisma db push` as a substitute for versioned production migrations.
+- Never run live ProxyAPI, T-Bank, SMTP or other billable/production actions from normal tests/CI unless a task explicitly authorizes a dedicated safe smoke environment.
 
 ## Financial invariants
-These are non-negotiable:
-1. Never call an AI provider before checking and reserving sufficient user allowance.
-2. Use reservation -> provider call -> settlement/release.
-3. PostgreSQL is the source of truth for payments, subscriptions, usage and provider-cost accounting.
-4. Redis is never the source of truth for money or usage.
-5. Never use JS floating-point numbers as authoritative money values.
-6. Use integer monetary units (microRUB) in domain/storage (`BIGINT`/`bigint`).
-7. Every payment/provider webhook and ledger mutation must be idempotent.
-8. Ledger history is append-only. Corrections are compensating entries, not destructive edits.
-9. User allowance and ProxyAPI corporate balance are separate systems.
-10. A user reaching 100% must be blocked before an expensive provider request is sent.
+Every provider-consuming request follows:
+`estimate -> reserve in PostgreSQL -> provider call -> settle/release -> append ledger/audit evidence`.
 
-## Architecture
-Start as a modular monolith plus a separate worker process.
+Never call a provider before a successful usage reservation. Never blindly release ambiguous provider outcomes as free usage. Duplicate retries/events must not grant or charge twice. Ledger history is append-only; corrections use compensating records.
 
-Monorepo target:
+Customer payments, retail price, user allowance, provider COGS, user-settled usage and corporate provider balance are separate concepts.
 
-```text
-apps/
-  web/        Next.js frontend
-  api/        NestJS + Fastify modular monolith
-  worker/     BullMQ workers
+## Security invariants
+Assume public input and authenticated users can be malicious.
+- Prevent IDOR with actor-scoped lookups/authorization.
+- Cookie-authenticated mutations need trusted-origin/CSRF-safe handling.
+- Bound message/context/file/body sizes.
+- AI/user content is untrusted output.
+- Parameterize SQL; do not interpolate untrusted input into raw queries.
+- Fail closed for security/cost gates when ambiguity could create access or spend.
+- Security-sensitive fixes require regression tests.
 
-packages/
-  contracts/  shared schemas/contracts
-  database/   Prisma schema/client/migrations
-  config/     validated configuration
-  auth/       Better Auth configuration
-  ai/         provider abstractions/model metadata
-  billing/    framework-independent billing domain
-  shared/     genuinely shared utilities
+## Current high-risk domains
+Treat these as requiring especially conservative changes:
+- `packages/billing` and payment paths
+- `packages/database/prisma` migrations and financial constraints
+- `packages/ai` and provider settlement/reconciliation
+- `apps/admin` / `packages/admin`
+- `packages/operator`
+- `packages/direct-chats` and `packages/e2ee`
+- auth/session/recovery code
+
+## Feature flags and staged functionality
+Operator, Projects and Direct Chats use explicit feature gates. Keep existing default-OFF/fail-closed behavior unless the task explicitly changes rollout policy. Do not enable a staged feature in production/staging merely because tests pass.
+
+Direct Chat E2EE is security-sensitive. Do not make stronger cryptographic/privacy claims than the implementation proves. Do not invent cryptography; use reviewed primitives/protocol behavior and preserve ciphertext-only server semantics.
+
+## Git / PR safety
+- Work on the assigned branch/PR only.
+- Do not push directly to `main`.
+- Do not merge a PR unless the user/task explicitly authorizes merge.
+- Do not rewrite shared history or force-push unless explicitly required.
+- Keep changes focused; separate unrelated hardening/refactors.
+- Do not modify branch protection, repository settings, secrets or deployment infrastructure unless explicitly tasked.
+- Preserve existing feature flags and deployment safety boundaries.
+
+## Quality gates
+Repository-level gates are:
+```bash
+pnpm lint
+pnpm typecheck
+pnpm test
+pnpm test:integration
+pnpm build
+pnpm test:e2e
 ```
+Run what the environment supports. Integration/E2E require the configured PostgreSQL/Redis test environment. Never fake success: if a gate cannot run, say why.
 
-Core path:
+For a scoped package/app change, run the closest package tests first before the full gates.
 
-```text
-Browser
-  -> Vimla Web
-  -> Vimla API
-  -> Auth / Rate Limit
-  -> Usage Reservation
-  -> AI Gateway
-  -> AiProvider
-  -> ProxyAPIProvider
-  -> ProxyAPI
-  -> model
-  -> actual cost / usage
-  -> settlement
-  -> usage ledger
-```
-
-Async path:
-
-```text
-API -> PostgreSQL job record -> BullMQ -> Worker -> AI Gateway -> provider
-```
-
-## Stack
-Frontend:
-- Next.js 16 App Router;
-- React 19;
-- TypeScript strict;
-- MobX for client-domain UI state only;
-- SCSS Modules.
-
-Backend:
-- Node.js 24 LTS;
-- TypeScript strict;
-- NestJS;
-- Fastify adapter.
-
-Data/infrastructure:
-- PostgreSQL;
-- Prisma;
-- Redis;
-- BullMQ;
-- S3-compatible object storage;
-- pnpm workspaces;
-- Turborepo;
-- Docker Compose for local development.
-
-## General engineering rules
-- No `any`. Use explicit types, generics or `unknown` with validation/narrowing.
-- Avoid unsafe type assertions. Validate external data at boundaries.
-- Do not expose provider API keys to the browser.
-- Do not call ProxyAPI directly from frontend code.
-- Controllers/routes are transport adapters, not business logic containers.
-- Keep domain logic framework-independent where practical.
-- Do not add microservices, Kafka, Kubernetes or other distributed complexity until justified by measured load.
-- Prefer small focused modules and functions over giant files.
-- New external integrations must sit behind interfaces/adapters.
-- Validate every external input: HTTP, webhook, provider response, environment variable and queue payload.
-- Never log secrets, authorization headers, full payment data or raw sensitive file contents.
-
-## Admin control plane
-Privileged operator UI lives in `apps/admin` (`http://localhost:3002`, production `admin.<domain>`). APIs are `/admin/v1/*` behind `AdminGuard` + `@RequireAdminPermission`. Ordinary sessions and email OTP cannot become Admin. Bootstrap: `pnpm admin:bootstrap --user-id <uuid>`. See `docs/ADMIN_SECURITY.md` and `docs/FINANCE_ADMIN.md`.
+## Security review checklist for every new/changed feature
+Before completion answer internally:
+1. Who can call it?
+2. How is actor identity established server-side?
+3. How is ownership/permission enforced?
+4. Which inputs are validated and bounded?
+5. What rate/concurrency/cost limits apply?
+6. Is it idempotent under retries/duplicates?
+7. What happens on partial failure, disconnect or process crash?
+8. What is logged and what must be redacted?
+9. Can the client influence prices/roles/provider IDs/limits?
+10. Which tests prove these invariants?
 
 ## Sources of truth
-Use these documents in this order when making architectural decisions:
-1. `AGENTS.md`
-2. relevant `.cursor/rules/*.mdc`
-3. `docs/PROJECT.md`
-4. `docs/ARCHITECTURE.md`
-5. `docs/DOMAIN_MODEL.md`
-6. `docs/IMPLEMENTATION_PLAN.md`
+Use these in this order for repository work:
+1. explicit task / active PR or issue specification
+2. this `AGENTS.md` plus any deeper `AGENTS.md`
+3. relevant `.cursor/rules/*.mdc`
+4. `docs/CODEX_CONTEXT.md`
+5. `docs/PROJECT.md`
+6. `docs/ARCHITECTURE.md`
+7. `docs/DOMAIN_MODEL.md`
+8. `docs/IMPLEMENTATION_PLAN.md`
 
-If requirements conflict, stop expanding scope and choose the safer, simpler option consistent with billing/security invariants.
+If sources conflict on security/billing/privacy, stop expanding scope and choose the safer interpretation while reporting the conflict.
