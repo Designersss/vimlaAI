@@ -69,10 +69,12 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
   const [mention, setMention] = useState(false);
   const mentionRef = useRef(false);
   const [sending, setSending] = useState(false);
+  const sendingLockRef = useRef(false);
   const [operatorBusy, setOperatorBusy] = useState(false);
   const [pendingRun, setPendingRun] = useState<OperatorRunView | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
+  mentionRef.current = mention;
 
   useEffect(() => {
     let cancelled = false;
@@ -131,18 +133,24 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
 
   async function onSend(): Promise<void> {
     const text = draftRef.current.trim();
-    if (sending || operatorBusy || text.length === 0 || !conversation || !userId) {
+    const shouldInvoke = CONSUMER_FEATURES.vimlaOperator && mentionRef.current;
+    if (sendingLockRef.current || sending || operatorBusy || text.length === 0 || !conversation || !userId) {
       return;
     }
+    sendingLockRef.current = true;
     draftRef.current = "";
     setDraft("");
-    if (CONSUMER_FEATURES.vimlaOperator && mentionRef.current) {
-      mentionRef.current = false;
-      setMention(false);
-      await invokeOperator(text);
-      return;
+    try {
+      if (shouldInvoke) {
+        mentionRef.current = false;
+        setMention(false);
+        await invokeOperator(text);
+        return;
+      }
+      await postEncrypted("HUMAN", encodeDirectPlaintext({ type: "human", text }));
+    } finally {
+      sendingLockRef.current = false;
     }
-    await postEncrypted("HUMAN", encodeDirectPlaintext({ type: "human", text }));
   }
 
   async function invokeOperator(text: string): Promise<void> {
@@ -285,7 +293,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
   }
 
   return (
-    <ConsumerShell title={conversation.peer.name} actions={<NotificationBell />}>
+    <ConsumerShell title={conversation.peer.name} actions={<NotificationBell />} flush>
       <div className={styles.workspace} data-testid="direct-chat-shell">
         <ConversationHeader
           title={conversation.peer.name}
@@ -383,14 +391,9 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
               <Button
                 type="button"
                 variant={mention ? "primary" : "ghost"}
-                onClick={() => {
-                  setMention((value) => {
-                    const next = !value;
-                    mentionRef.current = next;
-                    return next;
-                  });
-                }}
+                onClick={() => setMention((value) => !value)}
                 aria-pressed={mention}
+                data-testid="direct-mention-vimla"
               >
                 <VimlaMark size={14} />
                 {t("chat.mentionVimla")}
@@ -401,10 +404,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
             mention ? (
               <VimlaMentionChip
                 label={t("chat.mentionVimla")}
-                onRemove={() => {
-                  mentionRef.current = false;
-                  setMention(false);
-                }}
+                onRemove={() => setMention(false)}
                 removeLabel={t("common.close")}
               />
             ) : null

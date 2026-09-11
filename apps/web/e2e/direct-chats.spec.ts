@@ -37,7 +37,7 @@ test.describe("Secure Direct Chats", () => {
 
     const composer = alicePage.getByPlaceholder(/сообщение этому человеку|message this person/i);
     await composer.fill("hello from alice");
-    await alicePage.getByRole("button", { name: /отправить|send/i }).click();
+    await alicePage.getByTestId("chat-composer-send").click();
     await expect(alicePage.getByTestId("direct-message-human").filter({ hasText: "hello from alice" })).toBeVisible({
       timeout: 20_000,
     });
@@ -52,14 +52,13 @@ test.describe("Secure Direct Chats", () => {
       timeout: 20_000,
     });
 
-    const mentionButton = alicePage.getByRole("button", { name: /◆ @vimla/i });
+    const mentionButton = alicePage.getByTestId("direct-mention-vimla");
     await mentionButton.click();
     await expect(mentionButton).toHaveAttribute("aria-pressed", "true");
-    await composer.click();
-    await composer.fill("");
-    await composer.pressSequentially("@Vimla, кто победил в гран-при 2026?", { delay: 15 });
+    await composer.fill("@Vimla, кто победил в гран-при 2026?");
     await expect(composer).toHaveValue("@Vimla, кто победил в гран-при 2026?");
-    await alicePage.getByRole("button", { name: /отправить|send/i }).click();
+    await expect(mentionButton).toHaveAttribute("aria-pressed", "true");
+    await alicePage.getByTestId("chat-composer-send").click();
     await expect(alicePage.getByTestId("direct-message-invoke")).toBeVisible({ timeout: 20_000 });
     await expect(alicePage.getByTestId("direct-message-response")).toBeVisible({ timeout: 20_000 });
 
@@ -71,7 +70,7 @@ test.describe("Secure Direct Chats", () => {
     ]) {
       await alicePage.setViewportSize(viewport);
       await expect(alicePage.getByTestId("direct-chat-shell")).toBeVisible();
-      await assertReachable(alicePage, alicePage.getByRole("button", { name: /отправить|send/i }));
+      await assertReachable(alicePage, alicePage.getByTestId("chat-composer-send"));
       await assertNoDocumentOverflow(alicePage);
     }
 
