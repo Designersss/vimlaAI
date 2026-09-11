@@ -20,7 +20,7 @@ test.describe("projects", () => {
     await expect(page.getByRole("heading", { name: "Atlas" })).toBeVisible();
     await page.getByRole("link", { name: /участники|members/i }).click();
     await expect(page.getByRole("heading", { name: /участники|members/i })).toBeVisible();
-    await expect(page.getByText(email)).toBeVisible();
+    await expect(page.getByTestId("projects-shell").getByText(email)).toBeVisible();
     await assertNoDocumentOverflow(page);
   });
 
