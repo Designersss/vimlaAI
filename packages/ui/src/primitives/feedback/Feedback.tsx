@@ -108,8 +108,16 @@ export function UsageMeter({
   );
 }
 
-export function Card({ children, className }: { children: ReactNode; className?: string }): ReactElement {
-  return <section className={cx(styles.card, className)}>{children}</section>;
+export function Card({
+  children,
+  className,
+  ...props
+}: HTMLAttributes<HTMLElement> & { children: ReactNode }): ReactElement {
+  return (
+    <section {...props} className={cx(styles.card, className)}>
+      {children}
+    </section>
+  );
 }
 
 export function Skeleton({ className }: { className?: string }): ReactElement {
