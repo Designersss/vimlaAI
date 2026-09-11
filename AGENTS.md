@@ -1,6 +1,15 @@
 # Vimla — Codex project guidance
 
-This is the repository-wide instruction set for Codex and other coding agents. More specific `AGENTS.md` files in subdirectories extend these rules for that area.
+This is the repository-wide instruction set for Codex and other coding agents. For Codex implementation work, read this file and `docs/CODEX_WORKFLOW.md` before editing. More specific `AGENTS.md` files in subdirectories extend these rules for that area.
+
+## Instruction discovery and precedence
+
+Apply repository guidance in this order, after platform/system instructions: the explicitly owner-approved task specification; the nearest scoped `AGENTS.md`; this root `AGENTS.md`; applicable `.cursor/rules/*.mdc`; then architecture/product documentation. A later item supplies detail where a higher-priority source is silent; it does not override a higher-priority requirement.
+
+- A nearer scoped `AGENTS.md` may specialize guidance for its subtree, but it must never weaken root security, authorization, privacy, financial, migration or fail-closed invariants.
+- An approved task may define product scope and intended behavior, but it does not authorize violating protected invariants. Stop and report the conflict instead.
+- For a cross-cutting integration file, ancestry-only discovery is insufficient. Read the `AGENTS.md` for the app/worker path **and** every domain package involved (for example Workspace, Projects, Operator, Notifications, Direct Chats/E2EE, Billing or AI), even when that domain guide is a sibling rather than an ancestor of the edited file.
+- Treat current code, manifests and docs as evidence, not permission to ignore these instructions. If guidance remains contradictory or materially ambiguous after applying this hierarchy, stop before editing and ask the owner for clarification; do not infer a product, architecture, security or financial decision.
 
 ## What Vimla is
 
@@ -45,6 +54,20 @@ Monorepo: pnpm + Turborepo, strict TypeScript.
 - Use UTC internally while preserving explicit user timezone semantics at product boundaries.
 - Protected resources must be scoped with authenticated server-side authority. Authentication is not authorization.
 - For owner-scoped/private resources, preserve enumeration-safe `404` behavior where the API contract uses it.
+
+## Package dependency and layering policy
+
+Dependencies point inward: applications and framework/provider adapters may depend on domain and shared packages; domain packages must not depend on `apps/*`, Next.js or NestJS application modules. Current manifests and architecture docs support this policy but are not its sole source of truth.
+
+| Layer | Packages / examples | Permitted dependencies and restrictions |
+| --- | --- | --- |
+| Browser-safe foundations | `@vimla/contracts`, `@vimla/shared`, `@vimla/ui`, and explicitly browser-exported `@vimla/e2ee` entry points | May be imported by browser code only through exports that contain no Node, Prisma, secrets or server configuration. `ui` may depend on browser-safe contracts/shared utilities, not server domains. |
+| Server infrastructure | `@vimla/database`, `@vimla/config`, `@vimla/auth` | Server-only unless an explicitly documented browser-safe subpath exists. Prisma client/raw SQL is confined to `@vimla/database` and server-side domain/application code through that package; never bundle it into browser code. |
+| Domain/application packages | `@vimla/workspace`, `@vimla/projects`, `@vimla/operator`, `@vimla/billing`, `@vimla/notifications`, `@vimla/ai`, `@vimla/direct-chats`, `@vimla/admin` | May depend on shared contracts/utilities, server infrastructure, and narrowly defined domain interfaces/services. They must not import from `apps/*` or depend on NestJS controllers/modules. Cross-domain dependencies must follow an explicit use case and avoid cycles. |
+| Framework/application adapters | `apps/api`, `apps/worker`, Next.js server code in `apps/web`/`apps/admin` | Compose inward-facing packages and translate HTTP, jobs or framework lifecycle concerns. NestJS/Fastify/BullMQ/Next.js dependencies stay here rather than leaking into domain packages. |
+| External-provider adapters | concrete AI, payment, email and other provider implementations | Depend on domain-owned interfaces and validated server config. Domain logic must not depend on a concrete provider SDK/adapter, and browser code must never import or call these adapters directly. |
+
+Before adding a package dependency, verify its runtime boundary, exported entry point and cycle impact. If the required direction conflicts with this table, obtain explicit architectural approval rather than introducing reverse coupling.
 
 ## Security — always apply
 
@@ -130,6 +153,13 @@ Direct Chats are a high-risk security boundary.
 
 Read `docs/DIRECT_CHATS.md`, `packages/direct-chats/AGENTS.md` and `packages/e2ee/AGENTS.md` before changing this area.
 
+## OFF-by-default feature gates
+
+- Unfinished or security-sensitive capabilities remain fail-closed and OFF by default. Do not enable, relax, bypass or remove their server or client gates as incidental work.
+- In particular, preserve `OPERATOR_ENABLED` and `NEXT_PUBLIC_VIMLA_OPERATOR`, `PROJECTS_ENABLED` and `NEXT_PUBLIC_VIMLA_PROJECTS`, and the Direct Chat/E2EE server/client gates as disabled by default.
+- Production enablement requires a separately owner-approved task that explicitly covers coordinated server and client rollout, prerequisites, authorization/abuse controls, observability, rollback and tests. Enabling only one side is not a safe rollout.
+- Routes, UI visibility, a truthy client value or an available backend implementation must never implicitly enable a capability. Missing, invalid or unavailable gate configuration fails closed.
+
 ## Notifications / workers
 
 - PostgreSQL durable delivery intent is the source of truth; BullMQ/Redis is transport/coordination.
@@ -166,6 +196,8 @@ Responsive behavior is mandatory, not polish. Changed UI must remain usable acro
 Read `.cursor/rules/10-frontend.mdc` through `.cursor/rules/24-brand-asset-v2.mdc`, especially `12-design-system.mdc` and `13-responsive-ui.mdc`.
 
 ## Scope and Git workflow
+
+`docs/CODEX_WORKFLOW.md` is mandatory for Codex implementation work. A prepared task/specification is not authorization by itself: the owner must explicitly delegate implementation. Review or CI findings require fresh owner approval before follow-up edits; do not create an autonomous fix loop.
 
 - Implement only the requested task/phase. Do not silently start future roadmap items.
 - Do not broad-refactor unrelated areas in a bugfix PR.

@@ -2,6 +2,8 @@
 
 This file extends the root `AGENTS.md` for Projects, membership and entitlement logic.
 
+`PROJECTS_ENABLED` and the corresponding client gate `NEXT_PUBLIC_VIMLA_PROJECTS` remain fail-closed and OFF by default. Do not enable either gate unless a separately owner-approved production-enablement task explicitly requires a coordinated server/client rollout and its authorization, abuse-control, observability, rollback and test prerequisites.
+
 ## Authority / permissions
 - Project ownership, role, membership and plan state are server-authoritative.
 - Non-member/private project access preserves enumeration-safe `404` behavior where defined.

@@ -18,20 +18,25 @@ Before a new Codex implementation task is launched, the human owner should expli
 
 Follow-up Codex work after review/CI findings should use the same approval gate rather than creating an uncontrolled autonomous fix loop.
 
-## Task specification expectations
+## Mandatory minimum task specification
 
-A substantial Codex task should state:
+Before editing for any substantial implementation task, Codex must confirm that the owner-approved specification states, at minimum:
 
-- problem/root cause;
-- requested outcome;
-- scope and likely files/domains;
-- security/financial/product invariants that must not change;
+- scope/problem and requested outcome;
+- intended architecture/approach;
+- preserved security, financial, product and domain invariants;
+- acceptance criteria and required tests;
+- explicit out-of-scope items.
+
+It should additionally state, where relevant:
+
+- likely files/domains;
 - concurrency/retry/crash semantics where relevant;
 - migrations allowed/required;
-- regression tests/acceptance criteria;
-- explicit out-of-scope items;
 - required quality gates;
 - whether the PR must remain draft and must not be merged.
+
+If any mandatory field is missing, materially ambiguous or contradictory, Codex must not infer product or architecture decisions. Stop before editing and request clarification. Likewise, stop if the specification conflicts with protected repository invariants; owner approval does not silently waive them.
 
 For high-risk work (billing, auth, Admin, `@Vimla`, Direct Chat/E2EE, permissions), prefer smaller independently reviewable tasks/PRs instead of one broad phase-sized rewrite.
 
@@ -40,16 +45,17 @@ For high-risk work (billing, auth, Admin, `@Vimla`, Direct Chat/E2EE, permission
 When Codex receives an approved task:
 
 1. Read root `AGENTS.md` and all nearer `AGENTS.md` files that govern changed paths.
-2. Read applicable `.cursor/rules/*.mdc` and relevant docs referenced by those files.
-3. Inspect existing implementation/tests before editing.
-4. Preserve established public behavior unless the task explicitly changes it.
-5. Solve the root cause, not just the failing test.
-6. Keep changes inside requested scope; avoid unrelated refactors.
-7. Add regression tests that reproduce the real bug/race/security boundary.
-8. Run the required quality gates supported by the environment.
-9. Review the diff for authority leaks, secret leakage, unsafe migrations, race/crash behavior and accidental scope expansion.
-10. Report changed files, migrations, commands actually run, failures/unavailable checks and remaining risks.
-11. Do not merge automatically.
+2. For cross-cutting app/worker integration, also read every domain-relevant sibling guide (for example `packages/projects/AGENTS.md`, `packages/operator/AGENTS.md`, `packages/notifications/AGENTS.md`, `packages/direct-chats/AGENTS.md`, `packages/e2ee/AGENTS.md` or `packages/workspace/AGENTS.md`). Ancestry-only discovery is insufficient.
+3. Read applicable `.cursor/rules/*.mdc` and relevant docs referenced by those files.
+4. Inspect existing implementation/tests before editing.
+5. Preserve established public behavior unless the task explicitly changes it.
+6. Solve the root cause, not just the failing test.
+7. Keep changes inside requested scope; avoid unrelated refactors.
+8. Add regression tests that reproduce the real bug/race/security boundary.
+9. Run the required quality gates supported by the environment.
+10. Review the diff for authority leaks, secret leakage, unsafe migrations, race/crash behavior and accidental scope expansion.
+11. Report changed files, migrations, commands actually run, failures/unavailable checks and remaining risks.
+12. Do not merge automatically.
 
 ## Review loop
 

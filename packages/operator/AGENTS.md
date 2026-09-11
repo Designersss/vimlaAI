@@ -2,6 +2,8 @@
 
 This file extends the root `AGENTS.md` for the secure `@Vimla` operator.
 
+`OPERATOR_ENABLED` and the corresponding client gate `NEXT_PUBLIC_VIMLA_OPERATOR` remain fail-closed and OFF by default. Do not enable either gate unless a separately owner-approved production-enablement task explicitly requires a coordinated server/client rollout and its security, abuse-control, observability, rollback and test prerequisites.
+
 ## Security model
 - `@Vimla` is a system operator, not ordinary chat.
 - Planner/model output is untrusted proposal data and never authority.
