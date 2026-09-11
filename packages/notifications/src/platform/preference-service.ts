@@ -1,11 +1,13 @@
-import type { PrismaClient } from "@vimla/database";
+import type { Prisma, PrismaClient } from "@vimla/database";
 import type { NotificationPreferencesView, UpdateNotificationPreferences } from "@vimla/contracts";
 import type { VimlaLocale } from "@vimla/shared";
 import { NotificationPlatformError } from "./errors.js";
 import { DEFAULT_REMINDER_PREFERENCES } from "./preferences.js";
 
+type NotificationPreferenceDb = PrismaClient | Prisma.TransactionClient;
+
 export class NotificationPreferenceService {
-  constructor(private readonly db: PrismaClient) {}
+  constructor(private readonly db: NotificationPreferenceDb) {}
 
   async get(userId: string): Promise<NotificationPreferencesView> {
     const user = await this.db.user.findUnique({
