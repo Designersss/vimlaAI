@@ -130,12 +130,132 @@ describe("operator concurrency", () => {
       });
       const stored = await prisma.workspaceObject.findUnique({ where: { id: taskId } });
       expect(successfulDeletes).toBe(1);
+      expect(await prisma.operatorAuditEvent.count({ where: { runId, result: "ok" } })).toBe(1);
       expect(stored?.deletedAt).not.toBeNull();
     } finally {
       await prisma.$disconnect();
     }
   });
+
+  it("recovers a durably accepted confirmation before execution and does not replay the side effect", async () => {
+    const user = await readyUser(app, "op-confirm-recovery");
+    const taskId = await createTask(app, user.cookies, "Crash recovery delete target");
+    const clientRequestId = randomUUID();
+    const content = `@Vimla удали задачу ${taskId}`;
+    const created = await createOperatorRun(app, user.cookies, clientRequestId, content);
+    expect(created.status).toBe("AWAITING_CONFIRMATION");
+
+    const prisma = createPrismaClient(testDatabaseUrl);
+    try {
+      await prisma.$transaction(async (tx) => {
+        const step = await tx.operatorRunStep.findFirstOrThrow({ where: { runId: created.id } });
+        await tx.operatorRunStep.update({ where: { id: step.id }, data: { status: "CONFIRMED" } });
+        await tx.operatorAuditEvent.create({
+          data: {
+            runId: created.id,
+            userId: user.id,
+            toolName: step.toolName,
+            operation: "confirmation_accepted",
+            objectKind: "operator_step",
+            objectId: step.id,
+            result: "accepted",
+          },
+        });
+        await tx.operatorRun.update({
+          where: { id: created.id },
+          data: { status: "EXECUTING", confirmationTokenHash: null, confirmationExpiresAt: null },
+        });
+      });
+
+      const firstRecovery = await createOperatorRun(app, user.cookies, clientRequestId, content);
+      expect(firstRecovery.status).toBe("SUCCEEDED");
+      const secondRecovery = await createOperatorRun(app, user.cookies, clientRequestId, content);
+      expect(secondRecovery.status).toBe("SUCCEEDED");
+      expect(await prisma.operatorAuditEvent.count({ where: { runId: created.id, result: "ok" } })).toBe(1);
+      expect((await prisma.workspaceObject.findUniqueOrThrow({ where: { id: taskId } })).deletedAt).not.toBeNull();
+    } finally {
+      await prisma.$disconnect();
+    }
+  });
+
+  it("never executes an unconfirmed destructive step during ordinary recovery", async () => {
+    const user = await readyUser(app, "op-unconfirmed-recovery");
+    const taskId = await createTask(app, user.cookies, "Unconfirmed delete target");
+    const clientRequestId = randomUUID();
+    const content = `@Vimla удали задачу ${taskId}`;
+    const created = await createOperatorRun(app, user.cookies, clientRequestId, content);
+
+    const prisma = createPrismaClient(testDatabaseUrl);
+    try {
+      await prisma.operatorRun.update({
+        where: { id: created.id },
+        data: { status: "EXECUTING", confirmationTokenHash: null, confirmationExpiresAt: null },
+      });
+      const recovered = await createOperatorRun(app, user.cookies, clientRequestId, content);
+      expect(recovered.status).toBe("FAILED");
+      expect(await prisma.operatorAuditEvent.count({ where: { runId: created.id, result: "ok" } })).toBe(0);
+      expect((await prisma.workspaceObject.findUniqueOrThrow({ where: { id: taskId } })).deletedAt).toBeNull();
+    } finally {
+      await prisma.$disconnect();
+    }
+  });
+
+  it("fails closed for a legacy CONFIRMED step without durable acceptance evidence", async () => {
+    const user = await readyUser(app, "op-legacy-confirmed");
+    const taskId = await createTask(app, user.cookies, "Legacy confirmed target");
+    const clientRequestId = randomUUID();
+    const content = `@Vimla удали задачу ${taskId}`;
+    const created = await createOperatorRun(app, user.cookies, clientRequestId, content);
+
+    const prisma = createPrismaClient(testDatabaseUrl);
+    try {
+      await prisma.$transaction([
+        prisma.operatorRunStep.updateMany({ where: { runId: created.id }, data: { status: "CONFIRMED" } }),
+        prisma.operatorRun.update({
+          where: { id: created.id },
+          data: { status: "EXECUTING", confirmationTokenHash: null, confirmationExpiresAt: null },
+        }),
+      ]);
+      const recovered = await createOperatorRun(app, user.cookies, clientRequestId, content);
+      expect(recovered.status).toBe("FAILED");
+      expect(await prisma.operatorAuditEvent.count({
+        where: { runId: created.id, result: "operator_reconciliation_required" },
+      })).toBe(1);
+      expect((await prisma.workspaceObject.findUniqueOrThrow({ where: { id: taskId } })).deletedAt).toBeNull();
+    } finally {
+      await prisma.$disconnect();
+    }
+  });
 });
+
+async function createTask(app: NestFastifyApplication, cookies: Record<string, string>, title: string): Promise<string> {
+  const response = await app.inject({
+    method: "POST",
+    url: "/v1/workspace/tasks",
+    headers: jsonHeaders(),
+    cookies,
+    payload: { title },
+  });
+  expect(response.statusCode).toBe(201);
+  return response.json().id as string;
+}
+
+async function createOperatorRun(
+  app: NestFastifyApplication,
+  cookies: Record<string, string>,
+  clientRequestId: string,
+  content: string,
+): Promise<{ id: string; status: string }> {
+  const response = await app.inject({
+    method: "POST",
+    url: "/v1/operator/runs",
+    headers: jsonHeaders(),
+    cookies,
+    payload: { clientRequestId, content },
+  });
+  expect(response.statusCode).toBe(201);
+  return response.json() as { id: string; status: string };
+}
 
 async function readyUser(app: NestFastifyApplication, label: string) {
   const user = await registerVerifiedUser(app, label);

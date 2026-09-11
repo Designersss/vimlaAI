@@ -174,57 +174,70 @@ export class OperatorService {
   async confirmRun(userId: string, runId: string, body: unknown, correlationId: string): Promise<OperatorRunView> {
     this.assertEnabled();
     const input = confirmOperatorRunSchema.parse(body);
-    const run = await this.loadOwnedRun(userId, runId);
+    const run = await this.acceptConfirmation(userId, runId, input.confirmationToken);
     if (run.status === "SUCCEEDED" || run.status === "PARTIAL" || run.status === "CANCELED" || run.status === "FAILED") {
       return this.toView(run, null);
     }
     if (run.status === "EXECUTING") {
       const context = await this.toolContext(run);
-      const executed = await this.executePersistedSteps(run.id, context, correlationId, true);
+      const executed = await this.executePersistedSteps(run.id, context, correlationId);
       if (executed.status === "CLARIFY") {
         return this.awaitClarification(run.id, executed.publicMessage, executed.question);
       }
       return this.finishRun(run.id, executed.publicMessage, executed.status, executed.confirmationToken);
     }
-    if (run.status !== "AWAITING_CONFIRMATION") {
-      throw new OperatorError("CONFIRMATION_INVALID", "This run is not waiting for confirmation");
-    }
-    if (!run.confirmationTokenHash || !run.confirmationExpiresAt || run.confirmationExpiresAt < new Date()) {
-      throw new OperatorError("CONFIRMATION_INVALID", "Confirmation expired");
-    }
-    if (!confirmationTokenMatches(input.confirmationToken, run.confirmationTokenHash, this.config.betterAuthSecret)) {
-      throw new OperatorError("CONFIRMATION_INVALID", "Confirmation token is invalid");
-    }
+    throw new OperatorError("CONFIRMATION_INVALID", "This run is not waiting for confirmation");
+  }
 
-    const claimed = await this.prisma.operatorRun.updateMany({
-      where: {
-        id: run.id,
-        userId,
-        status: "AWAITING_CONFIRMATION",
-        confirmationTokenHash: run.confirmationTokenHash,
-      },
-      data: { status: "EXECUTING", confirmationTokenHash: null, confirmationExpiresAt: null },
-    });
-    if (claimed.count === 0) {
-      const latest = await this.loadOwnedRun(userId, runId);
-      if (latest.status === "EXECUTING") {
-        const context = await this.toolContext(latest);
-        const executed = await this.executePersistedSteps(latest.id, context, correlationId, true);
-        if (executed.status === "CLARIFY") {
-          return this.awaitClarification(latest.id, executed.publicMessage, executed.question);
-        }
-        return this.finishRun(latest.id, executed.publicMessage, executed.status, executed.confirmationToken);
+  private async acceptConfirmation(userId: string, runId: string, token: string): Promise<RunRecord> {
+    return this.prisma.$transaction(async (tx) => {
+      const locked = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT "id" FROM "operator_run"
+        WHERE "id" = ${runId}::uuid AND "userId" = ${userId}
+        FOR UPDATE
+      `;
+      if (locked.length === 0) {
+        throw new NotFoundException("Operator run was not found");
       }
-      return this.toView(latest, null);
-    }
 
-    const executing = await this.loadOwnedRun(userId, runId);
-    const context = await this.toolContext(executing);
-    const executed = await this.executePersistedSteps(executing.id, context, correlationId, true);
-    if (executed.status === "CLARIFY") {
-      return this.awaitClarification(executing.id, executed.publicMessage, executed.question);
-    }
-    return this.finishRun(executing.id, executed.publicMessage, executed.status, executed.confirmationToken);
+      const current = await tx.operatorRun.findUniqueOrThrow({
+        where: { id: runId },
+        include: { steps: { orderBy: { sequence: "asc" } } },
+      });
+      if (current.status !== "AWAITING_CONFIRMATION") {
+        return current;
+      }
+      if (!current.confirmationTokenHash || !current.confirmationExpiresAt || current.confirmationExpiresAt < new Date()) {
+        throw new OperatorError("CONFIRMATION_INVALID", "Confirmation expired");
+      }
+      if (!confirmationTokenMatches(token, current.confirmationTokenHash, this.config.betterAuthSecret)) {
+        throw new OperatorError("CONFIRMATION_INVALID", "Confirmation token is invalid");
+      }
+
+      const confirmableSteps = current.steps.filter((step) => step.status === "NEEDS_CONFIRMATION");
+      if (confirmableSteps.length > 0) {
+        await tx.operatorRunStep.updateMany({
+          where: { runId, status: "NEEDS_CONFIRMATION" },
+          data: { status: "CONFIRMED" },
+        });
+        await tx.operatorAuditEvent.createMany({
+          data: confirmableSteps.map((step) => ({
+            runId,
+            userId,
+            toolName: step.toolName,
+            operation: "confirmation_accepted",
+            objectKind: "operator_step",
+            objectId: step.id,
+            result: "accepted",
+          })),
+        });
+      }
+      return tx.operatorRun.update({
+        where: { id: runId },
+        data: { status: "EXECUTING", confirmationTokenHash: null, confirmationExpiresAt: null },
+        include: { steps: { orderBy: { sequence: "asc" } } },
+      });
+    });
   }
 
   async continueRun(
@@ -387,7 +400,7 @@ export class OperatorService {
       where: { id: run.id },
       data: { status: "EXECUTING", publicMessage: sanitizePublicText(plan.userMessage, 2_000) },
     });
-    const executed = await this.executePersistedSteps(run.id, context, correlationId, false);
+    const executed = await this.executePersistedSteps(run.id, context, correlationId);
     if (executed.status === "CLARIFY") {
       return this.awaitClarification(run.id, executed.publicMessage, executed.question);
     }
@@ -398,7 +411,6 @@ export class OperatorService {
     runId: string,
     context: OperatorToolContext,
     correlationId: string,
-    confirmed: boolean,
   ): Promise<{
     status: "SUCCEEDED" | "PARTIAL" | "FAILED" | "CLARIFY";
     publicMessage: string;
@@ -435,28 +447,39 @@ export class OperatorService {
           if (step.status === "SKIPPED") {
             return { kind: "skipped" as const };
           }
-          if (step.status === "NEEDS_CONFIRMATION" && !confirmed) {
-            return { kind: "skipped" as const };
-          }
-          if (step.status === "CONFIRMED") {
-            await tx.operatorRunStep.update({
-              where: { id: step.id },
-              data: { status: "FAILED", errorCode: "operator_reconciliation_required" },
-            });
-            await tx.operatorAuditEvent.create({
-              data: {
-                runId,
-                userId: context.actor.userId,
-                toolName: step.toolName,
-                operation: "reconciliation_required",
-                objectKind: step.publicKind,
-                objectId: step.objectId,
-                result: "operator_reconciliation_required",
-              },
-            });
+          if (step.status === "NEEDS_CONFIRMATION") {
             return { kind: "failed" as const };
           }
-          if (step.status !== "PENDING" && step.status !== "NEEDS_CONFIRMATION") {
+          if (step.status === "CONFIRMED") {
+            const acceptance = await tx.operatorAuditEvent.findFirst({
+              where: {
+                runId,
+                operation: "confirmation_accepted",
+                objectKind: "operator_step",
+                objectId: step.id,
+                result: "accepted",
+              },
+            });
+            if (!acceptance) {
+              await tx.operatorRunStep.update({
+                where: { id: step.id },
+                data: { status: "FAILED", errorCode: "operator_reconciliation_required" },
+              });
+              await tx.operatorAuditEvent.create({
+                data: {
+                  runId,
+                  userId: context.actor.userId,
+                  toolName: step.toolName,
+                  operation: "reconciliation_required",
+                  objectKind: step.publicKind,
+                  objectId: step.objectId,
+                  result: "operator_reconciliation_required",
+                },
+              });
+              return { kind: "failed" as const };
+            }
+          }
+          if (step.status !== "PENDING" && step.status !== "CONFIRMED") {
             return { kind: "skipped" as const };
           }
 
@@ -909,7 +932,7 @@ export class OperatorService {
     }
     if (run.status === "EXECUTING") {
       const context = await this.toolContext(run);
-      const executed = await this.executePersistedSteps(run.id, context, correlationId, false);
+      const executed = await this.executePersistedSteps(run.id, context, correlationId);
       if (executed.status === "CLARIFY") {
         return this.awaitClarification(run.id, executed.publicMessage, executed.question);
       }
