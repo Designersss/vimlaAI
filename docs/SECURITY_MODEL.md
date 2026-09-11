@@ -77,6 +77,9 @@ Separate control plane, strong MFA/passkey, infrastructure access restriction wh
 ### @Vimla operator (Phase 7)
 The LLM never receives Prisma, SQL, Redis, shell, filesystem, env, Admin API, or arbitrary HTTP tools. Tool arguments are Zod-strict and reject `userId` / owner / permission fields. Execution uses the authenticated session `ActorContext` and existing workspace/notification services (other users’ objects 404). Destructive tools require a hashed confirmation token. Operator runs are owner-scoped (foreign IDs 404). Planner output is not returned to the browser. `OPERATOR_ENABLED` defaults to false; disabled endpoints return `operator_disabled`. UI entry points stay behind `CONSUMER_FEATURES.vimlaOperator`.
 
+### Projects (Phase 8)
+Project membership is server-authoritative. Non-members receive 404 (not 403). Owner plan is the only entitlement subject; a paid member cannot unlock `PLAN_LOCKED`. There is no ownership-transfer API. Invite tokens are HMAC-hashed; accept requires the authenticated email to match. `lastOpenedAt` is not updated by list or prefetch. `PROJECTS_ENABLED` defaults to false; disabled endpoints return `projects_disabled`. UI entry points stay behind `CONSUMER_FEATURES.projects`.
+
 ### Infrastructure
 Private DB/Redis, WAF/DDoS layer, TLS/security headers, least-privilege containers, secure management access, backups and restore tests.
 

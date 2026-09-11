@@ -20,7 +20,10 @@ describe("i18n dictionaries", () => {
     expect(ruKeys).toContain("billing.activeUntil");
     expect(ruKeys).toContain("billing.topupNeverExpires");
     expect(ruKeys).toContain("appearance.theme");
-    expect(ruKeys).toContain("nav.work");
+    expect(ruKeys).toContain("nav.projects");
+    expect(ruKeys).toContain("projects.title");
+    expect(ruKeys).toContain("projects.ownerPlanLockedTitle");
+    expect(ruKeys).toContain("errors.project_plan_locked");
     expect(ruKeys).toContain("work.today");
     expect(ruKeys).toContain("work.noDelivery");
     expect(ruKeys).toContain("work.deliveryEnabled");

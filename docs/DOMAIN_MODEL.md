@@ -13,15 +13,25 @@ Separate from Better Auth `User`. Stores UI/locale settings (`locale`, optional 
 
 `providerBudgetMicroRub` is the monthly AI usage grant, not revenue. `EffectivePlanResolver` returns the ACTIVE paid subscription's version, otherwise the published `FREE` version. FREE does not create a fake Subscription.
 
-`PlanEntitlement` is a typed registry (unknown keys rejected). Unlimited is `{ unlimited: true }`, never `-1`. Canonical project keys: `projects.ownedActiveMax`, `projects.externalActiveMax`, `projects.membersPerOwnedProjectMax`. Historical `projects.max` / `projects.membersPerProject` remain readable on old PlanVersions; new drafts reject them. Projects tables are not implemented in Phase 5.
+`PlanEntitlement` is a typed registry (unknown keys rejected). Unlimited is `{ unlimited: true }`, never `-1`. Canonical project keys: `projects.ownedActiveMax`, `projects.externalActiveMax`, `projects.membersPerOwnedProjectMax`. Historical `projects.max` / `projects.membersPerProject` remain readable on old PlanVersions; new drafts reject them.
 
-## Project policy (documented, not implemented)
+## Project
+
+Shared workspace owned by one user (the billing subject). Tables: `Project`, `ProjectMember`, `ProjectInvite`. Roles: `OWNER`, `ADMIN`, `MEMBER`, `VIEWER`. There is no ownership transfer in Phase 8.
+
+Access is computed, not stored: `ProjectMember.lastOpenedAt` is the only ranking signal. List/prefetch/GET must not write it. `POST /v1/projects/:id/open` updates it after a successful membership check.
+
+## Project policy
 
 Owner plan determines project capability. A paid participant cannot rescue a project, there is no automatic ownership transfer, and billing never falls back to another member.
 
-When the owner's paid plan ends, effective plan is FREE. The most recently meaningfully active owned project stays ACTIVE; other owned projects become `PLAN_LOCKED` (read-only for every member). No project data is deleted. Selection uses backend activity ordering, not UI list position.
+When the owner's paid plan ends, effective plan is FREE:
+- at most `projects.ownedActiveMax` owned projects stay ACTIVE (FREE = 1), chosen by the owner's `lastOpenedAt`;
+- other owned projects become `PLAN_LOCKED` (read-only for every member);
+- no project or membership rows are deleted;
+- restoring a paid subscription recomputes access and unlocks automatically.
 
-In the remaining Free owned project, owner + the most recently active other member stay ACTIVE; other memberships become `READ_ONLY_BY_OWNER_PLAN`. External memberships beyond `projects.externalActiveMax` become `READ_ONLY_BY_MEMBER_PLAN`. Memberships are never auto-removed.
+In an otherwise ACTIVE owned project, owner + the most recently opened other members up to `projects.membersPerOwnedProjectMax` stay ACTIVE; extra memberships become `READ_ONLY_BY_OWNER_PLAN`. For a Free member who is not the owner, at most `projects.externalActiveMax` (FREE = 2) joined projects stay available, chosen by that member's `lastOpenedAt`; extra memberships become `READ_ONLY_BY_MEMBER_PLAN` for that user only.
 
 AI initiated by User A spends User A's Usage unless a future explicit `PROJECT_USAGE` mode is selected. Anti-churn knobs (creation window/limits, reallocation cooldown, trash retention) live on `BusinessGuardrailVersion`, not on Plan entitlements.
 

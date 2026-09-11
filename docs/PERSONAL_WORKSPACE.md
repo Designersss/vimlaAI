@@ -14,7 +14,7 @@ Internal concept: `WorkspaceObject` with kinds `TASK | REMINDER | LIST | NOTE`.
 
 - Checklist is a List `type` (`PLAIN` | `CHECKLIST`), not a separate kind.
 - Phase 6 scope is **`PERSONAL` only**. There is no `projectId` column.
-- Phase 8 PROJECT migration should add `scopeType = PROJECT` plus a real project foreign key, backfill personal rows as PERSONAL, and keep owner checks in the same services. Do not add a dangling nullable `projectId` beforehand.
+- Phase 8 added Projects as a separate domain (`@vimla/projects`). PROJECT-scoped workspace objects are still not migrated: do not add a dangling nullable `projectId` on personal rows until that migration.
 
 ## Timezone
 

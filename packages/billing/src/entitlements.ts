@@ -143,3 +143,76 @@ export function isTopupAllowed(entitlements: readonly PlanEntitlementRecord[]): 
   }
   return match.value.kind === "BOOLEAN" ? match.value.value : true;
 }
+
+export interface CountLimit {
+  unlimited: boolean;
+  value: bigint;
+}
+
+export interface ProjectEntitlementLimits {
+  ownedActiveMax: CountLimit;
+  externalActiveMax: CountLimit;
+  membersPerOwnedProjectMax: CountLimit;
+}
+
+const FREE_PROJECT_DEFAULTS: ProjectEntitlementLimits = {
+  ownedActiveMax: { unlimited: false, value: 1n },
+  externalActiveMax: { unlimited: false, value: 2n },
+  membersPerOwnedProjectMax: { unlimited: false, value: 2n },
+};
+
+export function projectEntitlementLimits(
+  entitlements: readonly PlanEntitlementRecord[],
+  source: "SUBSCRIPTION" | "FREE_FALLBACK",
+): ProjectEntitlementLimits {
+  const fallback = source === "FREE_FALLBACK" ? FREE_PROJECT_DEFAULTS : null;
+  return {
+    ownedActiveMax: readCountLimit(entitlements, "projects.ownedActiveMax", fallback?.ownedActiveMax ?? unlimitedCount()),
+    externalActiveMax: readCountLimit(
+      entitlements,
+      "projects.externalActiveMax",
+      fallback?.externalActiveMax ?? unlimitedCount(),
+    ),
+    membersPerOwnedProjectMax: readCountLimit(
+      entitlements,
+      "projects.membersPerOwnedProjectMax",
+      fallback?.membersPerOwnedProjectMax ?? unlimitedCount(),
+    ),
+  };
+}
+
+function unlimitedCount(): CountLimit {
+  return { unlimited: true, value: 0n };
+}
+
+function readCountLimit(
+  entitlements: readonly PlanEntitlementRecord[],
+  key: CanonicalProjectEntitlementKey,
+  fallback: CountLimit,
+): CountLimit {
+  const match = entitlements.find((item) => item.key === key);
+  if (!match || match.value.kind === "TBD") {
+    return fallback;
+  }
+  if (match.value.kind !== "COUNT") {
+    return fallback;
+  }
+  if (match.value.unlimited) {
+    return unlimitedCount();
+  }
+  return { unlimited: false, value: match.value.value };
+}
+
+export function isWithinCountLimit(limit: CountLimit, used: number): boolean {
+  if (limit.unlimited) {
+    return true;
+  }
+  return BigInt(used) < limit.value;
+}
+
+export function countLimitValue(limit: CountLimit): number | null {
+  if (limit.unlimited) {
+    return null;
+  }
+  return Number(limit.value);
+}

@@ -46,6 +46,8 @@ const e2eEnv: Record<string, string> = {
   AI_TEXT_PROVIDER: "mock",
   OPERATOR_ENABLED: "true",
   NEXT_PUBLIC_VIMLA_OPERATOR: "true",
+  PROJECTS_ENABLED: "true",
+  NEXT_PUBLIC_VIMLA_PROJECTS: "true",
   EMAIL_PROVIDER: "memory",
   AUTH_OTP_RESEND_COOLDOWN_SECONDS: "2",
   AI_TEXT_RATE_LIMIT_PER_MINUTE: "3",

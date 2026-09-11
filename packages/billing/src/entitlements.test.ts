@@ -5,6 +5,7 @@ import {
   decodeEntitlement,
   encodeEntitlement,
   isTopupAllowed,
+  projectEntitlementLimits,
 } from "./entitlements.js";
 
 describe("entitlements", () => {
@@ -52,5 +53,30 @@ describe("entitlements", () => {
     expect(
       isTopupAllowed([{ key: "billing.topupAllowed", value: { kind: "BOOLEAN", value: false } }]),
     ).toBe(false);
+  });
+
+  it("uses Free project defaults and treats missing paid keys as unlimited", () => {
+    const free = projectEntitlementLimits([], "FREE_FALLBACK");
+    expect(free.ownedActiveMax).toEqual({ unlimited: false, value: 1n });
+    expect(free.externalActiveMax).toEqual({ unlimited: false, value: 2n });
+    expect(free.membersPerOwnedProjectMax).toEqual({ unlimited: false, value: 2n });
+
+    const paidMissing = projectEntitlementLimits([], "SUBSCRIPTION");
+    expect(paidMissing.ownedActiveMax.unlimited).toBe(true);
+    expect(paidMissing.externalActiveMax.unlimited).toBe(true);
+  });
+
+  it("reads canonical project COUNT limits and TBD as unlimited on paid plans", () => {
+    const limits = projectEntitlementLimits(
+      [
+        { key: "projects.ownedActiveMax", value: { kind: "COUNT", unlimited: false, value: 3n } },
+        { key: "projects.externalActiveMax", value: { kind: "TBD" } },
+        { key: "projects.membersPerOwnedProjectMax", value: { kind: "COUNT", unlimited: true } },
+      ],
+      "SUBSCRIPTION",
+    );
+    expect(limits.ownedActiveMax).toEqual({ unlimited: false, value: 3n });
+    expect(limits.externalActiveMax.unlimited).toBe(true);
+    expect(limits.membersPerOwnedProjectMax.unlimited).toBe(true);
   });
 });

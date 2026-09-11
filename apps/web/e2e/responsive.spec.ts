@@ -77,6 +77,18 @@ test.describe("responsive smoke", () => {
     }
   });
 
+  test("Projects shell fits representative viewports", async ({ page, request }) => {
+    const email = uniqueEmail("e2e-projects-responsive-smoke");
+    await signUp(page, { name: "Ada", email, password: "correct-horse-battery" });
+    await verifyEmail(page, request, email);
+    for (const viewport of VIEWPORTS) {
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      await page.goto("/projects");
+      await expect(page.getByTestId("projects-shell")).toBeVisible();
+      await assertNoDocumentOverflow(page);
+    }
+  });
+
   test("UI catalog is available in test env", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/dev/ui");

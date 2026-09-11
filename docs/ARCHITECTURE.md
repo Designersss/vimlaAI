@@ -332,6 +332,17 @@ Browser
 
 Typed tools only (tasks, reminders, notes, lists, today, safe profile, notification preferences). No Prisma/SQL/Redis/shell/fs/env/Admin/HTTP tools. Destructive deletes and notification preference updates require confirmation. Unique `(userId, clientRequestId)` plus step compare-and-swap make retries safe. Config: `OPERATOR_ENABLED` (default `false`; fail closed with `operator_disabled`), `OPERATOR_MAX_TOOLS_PER_RUN` (default 8), confirmation TTL, per-user rate limit. UI gate `CONSUMER_FEATURES.vimlaOperator` is off unless `NEXT_PUBLIC_VIMLA_OPERATOR=true`. Routes do not enable the capability.
 
+## Projects
+```text
+Browser
+  -> /projects, /projects/:id, /projects/:id/members, /projects/join
+  -> POST/GET/PATCH/DELETE /v1/projects*
+  -> ProjectsFacade -> @vimla/projects ProjectService
+  -> EffectivePlanResolver + ProjectMember.lastOpenedAt
+```
+
+Non-members receive 404. Mutations are OriginGuard + SensitiveArea + per-user rate limit. `PROJECTS_ENABLED` defaults to false (`projects_disabled`). UI gate `CONSUMER_FEATURES.projects` is off unless `NEXT_PUBLIC_VIMLA_PROJECTS=true`. `lastOpenedAt` is written only by `POST /v1/projects/:id/open`. List and GET do not update it. Invite tokens are HMAC-hashed; the plaintext token is returned once to the inviter.
+
 ## Payments
 Use `PaymentProvider` abstraction (`MockPaymentProvider` | `TBankPaymentProvider`). Billing domain does not call T-Bank HTTP. Token/notification verification lives in the adapter. Domain must not depend on a T-Bank SDK.
 

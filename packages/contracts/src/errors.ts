@@ -60,6 +60,14 @@ export const apiErrorCodeSchema = z.enum([
   "operator_clarification_required",
   "operator_plan_invalid",
   "operator_tool_denied",
+  "projects_disabled",
+  "project_plan_locked",
+  "project_entitlement_denied",
+  "project_owned_limit",
+  "project_member_limit",
+  "project_invite_invalid",
+  "project_invite_email_mismatch",
+  "project_role_forbidden",
 ]);
 export type ApiErrorCode = z.infer<typeof apiErrorCodeSchema>;
 

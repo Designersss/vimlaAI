@@ -159,11 +159,20 @@ export function LocalNavLink({
   href,
   children,
   active,
+  disabled = false,
 }: {
   href: string;
   children: ReactNode;
   active: boolean;
+  disabled?: boolean;
 }): ReactElement {
+  if (disabled) {
+    return (
+      <span className={buttonClassName({ variant: "ghost", size: "sm" })} aria-disabled="true">
+        {children}
+      </span>
+    );
+  }
   return (
     <Link href={href} className={buttonClassName({ variant: active ? "primary" : "ghost", size: "sm" })}>
       {children}

@@ -31,7 +31,7 @@ Phase 6.1 MUST NOT invent Direct Chat backend/data if it does not exist yet. The
 
 ## Проекты
 
-Project collection -> Project detail. Future domain implementation remains in its roadmap phase.
+Project collection (`/projects`) -> Project detail (`/projects/:id`). Local nav: Overview / Chats / Work / Context / Members. Chats, Work and Context are disabled until their domain phases. Feature flag `projects` is off by default.
 
 ## ◆ Vimla
 
