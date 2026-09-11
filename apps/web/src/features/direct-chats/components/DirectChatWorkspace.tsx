@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactElement } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 import { useRouter } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import type { DirectConversationView, DirectMessageKind, DirectMessageView, OperatorRunView } from "@vimla/contracts";
@@ -66,6 +66,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
   const [rows, setRows] = useState<DecryptedRow[]>([]);
   const [draft, setDraft] = useState("");
   const [mention, setMention] = useState(false);
+  const mentionRef = useRef(false);
   const [sending, setSending] = useState(false);
   const [operatorBusy, setOperatorBusy] = useState(false);
   const [pendingRun, setPendingRun] = useState<OperatorRunView | null>(null);
@@ -133,7 +134,9 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
     }
     const text = draft.trim();
     setDraft("");
-    if (CONSUMER_FEATURES.vimlaOperator && mention) {
+    if (CONSUMER_FEATURES.vimlaOperator && mentionRef.current) {
+      mentionRef.current = false;
+      setMention(false);
       await invokeOperator(text);
       return;
     }
@@ -145,6 +148,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
       return;
     }
     setMention(false);
+    mentionRef.current = false;
     setOperatorBusy(true);
     setError(null);
     try {
@@ -374,7 +378,13 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
               <Button
                 type="button"
                 variant={mention ? "primary" : "ghost"}
-                onClick={() => setMention((value) => !value)}
+                onClick={() => {
+                  setMention((value) => {
+                    const next = !value;
+                    mentionRef.current = next;
+                    return next;
+                  });
+                }}
                 aria-pressed={mention}
               >
                 <VimlaMark size={14} />
@@ -384,7 +394,14 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
           }
           chips={
             mention ? (
-              <VimlaMentionChip label={t("chat.mentionVimla")} onRemove={() => setMention(false)} removeLabel={t("common.close")} />
+              <VimlaMentionChip
+                label={t("chat.mentionVimla")}
+                onRemove={() => {
+                  mentionRef.current = false;
+                  setMention(false);
+                }}
+                removeLabel={t("common.close")}
+              />
             ) : null
           }
         />
