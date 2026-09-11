@@ -11,7 +11,7 @@ Phase 6.5 delivers existing one-shot personal `WorkspaceReminder` rows over:
 
 Current product identity and notifications are email-only. SMS/phone authentication is not part of the current product and may be introduced in a future phase after launch.
 
-Not in this phase: recurring reminders, Web Push, SMS, project reminders, marketing, or `@Vimla`.
+Not in this phase: recurring reminders, Web Push, SMS, project reminders, or marketing. `@Vimla` may update reminder channel preferences through the same preference service.
 
 ## State machine (`notification_delivery.status`)
 

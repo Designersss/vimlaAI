@@ -1,5 +1,6 @@
 import type { AiProvider, NormalizedUsage, ProviderChatRequest, ProviderChatResult, ProviderStreamEvent } from "./types.js";
 import { ProviderCallError } from "./types.js";
+import { isOperatorPlannerPrompt, mockOperatorPlannerResponse } from "./mock-operator-plan.js";
 
 export type MockProviderScenario =
   | "success"
@@ -28,6 +29,10 @@ export class MockAiProvider implements AiProvider {
   async streamChat(request: ProviderChatRequest): Promise<ProviderChatResult> {
     this.callCount += 1;
     this.lastRequest = request;
+    const replyText =
+      isOperatorPlannerPrompt(request.messages) && this.scenario === "success"
+        ? mockOperatorPlannerResponse(request.messages)
+        : this.text;
     if (this.delayMs > 0) {
       await new Promise((resolve) => {
         setTimeout(resolve, this.delayMs);
@@ -53,7 +58,7 @@ export class MockAiProvider implements AiProvider {
         }
       : this.usage;
     const includeUsage = this.scenario !== "missing-usage";
-    const text = this.text;
+    const text = replyText;
     const split = this.splitDeltas;
 
     return {

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { CONSUMER_FEATURES } from "./consumer-features";
 
 describe("consumer feature gates", () => {
-  it("enables notification settings after Phase 6.5 and keeps future product surfaces off", () => {
+  it("keeps unreleased surfaces off until they are explicitly enabled", () => {
     expect(CONSUMER_FEATURES.notificationsSettings).toBe(true);
     expect(CONSUMER_FEATURES.projects).toBe(false);
     expect(CONSUMER_FEATURES.vimlaOperator).toBe(false);

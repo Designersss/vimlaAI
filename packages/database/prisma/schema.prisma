@@ -38,6 +38,8 @@ model User {
   createdWorkspaceObjects    WorkspaceObject[] @relation("WorkspaceCreatedBy")
   userNotifications          UserNotification[]
   notificationDeliveries     NotificationDelivery[]
+  operatorRuns               OperatorRun[]
+  operatorAuditEvents        OperatorAuditEvent[]
   twoFactorEnabled           Boolean           @default(false)
   twoFactor            TwoFactor?
   passkeys             Passkey[]
@@ -359,14 +361,18 @@ model Conversation {
   userId     String
   user       User        @relation(fields: [userId], references: [id], onDelete: Restrict)
   title      String?
+  kind       String      @default("CHAT")
   createdAt  DateTime    @default(now())
   updatedAt  DateTime    @updatedAt
   messages                 Message[]
   aiRequests               AiRequest[]
   sourcedWorkspaceObjects  WorkspaceObject[]
+  operatorRuns             OperatorRun[]
 
   @@index([userId, updatedAt])
+  @@index([userId, kind])
   @@map("conversation")
+  // Partial unique index conversation_one_operator_per_user (userId WHERE kind = 'OPERATOR') is in SQL.
 }
 
 model Message {
@@ -382,9 +388,12 @@ model Message {
   updatedAt      DateTime     @updatedAt
 
   sourcedWorkspaceObjects WorkspaceObject[]
+  operatorRunId           String?
+  operatorRun             OperatorRun?      @relation(fields: [operatorRunId], references: [id], onDelete: SetNull)
 
   @@index([conversationId, createdAt])
   @@index([aiRequestId])
+  @@index([operatorRunId])
   @@map("message")
 }
 
@@ -416,6 +425,7 @@ model AiRequest {
   cacheWriteTokens           Int?
   providerActualCostMicroRub BigInt?
   userSettledUsageMicroRub   BigInt?
+  outputText                 String?
   createdAt                  DateTime            @default(now())
   startedAt                  DateTime?
   finishedAt                 DateTime?
@@ -864,4 +874,82 @@ model NotificationDelivery {
   @@index([userId, createdAt])
   @@index([sourceType, sourceId])
   @@map("notification_delivery")
+}
+
+// Phase 7: @Vimla operator runtime. Planner LLM never receives userId/permissions.
+// Tool side effects go through workspace/notification services with ActorContext.
+model OperatorRun {
+  id                       String   @id @default(uuid())
+  userId                   String
+  user                     User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  conversationId           String
+  conversation             Conversation @relation(fields: [conversationId], references: [id], onDelete: Restrict)
+  userMessageId            String?
+  assistantMessageId       String?
+  clientRequestId          String
+  continueClientRequestId  String?
+  plannerClientRequestId   String?
+  plannerAiRequestId       String?
+  status                   String
+  userText                 String
+  locale                   String
+  publicMessage            String?
+  clarificationQuestion    String?
+  confirmationTokenHash    String?
+  confirmationExpiresAt    DateTime?
+  plannerOutput            String?
+  errorCode                String?
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+  steps                    OperatorRunStep[]
+  auditEvents              OperatorAuditEvent[]
+  messages                 Message[]
+
+  @@unique([userId, clientRequestId])
+  @@index([userId, createdAt])
+  @@index([conversationId, createdAt])
+  @@index([status, updatedAt])
+  @@map("operator_run")
+}
+
+model OperatorRunStep {
+  id             String      @id @default(uuid())
+  runId          String
+  run            OperatorRun @relation(fields: [runId], references: [id], onDelete: Restrict)
+  sequence       Int
+  toolName       String
+  status         String
+  inputJson      Json
+  publicKind     String
+  publicTitle    String
+  publicDetail   String?
+  publicHrefPath String?
+  objectId       String?
+  errorCode      String?
+  idempotencyKey String
+  executedAt     DateTime?
+  createdAt      DateTime    @default(now())
+
+  @@unique([runId, sequence])
+  @@unique([runId, idempotencyKey])
+  @@index([runId, status])
+  @@map("operator_run_step")
+}
+
+model OperatorAuditEvent {
+  id         String      @id @default(uuid())
+  runId      String
+  run        OperatorRun @relation(fields: [runId], references: [id], onDelete: Restrict)
+  userId     String
+  user       User        @relation(fields: [userId], references: [id], onDelete: Restrict)
+  toolName   String
+  operation  String
+  objectKind String?
+  objectId   String?
+  result     String
+  createdAt  DateTime    @default(now())
+
+  @@index([userId, createdAt])
+  @@index([runId, createdAt])
+  @@map("operator_audit_event")
 }

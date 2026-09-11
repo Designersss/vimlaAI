@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { Inject, Injectable, Logger, NotFoundException, BadRequestException } from "@nestjs/common";
 import { isAiTextOperatorDisabled } from "@vimla/admin";
 import {
   AiError,
@@ -88,13 +88,13 @@ export class TextChatService {
 
   async createConversation(userId: string, title?: string) {
     return this.prisma.conversation.create({
-      data: { userId, title: title ?? null },
+      data: { userId, title: title ?? null, kind: "CHAT" },
     });
   }
 
   async listConversations(userId: string) {
     return this.prisma.conversation.findMany({
-      where: { userId },
+      where: { userId, kind: "CHAT" },
       orderBy: { updatedAt: "desc" },
       take: 50,
     });
@@ -103,9 +103,17 @@ export class TextChatService {
   async getConversation(userId: string, conversationId: string) {
     const conversation = await this.prisma.conversation.findFirst({
       where: { id: conversationId, userId },
-      include: { messages: { orderBy: { createdAt: "asc" } } },
+      include: {
+        messages: {
+          orderBy: { createdAt: "asc" },
+          include: { operatorRun: { include: { steps: { orderBy: { sequence: "asc" } } } } },
+        },
+      },
     });
     if (!conversation) {
+      throw new NotFoundException("Conversation was not found");
+    }
+    if (conversation.kind === "OPERATOR") {
       throw new NotFoundException("Conversation was not found");
     }
 
@@ -126,6 +134,12 @@ export class TextChatService {
     });
     if (!conversation) {
       throw new NotFoundException("Conversation was not found");
+    }
+    if (conversation.kind === "OPERATOR") {
+      throw new BadRequestException({
+        code: "validation_error",
+        message: "Operator conversations use the operator API",
+      });
     }
 
     if (utf8ByteLength(input.body.content) > this.config.aiMaxMessageBytes) {
@@ -165,6 +179,72 @@ export class TextChatService {
     }
   }
 
+  async completeInternalPrompt(input: {
+    userId: string;
+    conversationId: string;
+    clientRequestId: string;
+    messages: ProviderChatMessage[];
+    correlationId: string;
+  }): Promise<{ text: string; aiRequestId: string }> {
+    await this.assertTextEnabled();
+
+    const conversation = await this.prisma.conversation.findFirst({
+      where: { id: input.conversationId, userId: input.userId },
+    });
+    if (!conversation) {
+      throw new NotFoundException("Conversation was not found");
+    }
+
+    const promptBytes = input.messages.reduce((sum, message) => sum + utf8ByteLength(message.content), 0);
+    if (promptBytes > this.config.aiMaxContextBytes) {
+      throw new AiError("MESSAGE_TOO_LARGE", "Operator planner prompt exceeds the configured size limit", 400);
+    }
+
+    const models = await this.listRetailModels();
+    const selected = models[0];
+    if (!selected) {
+      throw new AiError("MODEL_UNAVAILABLE", "No operator model is available", 503);
+    }
+    const model = await this.resolveModel(selected.id);
+
+    const outcome = await this.beginOrReuseRequest({
+      userId: input.userId,
+      conversationId: conversation.id,
+      body: {
+        clientRequestId: input.clientRequestId,
+        modelId: model.id,
+        content: input.messages.at(-1)?.content ?? "operator",
+      },
+      model,
+      correlationId: input.correlationId,
+      persistUserMessage: false,
+    });
+
+    if (outcome.kind === "replay") {
+      return { text: outcome.text, aiRequestId: outcome.aiRequestId };
+    }
+
+    await this.concurrency.acquire(input.userId);
+    try {
+      const text = await this.runProviderFlow({
+        userId: input.userId,
+        conversation,
+        aiRequestId: outcome.aiRequestId,
+        model,
+        correlationId: input.correlationId,
+        sink: {
+          isClientOpen: () => true,
+          write: () => undefined,
+        },
+        providerMessages: input.messages,
+        persistAssistantMessage: false,
+      });
+      return { text, aiRequestId: outcome.aiRequestId };
+    } finally {
+      await this.concurrency.release(input.userId);
+    }
+  }
+
   private async runProviderFlow(input: {
     userId: string;
     conversation: { id: string; title: string | null };
@@ -172,16 +252,20 @@ export class TextChatService {
     model: ResolvedModel;
     correlationId: string;
     sink: StreamSink;
-  }): Promise<void> {
+    providerMessages?: ProviderChatMessage[];
+    persistAssistantMessage?: boolean;
+  }): Promise<string> {
     const history = await this.prisma.message.findMany({
       where: { conversationId: input.conversation.id, status: "COMPLETE" },
       orderBy: { createdAt: "asc" },
     });
     const context = selectContextMessages(history, this.config.aiMaxContextBytes);
-    const providerMessages: ProviderChatMessage[] = context.map((message) => ({
-      role: message.role === "ASSISTANT" ? "assistant" : "user",
-      content: message.content,
-    }));
+    const providerMessages: ProviderChatMessage[] =
+      input.providerMessages ??
+      context.map((message) => ({
+        role: message.role === "ASSISTANT" ? "assistant" : "user",
+        content: message.content,
+      }));
 
     const estimatedInputTokens = estimateInputTokens(providerMessages);
     const maxOutputTokens = Math.min(
@@ -363,20 +447,33 @@ export class TextChatService {
       );
     }
 
-    const assistant = await this.prisma.message.create({
-      data: {
-        conversationId: input.conversation.id,
-        role: "ASSISTANT",
-        content: assistantText,
-        status: "COMPLETE",
-        aiRequestId: input.aiRequestId,
-      },
-    });
+    const persistAssistant = input.persistAssistantMessage !== false;
+    if (persistAssistant) {
+      const assistant = await this.prisma.message.create({
+        data: {
+          conversationId: input.conversation.id,
+          role: "ASSISTANT",
+          content: assistantText,
+          status: "COMPLETE",
+          aiRequestId: input.aiRequestId,
+        },
+      });
 
-    await this.prisma.conversation.update({
-      where: { id: input.conversation.id },
-      data: { updatedAt: new Date() },
-    });
+      await this.prisma.conversation.update({
+        where: { id: input.conversation.id },
+        data: { updatedAt: new Date() },
+      });
+
+      this.writeEvent(input.sink, "done", {
+        messageId: assistant.id,
+        aiRequestId: input.aiRequestId,
+      });
+    } else {
+      await this.prisma.conversation.update({
+        where: { id: input.conversation.id },
+        data: { updatedAt: new Date() },
+      });
+    }
 
     await this.prisma.aiRequest.update({
       where: { id: input.aiRequestId },
@@ -390,6 +487,7 @@ export class TextChatService {
         cacheWriteTokens: numberTokens(usageEvent.cacheWriteTokens),
         providerActualCostMicroRub,
         userSettledUsageMicroRub: settled.settledMicroRub,
+        outputText: assistantText,
         finishedAt: new Date(),
       },
     });
@@ -409,10 +507,7 @@ export class TextChatService {
       financialStatus: settled.status,
     });
 
-    this.writeEvent(input.sink, "done", {
-      messageId: assistant.id,
-      aiRequestId: input.aiRequestId,
-    });
+    return assistantText;
   }
 
   private async beginOrReuseRequest(input: {
@@ -421,6 +516,7 @@ export class TextChatService {
     body: SendMessage;
     model: ResolvedModel;
     correlationId: string;
+    persistUserMessage?: boolean;
   }): Promise<
     | { kind: "new"; aiRequestId: string }
     | { kind: "replay"; aiRequestId: string; messageId: string; text: string }
@@ -443,23 +539,25 @@ export class TextChatService {
         },
       });
 
-      await this.prisma.message.create({
-        data: {
-          conversationId: input.conversationId,
-          role: "USER",
-          content: input.body.content,
-          status: "COMPLETE",
-          aiRequestId: created.id,
-        },
-      });
+      if (input.persistUserMessage !== false) {
+        await this.prisma.message.create({
+          data: {
+            conversationId: input.conversationId,
+            role: "USER",
+            content: input.body.content,
+            status: "COMPLETE",
+            aiRequestId: created.id,
+          },
+        });
 
-      await this.prisma.conversation.update({
-        where: { id: input.conversationId },
-        data: {
-          updatedAt: new Date(),
-          title: titleFrom(input.body.content),
-        },
-      });
+        await this.prisma.conversation.update({
+          where: { id: input.conversationId },
+          data: {
+            updatedAt: new Date(),
+            title: titleFrom(input.body.content),
+          },
+        });
+      }
 
       return { kind: "new", aiRequestId: created.id };
     } catch (error: unknown) {
@@ -487,7 +585,7 @@ export class TextChatService {
         kind: "replay",
         aiRequestId: existing.id,
         messageId: assistant?.id ?? existing.id,
-        text: assistant?.content ?? "",
+        text: assistant?.content || existing.outputText || "",
       };
     }
 

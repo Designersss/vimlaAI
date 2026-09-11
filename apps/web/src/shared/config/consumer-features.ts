@@ -1,6 +1,7 @@
 export const CONSUMER_FEATURES = {
   projects: false,
-  vimlaOperator: false,
+  // Off unless local/test explicitly set NEXT_PUBLIC_VIMLA_OPERATOR=true.
+  vimlaOperator: process.env.NEXT_PUBLIC_VIMLA_OPERATOR === "true",
   directChats: false,
   autoRouter: false,
   notificationsSettings: true,

@@ -1,6 +1,6 @@
 import type { FormEvent, ReactElement, ReactNode } from "react";
-import { SendIcon, VimlaMark, XIcon } from "../../icons";
-import { IconButton } from "../../primitives/Button/Button";
+import { ChevronRightIcon, SendIcon, VimlaMark, XIcon } from "../../icons";
+import { IconButton, Button } from "../../primitives/Button/Button";
 import { Textarea } from "../../primitives/forms/Input";
 import { Segment, SegmentedControl } from "../../primitives/controls/Tabs";
 import { NativeSelect } from "../../primitives/forms/Input";
@@ -79,7 +79,7 @@ export function ChatComposer({
       />
       <div className={styles.composerActions}>
         {mentionControl}
-        {modelControl}
+        {variant === "operator" ? null : modelControl}
         {extra}
         <span className={styles.composerGrow} />
         <IconButton type="submit" variant="primary" disabled={disabled || sending} loading={sending} label={sendLabel}>
@@ -147,6 +147,63 @@ export function StreamingIndicator({ label }: { label: string }): ReactElement {
       <span />
       <span />
     </span>
+  );
+}
+
+export function OperatorActionCard({
+  title,
+  detail,
+  statusLabel,
+  tone = "neutral",
+  hrefLabel,
+  onOpen,
+  confirmLabel,
+  cancelLabel,
+  onConfirm,
+  onCancel,
+  processing = false,
+}: {
+  title: string;
+  detail?: string | null;
+  statusLabel: string;
+  tone?: "neutral" | "success" | "warning" | "danger";
+  hrefLabel?: string;
+  onOpen?: () => void;
+  confirmLabel?: string;
+  cancelLabel?: string;
+  onConfirm?: () => void;
+  onCancel?: () => void;
+  processing?: boolean;
+}): ReactElement {
+  return (
+    <article className={styles.operatorCard} data-tone={tone} data-testid="operator-action-card">
+      <div className={styles.operatorCardBody}>
+        <Badge
+          variant={tone === "success" ? "success" : tone === "warning" ? "warning" : tone === "danger" ? "danger" : "accent"}
+        >
+          {statusLabel}
+        </Badge>
+        <strong>{title}</strong>
+        {detail ? <Text tone="caption">{detail}</Text> : null}
+      </div>
+      <div className={styles.operatorCardActions}>
+        {onOpen && hrefLabel ? (
+          <IconButton label={hrefLabel} onClick={onOpen}>
+            <ChevronRightIcon size={16} />
+          </IconButton>
+        ) : null}
+        {onConfirm && confirmLabel ? (
+          <Button variant="primary" size="sm" onClick={onConfirm} disabled={processing} loading={processing}>
+            {confirmLabel}
+          </Button>
+        ) : null}
+        {onCancel && cancelLabel ? (
+          <Button variant="ghost" size="sm" onClick={onCancel} disabled={processing}>
+            {cancelLabel}
+          </Button>
+        ) : null}
+      </div>
+    </article>
   );
 }
 

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { operatorRunViewSchema } from "./operator.js";
 
 export const createConversationSchema = z
   .object({
@@ -51,6 +52,7 @@ export const chatMessageSchema = z.object({
   content: z.string(),
   status: z.enum(["COMPLETE", "STREAMING", "FAILED"]),
   createdAt: z.string(),
+  operatorRun: operatorRunViewSchema.nullable().optional(),
 });
 export type ChatMessage = z.infer<typeof chatMessageSchema>;
 
@@ -61,3 +63,10 @@ export const conversationDetailSchema = z.object({
   messages: z.array(chatMessageSchema),
 });
 export type ConversationDetail = z.infer<typeof conversationDetailSchema>;
+
+export const operatorConversationSchema = z.object({
+  id: z.string().nullable(),
+  title: z.string().nullable(),
+  messages: z.array(chatMessageSchema),
+});
+export type OperatorConversation = z.infer<typeof operatorConversationSchema>;

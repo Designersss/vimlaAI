@@ -45,8 +45,9 @@
 - Frontend localization is `next-intl` with dictionaries in `apps/web/messages`. Default locale is `ru`.
 - Phase 5 Admin is a separate Next.js app (`apps/admin`) with Better Auth TOTP + passkey, hashed AdminSession, default-deny permissions, and append-only audit. Ordinary user sessions cannot be reused.
 - Phase 5.5 UI: one `@vimla/ui` SCSS-module design system for Web and Admin; light/dark/system; no screenshot data in production.
-- Phase 6 Personal Workspace: PERSONAL `WorkspaceObject` kinds only; notes use explicit Save; reminders are schedule data with Phase 6.5 delivery; other users’ objects 404; `@Vimla` is not started.
+- Phase 6 Personal Workspace: PERSONAL `WorkspaceObject` kinds only; notes use explicit Save; reminders are schedule data with Phase 6.5 delivery; other users’ objects 404; `@Vimla` is Phase 7.
 - Phase 6.5 Notification Platform: PostgreSQL is delivery truth; email defaults off; in-app defaults on; no Web Push/SMS/recurring; see `docs/NOTIFICATIONS.md`.
+- Phase 7 `@Vimla`: separate `@vimla/operator` planner/executor; typed tool registry; session `userId` is the only actor; model cannot set identity/permissions; destructive tools require confirmation; runs are idempotent on `clientRequestId`; planner JSON is never shown to the user. Capability defaults off (`OPERATOR_ENABLED=false`, `CONSUMER_FEATURES.vimlaOperator` unless `NEXT_PUBLIC_VIMLA_OPERATOR=true`). No Projects, Direct Chats, Auto Router, payments, or admin/security actions.
 - Verified expensive mutations: `@SensitiveArea()` on AI/billing controllers with default-deny for mutating methods, not a global verified-email guard.
 - Browser E2E uses Playwright + test infrastructure only (`pnpm test:e2e`).
 - Signup HTTP validation is a layered limiter (`AUTH_SIGNUP_IP_LIMIT_PER_MINUTE`, default 20), overriding Better Auth's built-in `/sign-up*` 3/10s rule so a legitimate email typo is not treated as abuse. OTP send/verify and password-reset remain stricter. Notification budget keys HMAC destination and IP; they never store raw email.

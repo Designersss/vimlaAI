@@ -121,6 +121,7 @@ export {
   StreamingIndicator,
   UserMessage,
   VimlaMentionChip,
+  OperatorActionCard,
   type AiInteractionMode,
   type AutoEffortLevel,
 } from "./components/chat/Chat";

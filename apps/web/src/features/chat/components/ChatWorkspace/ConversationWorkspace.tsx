@@ -35,6 +35,14 @@ import { readLocaleCookie, syncAuthenticatedLocale } from "../../../../shared/i1
 import { apiErrorMessageKey } from "../../../../shared/errors/error-keys";
 import { tx } from "../../../../shared/i18n/translate";
 import { CONSUMER_FEATURES } from "../../../../shared/config/consumer-features";
+import { OperatorRunPanel } from "../../../operator/components/OperatorRunPanel";
+import {
+  createOperatorRun,
+  OperatorRequestError,
+  confirmOperatorRun,
+  cancelOperatorRun,
+  fetchOperatorRun,
+} from "../../../operator/services/operator";
 import styles from "./ChatWorkspace.module.scss";
 
 export const ConversationWorkspace = observer(function ConversationWorkspace({
@@ -51,6 +59,7 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
   const [autoLevel, setAutoLevel] = useState<AutoEffortLevel>("medium");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [mention, setMention] = useState(false);
+  const [operatorBusy, setOperatorBusy] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -97,12 +106,40 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
   );
 
   async function onSubmit(): Promise<void> {
-    if (store.streaming) {
+    if (store.streaming || operatorBusy) {
       return;
     }
-    const modelId = store.selectedModelId;
     const content = store.draft.trim();
-    if (!modelId || content.length === 0) {
+    if (content.length === 0) {
+      return;
+    }
+
+    if (CONSUMER_FEATURES.vimlaOperator && mention) {
+      store.beginUserMessage(content);
+      setMention(false);
+      setOperatorBusy(true);
+      try {
+        const run = await createOperatorRun({
+          clientRequestId: crypto.randomUUID(),
+          content,
+          conversationId,
+        });
+        store.finishOperator(run);
+        void fetchUsage().then((usage) => store.setUsage(usage));
+      } catch (error: unknown) {
+        if (error instanceof AuthRequiredError) {
+          router.replace("/sign-in");
+          return;
+        }
+        store.failAssistant(error instanceof OperatorRequestError ? error.code : "internal_error");
+      } finally {
+        setOperatorBusy(false);
+      }
+      return;
+    }
+
+    const modelId = store.selectedModelId;
+    if (!modelId) {
       return;
     }
 
@@ -163,6 +200,40 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
                 <UserMessage key={message.id} label={t("chat.you")}>
                   {message.content}
                 </UserMessage>
+              ) : message.operatorRun ? (
+                <OperatorRunPanel
+                  key={message.id}
+                  run={message.operatorRun}
+                  processing={operatorBusy}
+                  onConfirm={() => {
+                    const runId = message.operatorRun?.id;
+                    if (!runId) {
+                      return;
+                    }
+                    setOperatorBusy(true);
+                    void (async () => {
+                      const token =
+                        message.operatorRun?.confirmationToken ??
+                        (await fetchOperatorRun(runId)).confirmationToken;
+                      if (!token) {
+                        throw new OperatorRequestError("operator_confirmation_invalid");
+                      }
+                      const run = await confirmOperatorRun(runId, token);
+                      store.replaceOperator(run);
+                    })()
+                      .catch((error: unknown) => {
+                        store.failAssistant(error instanceof OperatorRequestError ? error.code : "internal_error");
+                      })
+                      .finally(() => setOperatorBusy(false));
+                  }}
+                  onCancel={() => {
+                    const runId = message.operatorRun?.id;
+                    if (!runId) {
+                      return;
+                    }
+                    void cancelOperatorRun(runId).then((run) => store.replaceOperator(run));
+                  }}
+                />
               ) : (
                 <AssistantMessage key={message.id} label={t("chat.assistant")}>
                   {message.content}
@@ -178,7 +249,8 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
           onSubmit={() => void onSubmit()}
           placeholder={t("chat.placeholder")}
           sendLabel={t("chat.send")}
-          sending={store.streaming}
+          sending={store.streaming || operatorBusy}
+          variant={mention ? "operator" : "ai"}
           chips={
             mention ? (
               <VimlaMentionChip
@@ -189,17 +261,20 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
             ) : null
           }
           mentionControl={
-            <Button
-              variant={mention ? "primary" : "ghost"}
-              size="sm"
-              aria-pressed={mention}
-              onClick={() => setMention((value) => !value)}
-            >
-              <VimlaMark size={16} aria-hidden="true" />
-              {t("chat.mentionVimla")}
-            </Button>
+            CONSUMER_FEATURES.vimlaOperator ? (
+              <Button
+                variant={mention ? "primary" : "ghost"}
+                size="sm"
+                aria-pressed={mention}
+                onClick={() => setMention((value) => !value)}
+              >
+                <VimlaMark size={16} aria-hidden="true" />
+                {t("chat.mentionVimla")}
+              </Button>
+            ) : undefined
           }
           modelControl={
+            mention ? undefined : (
             <ModelModeControl
               mode={mode}
               autoLevel={autoLevel}
@@ -223,6 +298,7 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
                 setPickerOpen(true);
               }}
             />
+            )
           }
         />
         <ModelPickerDialog

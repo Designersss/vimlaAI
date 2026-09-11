@@ -53,6 +53,13 @@ export const apiErrorCodeSchema = z.enum([
   "workspace_reorder_invalid",
   "workspace_list_full",
   "workspace_status_invalid",
+  "operator_disabled",
+  "operator_run_in_progress",
+  "operator_confirmation_required",
+  "operator_confirmation_invalid",
+  "operator_clarification_required",
+  "operator_plan_invalid",
+  "operator_tool_denied",
 ]);
 export type ApiErrorCode = z.infer<typeof apiErrorCodeSchema>;
 

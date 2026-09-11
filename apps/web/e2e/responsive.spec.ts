@@ -65,6 +65,18 @@ test.describe("responsive smoke", () => {
     }
   });
 
+  test("@Vimla operator shell fits representative viewports", async ({ page, request }) => {
+    const email = uniqueEmail("e2e-operator-responsive");
+    await signUp(page, { name: "Ada", email, password: "correct-horse-battery" });
+    await verifyEmail(page, request, email);
+    for (const viewport of VIEWPORTS) {
+      await page.setViewportSize({ width: viewport.width, height: viewport.height });
+      await page.goto("/vimla");
+      await expect(page.getByTestId("operator-shell")).toBeVisible();
+      await assertNoDocumentOverflow(page);
+    }
+  });
+
   test("UI catalog is available in test env", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/dev/ui");

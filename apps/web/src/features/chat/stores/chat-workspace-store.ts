@@ -2,6 +2,7 @@ import { makeAutoObservable } from "mobx";
 import type {
   ChatMessage,
   ConversationSummary,
+  OperatorRunView,
   RetailAiModel,
   UsageResponse,
 } from "@vimla/contracts";
@@ -103,6 +104,29 @@ export class ChatWorkspaceStore {
     );
     this.streaming = false;
     this.streamingMessageId = null;
+  }
+
+  finishOperator(run: OperatorRunView): void {
+    this.messages = this.messages.map((message) =>
+      message.id === this.streamingMessageId
+        ? {
+            ...message,
+            status: "COMPLETE",
+            content: run.publicMessage ?? message.content,
+            operatorRun: run,
+          }
+        : message,
+    );
+    this.streaming = false;
+    this.streamingMessageId = null;
+  }
+
+  replaceOperator(run: OperatorRunView): void {
+    this.messages = this.messages.map((message) =>
+      message.operatorRun?.id === run.id
+        ? { ...message, content: run.publicMessage ?? message.content, operatorRun: run }
+        : message,
+    );
   }
 
   failAssistant(code: string): void {
