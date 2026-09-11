@@ -96,9 +96,9 @@ describe("direct chats API", () => {
   });
 
   it("covers lifecycle, ciphertext storage, IDOR, spoof, tamper, unread and pagination", async () => {
-    const alice = await readyUser(app, "Alice");
-    const nikita = await readyUser(app, "Nikita");
-    const stranger = await readyUser(app, "Oscar");
+    const alice = await readyUser(app, "dc-alice", "Alice");
+    const nikita = await readyUser(app, "dc-nikita", "Nikita");
+    const stranger = await readyUser(app, "dc-oscar", "Oscar");
     const aliceDevice = await registerHarness(app, alice);
     const nikitaDevice = await registerHarness(app, nikita);
     await registerHarness(app, stranger);
@@ -209,9 +209,9 @@ describe("direct chats API", () => {
   });
 
   it("lets @Vimla answer in-thread, isolates context, and assigns tasks only inside the chat", async () => {
-    const alice = await readyUser(app, "AliceOp");
-    const nikita = await readyUser(app, "Nikita");
-    const oscar = await readyUser(app, "Oscar");
+    const alice = await readyUser(app, "dc-alice-op", "Alice");
+    const nikita = await readyUser(app, "dc-nikita-op", "Никита");
+    const oscar = await readyUser(app, "dc-oscar-op", "Oscar");
     const chat = await createChat(app, alice.cookies, nikita.email);
 
     await app.inject({
@@ -409,8 +409,11 @@ interface Harness {
   ratchets: Map<string, RatchetState>;
 }
 
-async function readyUser(app: NestFastifyApplication, label: string) {
+async function readyUser(app: NestFastifyApplication, label: string, displayName?: string) {
   const user = await registerVerifiedUser(app, label);
+  if (displayName) {
+    await app.get(PrismaService).client.user.update({ where: { id: user.id }, data: { name: displayName } });
+  }
   const purchased = await app.inject({
     method: "POST",
     url: "/dev/mock-purchases/subscription",

@@ -25,6 +25,8 @@ test.describe("Secure Direct Chats", () => {
     await signUp(nikitaPage, { name: "Nikita", email: nikitaEmail, password });
     await verifyEmail(nikitaPage, request, nikitaEmail);
     await purchasePro(nikitaPage);
+    await nikitaPage.goto("/app");
+    await expect(nikitaPage.getByRole("heading", { name: /сообщения|messages/i })).toBeVisible();
 
     await alicePage.goto("/app");
     await expect(alicePage.getByRole("heading", { name: /сообщения|messages/i })).toBeVisible();
