@@ -9,6 +9,7 @@ import {
 import type { FastifyRequest } from "fastify";
 import { API_CONFIG, type ApiRuntimeConfig } from "../config/api-config.js";
 import { RedisService } from "../persistence/redis.service.js";
+import { redisFixedWindowHit } from "../persistence/rate-limit.js";
 
 const memoryHits = new Map<string, { count: number; resetAt: number }>();
 
@@ -46,11 +47,7 @@ export class ProjectsRateLimitGuard implements CanActivate {
 
   private async hit(key: string, max: number): Promise<boolean> {
     try {
-      const count = await this.redis.client.incr(key);
-      if (count === 1) {
-        await this.redis.client.expire(key, 60);
-      }
-      return count <= max;
+      return await redisFixedWindowHit(this.redis.client, key, max);
     } catch {
       if (this.config.appEnv === "local" || this.config.appEnv === "test") {
         return memoryHit(key, max);
