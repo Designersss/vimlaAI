@@ -152,6 +152,15 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
     setOperatorBusy(true);
     setError(null);
     try {
+      await postEncrypted(
+        "OPERATOR_INVOKE",
+        encodeDirectPlaintext({
+          type: "invoke",
+          text,
+          contextShared: false,
+          peerIncluded: false,
+        }),
+      );
       const contextBundle = {
         messages: rows.flatMap((row) => {
           if (!row.payload || row.payload.type !== "human") {
@@ -178,18 +187,9 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         content: text,
         invocationScope: "DIRECT_CHAT",
         directConversationId: conversation.id,
-        contextBundle,
+        ...(contextBundle.messages.length > 0 ? { contextBundle } : {}),
       });
       setPendingRun(run);
-      await postEncrypted(
-        "OPERATOR_INVOKE",
-        encodeDirectPlaintext({
-          type: "invoke",
-          text,
-          contextShared: run.contextOwnIncluded || run.contextPeerIncluded,
-          peerIncluded: run.contextPeerIncluded,
-        }),
-      );
       if (run.publicMessage) {
         await postEncrypted(
           "OPERATOR_RESPONSE",
