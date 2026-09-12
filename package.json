@@ -13,6 +13,7 @@
     "test": "turbo run test",
     "test:integration": "dotenv -e .env -- sh -c 'pnpm --filter @vimla/database ensure-test-db && turbo run test:integration'",
     "test:e2e": "dotenv -e .env -- sh -c 'pnpm --filter @vimla/database ensure-test-db && DATABASE_URL=\"$TEST_DATABASE_URL\" pnpm --filter @vimla/billing seed && DATABASE_URL=\"$TEST_DATABASE_URL\" pnpm --filter @vimla/ai seed && pnpm --filter @vimla/web test:e2e && pnpm --filter @vimla/admin-web test:e2e'",
+    "codex:validate": "bash scripts/codex-validate.sh",
     "admin:bootstrap": "dotenv -e .env -- pnpm --filter @vimla/admin bootstrap --",
     "admin:disable": "dotenv -e .env -- pnpm --filter @vimla/admin disable --",
     "admin:revoke-sessions": "dotenv -e .env -- pnpm --filter @vimla/admin revoke-sessions --",
