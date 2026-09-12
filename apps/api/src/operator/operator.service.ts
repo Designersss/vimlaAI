@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { isAiError } from "@vimla/ai";
 import type { Prisma } from "@vimla/database";
 import {
   confirmOperatorRunSchema,
@@ -193,7 +194,7 @@ export class OperatorService {
     return this.prisma.$transaction(async (tx) => {
       const locked = await tx.$queryRaw<Array<{ id: string }>>`
         SELECT "id" FROM "operator_run"
-        WHERE "id" = ${runId}::uuid AND "userId" = ${userId}
+        WHERE "id" = ${runId} AND "userId" = ${userId}
         FOR UPDATE
       `;
       if (locked.length === 0) {
@@ -431,7 +432,7 @@ export class OperatorService {
         const outcome = await this.prisma.$transaction(async (tx) => {
           await tx.$queryRaw<Array<{ id: string }>>`
             SELECT "id" FROM "operator_run_step"
-            WHERE "id" = ${listedStep.id}::uuid
+            WHERE "id" = ${listedStep.id}
             FOR UPDATE
           `;
           const step = await tx.operatorRunStep.findUnique({ where: { id: listedStep.id } });
@@ -571,7 +572,7 @@ export class OperatorService {
     return this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw<Array<{ id: string }>>`
         SELECT "id" FROM "operator_run_step"
-        WHERE "id" = ${stepId}::uuid
+        WHERE "id" = ${stepId}
         FOR UPDATE
       `;
       const step = await tx.operatorRunStep.findUnique({ where: { id: stepId } });
@@ -697,7 +698,7 @@ export class OperatorService {
     await this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw<Array<{ id: string }>>`
         SELECT "id" FROM "operator_run"
-        WHERE "id" = ${run.id}::uuid
+        WHERE "id" = ${run.id}
         FOR UPDATE
       `;
       const current = await tx.operatorRun.findUnique({ where: { id: run.id } });
@@ -928,7 +929,15 @@ export class OperatorService {
 
   private async resumeExisting(run: RunRecord, correlationId: string): Promise<OperatorRunView> {
     if (run.status === "CREATED" || run.status === "PLANNING") {
-      return this.planAndMaybeExecute(run, correlationId, run.clarificationQuestion);
+      try {
+        return await this.planAndMaybeExecute(run, correlationId, run.clarificationQuestion);
+      } catch (error: unknown) {
+        if (isAiError(error) && error.code === "AI_REQUEST_IN_PROGRESS") {
+          const current = await this.loadOwnedRun(run.userId, run.id);
+          return this.toView(current, null);
+        }
+        throw error;
+      }
     }
     if (run.status === "EXECUTING") {
       const context = await this.toolContext(run);
