@@ -166,22 +166,27 @@ export class ListService {
   }
 
   async addItem(actor: ActorContext, listId: string, input: CreateListItem): Promise<ListView> {
-    const list = await this.load(actor, listId);
-    if (!list.list) {
-      throw new WorkspaceError("NOT_FOUND", "List not found");
+    const add = async (tx: DbClient): Promise<void> => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`workspace-list:${listId}`}, 0))`;
+      const list = await tx.workspaceObject.findFirst({
+        where: { id: listId, personalOwnerUserId: actor.userId, kind: "LIST", deletedAt: null },
+        include: listInclude,
+      });
+      if (!list?.list) {
+        throw new WorkspaceError("NOT_FOUND", "List not found");
+      }
+      if (list.list.items.length >= WORKSPACE_LIMITS.listItemsMax) {
+        throw new WorkspaceError("LIST_FULL", "List is full");
+      }
+      const nextPosition = list.list.items.reduce((max, item) => Math.max(max, item.position), -1) + 1;
+      await tx.workspaceListItem.create({ data: { listObjectId: listId, text: input.text, position: nextPosition } });
+      await tx.workspaceObject.update({ where: { id: listId }, data: { updatedAt: new Date() } });
+    };
+    if (isPrismaClient(this.db)) {
+      await this.db.$transaction(async (tx) => add(tx));
+    } else {
+      await add(this.db);
     }
-    if (list.list.items.length >= WORKSPACE_LIMITS.listItemsMax) {
-      throw new WorkspaceError("LIST_FULL", "List is full");
-    }
-    const nextPosition = list.list.items.reduce((max, item) => Math.max(max, item.position), -1) + 1;
-    await this.db.workspaceListItem.create({
-      data: {
-        listObjectId: listId,
-        text: input.text,
-        position: nextPosition,
-      },
-    });
-    await this.touch(listId);
     return this.get(actor, listId);
   }
 

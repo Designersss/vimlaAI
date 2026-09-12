@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { NestFastifyApplication } from "@nestjs/platform-fastify";
-import { seedVimlaAiModels, type MockAiProvider } from "@vimla/ai";
-import { seedVimlaPlans } from "@vimla/billing";
+import { AiRequestReconciler, seedVimlaAiModels, type MockAiProvider } from "@vimla/ai";
+import { BillingEngine, DEFAULT_BILLING_POLICY, seedVimlaPlans } from "@vimla/billing";
 import { loadApiConfig } from "@vimla/config/server";
 import { createPrismaClient } from "@vimla/database";
 import { createVimlaApiApp } from "../create-app.js";
@@ -463,6 +463,70 @@ describe("AI chat integration", () => {
       },
     });
     expect(response.statusCode).toBe(404);
+  });
+
+  it("durably reconciles every stale AI crash window idempotently", async () => {
+    const user = await registerUser(app, "recover");
+    await purchasePro(app, user.cookies);
+    const conversation = await createConversation(app, user.cookies);
+    const prisma = createPrismaClient(testDatabaseUrl);
+    const model = await prisma.aiModel.findFirstOrThrow({ include: { priceVersions: true } });
+    const priceVersion = model.priceVersions[0];
+    if (!priceVersion) throw new Error("expected price version");
+    const logger = { info: () => undefined, warn: () => undefined, error: () => undefined };
+    const engine = new BillingEngine(prisma, DEFAULT_BILLING_POLICY, logger);
+    const reconciler = new AiRequestReconciler(prisma, engine, logger);
+    const stale = new Date(Date.now() - 60_000);
+    const createRequest = (status: string, suffix: string) => prisma.aiRequest.create({
+      data: {
+        userId: user.id,
+        conversationId: conversation.id,
+        modelId: model.id,
+        priceVersionId: priceVersion.id,
+        clientRequestId: randomUUID(),
+        provider: model.provider,
+        providerModelId: model.providerModelId,
+        status,
+        financialStatus: status === "CREATED" ? "NONE" : "RESERVED",
+        estimatedInputTokens: 1,
+        maxOutputTokens: 1,
+        estimatedCostMicroRub: 1_000n,
+        createdAt: new Date(stale.getTime() - Number(suffix) * 1_000),
+      },
+    });
+
+    const beforeReservation = await createRequest("CREATED", "1");
+    const afterReservation = await createRequest("CREATED", "2");
+    const orphanReservation = await engine.reserveUsage({ userId: user.id, requestId: afterReservation.id, estimatedProviderCostMicroRub: 1_000n });
+    const reserved = await createRequest("RESERVED", "3");
+    const linkedReservation = await engine.reserveUsage({ userId: user.id, requestId: reserved.id, estimatedProviderCostMicroRub: 1_000n });
+    await prisma.aiRequest.update({ where: { id: reserved.id }, data: { reservationId: linkedReservation.id } });
+    const providerStarted = await createRequest("PROVIDER_STARTED", "4");
+    const ambiguousReservation = await engine.reserveUsage({ userId: user.id, requestId: providerStarted.id, estimatedProviderCostMicroRub: 1_000n });
+    await prisma.aiRequest.update({ where: { id: providerStarted.id }, data: { reservationId: ambiguousReservation.id, startedAt: stale } });
+    const streaming = await createRequest("STREAMING", "6");
+    const streamingReservation = await engine.reserveUsage({ userId: user.id, requestId: streaming.id, estimatedProviderCostMicroRub: 1_000n });
+    await prisma.aiRequest.update({ where: { id: streaming.id }, data: { reservationId: streamingReservation.id, startedAt: stale, providerRequestId: "durable-provider-id" } });
+    const usageKnown = await createRequest("RECONCILIATION_REQUIRED", "5");
+    const knownReservation = await engine.reserveUsage({ userId: user.id, requestId: usageKnown.id, estimatedProviderCostMicroRub: 1_000n });
+    await prisma.aiRequest.update({ where: { id: usageKnown.id }, data: { reservationId: knownReservation.id, providerActualCostMicroRub: 700n } });
+
+    const first = await reconciler.reconcile(stale, 20);
+    const [second, concurrentWorker] = await Promise.all([
+      reconciler.reconcile(stale, 20),
+      reconciler.reconcile(stale, 20),
+    ]);
+    expect(first).toMatchObject({ scanned: 6, released: 2, settled: 1, held: 2, failedBeforeReservation: 1, errors: 0 });
+    expect(second.scanned).toBe(2);
+    expect(concurrentWorker.scanned).toBe(2);
+    expect((await prisma.usageReservation.findUniqueOrThrow({ where: { id: orphanReservation.id } })).status).toBe("RELEASED");
+    expect((await prisma.usageReservation.findUniqueOrThrow({ where: { id: linkedReservation.id } })).status).toBe("RELEASED");
+    expect((await prisma.usageReservation.findUniqueOrThrow({ where: { id: ambiguousReservation.id } })).status).toBe("ACTIVE");
+    expect((await prisma.usageReservation.findUniqueOrThrow({ where: { id: streamingReservation.id } })).status).toBe("ACTIVE");
+    expect((await prisma.usageReservation.findUniqueOrThrow({ where: { id: knownReservation.id } })).status).toBe("SETTLED");
+    expect((await prisma.aiRequest.findUniqueOrThrow({ where: { id: beforeReservation.id } })).status).toBe("FAILED");
+    expect((await prisma.aiRequest.findUniqueOrThrow({ where: { id: providerStarted.id } })).status).toBe("RECONCILIATION_REQUIRED");
+    await prisma.$disconnect();
   });
 });
 

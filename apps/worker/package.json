@@ -12,6 +12,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@vimla/ai": "workspace:*",
     "@vimla/billing": "workspace:*",
     "@vimla/config": "workspace:*",
     "@vimla/contracts": "workspace:*",

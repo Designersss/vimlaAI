@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { NestFastifyApplication } from "@nestjs/platform-fastify";
 import { loadApiConfig } from "@vimla/config/server";
+import { WORKSPACE_LIMITS } from "@vimla/contracts";
+import { PrismaService } from "../persistence/prisma.service.js";
 import { createVimlaApiApp } from "../create-app.js";
 import { registerUnverifiedUser, registerVerifiedUser } from "../test/identity-helpers.js";
 
@@ -513,6 +515,42 @@ describe("personal workspace API", () => {
     });
     expect(crossed.statusCode).toBe(404);
     expect(first.statusCode).toBe(201);
+  });
+
+  it("serializes concurrent list capacity checks and position allocation", async () => {
+    const user = await registerVerifiedUser(app, "list-race");
+    const created = await app.inject({
+      method: "POST",
+      url: "/v1/workspace/lists",
+      headers: jsonHeaders(),
+      cookies: user.cookies,
+      payload: { type: "PLAIN", title: "Bounded" },
+    });
+    const listId = created.json().id as string;
+    await app.get(PrismaService).client.workspaceListItem.createMany({
+      data: Array.from({ length: WORKSPACE_LIMITS.listItemsMax - 1 }, (_, position) => ({
+        listObjectId: listId,
+        text: `Existing ${position}`,
+        position,
+      })),
+    });
+    const responses = await Promise.all(
+      Array.from({ length: 12 }, (_, index) => app.inject({
+        method: "POST",
+        url: `/v1/workspace/lists/${listId}/items`,
+        headers: jsonHeaders(),
+        cookies: user.cookies,
+        payload: { text: `Concurrent ${index}` },
+      })),
+    );
+    expect(responses.filter((response) => response.statusCode === 201)).toHaveLength(1);
+    const items = await app.get(PrismaService).client.workspaceListItem.findMany({
+      where: { listObjectId: listId },
+      orderBy: { position: "asc" },
+    });
+    expect(items).toHaveLength(WORKSPACE_LIMITS.listItemsMax);
+    expect(new Set(items.map((item) => item.position)).size).toBe(items.length);
+    expect(items.map((item) => item.position)).toEqual(Array.from({ length: WORKSPACE_LIMITS.listItemsMax }, (_, index) => index));
   });
 
   it("pins, archives and searches notes", async () => {

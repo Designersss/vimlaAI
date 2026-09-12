@@ -121,6 +121,45 @@ describe("projects API", () => {
     expect(stolenPatch.statusCode).toBe(404);
   });
 
+  it("serializes owned-project quotas without blocking other owners", async () => {
+    const ownerA = await registerVerifiedUser(app, "proj-race-a");
+    const ownerB = await registerVerifiedUser(app, "proj-race-b");
+    const attempts = await Promise.all(
+      Array.from({ length: 8 }, (_, index) =>
+        app.inject({
+          method: "POST",
+          url: "/v1/projects",
+          headers: jsonHeaders(),
+          cookies: ownerA.cookies,
+          payload: { name: `Concurrent ${index}` },
+        }),
+      ),
+    );
+    expect(attempts.filter((response) => response.statusCode === 201)).toHaveLength(1);
+    expect(attempts.filter((response) => response.statusCode === 403)).toHaveLength(7);
+
+    const independent = await createProject(app, ownerB.cookies, "Independent owner");
+    expect(independent.id).toBeTruthy();
+  });
+
+  it("allows only one concurrent invite acceptance for the final Free seat", async () => {
+    const owner = await registerVerifiedUser(app, "member-race-owner");
+    const first = await registerVerifiedUser(app, "member-race-first");
+    const second = await registerVerifiedUser(app, "member-race-second");
+    const project = await createProject(app, owner.cookies, "Seat race");
+    const firstInvite = await inviteMember(app, owner.cookies, project.id, first.email, "MEMBER");
+    const secondInvite = await inviteMember(app, owner.cookies, project.id, second.email, "MEMBER");
+    const tokens = [firstInvite.inviteUrl, secondInvite.inviteUrl].map((url) => new URL(url).searchParams.get("token"));
+    const responses = await Promise.all([
+      app.inject({ method: "POST", url: "/v1/projects/invites/accept", headers: jsonHeaders(), cookies: first.cookies, payload: { token: tokens[0] } }),
+      app.inject({ method: "POST", url: "/v1/projects/invites/accept", headers: jsonHeaders(), cookies: second.cookies, payload: { token: tokens[1] } }),
+    ]);
+    expect(responses.filter((response) => response.statusCode === 200)).toHaveLength(1);
+    expect(responses.filter((response) => errorCode(response) === "project_member_limit")).toHaveLength(1);
+    const count = await app.get(PrismaService).client.projectMember.count({ where: { projectId: project.id } });
+    expect(count).toBe(2);
+  });
+
   it("does not change lastOpenedAt on list or get, only on open", async () => {
     const owner = await registerVerifiedUser(app, "proj-open");
     await buyPro(app, owner.cookies);

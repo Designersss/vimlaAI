@@ -4,7 +4,7 @@ import {
   projectEntitlementLimits,
   type CountLimit,
   type EffectivePlan,
-  type EffectivePlanResolver,
+  EffectivePlanResolver,
   type ProjectEntitlementLimits,
 } from "@vimla/billing";
 import {
@@ -69,26 +69,29 @@ export class ProjectService {
   ) {}
 
   async create(actor: ActorContext, input: CreateProject, now = new Date()): Promise<ProjectView> {
-    const ownerPlan = await this.plans.resolve(actor.userId, now);
-    const limits = projectEntitlementLimits(ownerPlan.entitlements, ownerPlan.source);
-    const ownedCount = await this.db.project.count({ where: { ownerUserId: actor.userId } });
-    if (!isWithinCountLimit(limits.ownedActiveMax, ownedCount)) {
-      throw new ProjectError("OWNED_LIMIT", "Owned project limit reached for the current plan");
-    }
+    const created = await this.db.$transaction(async (tx) => {
+      await lockQuota(tx, "project-owner", actor.userId);
+      const ownerPlan = await new EffectivePlanResolver(tx).resolve(actor.userId, now);
+      const limits = projectEntitlementLimits(ownerPlan.entitlements, ownerPlan.source);
+      const ownedCount = await tx.project.count({ where: { ownerUserId: actor.userId } });
+      if (!isWithinCountLimit(limits.ownedActiveMax, ownedCount)) {
+        throw new ProjectError("OWNED_LIMIT", "Owned project limit reached for the current plan");
+      }
 
-    const created = await this.db.project.create({
-      data: {
-        ownerUserId: actor.userId,
-        name: input.name,
-        description: input.description ?? null,
-        members: {
-          create: {
-            userId: actor.userId,
-            role: "OWNER",
+      return tx.project.create({
+        data: {
+          ownerUserId: actor.userId,
+          name: input.name,
+          description: input.description ?? null,
+          members: {
+            create: {
+              userId: actor.userId,
+              role: "OWNER",
+            },
           },
         },
-      },
-      include: memberInclude,
+        include: memberInclude,
+      });
     });
     return this.toView(await this.evaluateLoaded(actor, created, now));
   }
@@ -319,9 +322,35 @@ export class ProjectService {
     }
 
     await this.db.$transaction(async (tx) => {
+      await lockQuota(tx, "project-members", invite.projectId);
       const fresh = await tx.projectInvite.findUnique({ where: { id: invite.id } });
       if (!fresh || fresh.revokedAt || fresh.acceptedAt || fresh.expiresAt <= now) {
         throw new ProjectError("INVITE_INVALID", "Invite is invalid or expired");
+      }
+      const freshProject = await tx.project.findUnique({
+        where: { id: fresh.projectId },
+        include: memberInclude,
+      });
+      if (!freshProject) {
+        throw new ProjectError("INVITE_INVALID", "Invite is invalid or expired");
+      }
+      const freshPlan = await new EffectivePlanResolver(tx).resolve(freshProject.ownerUserId, now);
+      const freshLimits = projectEntitlementLimits(freshPlan.entitlements, freshPlan.source);
+      const lockedIds = lockedOwnedProjectIds(
+        (await tx.project.findMany({
+          where: { ownerUserId: freshProject.ownerUserId },
+          select: { id: true, createdAt: true, members: { where: { userId: freshProject.ownerUserId }, select: { lastOpenedAt: true } } },
+        })).map((item) => ({ id: item.id, createdAt: item.createdAt, lastOpenedAt: item.members[0]?.lastOpenedAt ?? null })),
+        freshLimits.ownedActiveMax,
+      );
+      if (!lockedIds.has(freshProject.id)) {
+        const activeMembers = activeMemberUserIds(
+          freshProject.members.map(toRankableMember),
+          freshLimits.membersPerOwnedProjectMax,
+        );
+        if (!isWithinCountLimit(freshLimits.membersPerOwnedProjectMax, activeMembers.size)) {
+          throw new ProjectError("MEMBER_LIMIT", "Active member limit reached for the owner plan");
+        }
       }
       await tx.projectInvite.update({
         where: { id: invite.id },
@@ -558,6 +587,10 @@ export class ProjectService {
       capabilities: access.capabilities,
     };
   }
+}
+
+async function lockQuota(tx: Prisma.TransactionClient, namespace: string, id: string): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`${namespace}:${id}`}, 0))`;
 }
 
 const memberInclude = {

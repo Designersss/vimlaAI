@@ -1,4 +1,4 @@
-import type { PrismaClient } from "@vimla/database";
+import type { Prisma, PrismaClient } from "@vimla/database";
 import { decodeEntitlement, isTopupAllowed, type PlanEntitlementRecord } from "./entitlements.js";
 import { BillingError } from "./errors.js";
 import type { MicroRub } from "./money.js";
@@ -20,7 +20,7 @@ export interface EffectivePlan {
 }
 
 export class EffectivePlanResolver {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(private readonly prisma: PrismaClient | Prisma.TransactionClient) {}
 
   async resolve(userId: string, now = new Date()): Promise<EffectivePlan> {
     const subscription = await this.prisma.subscription.findFirst({

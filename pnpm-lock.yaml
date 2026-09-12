@@ -272,6 +272,9 @@ importers:
 
   apps/worker:
     dependencies:
+      '@vimla/ai':
+        specifier: workspace:*
+        version: link:../../packages/ai
       '@vimla/billing':
         specifier: workspace:*
         version: link:../../packages/billing

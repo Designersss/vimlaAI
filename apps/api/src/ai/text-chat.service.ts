@@ -295,7 +295,6 @@ export class TextChatService {
         estimatedCostMicroRub,
       },
     });
-
     let reservationId: string;
     try {
       const reserved = await this.engine.reserveUsage({
@@ -313,21 +312,32 @@ export class TextChatService {
       throw error;
     }
 
-    await this.prisma.aiRequest.update({
-      where: { id: input.aiRequestId },
+    const linked = await this.prisma.aiRequest.updateMany({
+      where: { id: input.aiRequestId, status: "CREATED" },
       data: {
         reservationId,
         status: "RESERVED",
         financialStatus: "RESERVED",
       },
     });
+    if (linked.count !== 1) {
+      await this.engine.releaseUsage({
+        userId: input.userId,
+        reservationId,
+        correlationId: input.correlationId,
+      });
+      throw new AiError("AI_RECONCILIATION_REQUIRED", "The request was recovered concurrently", 503);
+    }
 
     this.writeEvent(input.sink, "start", { aiRequestId: input.aiRequestId });
 
-    await this.prisma.aiRequest.update({
-      where: { id: input.aiRequestId },
+    const providerStart = await this.prisma.aiRequest.updateMany({
+      where: { id: input.aiRequestId, status: "RESERVED" },
       data: { status: "PROVIDER_STARTED", startedAt: new Date() },
     });
+    if (providerStart.count !== 1) {
+      throw new AiError("AI_RECONCILIATION_REQUIRED", "The request was recovered concurrently", 503);
+    }
 
     let assistantText = "";
     let usageEvent: Extract<ProviderStreamEvent, { type: "usage" }>["usage"] | null = null;
@@ -400,6 +410,19 @@ export class TextChatService {
     }
 
     let settled: ReservationView;
+    // Persist the authoritative provider usage before settlement so a crash in the
+    // following window is recoverable without calling the provider again.
+    await this.prisma.aiRequest.update({
+      where: { id: input.aiRequestId },
+      data: {
+        providerActualCostMicroRub,
+        actualInputTokens: numberTokens(usageEvent.inputTokens),
+        actualOutputTokens: numberTokens(usageEvent.outputTokens),
+        reasoningTokens: numberTokens(usageEvent.reasoningTokens),
+        cacheReadTokens: numberTokens(usageEvent.cacheReadTokens),
+        cacheWriteTokens: numberTokens(usageEvent.cacheWriteTokens),
+      },
+    });
     try {
       settled = await this.engine.settleUsage({
         userId: input.userId,
