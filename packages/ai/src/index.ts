@@ -36,4 +36,8 @@ export type {
   ProviderFailureKind,
   ProviderStreamEvent,
 } from "./types.js";
-export { AiRequestReconciler, type AiReconciliationCounters } from "./reconciliation.js";
+export {
+  AiRequestReconciler,
+  type AiReconciliationCounters,
+  type AiReconciliationCutoffs,
+} from "./reconciliation.js";

@@ -208,6 +208,7 @@ export function loadWorkerConfig(
     workerHealthPort: parsed.WORKER_HEALTH_PORT,
     paymentProvider: parsed.PAYMENT_PROVIDER ?? resolveDefaultPaymentProvider(parsed.APP_ENV),
     paymentReconcileAfterSeconds: parsed.PAYMENT_RECONCILE_AFTER_SECONDS,
+    aiProviderTimeoutMs: parsed.AI_PROVIDER_TIMEOUT_MS,
     billingMinTopupMicroRub: parsed.BILLING_MIN_TOPUP_MICRORUB,
     billingMaxTopupMicroRub: parsed.BILLING_MAX_TOPUP_MICRORUB,
     billingTopupRatioBps: parsed.BILLING_TOPUP_RATIO_BPS,

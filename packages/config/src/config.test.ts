@@ -246,6 +246,7 @@ describe("loadWorkerConfig", () => {
     expect(config.reminderReconcileIntervalSeconds).toBe(60);
     expect(config.webOrigin).toBe("http://localhost:3000");
     expect(config.workerHealthPort).toBeUndefined();
+    expect(config.aiProviderTimeoutMs).toBe(120_000);
   });
 
   it("accepts an optional loopback health port", () => {
@@ -254,5 +255,13 @@ describe("loadWorkerConfig", () => {
       WORKER_HEALTH_PORT: "3102",
     });
     expect(config.workerHealthPort).toBe(3102);
+  });
+
+  it("loads the provider timeout used by AI reconciliation", () => {
+    const config = loadWorkerConfig({
+      ...validSharedEnv,
+      AI_PROVIDER_TIMEOUT_MS: "600000",
+    });
+    expect(config.aiProviderTimeoutMs).toBe(600_000);
   });
 });

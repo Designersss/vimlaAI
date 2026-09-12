@@ -18,6 +18,11 @@ export interface AiReconciliationCounters {
   errors: number;
 }
 
+export interface AiReconciliationCutoffs {
+  preProvider: Date;
+  provider: Date;
+}
+
 /** Reconciles only stale durable state; it never calls an AI provider. */
 export class AiRequestReconciler {
   constructor(
@@ -26,9 +31,23 @@ export class AiRequestReconciler {
     private readonly logger: BillingLogger,
   ) {}
 
-  async reconcile(olderThan: Date, batchSize: number): Promise<AiReconciliationCounters> {
+  async reconcile(cutoffs: AiReconciliationCutoffs, batchSize: number): Promise<AiReconciliationCounters> {
     const requests = await this.prisma.aiRequest.findMany({
-      where: { status: { in: [...RECOVERABLE_STATUSES] }, createdAt: { lt: olderThan } },
+      where: {
+        OR: [
+          {
+            status: { in: ["CREATED", "RESERVED"] },
+            createdAt: { lt: cutoffs.preProvider },
+          },
+          {
+            status: { in: ["PROVIDER_STARTED", "STREAMING", "RECONCILIATION_REQUIRED"] },
+            OR: [
+              { startedAt: { lt: cutoffs.provider } },
+              { startedAt: null, createdAt: { lt: cutoffs.provider } },
+            ],
+          },
+        ],
+      },
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
       take: Math.max(1, Math.min(batchSize, 500)),
     });

@@ -17,6 +17,19 @@ if (!testDatabaseUrl) {
 
 const origin = "http://localhost:3000";
 
+function createBarrier(participants: number): () => Promise<void> {
+  let arrivals = 0;
+  let release: () => void = () => undefined;
+  const ready = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return async () => {
+    arrivals += 1;
+    if (arrivals === participants) release();
+    await ready;
+  };
+}
+
 describe("AI chat integration", () => {
   let app: NestFastifyApplication;
   let chat: TextChatService;
@@ -503,18 +516,19 @@ describe("AI chat integration", () => {
     await prisma.aiRequest.update({ where: { id: reserved.id }, data: { reservationId: linkedReservation.id } });
     const providerStarted = await createRequest("PROVIDER_STARTED", "4");
     const ambiguousReservation = await engine.reserveUsage({ userId: user.id, requestId: providerStarted.id, estimatedProviderCostMicroRub: 1_000n });
-    await prisma.aiRequest.update({ where: { id: providerStarted.id }, data: { reservationId: ambiguousReservation.id, startedAt: stale } });
+    await prisma.aiRequest.update({ where: { id: providerStarted.id }, data: { reservationId: ambiguousReservation.id, startedAt: new Date(stale.getTime() - 1_000) } });
     const streaming = await createRequest("STREAMING", "6");
     const streamingReservation = await engine.reserveUsage({ userId: user.id, requestId: streaming.id, estimatedProviderCostMicroRub: 1_000n });
-    await prisma.aiRequest.update({ where: { id: streaming.id }, data: { reservationId: streamingReservation.id, startedAt: stale, providerRequestId: "durable-provider-id" } });
+    await prisma.aiRequest.update({ where: { id: streaming.id }, data: { reservationId: streamingReservation.id, startedAt: new Date(stale.getTime() - 1_000), providerRequestId: "durable-provider-id" } });
     const usageKnown = await createRequest("RECONCILIATION_REQUIRED", "5");
     const knownReservation = await engine.reserveUsage({ userId: user.id, requestId: usageKnown.id, estimatedProviderCostMicroRub: 1_000n });
     await prisma.aiRequest.update({ where: { id: usageKnown.id }, data: { reservationId: knownReservation.id, providerActualCostMicroRub: 700n } });
 
-    const first = await reconciler.reconcile(stale, 20);
+    const cutoffs = { preProvider: stale, provider: stale };
+    const first = await reconciler.reconcile(cutoffs, 20);
     const [second, concurrentWorker] = await Promise.all([
-      reconciler.reconcile(stale, 20),
-      reconciler.reconcile(stale, 20),
+      reconciler.reconcile(cutoffs, 20),
+      reconciler.reconcile(cutoffs, 20),
     ]);
     expect(first).toMatchObject({ scanned: 6, released: 2, settled: 1, held: 2, failedBeforeReservation: 1, errors: 0 });
     expect(second.scanned).toBe(2);
@@ -527,6 +541,129 @@ describe("AI chat integration", () => {
     expect((await prisma.aiRequest.findUniqueOrThrow({ where: { id: beforeReservation.id } })).status).toBe("FAILED");
     expect((await prisma.aiRequest.findUniqueOrThrow({ where: { id: providerStarted.id } })).status).toBe("RECONCILIATION_REQUIRED");
     await prisma.$disconnect();
+  });
+
+  it("does not reconcile live provider work inside its timeout and grace window", async () => {
+    const user = await registerUser(app, "recover-live");
+    await purchasePro(app, user.cookies);
+    const conversation = await createConversation(app, user.cookies);
+    const prisma = createPrismaClient(testDatabaseUrl);
+    const model = await prisma.aiModel.findFirstOrThrow({ include: { priceVersions: true } });
+    const priceVersion = model.priceVersions[0];
+    if (!priceVersion) throw new Error("expected price version");
+    const now = new Date();
+    const request = await prisma.aiRequest.create({
+      data: {
+        userId: user.id,
+        conversationId: conversation.id,
+        modelId: model.id,
+        priceVersionId: priceVersion.id,
+        clientRequestId: randomUUID(),
+        provider: model.provider,
+        providerModelId: model.providerModelId,
+        status: "STREAMING",
+        financialStatus: "RESERVED",
+        estimatedInputTokens: 1,
+        maxOutputTokens: 1,
+        estimatedCostMicroRub: 1_000n,
+        createdAt: new Date(now.getTime() - 12 * 60_000),
+        startedAt: new Date(now.getTime() - 6 * 60_000),
+      },
+    });
+    const engine = new BillingEngine(prisma, DEFAULT_BILLING_POLICY, {
+      info: () => undefined,
+      warn: () => undefined,
+      error: () => undefined,
+    });
+    const reservation = await engine.reserveUsage({
+      userId: user.id,
+      requestId: request.id,
+      estimatedProviderCostMicroRub: 1_000n,
+    });
+    await prisma.aiRequest.update({ where: { id: request.id }, data: { reservationId: reservation.id } });
+
+    const counters = await new AiRequestReconciler(prisma, engine, {
+      info: () => undefined,
+      warn: () => undefined,
+      error: () => undefined,
+    }).reconcile({
+      preProvider: new Date(now.getTime() - 5 * 60_000),
+      provider: new Date(now.getTime() - 11 * 60_000),
+    }, 20);
+
+    expect(counters.scanned).toBe(0);
+    expect((await prisma.aiRequest.findUniqueOrThrow({ where: { id: request.id } })).status).toBe("STREAMING");
+    expect((await prisma.usageReservation.findUniqueOrThrow({ where: { id: reservation.id } })).status).toBe("ACTIVE");
+    await prisma.$disconnect();
+  });
+
+  it("settles and releases exactly once when independent reconcilers race", async () => {
+    const user = await registerUser(app, "recover-race");
+    await purchasePro(app, user.cookies);
+    const conversation = await createConversation(app, user.cookies);
+    const setupPrisma = createPrismaClient(testDatabaseUrl);
+    const model = await setupPrisma.aiModel.findFirstOrThrow({ include: { priceVersions: true } });
+    const priceVersion = model.priceVersions[0];
+    if (!priceVersion) throw new Error("expected price version");
+    const stale = new Date(Date.now() - 60_000);
+    const createRequest = (status: "RESERVED" | "RECONCILIATION_REQUIRED") => setupPrisma.aiRequest.create({
+      data: {
+        userId: user.id,
+        conversationId: conversation.id,
+        modelId: model.id,
+        priceVersionId: priceVersion.id,
+        clientRequestId: randomUUID(),
+        provider: model.provider,
+        providerModelId: model.providerModelId,
+        status,
+        financialStatus: "RESERVED",
+        estimatedInputTokens: 1,
+        maxOutputTokens: 1,
+        estimatedCostMicroRub: 1_000n,
+        createdAt: new Date(stale.getTime() - 1_000),
+      },
+    });
+    const releaseRequest = await createRequest("RESERVED");
+    const settleRequest = await createRequest("RECONCILIATION_REQUIRED");
+    const setupEngine = new BillingEngine(setupPrisma, DEFAULT_BILLING_POLICY, { info: () => undefined, warn: () => undefined, error: () => undefined });
+    const releaseReservation = await setupEngine.reserveUsage({ userId: user.id, requestId: releaseRequest.id, estimatedProviderCostMicroRub: 1_000n });
+    const settleReservation = await setupEngine.reserveUsage({ userId: user.id, requestId: settleRequest.id, estimatedProviderCostMicroRub: 1_000n });
+    await setupPrisma.aiRequest.update({ where: { id: releaseRequest.id }, data: { reservationId: releaseReservation.id } });
+    await setupPrisma.aiRequest.update({ where: { id: settleRequest.id }, data: { reservationId: settleReservation.id, providerActualCostMicroRub: 700n } });
+
+    const clients = [createPrismaClient(testDatabaseUrl), createPrismaClient(testDatabaseUrl)];
+    const releaseBarrier = createBarrier(2);
+    const settleBarrier = createBarrier(2);
+    const logger = { info: () => undefined, warn: () => undefined, error: () => undefined };
+    const reconcilers = clients.map((client) => {
+      const engine = new BillingEngine(client, DEFAULT_BILLING_POLICY, logger);
+      const releaseUsage = engine.releaseUsage.bind(engine);
+      const settleUsage = engine.settleUsage.bind(engine);
+      engine.releaseUsage = async (input) => {
+        await releaseBarrier();
+        return releaseUsage(input);
+      };
+      engine.settleUsage = async (input) => {
+        await settleBarrier();
+        return settleUsage(input);
+      };
+      return new AiRequestReconciler(client, engine, logger);
+    });
+
+    const results = await Promise.all(reconcilers.map((reconciler) =>
+      reconciler.reconcile({ preProvider: stale, provider: stale }, 20),
+    ));
+
+    expect(results.every((result) => result.errors === 0)).toBe(true);
+    expect((await setupPrisma.usageReservation.findUniqueOrThrow({ where: { id: releaseReservation.id } })).status).toBe("RELEASED");
+    expect((await setupPrisma.usageReservation.findUniqueOrThrow({ where: { id: settleReservation.id } })).status).toBe("SETTLED");
+    expect((await setupPrisma.aiRequest.findUniqueOrThrow({ where: { id: releaseRequest.id } })).status).toBe("FAILED");
+    expect((await setupPrisma.aiRequest.findUniqueOrThrow({ where: { id: settleRequest.id } })).status).toBe("FAILED");
+    expect(await setupPrisma.usageLedgerEntry.count({ where: { reservationId: releaseReservation.id, type: "RESERVATION_RELEASED" } })).toBe(1);
+    expect(await setupPrisma.usageLedgerEntry.count({ where: { reservationId: settleReservation.id, type: "USAGE_SETTLED" } })).toBe(1);
+    expect(await setupPrisma.usageLedgerEntry.count({ where: { reservationId: settleReservation.id, type: "RESERVATION_RELEASED" } })).toBe(1);
+    await Promise.all(clients.map((client) => client.$disconnect()));
+    await setupPrisma.$disconnect();
   });
 });
 
