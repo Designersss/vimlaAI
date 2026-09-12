@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import { isAiError } from "@vimla/ai";
 import type { Prisma } from "@vimla/database";
 import {
   confirmOperatorRunSchema,
@@ -24,8 +25,15 @@ import {
   type TaskOwnerResolution,
 } from "@vimla/operator";
 import { filterOperatorContextBundle, resolveDirectChatAssignee } from "@vimla/direct-chats";
-import { WorkspaceError } from "@vimla/workspace";
-import { NotificationPlatformError } from "@vimla/notifications";
+import {
+  ListService,
+  NoteService,
+  ReminderService,
+  TaskService,
+  WorkspaceError,
+  WorkspaceTodayService,
+} from "@vimla/workspace";
+import { NotificationPlatformError, NotificationPreferenceService } from "@vimla/notifications";
 import { API_CONFIG, type ApiRuntimeConfig } from "../config/api-config.js";
 import { PrismaService } from "../persistence/prisma.service.js";
 import { TextChatService } from "../ai/text-chat.service.js";
@@ -113,39 +121,41 @@ export class OperatorService {
 
     const conversation = await this.resolveConversation(userId, scope === "DIRECT_CHAT" ? undefined : input.conversationId);
     const locale = await this.userLocale(userId);
-    let userMessageId: string | null = null;
-    if (scope !== "DIRECT_CHAT") {
-      const userMessage = await this.prisma.message.create({
-        data: {
-          conversationId: conversation.id,
-          role: "USER",
-          content: input.content,
-          status: "COMPLETE",
-        },
-      });
-      userMessageId = userMessage.id;
-    }
-
     const scoped = await this.resolveDirectChatScope(userId, scope, input.directConversationId, input.contextBundle);
 
     try {
-      const run = await this.prisma.operatorRun.create({
-        data: {
-          userId,
-          conversationId: conversation.id,
-          userMessageId,
-          clientRequestId: input.clientRequestId,
-          plannerClientRequestId: randomUUID(),
-          status: "PLANNING",
-          userText: input.content,
-          locale,
-          invocationScope: scope,
-          directConversationId: scoped.directConversationId,
-          contextOwnIncluded: scoped.ownIncluded,
-          contextPeerIncluded: scoped.peerIncluded,
-          contextPeerDenied: scoped.peerDenied,
-        },
-        include: { steps: { orderBy: { sequence: "asc" } } },
+      const run = await this.prisma.$transaction(async (tx) => {
+        let userMessageId: string | null = null;
+        if (scope !== "DIRECT_CHAT") {
+          const userMessage = await tx.message.create({
+            data: {
+              conversationId: conversation.id,
+              role: "USER",
+              content: input.content,
+              status: "COMPLETE",
+            },
+          });
+          userMessageId = userMessage.id;
+        }
+
+        return tx.operatorRun.create({
+          data: {
+            userId,
+            conversationId: conversation.id,
+            userMessageId,
+            clientRequestId: input.clientRequestId,
+            plannerClientRequestId: randomUUID(),
+            status: "PLANNING",
+            userText: input.content,
+            locale,
+            invocationScope: scope,
+            directConversationId: scoped.directConversationId,
+            contextOwnIncluded: scoped.ownIncluded,
+            contextPeerIncluded: scoped.peerIncluded,
+            contextPeerDenied: scoped.peerDenied,
+          },
+          include: { steps: { orderBy: { sequence: "asc" } } },
+        });
       });
       return await this.planAndMaybeExecute(run, correlationId, null, scoped.untrustedContext);
     } catch (error: unknown) {
@@ -165,39 +175,70 @@ export class OperatorService {
   async confirmRun(userId: string, runId: string, body: unknown, correlationId: string): Promise<OperatorRunView> {
     this.assertEnabled();
     const input = confirmOperatorRunSchema.parse(body);
-    const run = await this.loadOwnedRun(userId, runId);
+    const run = await this.acceptConfirmation(userId, runId, input.confirmationToken);
     if (run.status === "SUCCEEDED" || run.status === "PARTIAL" || run.status === "CANCELED" || run.status === "FAILED") {
       return this.toView(run, null);
     }
     if (run.status === "EXECUTING") {
       const context = await this.toolContext(run);
-      const executed = await this.executePersistedSteps(run.id, context, correlationId, true);
+      const executed = await this.executePersistedSteps(run.id, context, correlationId);
       if (executed.status === "CLARIFY") {
         return this.awaitClarification(run.id, executed.publicMessage, executed.question);
       }
       return this.finishRun(run.id, executed.publicMessage, executed.status, executed.confirmationToken);
     }
-    if (run.status !== "AWAITING_CONFIRMATION") {
-      throw new OperatorError("CONFIRMATION_INVALID", "This run is not waiting for confirmation");
-    }
-    if (!run.confirmationTokenHash || !run.confirmationExpiresAt || run.confirmationExpiresAt < new Date()) {
-      throw new OperatorError("CONFIRMATION_INVALID", "Confirmation expired");
-    }
-    if (!confirmationTokenMatches(input.confirmationToken, run.confirmationTokenHash, this.config.betterAuthSecret)) {
-      throw new OperatorError("CONFIRMATION_INVALID", "Confirmation token is invalid");
-    }
+    throw new OperatorError("CONFIRMATION_INVALID", "This run is not waiting for confirmation");
+  }
 
-    await this.prisma.operatorRun.update({
-      where: { id: run.id },
-      data: { status: "EXECUTING", confirmationTokenHash: null, confirmationExpiresAt: null },
+  private async acceptConfirmation(userId: string, runId: string, token: string): Promise<RunRecord> {
+    return this.prisma.$transaction(async (tx) => {
+      const locked = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT "id" FROM "operator_run"
+        WHERE "id" = ${runId} AND "userId" = ${userId}
+        FOR UPDATE
+      `;
+      if (locked.length === 0) {
+        throw new NotFoundException("Operator run was not found");
+      }
+
+      const current = await tx.operatorRun.findUniqueOrThrow({
+        where: { id: runId },
+        include: { steps: { orderBy: { sequence: "asc" } } },
+      });
+      if (current.status !== "AWAITING_CONFIRMATION") {
+        return current;
+      }
+      if (!current.confirmationTokenHash || !current.confirmationExpiresAt || current.confirmationExpiresAt < new Date()) {
+        throw new OperatorError("CONFIRMATION_INVALID", "Confirmation expired");
+      }
+      if (!confirmationTokenMatches(token, current.confirmationTokenHash, this.config.betterAuthSecret)) {
+        throw new OperatorError("CONFIRMATION_INVALID", "Confirmation token is invalid");
+      }
+
+      const confirmableSteps = current.steps.filter((step) => step.status === "NEEDS_CONFIRMATION");
+      if (confirmableSteps.length > 0) {
+        await tx.operatorRunStep.updateMany({
+          where: { runId, status: "NEEDS_CONFIRMATION" },
+          data: { status: "CONFIRMED" },
+        });
+        await tx.operatorAuditEvent.createMany({
+          data: confirmableSteps.map((step) => ({
+            runId,
+            userId,
+            toolName: step.toolName,
+            operation: "confirmation_accepted",
+            objectKind: "operator_step",
+            objectId: step.id,
+            result: "accepted",
+          })),
+        });
+      }
+      return tx.operatorRun.update({
+        where: { id: runId },
+        data: { status: "EXECUTING", confirmationTokenHash: null, confirmationExpiresAt: null },
+        include: { steps: { orderBy: { sequence: "asc" } } },
+      });
     });
-
-    const context = await this.toolContext(run);
-    const executed = await this.executePersistedSteps(run.id, context, correlationId, true);
-    if (executed.status === "CLARIFY") {
-      return this.awaitClarification(run.id, executed.publicMessage, executed.question);
-    }
-    return this.finishRun(run.id, executed.publicMessage, executed.status, executed.confirmationToken);
   }
 
   async continueRun(
@@ -208,39 +249,59 @@ export class OperatorService {
   ): Promise<OperatorRunView> {
     this.assertEnabled();
     const input = continueOperatorRunSchema.parse(body);
-    const run = await this.loadOwnedRun(userId, runId);
-    if (run.continueClientRequestId === input.clientRequestId) {
-      return this.toView(run, null);
-    }
-    if (run.status !== "AWAITING_CLARIFICATION") {
-      throw new OperatorError("CLARIFICATION_REQUIRED", "This run is not waiting for clarification");
-    }
 
-    if (run.invocationScope !== "DIRECT_CHAT") {
-      await this.prisma.message.create({
+    const prepared = await this.prisma.$transaction(async (tx) => {
+      const claimed = await tx.operatorRun.updateMany({
+        where: { id: runId, userId, status: "AWAITING_CLARIFICATION" },
         data: {
-          conversationId: run.conversationId,
-          role: "USER",
-          content: input.content,
-          status: "COMPLETE",
+          status: "PLANNING",
+          continueClientRequestId: input.clientRequestId,
+          plannerClientRequestId: randomUUID(),
+          plannerOutput: null,
+          assistantMessageId: null,
         },
       });
-    }
 
-    await this.prisma.operatorRun.update({
-      where: { id: run.id },
-      data: {
-        status: "PLANNING",
-        continueClientRequestId: input.clientRequestId,
-        plannerClientRequestId: randomUUID(),
-        plannerOutput: null,
-        assistantMessageId: null,
-        userText: `${run.userText}\n${input.content}`,
-      },
+      if (claimed.count === 0) {
+        const current = await tx.operatorRun.findFirst({
+          where: { id: runId, userId },
+          include: { steps: { orderBy: { sequence: "asc" } } },
+        });
+        if (!current) {
+          throw new NotFoundException("Operator run was not found");
+        }
+        if (current.continueClientRequestId === input.clientRequestId) {
+          return { replay: true as const, run: current, previousClarification: current.clarificationQuestion };
+        }
+        throw new OperatorError("CLARIFICATION_REQUIRED", "This run is not waiting for clarification");
+      }
+
+      const current = await tx.operatorRun.findUniqueOrThrow({ where: { id: runId } });
+      if (current.invocationScope !== "DIRECT_CHAT") {
+        await tx.message.create({
+          data: {
+            conversationId: current.conversationId,
+            role: "USER",
+            content: input.content,
+            status: "COMPLETE",
+          },
+        });
+      }
+      const updated = await tx.operatorRun.update({
+        where: { id: runId },
+        data: {
+          userText: `${current.userText}\n${input.content}`,
+          clarificationQuestion: null,
+        },
+        include: { steps: { orderBy: { sequence: "asc" } } },
+      });
+      return { replay: false as const, run: updated, previousClarification: current.clarificationQuestion };
     });
 
-    const reloaded = await this.loadOwnedRun(userId, runId);
-    return this.planAndMaybeExecute(reloaded, correlationId, run.clarificationQuestion);
+    if (prepared.replay) {
+      return this.toView(prepared.run, null);
+    }
+    return this.planAndMaybeExecute(prepared.run, correlationId, prepared.previousClarification);
   }
 
   async cancelRun(userId: string, runId: string): Promise<OperatorRunView> {
@@ -340,7 +401,7 @@ export class OperatorService {
       where: { id: run.id },
       data: { status: "EXECUTING", publicMessage: sanitizePublicText(plan.userMessage, 2_000) },
     });
-    const executed = await this.executePersistedSteps(run.id, context, correlationId, false);
+    const executed = await this.executePersistedSteps(run.id, context, correlationId);
     if (executed.status === "CLARIFY") {
       return this.awaitClarification(run.id, executed.publicMessage, executed.question);
     }
@@ -351,7 +412,6 @@ export class OperatorService {
     runId: string,
     context: OperatorToolContext,
     correlationId: string,
-    confirmed: boolean,
   ): Promise<{
     status: "SUCCEEDED" | "PARTIAL" | "FAILED" | "CLARIFY";
     publicMessage: string;
@@ -367,60 +427,99 @@ export class OperatorService {
     let failed = 0;
     const titles: string[] = [];
 
-    for (const step of steps) {
-      if (step.status === "EXECUTED") {
-        executed += 1;
-        titles.push(step.publicTitle);
-        continue;
-      }
-      if (step.status === "FAILED") {
-        failed += 1;
-        continue;
-      }
-      if (step.status === "SKIPPED") {
-        continue;
-      }
-      if (step.status === "NEEDS_CONFIRMATION" && !confirmed) {
-        continue;
-      }
+    for (const listedStep of steps) {
+      try {
+        const outcome = await this.prisma.$transaction(async (tx) => {
+          await tx.$queryRaw<Array<{ id: string }>>`
+            SELECT "id" FROM "operator_run_step"
+            WHERE "id" = ${listedStep.id}
+            FOR UPDATE
+          `;
+          const step = await tx.operatorRunStep.findUnique({ where: { id: listedStep.id } });
+          if (!step) {
+            return { kind: "skipped" as const };
+          }
+          if (step.status === "EXECUTED") {
+            return { kind: "executed" as const, title: step.publicTitle };
+          }
+          if (step.status === "FAILED") {
+            return { kind: "failed" as const };
+          }
+          if (step.status === "SKIPPED") {
+            return { kind: "skipped" as const };
+          }
+          if (step.status === "NEEDS_CONFIRMATION") {
+            return { kind: "failed" as const };
+          }
+          if (step.status === "CONFIRMED") {
+            const acceptance = await tx.operatorAuditEvent.findFirst({
+              where: {
+                runId,
+                operation: "confirmation_accepted",
+                objectKind: "operator_step",
+                objectId: step.id,
+                result: "accepted",
+              },
+            });
+            if (!acceptance) {
+              await tx.operatorRunStep.update({
+                where: { id: step.id },
+                data: { status: "FAILED", errorCode: "operator_reconciliation_required" },
+              });
+              await tx.operatorAuditEvent.create({
+                data: {
+                  runId,
+                  userId: context.actor.userId,
+                  toolName: step.toolName,
+                  operation: "reconciliation_required",
+                  objectKind: step.publicKind,
+                  objectId: step.objectId,
+                  result: "operator_reconciliation_required",
+                },
+              });
+              return { kind: "failed" as const };
+            }
+          }
+          if (step.status !== "PENDING" && step.status !== "CONFIRMED") {
+            return { kind: "skipped" as const };
+          }
 
-      const claimable = confirmed
-        ? (["PENDING", "NEEDS_CONFIRMATION", "CONFIRMED"] as const)
-        : (["PENDING", "CONFIRMED"] as const);
-      const claimed = await this.prisma.operatorRunStep.updateMany({
-        where: { id: step.id, status: { in: [...claimable] } },
-        data: { status: "CONFIRMED" },
-      });
-      if (claimed.count === 0) {
-        const latest = await this.prisma.operatorRunStep.findUnique({ where: { id: step.id } });
-        if (latest?.status === "EXECUTED") {
+          const args = asRecord(step.inputJson);
+          const txContext = this.transactionalToolContext(context, tx);
+          const result = await executeStep(step.toolName, args, txContext);
+          await tx.operatorRunStep.update({
+            where: { id: step.id },
+            data: {
+              status: "EXECUTED",
+              publicTitle: result.card.title,
+              publicDetail: result.card.detail,
+              publicHrefPath: result.card.hrefPath,
+              publicKind: result.card.kind,
+              objectId: result.objectId,
+              executedAt: new Date(),
+              errorCode: null,
+            },
+          });
+          await tx.operatorAuditEvent.create({
+            data: {
+              runId,
+              userId: context.actor.userId,
+              toolName: step.toolName,
+              operation: result.card.operation,
+              objectKind: result.card.kind,
+              objectId: result.objectId,
+              result: "ok",
+            },
+          });
+          return { kind: "executed" as const, title: result.card.title };
+        });
+
+        if (outcome.kind === "executed") {
           executed += 1;
-          titles.push(latest.publicTitle);
-        } else if (latest?.status === "FAILED") {
+          titles.push(outcome.title);
+        } else if (outcome.kind === "failed") {
           failed += 1;
         }
-        continue;
-      }
-
-      const args = asRecord(step.inputJson);
-      try {
-        const result = await executeStep(step.toolName, args, context);
-        await this.prisma.operatorRunStep.update({
-          where: { id: step.id },
-          data: {
-            status: "EXECUTED",
-            publicTitle: result.card.title,
-            publicDetail: result.card.detail,
-            publicHrefPath: result.card.hrefPath,
-            publicKind: result.card.kind,
-            objectId: result.objectId,
-            executedAt: new Date(),
-            errorCode: null,
-          },
-        });
-        await this.audit(runId, context.actor.userId, step.toolName, result.card.operation, result.card.kind, result.objectId, "ok");
-        executed += 1;
-        titles.push(result.card.title);
       } catch (error: unknown) {
         if (error instanceof OperatorError && error.code === "CLARIFICATION_REQUIRED") {
           return {
@@ -431,17 +530,21 @@ export class OperatorService {
           };
         }
         const code = errorCodeOf(error);
-        await this.prisma.operatorRunStep.update({
-          where: { id: step.id },
-          data: { status: "FAILED", errorCode: code },
-        });
-        await this.audit(runId, context.actor.userId, step.toolName, "failed", step.publicKind, step.objectId, code);
-        failed += 1;
+        const terminal = await this.markStepFailed(listedStep.id, runId, context.actor.userId, code);
+        if (terminal === "EXECUTED") {
+          executed += 1;
+          const latest = await this.prisma.operatorRunStep.findUnique({ where: { id: listedStep.id } });
+          if (latest) {
+            titles.push(latest.publicTitle);
+          }
+        } else {
+          failed += 1;
+        }
         this.logger.warn({
           msg: "operator.step_failed",
           operatorRunId: runId,
           actorUserId: context.actor.userId,
-          toolName: step.toolName,
+          toolName: listedStep.toolName,
           errorCode: code,
           correlationId,
         });
@@ -458,6 +561,62 @@ export class OperatorService {
           ? "Some actions completed, others failed."
           : "I could not complete that action.";
     return { status, publicMessage, confirmationToken: null, question: "" };
+  }
+
+  private async markStepFailed(
+    stepId: string,
+    runId: string,
+    userId: string,
+    code: string,
+  ): Promise<"FAILED" | "EXECUTED"> {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT "id" FROM "operator_run_step"
+        WHERE "id" = ${stepId}
+        FOR UPDATE
+      `;
+      const step = await tx.operatorRunStep.findUnique({ where: { id: stepId } });
+      if (step?.status === "EXECUTED") {
+        return "EXECUTED" as const;
+      }
+      if (!step || step.status === "FAILED") {
+        return "FAILED" as const;
+      }
+      await tx.operatorRunStep.update({
+        where: { id: step.id },
+        data: { status: "FAILED", errorCode: code },
+      });
+      await tx.operatorAuditEvent.create({
+        data: {
+          runId,
+          userId,
+          toolName: step.toolName,
+          operation: "failed",
+          objectKind: step.publicKind,
+          objectId: step.objectId,
+          result: code,
+        },
+      });
+      return "FAILED" as const;
+    });
+  }
+
+  private transactionalToolContext(
+    context: OperatorToolContext,
+    tx: Prisma.TransactionClient,
+  ): OperatorToolContext {
+    return {
+      ...context,
+      services: {
+        tasks: new TaskService(tx),
+        reminders: new ReminderService(tx),
+        lists: new ListService(tx),
+        notes: new NoteService(tx),
+        today: new WorkspaceTodayService(tx),
+        notifications: new NotificationPreferenceService(tx),
+        getSafeProfile: (id) => this.getSafeProfileFromDb(tx, id),
+      },
+    };
   }
 
   private async finishRun(
@@ -535,43 +694,37 @@ export class OperatorService {
     run: { id: string; conversationId: string; assistantMessageId: string | null; invocationScope?: string | null },
     content: string,
   ): Promise<void> {
-    if (run.invocationScope === "DIRECT_CHAT") {
-      return;
-    }
     const text = sanitizePublicText(content, 2_000) || "Done.";
-    if (run.assistantMessageId) {
-      await this.prisma.message.update({
-        where: { id: run.assistantMessageId },
-        data: { content: text, operatorRunId: run.id, status: "COMPLETE" },
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT "id" FROM "operator_run"
+        WHERE "id" = ${run.id}
+        FOR UPDATE
+      `;
+      const current = await tx.operatorRun.findUnique({ where: { id: run.id } });
+      if (!current || current.invocationScope === "DIRECT_CHAT") {
+        return;
+      }
+      if (current.assistantMessageId) {
+        await tx.message.update({
+          where: { id: current.assistantMessageId },
+          data: { content: text, operatorRunId: current.id, status: "COMPLETE" },
+        });
+        return;
+      }
+      const message = await tx.message.create({
+        data: {
+          conversationId: current.conversationId,
+          role: "ASSISTANT",
+          content: text,
+          status: "COMPLETE",
+          operatorRunId: current.id,
+        },
       });
-      return;
-    }
-    const message = await this.prisma.message.create({
-      data: {
-        conversationId: run.conversationId,
-        role: "ASSISTANT",
-        content: text,
-        status: "COMPLETE",
-        operatorRunId: run.id,
-      },
-    });
-    await this.prisma.operatorRun.update({
-      where: { id: run.id },
-      data: { assistantMessageId: message.id },
-    });
-  }
-
-  private async audit(
-    runId: string,
-    userId: string,
-    toolName: string,
-    operation: string,
-    objectKind: string | null,
-    objectId: string | null,
-    result: string,
-  ): Promise<void> {
-    await this.prisma.operatorAuditEvent.create({
-      data: { runId, userId, toolName, operation, objectKind, objectId, result },
+      await tx.operatorRun.update({
+        where: { id: current.id },
+        data: { assistantMessageId: message.id },
+      });
     });
   }
 
@@ -690,7 +843,14 @@ export class OperatorService {
   }
 
   private async getSafeProfile(userId: string): Promise<SafeProfile> {
-    const user = await this.prisma.user.findUnique({
+    return this.getSafeProfileFromDb(this.prisma, userId);
+  }
+
+  private async getSafeProfileFromDb(
+    db: Prisma.TransactionClient | PrismaClientLike,
+    userId: string,
+  ): Promise<SafeProfile> {
+    const user = await db.user.findUnique({
       where: { id: userId },
       include: { preference: true },
     });
@@ -769,11 +929,19 @@ export class OperatorService {
 
   private async resumeExisting(run: RunRecord, correlationId: string): Promise<OperatorRunView> {
     if (run.status === "CREATED" || run.status === "PLANNING") {
-      return this.planAndMaybeExecute(run, correlationId, run.clarificationQuestion);
+      try {
+        return await this.planAndMaybeExecute(run, correlationId, run.clarificationQuestion);
+      } catch (error: unknown) {
+        if (isAiError(error) && error.code === "AI_REQUEST_IN_PROGRESS") {
+          const current = await this.loadOwnedRun(run.userId, run.id);
+          return this.toView(current, null);
+        }
+        throw error;
+      }
     }
     if (run.status === "EXECUTING") {
       const context = await this.toolContext(run);
-      const executed = await this.executePersistedSteps(run.id, context, correlationId, false);
+      const executed = await this.executePersistedSteps(run.id, context, correlationId);
       if (executed.status === "CLARIFY") {
         return this.awaitClarification(run.id, executed.publicMessage, executed.question);
       }
@@ -797,6 +965,7 @@ export class OperatorService {
 }
 
 type RunRecord = Prisma.OperatorRunGetPayload<{ include: { steps: true } }>;
+type PrismaClientLike = Pick<Prisma.TransactionClient, "user">;
 
 function asRecord(value: Prisma.JsonValue): Record<string, unknown> {
   if (value !== null && typeof value === "object" && !Array.isArray(value)) {

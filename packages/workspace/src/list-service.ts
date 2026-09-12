@@ -10,7 +10,7 @@ import {
 } from "@vimla/contracts";
 import { decodeCursor, encodeCursor } from "./cursor.js";
 import { WorkspaceError } from "./errors.js";
-import type { ActorContext, ListQuery, TrustedSourceContext } from "./types.js";
+import type { ActorContext, DbClient, ListQuery, TrustedSourceContext } from "./types.js";
 
 function iso(value: Date | null | undefined): string | null {
   return value ? value.toISOString() : null;
@@ -72,7 +72,7 @@ export function assertReorderIds(currentIds: readonly string[], itemIds: readonl
 }
 
 export class ListService {
-  constructor(private readonly db: PrismaClient) {}
+  constructor(private readonly db: DbClient) {}
 
   async create(actor: ActorContext, input: CreateList, source?: TrustedSourceContext): Promise<ListView> {
     const created = await this.db.workspaceObject.create({
@@ -220,14 +220,25 @@ export class ListService {
       (list.list?.items ?? []).map((item) => item.id),
       input.itemIds,
     );
-    await this.db.$transaction(
-      input.itemIds.map((itemId, index) =>
-        this.db.workspaceListItem.update({
-          where: { id: itemId },
-          data: { position: index },
-        }),
-      ),
-    );
+    if (isPrismaClient(this.db)) {
+      await this.db.$transaction(
+        input.itemIds.map((itemId, index) =>
+          this.db.workspaceListItem.update({
+            where: { id: itemId },
+            data: { position: index },
+          }),
+        ),
+      );
+    } else {
+      await Promise.all(
+        input.itemIds.map((itemId, index) =>
+          this.db.workspaceListItem.update({
+            where: { id: itemId },
+            data: { position: index },
+          }),
+        ),
+      );
+    }
     await this.touch(listId);
     return this.get(actor, listId);
   }
@@ -249,4 +260,8 @@ export class ListService {
     }
     return row;
   }
+}
+
+function isPrismaClient(db: DbClient): db is PrismaClient {
+  return "$transaction" in db;
 }
