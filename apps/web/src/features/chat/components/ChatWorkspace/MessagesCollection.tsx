@@ -80,7 +80,7 @@ export const MessagesCollection = observer(function MessagesCollection(): ReactE
           return;
         }
         if (CONSUMER_FEATURES.directChats) {
-          await ensureLocalDevice();
+          await ensureLocalDevice(currentUser.id);
         }
         store.setConversations(conversations);
         setDirectItems(directPage.items);
@@ -110,7 +110,8 @@ export const MessagesCollection = observer(function MessagesCollection(): ReactE
     event.preventDefault();
     setDirectError(null);
     try {
-      await ensureLocalDevice();
+      const currentUser = await fetchCurrentUser();
+      await ensureLocalDevice(currentUser.id);
       const created = await createDirectConversation({ peerEmail });
       setDirectOpen(false);
       setPeerEmail("");

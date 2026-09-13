@@ -57,6 +57,10 @@ Each browser device generates:
 
 Private material never leaves IndexedDB. The API stores public keys only. Devices can be rotated (new signed prekey + OTKs) and revoked (`revokedAt`). Revoked devices cannot send or receive new envelopes.
 
+IndexedDB keys are account-namespaced. The storage-version upgrade clears legacy unscoped records once. Explicit logout removes that account's device private material, ratchets, and plaintext cache without touching another account's records. The client revalidates a retained local device against the server before cryptographic use; an observed revocation purges the account namespace and fails closed.
+
+One-time prekeys are claimed with a PostgreSQL row-locking atomic update. Concurrent API processes can only return the key whose `consumedAt` transition their transaction won; an exhausted device remains in the bundle response with nullable OTK fields.
+
 Multi-device evolution is laid out: fan-out to every active device, per-device ratchets, OTK consumption. A **new** device cannot decrypt prior history (no server-side history key). That is an explicit Phase 9 limitation, not AES wrapping of old ciphertext.
 
 ## 4. @Vimla context handoff
@@ -127,3 +131,9 @@ Lint, typecheck, unit, integration, e2e, and build for the touched packages/apps
 - Enable only on explicit staging/local env (`DIRECT_CHATS_ENABLED` + `NEXT_PUBLIC_VIMLA_DIRECT_CHATS`). Keep production off until a crypto/privacy review.
 - Follow-up: safety-number verification, history sharing for newly added devices (optional, user-initiated), sealed sender / extra metadata minimization, multi-device prekey refill UX, and Operator command retention policy (`userText` TTL/redaction).
 - Do not start Project Chats, Brain, or Auto Router from this surface.
+
+## 11. Browser-origin hardening
+
+Consumer and Admin Next.js responses share a restrictive CSP, anti-framing, MIME-sniffing, referrer, and permissions policy. HSTS is emitted only for staging and production. WebAuthn remains allowed for the same origin and API connectivity is explicitly allowlisted.
+
+The static Next.js App Router bootstrap currently requires inline script/style support, so CSP retains the explicit `unsafe-inline` residual exception. It never permits `unsafe-eval` in staging or production. Removing this exception requires a separately reviewed request-nonce architecture rather than an untested header that prevents Next.js hydration.

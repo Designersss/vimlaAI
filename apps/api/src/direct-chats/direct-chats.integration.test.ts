@@ -95,6 +95,69 @@ describe("direct chats API", () => {
     }
   });
 
+  it("atomically claims unique one-time prekeys across 50 concurrent requests", async () => {
+    const owner = await readyUser(app, "dc-otk-owner", "OTK owner");
+    const stranger = await readyUser(app, "dc-otk-stranger", "OTK stranger");
+    const device = await registerHarness(app, owner);
+    const prisma = app.get(PrismaService).client;
+    await prisma.directOneTimePrekey.deleteMany({ where: { deviceId: device.deviceId } });
+    await prisma.directOneTimePrekey.createMany({
+      data: Array.from({ length: 50 }, (_, index) => ({
+        deviceId: device.deviceId,
+        keyId: index + 1,
+        publicKey: bytesToB64(generateOneTimePreKey(index + 1).publicKey),
+      })),
+    });
+
+    const responses = await Promise.all(
+      Array.from({ length: 50 }, () => app.inject({
+        method: "GET",
+        url: `/v1/direct-chats/users/${owner.id}/prekeys`,
+        headers: { origin },
+        cookies: owner.cookies,
+      })),
+    );
+    const claimed = responses.map((response) => {
+      expect(response.statusCode).toBe(200);
+      const bundle = (response.json().bundles as Array<{ deviceId: string; oneTimePrekeyId: number | null }>)
+        .find((item) => item.deviceId === device.deviceId);
+      expect(bundle?.oneTimePrekeyId).not.toBeNull();
+      return bundle?.oneTimePrekeyId;
+    });
+    expect(new Set(claimed).size).toBe(50);
+
+    const exhausted = await app.inject({
+      method: "GET",
+      url: `/v1/direct-chats/users/${owner.id}/prekeys`,
+      headers: { origin },
+      cookies: owner.cookies,
+    });
+    expect(exhausted.statusCode).toBe(200);
+    expect(exhausted.json().bundles[0]).toMatchObject({
+      deviceId: device.deviceId,
+      oneTimePrekeyId: null,
+      oneTimePrekeyPublic: null,
+    });
+
+    const wrongOwner = await app.inject({
+      method: "GET",
+      url: `/v1/direct-chats/users/${owner.id}/prekeys`,
+      headers: { origin },
+      cookies: stranger.cookies,
+    });
+    expect(wrongOwner.statusCode).toBe(404);
+
+    await prisma.userCryptoDevice.update({ where: { id: device.deviceId }, data: { revokedAt: new Date() } });
+    const revoked = await app.inject({
+      method: "GET",
+      url: `/v1/direct-chats/users/${owner.id}/prekeys`,
+      headers: { origin },
+      cookies: owner.cookies,
+    });
+    expect(revoked.statusCode).toBe(200);
+    expect(revoked.json().bundles).toEqual([]);
+  });
+
   it("covers lifecycle, ciphertext storage, IDOR, spoof, tamper, unread and pagination", async () => {
     const alice = await readyUser(app, "dc-alice", "Alice");
     const nikita = await readyUser(app, "dc-nikita", "Nikita");

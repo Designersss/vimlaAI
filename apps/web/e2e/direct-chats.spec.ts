@@ -3,6 +3,45 @@ import { purchasePro, signUp, uniqueEmail, verifyEmail, webOrigin, apiBase } fro
 import { assertNoDocumentOverflow, assertReachable } from "./responsive-helpers";
 
 test.describe("Secure Direct Chats", () => {
+  test("clears only the authenticated account's E2EE state on logout", async ({ page, request }) => {
+    const email = uniqueEmail("e2e-direct-logout");
+    await signUp(page, { name: "Logout E2EE", email, password: "correct-horse-battery" });
+    await verifyEmail(page, request, email);
+    await purchasePro(page);
+    const me = await page.request.get(`${apiBase}/v1/me`, { headers: { origin: webOrigin } });
+    const accountId = String((await me.json()).id);
+    await page.goto("/app");
+    await expect(page.getByRole("heading", { name: /сообщения|messages/i })).toBeVisible();
+    await seedForeignAccountRecord(page);
+    expect(await sensitiveRecordCount(page, accountId)).toBeGreaterThan(0);
+
+    await page.getByRole("button", { name: /выйти|sign out/i }).first().click();
+    await expect(page).toHaveURL(/sign-in/);
+    expect(await sensitiveRecordCount(page, accountId)).toBe(0);
+    expect(await sensitiveRecordCount(page, "other-account")).toBe(1);
+  });
+
+  test("purges retained secrets and fails closed after local device revocation", async ({ page, request }) => {
+    const email = uniqueEmail("e2e-direct-revoke");
+    await signUp(page, { name: "Revoked E2EE", email, password: "correct-horse-battery" });
+    await verifyEmail(page, request, email);
+    await purchasePro(page);
+    const me = await page.request.get(`${apiBase}/v1/me`, { headers: { origin: webOrigin } });
+    const accountId = String((await me.json()).id);
+    await page.goto("/app");
+    await expect(page.getByRole("heading", { name: /сообщения|messages/i })).toBeVisible();
+    const deviceId = await localDeviceId(page, accountId);
+    const revoked = await page.request.post(`${apiBase}/v1/direct-chats/devices/${deviceId}/revoke`, {
+      headers: { origin: webOrigin, "content-type": "application/json" },
+      data: {},
+    });
+    expect(revoked.ok()).toBeTruthy();
+
+    await page.reload();
+    await expect.poll(() => sensitiveRecordCount(page, accountId)).toBe(0);
+    await expect(page.getByText(/не удалось загрузить рабочее пространство|could not load the workspace/i)).toBeVisible();
+  });
+
   test("two users exchange E2EE messages and invoke @Vimla in-thread", async ({ browser, request }) => {
     test.setTimeout(180_000);
     const password = "correct-horse-battery";
@@ -78,3 +117,54 @@ test.describe("Secure Direct Chats", () => {
     await nikitaContext.close();
   });
 });
+
+async function withE2eeDb<T>(page: import("@playwright/test").Page, operation: string, accountId: string): Promise<T> {
+  return page.evaluate(async ({ operation, accountId }) => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("vimla-direct-e2ee", 2);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    if (operation === "seed") {
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction("device", "readwrite");
+        tx.objectStore("device").put({ deviceId: "foreign" }, `${accountId}:local`);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+      db.close();
+      return undefined as T;
+    }
+    const stores = ["device", "ratchets", "plaintexts"];
+    const values = await Promise.all(stores.map((storeName) => new Promise<Array<[IDBValidKey, unknown]>>((resolve, reject) => {
+      const tx = db.transaction(storeName, "readonly");
+      const request = tx.objectStore(storeName).getAllKeys();
+      request.onsuccess = () => resolve(request.result.map((key) => [key, null]));
+      request.onerror = () => reject(request.error);
+    })));
+    if (operation === "device") {
+      const tx = db.transaction("device", "readonly");
+      const request = tx.objectStore("device").get(`${accountId}:local`);
+      const material = await new Promise<{ deviceId: string }>((resolve, reject) => {
+        request.onsuccess = () => resolve(request.result as { deviceId: string });
+        request.onerror = () => reject(request.error);
+      });
+      db.close();
+      return material.deviceId as T;
+    }
+    db.close();
+    return values.flat().filter(([key]) => String(key).startsWith(`${accountId}:`)).length as T;
+  }, { operation, accountId });
+}
+
+async function sensitiveRecordCount(page: import("@playwright/test").Page, accountId: string): Promise<number> {
+  return withE2eeDb<number>(page, "count", accountId);
+}
+
+async function localDeviceId(page: import("@playwright/test").Page, accountId: string): Promise<string> {
+  return withE2eeDb<string>(page, "device", accountId);
+}
+
+async function seedForeignAccountRecord(page: import("@playwright/test").Page): Promise<void> {
+  await withE2eeDb<void>(page, "seed", "other-account");
+}

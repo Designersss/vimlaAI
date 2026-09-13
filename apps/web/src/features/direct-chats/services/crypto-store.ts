@@ -1,7 +1,7 @@
 import { bytesToB64, b64ToBytes, type IdentityKeyPair, type SerializedRatchetState } from "@vimla/e2ee";
 
 const DB_NAME = "vimla-direct-e2ee";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 export interface StoredDeviceMaterial {
   deviceId: string;
@@ -24,10 +24,14 @@ export interface StoredPlaintext {
   createdAt: string;
 }
 
+function accountKey(accountId: string, key: string): string {
+  return `${accountId}:${key}`;
+}
+
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
-    request.onupgradeneeded = () => {
+    request.onupgradeneeded = (event) => {
       const db = request.result;
       if (!db.objectStoreNames.contains("device")) {
         db.createObjectStore("device");
@@ -37,6 +41,12 @@ function openDb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains("plaintexts")) {
         db.createObjectStore("plaintexts");
+      }
+      if (event.oldVersion > 0 && event.oldVersion < 2) {
+        const tx = request.transaction;
+        tx?.objectStore("device").clear();
+        tx?.objectStore("ratchets").clear();
+        tx?.objectStore("plaintexts").clear();
       }
     };
     request.onsuccess = () => resolve(request.result);
@@ -69,44 +79,58 @@ async function withStore<T>(
   });
 }
 
-export async function loadDeviceMaterial(): Promise<StoredDeviceMaterial | null> {
-  const value = await withStore<StoredDeviceMaterial | undefined>("device", "readonly", (store) => store.get("local"));
+export async function loadDeviceMaterial(accountId: string): Promise<StoredDeviceMaterial | null> {
+  const value = await withStore<StoredDeviceMaterial | undefined>("device", "readonly", (store) => store.get(accountKey(accountId, "local")));
   return value ?? null;
 }
 
-export async function saveDeviceMaterial(material: StoredDeviceMaterial): Promise<void> {
+export async function saveDeviceMaterial(accountId: string, material: StoredDeviceMaterial): Promise<void> {
   await withStore("device", "readwrite", (store) => {
-    store.put(material, "local");
+    store.put(material, accountKey(accountId, "local"));
   });
 }
 
-export async function loadRatchet(conversationId: string, peerDeviceId: string): Promise<SerializedRatchetState | null> {
+export async function loadRatchet(accountId: string, conversationId: string, peerDeviceId: string): Promise<SerializedRatchetState | null> {
   const value = await withStore<SerializedRatchetState | undefined>(
     "ratchets",
     "readonly",
-    (store) => store.get(`${conversationId}:${peerDeviceId}`),
+    (store) => store.get(accountKey(accountId, `${conversationId}:${peerDeviceId}`)),
   );
   return value ?? null;
 }
 
 export async function saveRatchet(
+  accountId: string,
   conversationId: string,
   peerDeviceId: string,
   state: SerializedRatchetState,
 ): Promise<void> {
   await withStore("ratchets", "readwrite", (store) => {
-    store.put(state, `${conversationId}:${peerDeviceId}`);
+    store.put(state, accountKey(accountId, `${conversationId}:${peerDeviceId}`));
   });
 }
 
-export async function loadPlaintext(messageId: string): Promise<StoredPlaintext | null> {
-  const value = await withStore<StoredPlaintext | undefined>("plaintexts", "readonly", (store) => store.get(messageId));
+export async function loadPlaintext(accountId: string, messageId: string): Promise<StoredPlaintext | null> {
+  const value = await withStore<StoredPlaintext | undefined>("plaintexts", "readonly", (store) => store.get(accountKey(accountId, messageId)));
   return value ?? null;
 }
 
-export async function savePlaintext(row: StoredPlaintext): Promise<void> {
+export async function savePlaintext(accountId: string, row: StoredPlaintext): Promise<void> {
   await withStore("plaintexts", "readwrite", (store) => {
-    store.put(row, row.messageId);
+    store.put(row, accountKey(accountId, row.messageId));
+  });
+}
+
+export async function clearAccountSensitiveState(accountId: string): Promise<void> {
+  const db = await openDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(["device", "ratchets", "plaintexts"], "readwrite");
+    const range = IDBKeyRange.bound(`${accountId}:`, `${accountId}:\uffff`);
+    for (const name of ["device", "ratchets", "plaintexts"] as const) {
+      tx.objectStore(name).delete(range);
+    }
+    tx.oncomplete = () => { db.close(); resolve(); };
+    tx.onerror = () => { db.close(); reject(tx.error ?? new Error("IndexedDB cleanup failed")); };
   });
 }
 

@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { config as loadDotenv } from "dotenv";
 import type { NextConfig } from "next";
 import createNextIntlPlugin from "next-intl/plugin";
+import { createWebSecurityHeaders } from "./src/shared/config/security-headers";
 
 loadDotenv({
   path: resolve(fileURLToPath(new URL("../../.env", import.meta.url))),
@@ -14,6 +15,9 @@ const nextConfig: NextConfig = {
   distDir: process.env.NEXT_DIST_DIR ?? ".next",
   sassOptions: {
     implementation: "sass",
+  },
+  async headers() {
+    return [{ source: "/:path*", headers: createWebSecurityHeaders({ appEnv: process.env.APP_ENV, apiOrigin: process.env.NEXT_PUBLIC_API_BASE_URL }) }];
   },
 };
 

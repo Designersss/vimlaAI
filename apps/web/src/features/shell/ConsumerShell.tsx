@@ -25,6 +25,7 @@ import {
 import { AuthRequiredError, fetchCurrentUser } from "../auth/services/current-user";
 import { authClient } from "../auth/services/auth-client";
 import { LanguageSwitcher } from "../../shared/i18n/LanguageSwitcher";
+import { clearAccountSensitiveState } from "../direct-chats/services/crypto-store";
 import { CanonicalNav } from "./CanonicalNav";
 import styles from "./ConsumerShell.module.scss";
 
@@ -79,6 +80,9 @@ export function ConsumerShell({
 
   async function signOut(): Promise<void> {
     await authClient.signOut();
+    if (user) {
+      await clearAccountSensitiveState(user.id);
+    }
     router.replace("/sign-in");
     router.refresh();
   }

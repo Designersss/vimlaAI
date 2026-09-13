@@ -81,31 +81,45 @@ export class DeviceService {
   }
 
   async prekeyBundlesForUser(userId: string): Promise<PrekeyBundle[]> {
-    const devices = await this.db.userCryptoDevice.findMany({
-      where: { userId, revokedAt: null },
-      include: { oneTimePrekeys: { where: { consumedAt: null }, orderBy: { keyId: "asc" }, take: 1 } },
-    });
-    const bundles: PrekeyBundle[] = [];
-    for (const device of devices) {
-      const otk = device.oneTimePrekeys[0];
-      if (otk) {
-        await this.db.directOneTimePrekey.update({
-          where: { id: otk.id },
-          data: { consumedAt: new Date() },
+    return this.db.$transaction(async (tx) => {
+      const devices = await tx.userCryptoDevice.findMany({
+        where: { userId, revokedAt: null },
+        orderBy: { createdAt: "asc" },
+      });
+      const bundles: PrekeyBundle[] = [];
+      for (const device of devices) {
+        const claimed = await tx.$queryRaw<Array<{ keyId: number; publicKey: string }>>`
+          UPDATE "direct_one_time_prekey"
+          SET "consumedAt" = CURRENT_TIMESTAMP
+          WHERE "id" = (
+            SELECT prekey."id"
+            FROM "direct_one_time_prekey" AS prekey
+            JOIN "user_crypto_device" AS owner_device ON owner_device."id" = prekey."deviceId"
+            WHERE prekey."deviceId" = ${device.id}
+              AND prekey."consumedAt" IS NULL
+              AND owner_device."userId" = ${userId}
+              AND owner_device."revokedAt" IS NULL
+            ORDER BY prekey."keyId" ASC
+            FOR UPDATE OF prekey SKIP LOCKED
+            LIMIT 1
+          )
+          AND "consumedAt" IS NULL
+          RETURNING "keyId", "publicKey"
+        `;
+        const otk = claimed[0];
+        bundles.push({
+          deviceId: device.id,
+          identityEd25519Public: device.identityEd25519Public,
+          identityX25519Public: device.identityX25519Public,
+          signedPrekeyId: device.signedPrekeyId,
+          signedPrekeyPublic: device.signedPrekeyPublic,
+          signedPrekeySignature: device.signedPrekeySignature,
+          oneTimePrekeyId: otk?.keyId ?? null,
+          oneTimePrekeyPublic: otk?.publicKey ?? null,
         });
       }
-      bundles.push({
-        deviceId: device.id,
-        identityEd25519Public: device.identityEd25519Public,
-        identityX25519Public: device.identityX25519Public,
-        signedPrekeyId: device.signedPrekeyId,
-        signedPrekeyPublic: device.signedPrekeyPublic,
-        signedPrekeySignature: device.signedPrekeySignature,
-        oneTimePrekeyId: otk?.keyId ?? null,
-        oneTimePrekeyPublic: otk?.publicKey ?? null,
-      });
-    }
-    return bundles;
+      return bundles;
+    });
   }
 
   async requireOwnActiveDevice(userId: string, deviceId: string) {

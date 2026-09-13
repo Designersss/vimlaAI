@@ -18,8 +18,9 @@ import {
   type WireEnvelope,
 } from "@vimla/e2ee";
 import type { CryptoDeviceView, DirectEnvelopeView, DirectMessageView, WireEnvelopeDto } from "@vimla/contracts";
-import { fetchPrekeyBundles, registerCryptoDevice } from "./api";
+import { fetchMyCryptoDevices, fetchPrekeyBundles, registerCryptoDevice, DirectChatsApiError } from "./api";
 import {
+  clearAccountSensitiveState,
   encodeIdentity,
   identityFromMaterial,
   loadDeviceMaterial,
@@ -33,9 +34,14 @@ import {
 } from "./crypto-store";
 import { decodeDirectPlaintext, encodeDirectPlaintext, type DirectPlaintextPayload } from "./payload";
 
-export async function ensureLocalDevice(): Promise<StoredDeviceMaterial> {
-  const existing = await loadDeviceMaterial();
+export async function ensureLocalDevice(accountId: string): Promise<StoredDeviceMaterial> {
+  const existing = await loadDeviceMaterial(accountId);
   if (existing) {
+    const registered = (await fetchMyCryptoDevices()).find((device) => device.id === existing.deviceId);
+    if (registered?.revoked) {
+      await clearAccountSensitiveState(accountId);
+      throw new DirectChatsApiError("direct_chat_device_revoked");
+    }
     return existing;
   }
   const identity = generateIdentity();
@@ -69,7 +75,7 @@ export async function ensureLocalDevice(): Promise<StoredDeviceMaterial> {
     oneTimePrekeys: oneTime.map((key) => ({ keyId: key.keyId, publicKey: bytesToB64(key.publicKey) })),
     label: "browser",
   });
-  await saveDeviceMaterial(material);
+  await saveDeviceMaterial(accountId, material);
   return material;
 }
 
@@ -80,11 +86,11 @@ export async function encryptForDevices(input: {
   plaintext: string;
   devices: CryptoDeviceView[];
 }): Promise<WireEnvelopeDto[]> {
-  const material = await ensureLocalDevice();
+  const material = await ensureLocalDevice(input.senderUserId);
   const identity = identityFromMaterial(material);
   const envelopes: WireEnvelopeDto[] = [];
   for (const device of input.devices.filter((item) => !item.revoked)) {
-    const existing = await loadRatchet(input.conversationId, device.id);
+    const existing = await loadRatchet(input.senderUserId, input.conversationId, device.id);
     let x3dhInit: WireEnvelope["x3dhInit"] = null;
     let state = existing ? deserializeRatchet(existing) : null;
     if (!state) {
@@ -110,7 +116,7 @@ export async function encryptForDevices(input: {
       },
       x3dhInit,
     });
-    await saveRatchet(input.conversationId, device.id, serializeRatchet(state));
+    await saveRatchet(input.senderUserId, input.conversationId, device.id, serializeRatchet(state));
     envelopes.push({
       recipientDeviceId: device.id,
       headerB64: envelope.headerB64,
@@ -126,11 +132,13 @@ export async function encryptForDevices(input: {
 }
 
 export async function decryptMessage(input: {
+  accountId: string;
   conversationId: string;
   message: DirectMessageView;
   senderIdentityEd25519Public: string;
 }): Promise<DirectPlaintextPayload | null> {
-  const cached = await loadPlaintext(input.message.id);
+  const material = await ensureLocalDevice(input.accountId);
+  const cached = await loadPlaintext(input.accountId, input.message.id);
   if (cached) {
     return decodeDirectPlaintext(input.message.kind, cached.text);
   }
@@ -138,9 +146,8 @@ export async function decryptMessage(input: {
   if (!envelope) {
     return null;
   }
-  const material = await ensureLocalDevice();
   const identity = identityFromMaterial(material);
-  const stateRecord = await loadRatchet(input.conversationId, input.message.senderDeviceId);
+  const stateRecord = await loadRatchet(input.accountId, input.conversationId, input.message.senderDeviceId);
   let state = stateRecord ? deserializeRatchet(stateRecord) : null;
   if (!state && envelope.x3dhInit) {
     const signed = material.signedPrekeys[String(envelope.x3dhInit.signedPrekeyId)];
@@ -179,7 +186,7 @@ export async function decryptMessage(input: {
       },
     });
     const text = new TextDecoder().decode(opened);
-    await saveRatchet(input.conversationId, input.message.senderDeviceId, serializeRatchet(state));
+    await saveRatchet(input.accountId, input.conversationId, input.message.senderDeviceId, serializeRatchet(state));
     const row: StoredPlaintext = {
       conversationId: input.conversationId,
       messageId: input.message.id,
@@ -188,7 +195,7 @@ export async function decryptMessage(input: {
       senderUserId: input.message.senderUserId,
       createdAt: input.message.createdAt,
     };
-    await savePlaintext(row);
+    await savePlaintext(input.accountId, row);
     return decodeDirectPlaintext(input.message.kind, text);
   } catch {
     return null;
@@ -210,4 +217,3 @@ function toWire(envelope: DirectEnvelopeView): WireEnvelope {
     x3dhInit: envelope.x3dhInit,
   };
 }
-

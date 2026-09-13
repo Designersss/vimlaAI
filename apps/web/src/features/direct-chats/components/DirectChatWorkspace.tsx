@@ -94,11 +94,11 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
           router.refresh();
           return;
         }
-        await ensureLocalDevice();
+        await ensureLocalDevice(currentUser.id);
         const detail = await fetchDirectConversation(conversationId);
-        const device = await ensureLocalDevice();
+        const device = await ensureLocalDevice(currentUser.id);
         const page = await fetchDirectMessages(conversationId, device.deviceId);
-        const decrypted = await decryptPage(detail, page.items);
+        const decrypted = await decryptPage(currentUser.id, detail, page.items);
         if (cancelled) {
           return;
         }
@@ -236,7 +236,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
     setSending(true);
     try {
       const latest = await reloadConversation();
-      const device = await ensureLocalDevice();
+      const device = await ensureLocalDevice(userId);
       const envelopes = await encryptForDevices({
         conversationId: latest.id,
         senderUserId: userId,
@@ -250,7 +250,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         kind,
         envelopes,
       });
-      await savePlaintext({
+      await savePlaintext(userId, {
         conversationId: latest.id,
         messageId: created.id,
         text: plaintext,
@@ -273,9 +273,12 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
     if (!nextCursor || !conversation) {
       return;
     }
-    const device = await ensureLocalDevice();
+    if (!userId) {
+      return;
+    }
+    const device = await ensureLocalDevice(userId);
     const page = await fetchDirectMessages(conversationId, device.deviceId, nextCursor);
-    const decrypted = await decryptPage(conversation, page.items);
+    const decrypted = await decryptPage(userId, conversation, page.items);
     setRows((current) => [...decrypted.reverse(), ...current]);
     setNextCursor(page.nextCursor);
   }
@@ -415,13 +418,14 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
   );
 }
 
-async function decryptPage(detail: DirectConversationView, items: DirectMessageView[]): Promise<DecryptedRow[]> {
+async function decryptPage(accountId: string, detail: DirectConversationView, items: DirectMessageView[]): Promise<DecryptedRow[]> {
   const map = new Map(detail.devices.map((device) => [device.id, device.identityEd25519Public]));
   const decrypted: DecryptedRow[] = [];
   for (const message of items) {
     const senderPublic = map.get(message.senderDeviceId) ?? message.envelope?.x3dhInit?.identityEd25519Public ?? "";
     const payload = senderPublic
       ? await decryptMessage({
+          accountId,
           conversationId: detail.id,
           message,
           senderIdentityEd25519Public: senderPublic,
