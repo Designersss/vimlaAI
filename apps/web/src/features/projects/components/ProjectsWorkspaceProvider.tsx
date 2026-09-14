@@ -31,11 +31,12 @@ export function ProjectsWorkspaceProvider({ children }: { children: ReactNode })
   const [boot, setBoot] = useState<ProjectsBootState>("loading");
   const [errorCode, setErrorCode] = useState<string | null>(null);
 
-  const fetchAndApply = useCallback(async (): Promise<void> => {
+  const reload = useCallback(async (): Promise<void> => {
+    setBoot("loading");
+    setErrorCode(null);
     try {
       const page = await fetchProjects();
       setItems(page.items);
-      setErrorCode(null);
       setBoot("ready");
     } catch (caught: unknown) {
       setErrorCode(caught instanceof ProjectsApiError ? caught.code : "internal_error");
@@ -43,15 +44,28 @@ export function ProjectsWorkspaceProvider({ children }: { children: ReactNode })
     }
   }, []);
 
-  const reload = useCallback(async (): Promise<void> => {
-    setBoot("loading");
-    setErrorCode(null);
-    await fetchAndApply();
-  }, [fetchAndApply]);
-
   useEffect(() => {
-    void fetchAndApply();
-  }, [fetchAndApply]);
+    let cancelled = false;
+    void fetchProjects()
+      .then((page) => {
+        if (cancelled) {
+          return;
+        }
+        setItems(page.items);
+        setErrorCode(null);
+        setBoot("ready");
+      })
+      .catch((caught: unknown) => {
+        if (cancelled) {
+          return;
+        }
+        setErrorCode(caught instanceof ProjectsApiError ? caught.code : "internal_error");
+        setBoot("failed");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const upsertProject = useCallback((project: ProjectSummary): void => {
     setItems((current) => {
