@@ -4,15 +4,18 @@ import { useEffect, useState, type ReactElement } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import type { NoteView } from "@vimla/contracts";
-import { Alert, Button, FormField, Heading, Input, Text, Textarea } from "@vimla/ui";
+import { Alert, Button, FormField, Input, Text, Textarea } from "@vimla/ui";
 import { apiErrorMessageKey } from "../../../shared/errors/error-keys";
 import { tx } from "../../../shared/i18n/translate";
 import { WorkspaceApiError, deleteNote, fetchNote, updateNote } from "../services/api";
+import { WorkDetailHeader } from "./WorkDetailHeader";
+import { useWorkspaceViewSync } from "./WorkspaceViewSync";
 import styles from "./Work.module.scss";
 
 export function WorkNoteEditor({ noteId }: { noteId: string }): ReactElement {
   const t = useTranslations();
   const router = useRouter();
+  const { invalidateNotes } = useWorkspaceViewSync();
   const [note, setNote] = useState<NoteView | null>(null);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
@@ -20,22 +23,30 @@ export function WorkNoteEditor({ noteId }: { noteId: string }): ReactElement {
   const dirty = note ? title !== note.title || content !== note.contentMarkdown : false;
 
   useEffect(() => {
+    let cancelled = false;
+    setNote(null);
+    setError(null);
     void fetchNote(noteId)
       .then((loaded) => {
-        setNote(loaded);
-        setTitle(loaded.title);
-        setContent(loaded.contentMarkdown);
+        if (!cancelled) {
+          setNote(loaded);
+          setTitle(loaded.title);
+          setContent(loaded.contentMarkdown);
+        }
       })
       .catch((caught: unknown) => {
-        setError(caught instanceof WorkspaceApiError ? caught.code : "internal_error");
+        if (!cancelled) {
+          setError(caught instanceof WorkspaceApiError ? caught.code : "internal_error");
+        }
       });
+    return () => {
+      cancelled = true;
+    };
   }, [noteId]);
 
   useEffect(() => {
     function onBeforeUnload(event: BeforeUnloadEvent): void {
-      if (!dirty) {
-        return;
-      }
+      if (!dirty) return;
       event.preventDefault();
       event.returnValue = t("work.dirtyWarning");
     }
@@ -50,36 +61,35 @@ export function WorkNoteEditor({ noteId }: { noteId: string }): ReactElement {
       setNote(updated);
       setTitle(updated.title);
       setContent(updated.contentMarkdown);
+      invalidateNotes();
     } catch (caught: unknown) {
       setError(caught instanceof WorkspaceApiError ? caught.code : "internal_error");
     }
   }
 
-  if (!note && !error) {
-    return <p>{t("work.loading")}</p>;
-  }
-
   if (!note) {
-    return <Alert variant="error">{tx(t, apiErrorMessageKey(error ?? "not_found"))}</Alert>;
+    return (
+      <div className={styles.detailPane} data-testid="work-note-detail">
+        <WorkDetailHeader backHref="/work/notes" title={t("work.notes")} />
+        {error ? (
+          <Alert variant="error">{tx(t, apiErrorMessageKey(error))}</Alert>
+        ) : (
+          <p role="status">{t("work.loading")}</p>
+        )}
+      </div>
+    );
   }
 
   return (
-    <div className={styles.stack}>
-      <Heading as="h1" size="page">
-        {note.title}
-      </Heading>
+    <div className={`${styles.stack} ${styles.detailPane}`} data-testid="work-note-detail">
+      <WorkDetailHeader backHref="/work/notes" title={note.title} />
       {error ? <Alert variant="error">{tx(t, apiErrorMessageKey(error))}</Alert> : null}
       {dirty ? <Text tone="secondary">{t("work.unsaved")}</Text> : null}
       <FormField label={t("work.titleLabel")} htmlFor="note-edit-title">
         <Input id="note-edit-title" value={title} onChange={(event) => setTitle(event.target.value)} />
       </FormField>
       <FormField label={t("work.content")} htmlFor="note-content">
-        <Textarea
-          id="note-content"
-          rows={16}
-          value={content}
-          onChange={(event) => setContent(event.target.value)}
-        />
+        <Textarea id="note-content" rows={16} value={content} onChange={(event) => setContent(event.target.value)} />
       </FormField>
       <pre className={styles.noteBody}>{content}</pre>
       <div className={styles.row}>
@@ -94,6 +104,7 @@ export function WorkNoteEditor({ noteId }: { noteId: string }): ReactElement {
                 setNote(updated);
                 setTitle(updated.title);
                 setContent(updated.contentMarkdown);
+                invalidateNotes();
               })
               .catch((caught: unknown) => {
                 setError(caught instanceof WorkspaceApiError ? caught.code : "internal_error");
@@ -108,6 +119,9 @@ export function WorkNoteEditor({ noteId }: { noteId: string }): ReactElement {
             void updateNote(noteId, { archived: !note.archivedAt })
               .then((updated) => {
                 setNote(updated);
+                setTitle(updated.title);
+                setContent(updated.contentMarkdown);
+                invalidateNotes();
               })
               .catch((caught: unknown) => {
                 setError(caught instanceof WorkspaceApiError ? caught.code : "internal_error");
@@ -120,7 +134,10 @@ export function WorkNoteEditor({ noteId }: { noteId: string }): ReactElement {
           variant="ghost"
           onClick={() =>
             void deleteNote(noteId)
-              .then(() => router.push("/work/notes"))
+              .then(() => {
+                invalidateNotes();
+                router.push("/work/notes", { scroll: false });
+              })
               .catch((caught: unknown) => {
                 setError(caught instanceof WorkspaceApiError ? caught.code : "internal_error");
               })

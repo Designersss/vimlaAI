@@ -41,7 +41,8 @@ export function ConsumerShell({ children }: { children: ReactNode }): ReactEleme
     : pathname.startsWith("/vimla") ? t("nav.vimla") : t("nav.messages");
   const viewport = pathname === "/app" || pathname.startsWith("/app/")
     || pathname === "/projects" || pathname.startsWith("/projects/")
-    || pathname === "/settings" || pathname.startsWith("/settings/");
+    || pathname === "/settings" || pathname.startsWith("/settings/")
+    || pathname === "/work" || pathname.startsWith("/work/");
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [boot, setBoot] = useState<"loading" | "ready" | "failed">("loading");
 
@@ -49,9 +50,7 @@ export function ConsumerShell({ children }: { children: ReactNode }): ReactEleme
     let cancelled = false;
     void fetchCurrentUser()
       .then(async (currentUser) => {
-        if (cancelled) {
-          return;
-        }
+        if (cancelled) return;
         if (!currentUser.emailVerified) {
           router.replace("/verify-email");
           return;
@@ -64,9 +63,7 @@ export function ConsumerShell({ children }: { children: ReactNode }): ReactEleme
         setBoot("ready");
       })
       .catch((error: unknown) => {
-        if (cancelled) {
-          return;
-        }
+        if (cancelled) return;
         if (error instanceof AuthRequiredError) {
           router.replace("/sign-in");
           return;
@@ -92,9 +89,7 @@ export function ConsumerShell({ children }: { children: ReactNode }): ReactEleme
     );
   }
 
-  if (boot === "failed" || !user) {
-    return <ErrorState title={t("common.genericError")} />;
-  }
+  if (boot === "failed" || !user) return <ErrorState title={t("common.genericError")} />;
 
   const sidebar = (
     <Sidebar>
@@ -104,9 +99,7 @@ export function ConsumerShell({ children }: { children: ReactNode }): ReactEleme
       </GlobalNav>
       <SidebarFooter>
         <LanguageSwitcher />
-        <p className={styles.user} data-testid="session-email">
-          {user.email}
-        </p>
+        <p className={styles.user} data-testid="session-email">{user.email}</p>
         <Button variant="ghost" size="sm" onClick={() => void signOut()}>
           <LogOutIcon size={16} aria-hidden="true" />
           {t("nav.signOut")}
@@ -134,9 +127,7 @@ export function ConsumerShell({ children }: { children: ReactNode }): ReactEleme
               }
               variant="ghost"
             >
-              <DropdownMenuItem onSelect={() => router.push("/settings/account")}>
-                {t("nav.settings")}
-              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => router.push("/settings/account")}>{t("nav.settings")}</DropdownMenuItem>
               <DropdownMenuItem onSelect={() => void signOut()}>{t("nav.signOut")}</DropdownMenuItem>
             </DropdownMenu>
           </div>

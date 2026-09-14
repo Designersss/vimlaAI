@@ -9,24 +9,23 @@ import { Alert, Button, Card, EmptyState, FormField, Heading, Input, SearchInput
 import { apiErrorMessageKey } from "../../../shared/errors/error-keys";
 import { tx } from "../../../shared/i18n/translate";
 import { WorkspaceApiError, createNote, fetchNotes } from "../services/api";
+import { useWorkspaceViewSync } from "./WorkspaceViewSync";
 import styles from "./Work.module.scss";
 
-export function WorkNotes(): ReactElement {
+export function WorkNotes({ selectedNoteId }: { selectedNoteId?: string }): ReactElement {
   const t = useTranslations();
   const router = useRouter();
+  const { notesRevision, invalidateNotes } = useWorkspaceViewSync();
   const [items, setItems] = useState<NoteView[]>([]);
   const [title, setTitle] = useState("");
   const [query, setQuery] = useState("");
   const [archived, setArchived] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function reload(nextQuery = query, nextArchived = archived): Promise<void> {
-    setItems((await fetchNotes({ q: nextQuery || undefined, archived: nextArchived })).items);
-  }
-
   useEffect(() => {
     let cancelled = false;
-    void fetchNotes()
+    setError(null);
+    void fetchNotes({ q: query || undefined, archived })
       .then((page) => {
         if (!cancelled) {
           setItems(page.items);
@@ -40,7 +39,7 @@ export function WorkNotes(): ReactElement {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [archived, notesRevision, query]);
 
   async function onCreate(event: FormEvent): Promise<void> {
     event.preventDefault();
@@ -48,14 +47,15 @@ export function WorkNotes(): ReactElement {
     try {
       const created = await createNote({ title, contentMarkdown: "" });
       setTitle("");
-      router.push(`/work/notes/${created.id}`);
+      invalidateNotes();
+      router.push(`/work/notes/${created.id}`, { scroll: false });
     } catch (caught: unknown) {
       setError(caught instanceof WorkspaceApiError ? caught.code : "internal_error");
     }
   }
 
   return (
-    <div className={styles.stack}>
+    <div className={`${styles.stack} ${styles.collectionPane}`} data-testid="work-notes-master">
       <Heading as="h1" size="page">
         {t("work.notes")}
       </Heading>
@@ -65,25 +65,9 @@ export function WorkNotes(): ReactElement {
           value={query}
           placeholder={t("work.search")}
           aria-label={t("work.search")}
-          onChange={(event) => {
-            const value = event.target.value;
-            setQuery(value);
-            void reload(value, archived).catch((caught: unknown) => {
-              setError(caught instanceof WorkspaceApiError ? caught.code : "internal_error");
-            });
-          }}
+          onChange={(event) => setQuery(event.target.value)}
         />
-        <Button
-          variant={archived ? "primary" : "secondary"}
-          size="sm"
-          onClick={() => {
-            const next = !archived;
-            setArchived(next);
-            void reload(query, next).catch((caught: unknown) => {
-              setError(caught instanceof WorkspaceApiError ? caught.code : "internal_error");
-            });
-          }}
-        >
+        <Button variant={archived ? "primary" : "secondary"} size="sm" onClick={() => setArchived((value) => !value)}>
           {t("work.showArchived")}
         </Button>
       </div>
@@ -102,7 +86,13 @@ export function WorkNotes(): ReactElement {
           {items.map((note) => (
             <li key={note.id}>
               <Card>
-                <Link href={`/work/notes/${note.id}`}>{note.title}</Link>
+                <Link
+                  href={`/work/notes/${note.id}`}
+                  scroll={false}
+                  aria-current={selectedNoteId === note.id ? "page" : undefined}
+                >
+                  {note.title}
+                </Link>
                 {note.pinnedAt ? <Text tone="secondary">{t("work.pin")}</Text> : null}
               </Card>
             </li>
