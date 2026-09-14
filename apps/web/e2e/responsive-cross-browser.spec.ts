@@ -24,3 +24,25 @@ test("My Work shell is reachable after sign-in", async ({ page, request }) => {
   await expect(page.getByRole("heading", { name: /сегодня|today/i })).toBeVisible();
   await assertNoDocumentOverflow(page);
 });
+
+test("chat master-detail navigation preserves the list across browser engines", async ({ page, request }) => {
+  const email = uniqueEmail("e2e-chat-layout-browser");
+  await signUp(page, { name: "Layout", email, password: "correct-horse-battery" });
+  await verifyEmail(page, request, email);
+  const list = page.getByRole("region", { name: /список разговоров|conversation list/i, includeHidden: true });
+  await expect(list).toBeVisible();
+  const original = await list.elementHandle();
+  await list.getByRole("button", { name: /новый разговор|new conversation/i }).click();
+  await expect(page.getByPlaceholder(/сообщение для vimla|message vimla/i)).toBeVisible();
+  await expect(page).toHaveURL(/\/app\/[^/]+$/);
+  expect(await original?.evaluate((el) => el.isConnected)).toBe(true);
+  if ((page.viewportSize()?.width ?? 0) < 1024) {
+    await expect(list).toBeHidden();
+    await page.getByRole("link", { name: /назад|back/i }).click();
+    await expect(page).toHaveURL("/app");
+    await expect(list).toBeVisible();
+  } else {
+    await expect(list).toBeVisible();
+  }
+  await assertNoDocumentOverflow(page);
+});

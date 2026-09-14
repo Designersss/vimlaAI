@@ -3,17 +3,15 @@
 import type { ReactElement, ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { NotificationBell } from "../notifications/components/NotificationBell";
-import { ConsumerShell, LocalNavLink } from "./ConsumerShell";
+import { LocalNavLink } from "./ConsumerShell";
+import { ConsumerPage } from "./ConsumerPage";
 
 export function WorkShell({ children }: { children: ReactNode }): ReactElement {
   const t = useTranslations();
   const pathname = usePathname();
 
   return (
-    <ConsumerShell
-      title={t("nav.work")}
-      actions={<NotificationBell />}
+    <ConsumerPage
       localNav={
         <nav aria-label={t("nav.work")}>
           <LocalNavLink href="/work" active={pathname === "/work"}>
@@ -35,6 +33,6 @@ export function WorkShell({ children }: { children: ReactNode }): ReactElement {
       }
     >
       <div data-testid="work-shell">{children}</div>
-    </ConsumerShell>
+    </ConsumerPage>
   );
 }

@@ -1,0 +1,43 @@
+@use "../styles/breakpoints" as bp;
+
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.master,
+.detail {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.detail {
+  display: none;
+  flex-direction: column;
+}
+
+.layout[data-detail-open="true"] {
+  > .master { display: none; }
+  > .detail { display: flex; }
+}
+
+// At 768px the global sidebar leaves too little room for two usable panes.
+@include bp.vimla-lg-up {
+  .layout {
+    grid-template-columns: minmax(0, clamp(16rem, 28%, 22rem)) minmax(0, 1fr);
+  }
+
+  .master,
+  .layout[data-detail-open="true"] > .master {
+    display: block;
+    border-inline-end: 1px solid var(--vimla-border);
+  }
+
+  .detail { display: flex; }
+}

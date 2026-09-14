@@ -4,7 +4,7 @@
 
 Desktop/tablet: exactly ONE global navigation layer.
 
-List and detail are separate pages. No ChatGPT-style permanent conversation history next to conversation detail.
+List and detail retain separate URLs. Issue #15 adds a persistent local Messages list beside detail at ≥1024px, with one selected pane below that width. The global sidebar remains separate from list-domain content. See `docs/CONSUMER_LAYOUT.md`.
 
 ## Collection Page
 
@@ -29,7 +29,7 @@ A supplementary panel is allowed only as non-navigation content on wide desktop 
 
 ## Conversation Detail
 
-`GlobalSidebar + ConversationHeader + MessageThread + Composer`.
+`GlobalSidebar + MasterDetailLayout(ConversationListPane, ConversationHeader + MessageThread + Composer)`.
 
 Separate route/screen after selecting a conversation.
 

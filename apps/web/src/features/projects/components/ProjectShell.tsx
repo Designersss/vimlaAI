@@ -3,12 +3,11 @@
 import type { ReactElement, ReactNode } from "react";
 import { usePathname } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { NotificationBell } from "../../notifications/components/NotificationBell";
-import { ConsumerShell, LocalNavLink } from "../../shell/ConsumerShell";
+import { LocalNavLink } from "../../shell/ConsumerShell";
+import { ConsumerPage } from "../../shell/ConsumerPage";
 
 export function ProjectShell({
   projectId,
-  title,
   children,
 }: {
   projectId?: string;
@@ -41,8 +40,8 @@ export function ProjectShell({
   ) : undefined;
 
   return (
-    <ConsumerShell title={title ?? t("projects.title")} actions={<NotificationBell />} localNav={localNav}>
+    <ConsumerPage localNav={localNav}>
       <div data-testid="projects-shell">{children}</div>
-    </ConsumerShell>
+    </ConsumerPage>
   );
 }

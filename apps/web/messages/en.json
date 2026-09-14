@@ -42,6 +42,7 @@
     "failed": "Unable to load service health"
   },
   "common": {
+    "retry": "Try again",
     "loading": "Loading…",
     "continue": "Continue",
     "submit": "Submit",
@@ -190,6 +191,9 @@
     }
   },
   "chat": {
+    "listPane": "Conversation list",
+    "detailPane": "Conversation detail",
+    "selectConversation": "Select a conversation or start a new one",
     "loading": "Loading Vimla…",
     "failed": "Unable to load the workspace.",
     "newChat": "New conversation",

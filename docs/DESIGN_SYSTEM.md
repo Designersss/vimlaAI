@@ -70,7 +70,7 @@ Desktop: one global sidebar + main. Tablet (≥768): narrower sidebar, true refl
 
 Exactly one global layer: Messages, My Work, Projects, ◆ Vimla, Settings. Projects and ◆ Vimla stay feature-gated (`CONSUMER_FEATURES`) until explicitly enabled. No conversation history, folders, or work lists in the global sidebar.
 
-List/detail are separate routes (`/app` collection, `/app/[id]` conversation).
+Messages use persistent master-detail: `/app` is the list, `/app/[id]` and `/app/direct/[id]` are detail routes. At ≥1024px list and detail share the screen; below that width only the selected pane is shown. See `docs/CONSUMER_LAYOUT.md`.
 
 My Work local tabs: Today / Tasks / Reminders / Lists / Notes.
 

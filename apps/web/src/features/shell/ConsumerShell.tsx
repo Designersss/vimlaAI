@@ -2,8 +2,8 @@
 
 import { useEffect, useState, type ReactElement, type ReactNode } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useTranslations } from "next-intl";
+import { usePathname, useRouter } from "next/navigation";
+import { useLocale, useTranslations } from "next-intl";
 import type { CurrentUser } from "@vimla/contracts";
 import {
   AppShell,
@@ -26,39 +26,38 @@ import { AuthRequiredError, fetchCurrentUser } from "../auth/services/current-us
 import { authClient } from "../auth/services/auth-client";
 import { LanguageSwitcher } from "../../shared/i18n/LanguageSwitcher";
 import { CanonicalNav } from "./CanonicalNav";
+import { NotificationBell } from "../notifications/components/NotificationBell";
+import { readLocaleCookie, syncAuthenticatedLocale } from "../../shared/i18n/persist-locale";
 import styles from "./ConsumerShell.module.scss";
 
-export function ConsumerShell({
-  children,
-  title,
-  localNav,
-  actions,
-  flush = false,
-  requireVerified = true,
-}: {
-  children: ReactNode;
-  title: string;
-  localNav?: ReactNode;
-  actions?: ReactNode;
-  flush?: boolean;
-  requireVerified?: boolean;
-}): ReactElement {
+export function ConsumerShell({ children }: { children: ReactNode }): ReactElement {
   const t = useTranslations();
   const router = useRouter();
+  const pathname = usePathname();
+  const locale = useLocale();
+  const title = pathname.startsWith("/work") ? t("nav.work")
+    : pathname.startsWith("/projects") ? t("nav.projects")
+    : pathname.startsWith("/settings") ? t("nav.settings")
+    : pathname.startsWith("/vimla") ? t("nav.vimla") : t("nav.messages");
+  const viewport = pathname === "/app" || pathname.startsWith("/app/");
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [boot, setBoot] = useState<"loading" | "ready" | "failed">("loading");
 
   useEffect(() => {
     let cancelled = false;
     void fetchCurrentUser()
-      .then((currentUser) => {
+      .then(async (currentUser) => {
         if (cancelled) {
           return;
         }
-        if (requireVerified && !currentUser.emailVerified) {
+        if (!currentUser.emailVerified) {
           router.replace("/verify-email");
           return;
         }
+        await syncAuthenticatedLocale(currentUser.locale);
+        if (cancelled) return;
+        const cookieLocale = readLocaleCookie();
+        if (cookieLocale && cookieLocale !== locale) router.refresh();
         setUser(currentUser);
         setBoot("ready");
       })
@@ -75,7 +74,7 @@ export function ConsumerShell({
     return () => {
       cancelled = true;
     };
-  }, [requireVerified, router]);
+  }, [locale, router]);
 
   async function signOut(): Promise<void> {
     await authClient.signOut();
@@ -117,23 +116,28 @@ export function ConsumerShell({
   return (
     <AppShell
       sidebar={sidebar}
+      viewport={viewport}
+      topbarVisibility="all"
       topbar={
         <div className={styles.topbar}>
           <p className={styles.title}>{title}</p>
-          <DropdownMenu
-            label={
-              <>
-                <Avatar name={user.name || user.email} />
-                <VisuallyHidden>{t("nav.settings")}</VisuallyHidden>
-              </>
-            }
-            variant="ghost"
-          >
-            <DropdownMenuItem onSelect={() => router.push("/settings/account")}>
-              {t("nav.settings")}
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => void signOut()}>{t("nav.signOut")}</DropdownMenuItem>
-          </DropdownMenu>
+          <div className={styles.actions}>
+            <NotificationBell />
+            <DropdownMenu
+              label={
+                <>
+                  <Avatar name={user.name || user.email} />
+                  <VisuallyHidden>{t("nav.settings")}</VisuallyHidden>
+                </>
+              }
+              variant="ghost"
+            >
+              <DropdownMenuItem onSelect={() => router.push("/settings/account")}>
+                {t("nav.settings")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => void signOut()}>{t("nav.signOut")}</DropdownMenuItem>
+            </DropdownMenu>
+          </div>
         </div>
       }
       bottomNav={
@@ -142,15 +146,7 @@ export function ConsumerShell({
         </MobileBottomNavigation>
       }
     >
-      <div className={styles.page} data-testid="consumer-shell">
-        {localNav || actions ? (
-          <div className={styles.localNav}>
-            {localNav}
-            {actions ? <div className={styles.actions}>{actions}</div> : null}
-          </div>
-        ) : null}
-        <div className={flush ? styles.bodyFlush : styles.body}>{children}</div>
-      </div>
+      <main className={styles.page} data-testid="consumer-shell">{children}</main>
     </AppShell>
   );
 }
