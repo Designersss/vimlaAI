@@ -27,6 +27,7 @@ export function WorkListDetail({ listId }: { listId: string }): ReactElement {
   const [list, setList] = useState<ListView | null>(null);
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [loadRevision, setLoadRevision] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -34,6 +35,7 @@ export function WorkListDetail({ listId }: { listId: string }): ReactElement {
       .then((loaded) => {
         if (!cancelled) {
           setList(loaded);
+          setError(null);
         }
       })
       .catch((caught: unknown) => {
@@ -44,7 +46,7 @@ export function WorkListDetail({ listId }: { listId: string }): ReactElement {
     return () => {
       cancelled = true;
     };
-  }, [listId]);
+  }, [listId, loadRevision]);
 
   async function onAdd(event: FormEvent): Promise<void> {
     event.preventDefault();
@@ -105,7 +107,18 @@ export function WorkListDetail({ listId }: { listId: string }): ReactElement {
       <div className={styles.detailPane} data-testid="work-list-detail">
         <WorkDetailHeader backHref="/work/lists" title={t("work.lists")} />
         {error ? (
-          <Alert variant="error">{tx(t, apiErrorMessageKey(error))}</Alert>
+          <div className={styles.stack}>
+            <Alert variant="error">{tx(t, apiErrorMessageKey(error))}</Alert>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setError(null);
+                setLoadRevision((revision) => revision + 1);
+              }}
+            >
+              {t("common.retry")}
+            </Button>
+          </div>
         ) : (
           <p role="status">{t("work.loading")}</p>
         )}

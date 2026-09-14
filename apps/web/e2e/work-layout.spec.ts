@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { signUp, uniqueEmail, verifyEmail } from "./helpers";
+import { apiBase, signUp, uniqueEmail, verifyEmail } from "./helpers";
 import { assertNoDocumentOverflow, assertReachable } from "./responsive-helpers";
 
 async function createVerifiedUser(page: Page, request: Parameters<typeof verifyEmail>[1], prefix: string): Promise<void> {
@@ -90,6 +90,35 @@ test.describe("persistent Work layouts", () => {
     await expect(page).toHaveURL("/work/notes");
     await expect(page.getByTestId("work-notes-master")).toBeVisible();
     await assertNoDocumentOverflow(page);
+  });
+
+  test("failed Note detail stays scoped and can retry without replacing the collection", async ({ page, request }) => {
+    test.setTimeout(120_000);
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await createVerifiedUser(page, request, "e2e-work-note-recovery");
+    const noteUrl = await createNote(page, "Recovery note");
+    const noteId = new URL(noteUrl).pathname.split("/").at(-1);
+    expect(noteId).toBeTruthy();
+
+    await page.goto("/work/notes");
+    const master = page.getByTestId("work-notes-master");
+    await expect(master.getByRole("link", { name: "Recovery note" })).toBeVisible();
+    const masterHandle = await master.elementHandle();
+    await page.route(`${apiBase}/v1/workspace/notes/${noteId}`, async (route) => {
+      await route.fulfill({ status: 503, json: { error: { code: "internal_error" } } });
+    });
+
+    await master.getByRole("link", { name: "Recovery note" }).click();
+    await expect(page).toHaveURL(noteUrl);
+    const detail = page.getByTestId("work-note-detail");
+    await expect(detail.getByRole("button", { name: /повторить|try again/i })).toBeVisible();
+    await expect(master).toBeVisible();
+    expect(await masterHandle?.evaluate((element) => element.isConnected)).toBe(true);
+
+    await page.unroute(`${apiBase}/v1/workspace/notes/${noteId}`);
+    await detail.getByRole("button", { name: /повторить|try again/i }).click();
+    await expect(detail.locator("#note-content")).toBeVisible();
+    expect(await masterHandle?.evaluate((element) => element.isConnected)).toBe(true);
   });
 
   test("Lists keep the collection mounted on desktop and use deterministic mobile detail navigation", async ({ page, request }) => {

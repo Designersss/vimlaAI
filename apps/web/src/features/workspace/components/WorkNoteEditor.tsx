@@ -20,6 +20,7 @@ export function WorkNoteEditor({ noteId }: { noteId: string }): ReactElement {
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [loadRevision, setLoadRevision] = useState(0);
   const dirty = note ? title !== note.title || content !== note.contentMarkdown : false;
 
   useEffect(() => {
@@ -30,6 +31,7 @@ export function WorkNoteEditor({ noteId }: { noteId: string }): ReactElement {
           setNote(loaded);
           setTitle(loaded.title);
           setContent(loaded.contentMarkdown);
+          setError(null);
         }
       })
       .catch((caught: unknown) => {
@@ -40,7 +42,7 @@ export function WorkNoteEditor({ noteId }: { noteId: string }): ReactElement {
     return () => {
       cancelled = true;
     };
-  }, [noteId]);
+  }, [loadRevision, noteId]);
 
   useEffect(() => {
     function onBeforeUnload(event: BeforeUnloadEvent): void {
@@ -72,7 +74,18 @@ export function WorkNoteEditor({ noteId }: { noteId: string }): ReactElement {
       <div className={styles.detailPane} data-testid="work-note-detail">
         <WorkDetailHeader backHref="/work/notes" title={t("work.notes")} />
         {error ? (
-          <Alert variant="error">{tx(t, apiErrorMessageKey(error))}</Alert>
+          <div className={styles.stack}>
+            <Alert variant="error">{tx(t, apiErrorMessageKey(error))}</Alert>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setError(null);
+                setLoadRevision((revision) => revision + 1);
+              }}
+            >
+              {t("common.retry")}
+            </Button>
+          </div>
         ) : (
           <p role="status">{t("work.loading")}</p>
         )}
