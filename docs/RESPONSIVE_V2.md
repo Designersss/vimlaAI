@@ -3,7 +3,7 @@
 Required representative checks: 320×568, 375×667, 390×844, 768×1024, 1024×768, 1280×800, 1440×900, 1920×1080.
 
 ## Desktop
-One labeled global sidebar + main page. No second persistent navigation layer.
+One labeled global sidebar + main page. Messages add a local persistent conversation list beside detail at ≥1024px; below that width the URL selects one pane. See `docs/CONSUMER_LAYOUT.md`.
 
 ## Tablet
 Real reflow, not scaled desktop. Global nav may narrow. Supplementary columns move below. Controls wrap intentionally.

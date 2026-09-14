@@ -27,6 +27,7 @@ import {
   IconButton,
   Input,
   MemberAvatarGroup,
+  MasterDetailLayout,
   ModelModeControl,
   ModelPickerDialog,
   NoteRow,
@@ -65,6 +66,7 @@ import {
 export function UiCatalog(): ReactElement {
   const { appearance, setAppearance } = useAppearance();
   const toast = useToast();
+  const [detailOpen, setDetailOpen] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [otp, setOtp] = useState("");
@@ -319,6 +321,19 @@ export function UiCatalog(): ReactElement {
           <BaseListRow title="DEMO list row" subtitle="Presentational" />
         </Card>
       </section>
+
+      <div>
+        <Heading as="h2" size="section">Responsive master-detail (DEMO)</Heading>
+        <MasterDetailLayout
+          masterLabel="Demo master"
+          detailLabel="Demo detail"
+          detailOpen={detailOpen}
+          master={<AIConversationRow title="DEMO conversation" onSelect={() => setDetailOpen(true)} selected={detailOpen} />}
+        >
+          <ConversationHeader title="DEMO detail" back={<Button onClick={() => setDetailOpen(false)}>Back to demo list</Button>} />
+          <Text>Presentation only. Narrow screens show one pane; wide screens show both.</Text>
+        </MasterDetailLayout>
+      </div>
 
       <Tabs label="Tabs demo">
         <Tab selected onSelect={() => undefined}>

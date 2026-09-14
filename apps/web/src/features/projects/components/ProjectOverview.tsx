@@ -129,7 +129,7 @@ export function ProjectOverview({ projectId }: { projectId: string }): ReactElem
   }
 
   return (
-    <ProjectShell projectId={projectId} title={project.name}>
+    <ProjectShell projectId={projectId}>
       <div className={styles.stack}>
         <div className={styles.row}>
           <Heading as="h1" size="page">

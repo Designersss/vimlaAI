@@ -9,18 +9,22 @@ export function AppShell({
   topbar,
   collapsed = false,
   bottomNav,
+  viewport = false,
+  topbarVisibility = "mobile",
 }: {
   sidebar: ReactNode;
   children: ReactNode;
   topbar?: ReactNode;
   collapsed?: boolean;
   bottomNav?: ReactNode;
+  viewport?: boolean;
+  topbarVisibility?: "mobile" | "all";
 }): ReactElement {
   return (
-    <div className={cx(styles.shell, collapsed ? styles.shellCollapsed : undefined)}>
+    <div className={cx(styles.shell, viewport ? styles.viewport : undefined, collapsed ? styles.shellCollapsed : undefined)}>
       <aside className={styles.desktopSidebar}>{sidebar}</aside>
       <div className={styles.main}>
-        {topbar ? <div className={cx(styles.topbar, styles.mobileTopbar)}>{topbar}</div> : null}
+        {topbar ? <div className={cx(styles.topbar, topbarVisibility === "mobile" ? styles.mobileTopbar : undefined)}>{topbar}</div> : null}
         <div className={cx(styles.content, bottomNav ? styles.mobileContentPad : undefined)}>{children}</div>
       </div>
       {bottomNav}

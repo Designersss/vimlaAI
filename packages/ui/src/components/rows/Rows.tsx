@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, ReactElement, ReactNode } from "react";
+import type { AnchorHTMLAttributes, ButtonHTMLAttributes, ReactElement, ReactNode } from "react";
 import { cx } from "../../utils/cx";
 import { Avatar, Badge } from "../../primitives/feedback/Feedback";
 import { Text } from "../../primitives/typography/Typography";
@@ -15,6 +15,7 @@ export function BaseListRow({
   selected,
   disabled,
   testId,
+  renderLink,
 }: {
   leading?: ReactNode;
   title: ReactNode;
@@ -26,6 +27,7 @@ export function BaseListRow({
   selected?: boolean;
   disabled?: boolean;
   testId?: string;
+  renderLink?: (props: AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) => ReactNode;
 }): ReactElement {
   const className = cx(styles.row, selected ? styles.selected : undefined, disabled ? styles.disabled : undefined);
   const body = (
@@ -41,6 +43,15 @@ export function BaseListRow({
   );
 
   if (href && !disabled) {
+    if (renderLink) {
+      return <>{renderLink({
+        href,
+        className,
+        children: body,
+        "aria-current": selected ? "page" : undefined,
+        ...{ "data-testid": testId },
+      })}</>;
+    }
     return (
       <a className={className} href={href} data-testid={testId}>
         {body}
@@ -62,6 +73,7 @@ export function AIConversationRow(props: {
   unreadCount?: number;
   href?: string;
   onSelect?: () => void;
+  renderLink?: (props: AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) => ReactNode;
   selected?: boolean;
   leading?: ReactNode;
 }): ReactElement {
@@ -75,6 +87,7 @@ export function AIConversationRow(props: {
       href={props.href}
       onClick={props.onSelect}
       selected={props.selected}
+      renderLink={props.renderLink}
     />
   );
 }
@@ -86,6 +99,7 @@ export function DirectConversationRow(props: {
   unreadCount?: number;
   href?: string;
   onSelect?: () => void;
+  renderLink?: (props: AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) => ReactNode;
   selected?: boolean;
 }): ReactElement {
   return (
@@ -98,6 +112,7 @@ export function DirectConversationRow(props: {
       href={props.href}
       onClick={props.onSelect}
       selected={props.selected}
+      renderLink={props.renderLink}
       testId="direct-conversation-row"
     />
   );

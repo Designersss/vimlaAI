@@ -13,7 +13,7 @@
   gap: var(--vimla-space-6);
 }
 
-.page :global(section) {
+.page :global(main) > :global(section) {
   display: flex;
   flex-wrap: wrap;
   gap: var(--vimla-space-3);

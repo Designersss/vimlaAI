@@ -35,6 +35,12 @@ test.describe("Secure Direct Chats", () => {
     await alicePage.getByRole("button", { name: /начать чат|start chat/i }).click();
     await expect(alicePage.getByTestId("direct-chat-shell")).toBeVisible({ timeout: 20_000 });
 
+    const directUrl = alicePage.url();
+    const aliceList = alicePage.getByRole("region", { name: /список разговоров|conversation list/i, includeHidden: true });
+    await expect(aliceList).toBeVisible();
+    await expect(aliceList.getByTestId("direct-conversation-row")).toHaveAttribute("aria-current", "page");
+    const persistentList = await aliceList.elementHandle();
+
     const composer = alicePage.getByPlaceholder(/сообщение этому человеку|message this person/i);
     await composer.fill("hello from alice");
     await alicePage.getByTestId("chat-composer-send").click();
@@ -72,7 +78,35 @@ test.describe("Secure Direct Chats", () => {
       await expect(alicePage.getByTestId("direct-chat-shell")).toBeVisible();
       await assertReachable(alicePage, alicePage.getByTestId("chat-composer-send"));
       await assertNoDocumentOverflow(alicePage);
+      if (viewport.width < 1024) {
+        await expect(aliceList).toBeHidden();
+        await alicePage.getByRole("link", { name: /назад|back/i }).click();
+        await expect(alicePage).toHaveURL("/app");
+        await expect(aliceList).toBeVisible();
+        await aliceList.getByTestId("direct-conversation-row").click();
+        await expect(alicePage).toHaveURL(directUrl);
+        await expect(alicePage.getByTestId("direct-chat-shell")).toBeVisible();
+        expect(await persistentList?.evaluate((el) => el.isConnected)).toBe(true);
+      } else {
+        await expect(aliceList).toBeVisible();
+      }
     }
+
+    // A fresh browser has the authenticated session but no IndexedDB device.
+    // The persistent list and deep-linked detail must share one device setup.
+    const coldContext = await browser.newContext({ storageState: await aliceContext.storageState() });
+    const coldPage = await coldContext.newPage();
+    let registrations = 0;
+    coldPage.on("request", (outgoing) => {
+      if (outgoing.method() === "POST" && outgoing.url() === `${apiBase}/v1/direct-chats/devices`) {
+        registrations += 1;
+      }
+    });
+    await coldPage.goto(directUrl);
+    await expect(coldPage.getByTestId("direct-chat-shell")).toBeVisible();
+    await expect(coldPage.getByTestId("direct-conversation-row")).toBeVisible();
+    expect(registrations).toBe(1);
+    await coldContext.close();
 
     await aliceContext.close();
     await nikitaContext.close();

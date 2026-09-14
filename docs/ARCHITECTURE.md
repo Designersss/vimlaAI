@@ -128,6 +128,10 @@ Controllers that own expensive mutations (`ConversationsController`, `MockPurcha
 
 Hijacked AI SSE responses include CORS credentials headers (`Access-Control-Allow-Origin` = `WEB_ORIGIN`) because `reply.hijack()` skips Nest's CORS plugin. Without that, the browser cannot read the stream.
 
+## Persistent consumer frontend
+
+The consumer route group owns one global shell; `/app/layout` owns the persistent chat provider and master-detail composition. The web route selects IDs, while stores remain independent of Next/DOM. See `docs/CONSUMER_LAYOUT.md` for state lifetime, responsive composition, error boundaries and future desktop/mobile adapters.
+
 ## Core synchronous chat flow
 
 ```text

@@ -5,17 +5,15 @@ import { usePathname } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { Heading } from "@vimla/ui";
 import { CONSUMER_FEATURES } from "../../../../shared/config/consumer-features";
-import { NotificationBell } from "../../../notifications/components/NotificationBell";
-import { ConsumerShell, LocalNavLink } from "../../../shell/ConsumerShell";
+import { LocalNavLink } from "../../../shell/ConsumerShell";
+import { ConsumerPage } from "../../../shell/ConsumerPage";
 
 export function SettingsChrome({ title, children }: { title: string; children: ReactNode }): ReactElement {
   const t = useTranslations();
   const pathname = usePathname();
 
   return (
-    <ConsumerShell
-      title={t("nav.settings")}
-      actions={<NotificationBell />}
+    <ConsumerPage
       localNav={
         <nav aria-label={t("nav.settings")}>
           <LocalNavLink href="/settings/account" active={pathname === "/settings/account"}>
@@ -42,6 +40,6 @@ export function SettingsChrome({ title, children }: { title: string; children: R
         {title}
       </Heading>
       {children}
-    </ConsumerShell>
+    </ConsumerPage>
   );
 }

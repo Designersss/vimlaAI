@@ -14,8 +14,7 @@ import {
   VimlaMentionChip,
 } from "@vimla/ui";
 import { AuthRequiredError, fetchCurrentUser } from "../../auth/services/current-user";
-import { ConsumerShell } from "../../shell/ConsumerShell";
-import { NotificationBell } from "../../notifications/components/NotificationBell";
+import { ConsumerPage } from "../../shell/ConsumerPage";
 import { readLocaleCookie, syncAuthenticatedLocale } from "../../../shared/i18n/persist-locale";
 import { apiErrorMessageKey } from "../../../shared/errors/error-keys";
 import { tx } from "../../../shared/i18n/translate";
@@ -165,9 +164,9 @@ export function OperatorWorkspace(): ReactElement {
   }
 
   return (
-    <ConsumerShell title={t("nav.vimla")} flush>
+    <ConsumerPage flush>
       <section className={chatStyles.workspace} data-testid="operator-shell">
-        <ConversationHeader title={t("operator.title")} trailing={<NotificationBell />} />
+        <ConversationHeader title={t("operator.title")} />
         <div className={chatStyles.messages}>
           {messages.length === 0 ? (
             <EmptyState title={t("operator.empty")} />
@@ -241,6 +240,6 @@ export function OperatorWorkspace(): ReactElement {
           chips={<VimlaMentionChip label={t("chat.mentionVimla")} />}
         />
       </section>
-    </ConsumerShell>
+    </ConsumerPage>
   );
 }

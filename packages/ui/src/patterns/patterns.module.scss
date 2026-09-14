@@ -9,6 +9,24 @@
   display: none;
 }
 
+// Opt-in application viewport. Other AppShell consumers retain document scrolling.
+.viewport {
+  height: 100dvh;
+  padding-inline: var(--vimla-safe-left) var(--vimla-safe-right);
+  min-height: 0;
+  grid-template-rows: minmax(0, 1fr);
+
+  > .main {
+    min-height: 0;
+  }
+
+  > .desktopSidebar {
+    min-height: 0;
+    max-height: 100dvh;
+    overflow: auto;
+  }
+}
+
 .main {
   display: flex;
   flex-direction: column;
@@ -26,6 +44,7 @@
   position: sticky;
   top: 0;
   z-index: var(--vimla-z-sticky);
+  flex-shrink: 0;
 }
 
 .content {
@@ -150,6 +169,7 @@
   z-index: var(--vimla-z-nav);
   min-height: var(--vimla-bottom-nav-height);
   padding: var(--vimla-space-1) var(--vimla-space-2) calc(var(--vimla-safe-bottom) + var(--vimla-space-1));
+  padding-inline: calc(var(--vimla-safe-left) + var(--vimla-space-2)) calc(var(--vimla-safe-right) + var(--vimla-space-2));
   border-top: 1px solid var(--vimla-border);
   background: var(--vimla-surface);
 }

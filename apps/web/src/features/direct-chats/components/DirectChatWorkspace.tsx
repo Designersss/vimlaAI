@@ -11,12 +11,7 @@ import {
   Button,
   Card,
   ChatComposer,
-  ChevronLeftIcon,
-  ConversationHeader,
   EmptyState,
-  ErrorState,
-  IconButton,
-  Spinner,
   Switch,
   Text,
   UserMessage,
@@ -24,8 +19,6 @@ import {
   VimlaMentionChip,
 } from "@vimla/ui";
 import { AuthRequiredError, fetchCurrentUser } from "../../auth/services/current-user";
-import { NotificationBell } from "../../notifications/components/NotificationBell";
-import { ConsumerShell } from "../../shell/ConsumerShell";
 import { OperatorRunPanel } from "../../operator/components/OperatorRunPanel";
 import {
   OperatorRequestError,
@@ -49,6 +42,9 @@ import {
 import { savePlaintext } from "../services/crypto-store";
 import { decodeDirectPlaintext, encodeDirectPlaintext, type DirectPlaintextPayload } from "../services/payload";
 import { decryptMessage, encryptForDevices, ensureLocalDevice } from "../services/session";
+import { useChatWorkspace, usePrepareChatDevice } from "../../chat/components/ChatWorkspace/ChatWorkspaceProvider";
+import { ChatConversationHeader } from "../../chat/components/ChatWorkspace/ChatConversationHeader";
+import { ChatDetailStatus } from "../../chat/components/ChatWorkspace/ChatDetailStatus";
 import styles from "./DirectChatWorkspace.module.scss";
 
 interface DecryptedRow {
@@ -60,6 +56,9 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
   const t = useTranslations();
   const locale = useLocale();
   const router = useRouter();
+  const prepareDevice = usePrepareChatDevice();
+  const workspace = useChatWorkspace();
+  const [attempt, setAttempt] = useState(0);
   const [boot, setBoot] = useState<"loading" | "ready" | "failed">("loading");
   const [error, setError] = useState<string | null>(null);
   const [conversation, setConversation] = useState<DirectConversationView | null>(null);
@@ -94,7 +93,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
           router.refresh();
           return;
         }
-        await ensureLocalDevice();
+        await prepareDevice();
         const detail = await fetchDirectConversation(conversationId);
         const device = await ensureLocalDevice();
         const page = await fetchDirectMessages(conversationId, device.deviceId);
@@ -107,7 +106,8 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         setRows(decrypted.reverse());
         setNextCursor(page.nextCursor);
         setBoot("ready");
-        await markDirectChatRead(conversationId);
+        const read = await markDirectChatRead(conversationId);
+        if (!cancelled) workspace.updateDirectConversation(read);
       } catch (caught: unknown) {
         if (cancelled) {
           return;
@@ -123,7 +123,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
     return () => {
       cancelled = true;
     };
-  }, [conversationId, locale, router]);
+  }, [attempt, conversationId, locale, prepareDevice, router, workspace]);
 
   async function reloadConversation(): Promise<DirectConversationView> {
     const detail = await fetchDirectConversation(conversationId);
@@ -280,30 +280,14 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
     setNextCursor(page.nextCursor);
   }
 
-  if (boot === "loading") {
-    return (
-      <p className={styles.status}>
-        <Spinner label={t("direct.loading")} />
-      </p>
-    );
-  }
-
-  if (boot === "failed" || !conversation) {
-    return <ErrorState title={t("direct.failed")} />;
+  if (boot !== "ready" || !conversation) {
+    return <ChatDetailStatus failed={boot === "failed"} retry={() => { setBoot("loading"); setAttempt((value) => value + 1); }} />;
   }
 
   return (
-    <ConsumerShell title={conversation.peer.name} actions={<NotificationBell />} flush>
-      <div className={styles.workspace} data-testid="direct-chat-shell">
-        <ConversationHeader
-          title={conversation.peer.name}
-          subtitle={t("direct.e2eeSubtitle")}
-          back={
-            <IconButton label={t("common.back")} onClick={() => router.push("/app")}>
-              <ChevronLeftIcon size={18} />
-            </IconButton>
-          }
-        />
+    <div className={styles.workspace} data-testid="direct-chat-shell">
+      <ChatConversationHeader title={conversation.peer.name} subtitle={t("direct.e2eeSubtitle")} />
+      <div className={styles.thread}>
         <div className={styles.privacy}>
           <Switch
             label={t("direct.shareOwn")}
@@ -375,43 +359,43 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
             />
           ) : null}
         </div>
-        <ChatComposer
-          variant="direct"
-          value={draft}
-          onChange={(value) => {
-            draftRef.current = value;
-            setDraft(value);
-          }}
-          onSubmit={() => void onSend()}
-          placeholder={t("direct.placeholder")}
-          sendLabel={t("chat.send")}
-          sending={sending || operatorBusy}
-          mentionControl={
-            CONSUMER_FEATURES.vimlaOperator ? (
-              <Button
-                type="button"
-                variant={mention ? "primary" : "ghost"}
-                onClick={() => setMention((value) => !value)}
-                aria-pressed={mention}
-                data-testid="direct-mention-vimla"
-              >
-                <VimlaMark size={14} />
-                {t("chat.mentionVimla")}
-              </Button>
-            ) : null
-          }
-          chips={
-            mention ? (
-              <VimlaMentionChip
-                label={t("chat.mentionVimla")}
-                onRemove={() => setMention(false)}
-                removeLabel={t("common.close")}
-              />
-            ) : null
-          }
-        />
       </div>
-    </ConsumerShell>
+      <ChatComposer
+        variant="direct"
+        value={draft}
+        onChange={(value) => {
+          draftRef.current = value;
+          setDraft(value);
+        }}
+        onSubmit={() => void onSend()}
+        placeholder={t("direct.placeholder")}
+        sendLabel={t("chat.send")}
+        sending={sending || operatorBusy}
+        mentionControl={
+          CONSUMER_FEATURES.vimlaOperator ? (
+            <Button
+              type="button"
+              variant={mention ? "primary" : "ghost"}
+              onClick={() => setMention((value) => !value)}
+              aria-pressed={mention}
+              data-testid="direct-mention-vimla"
+            >
+              <VimlaMark size={14} />
+              {t("chat.mentionVimla")}
+            </Button>
+          ) : null
+        }
+        chips={
+          mention ? (
+            <VimlaMentionChip
+              label={t("chat.mentionVimla")}
+              onRemove={() => setMention(false)}
+              removeLabel={t("common.close")}
+            />
+          ) : null
+        }
+      />
+    </div>
   );
 }
 

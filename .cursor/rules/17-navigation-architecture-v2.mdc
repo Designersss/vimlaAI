@@ -17,7 +17,7 @@ List/detail is drill-down:
 - Projects -> separate project page
 - Notes/Lists -> separate detail page
 
-No persistent ChatGPT-style second conversation sidebar.
+Issue #15: Messages use a persistent local conversation-list pane alongside detail at ≥1024px and route-selected single panes below it. The list is not a second global navigation layer. See `docs/CONSUMER_LAYOUT.md`.
 
 My Work local nav: Today / Tasks / Reminders / Lists / Notes.
 Project local nav: Overview / Chats / Work / Context / Members.

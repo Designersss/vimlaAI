@@ -139,3 +139,5 @@ export {
   ReminderRow,
   TaskRow,
 } from "./components/rows/Rows";
+
+export { MasterDetailLayout } from "./patterns/MasterDetailLayout";
