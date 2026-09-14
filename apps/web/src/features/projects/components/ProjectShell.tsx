@@ -18,7 +18,7 @@ export function ProjectShell({
 }): ReactElement {
   const t = useTranslations();
   const pathname = usePathname();
-  const localNav = projectId ? (
+  const localNav = (
     <>
       <Link
         href="/projects"
@@ -28,28 +28,30 @@ export function ProjectShell({
         <ChevronLeftIcon size={16} aria-hidden="true" />
         {t("common.back")}
       </Link>
-      <nav aria-label={t("projects.title")}>
-        <LocalNavLink href={`/projects/${projectId}`} active={pathname === `/projects/${projectId}`}>
-          {t("projects.overview")}
-        </LocalNavLink>
-        <LocalNavLink href={`/projects/${projectId}`} active={false} disabled>
-          {t("projects.chats")}
-        </LocalNavLink>
-        <LocalNavLink href={`/projects/${projectId}`} active={false} disabled>
-          {t("projects.work")}
-        </LocalNavLink>
-        <LocalNavLink href={`/projects/${projectId}`} active={false} disabled>
-          {t("projects.context")}
-        </LocalNavLink>
-        <LocalNavLink
-          href={`/projects/${projectId}/members`}
-          active={pathname.startsWith(`/projects/${projectId}/members`)}
-        >
-          {t("projects.members")}
-        </LocalNavLink>
-      </nav>
+      {projectId ? (
+        <nav aria-label={t("projects.title")}>
+          <LocalNavLink href={`/projects/${projectId}`} active={pathname === `/projects/${projectId}`}>
+            {t("projects.overview")}
+          </LocalNavLink>
+          <LocalNavLink href={`/projects/${projectId}`} active={false} disabled>
+            {t("projects.chats")}
+          </LocalNavLink>
+          <LocalNavLink href={`/projects/${projectId}`} active={false} disabled>
+            {t("projects.work")}
+          </LocalNavLink>
+          <LocalNavLink href={`/projects/${projectId}`} active={false} disabled>
+            {t("projects.context")}
+          </LocalNavLink>
+          <LocalNavLink
+            href={`/projects/${projectId}/members`}
+            active={pathname.startsWith(`/projects/${projectId}/members`)}
+          >
+            {t("projects.members")}
+          </LocalNavLink>
+        </nav>
+      ) : null}
     </>
-  ) : undefined;
+  );
 
   return (
     <ConsumerPage localNav={localNav}>
