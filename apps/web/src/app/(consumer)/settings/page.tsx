@@ -1,6 +1,6 @@
 import type { ReactElement } from "react";
-import { redirect } from "next/navigation";
+import { SettingsHome } from "../../../features/settings/components/SettingsChrome/SettingsHome";
 
 export default function SettingsIndexPage(): ReactElement {
-  redirect("/settings/account");
+  return <SettingsHome />;
 }

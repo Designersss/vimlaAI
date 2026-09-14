@@ -1,6 +1,6 @@
 # Persistent consumer feature layouts
 
-Issue #15 introduced the persistent consumer shell and responsive chat master/detail architecture. Issue #17 extends the same route-layout principles to Projects where the product has real collection/detail semantics. Public URLs and feature gates are unchanged.
+Issue #15 introduced the persistent consumer shell and responsive chat master/detail architecture. Issue #17 extends the same route-layout principles to Projects and Settings where the product has real collection/detail or stable local-navigation semantics. Public feature URLs remain deterministic and feature gates remain authoritative.
 
 ## Route and component ownership
 
@@ -23,12 +23,22 @@ RootLayout (locale, appearance, toasts)
         projects/[id]/members/page -> ProjectMembers
       projects/join -> focused join flow without the project master pane
 
+    settings/layout -> SettingsRouteShell -> MasterDetailLayout
+      SettingsNavigationPane (persistent)
+      children (detail slot)
+        settings/page -> settings menu/master route; neutral desktop detail
+        settings/account -> AccountSettings
+        settings/security -> SecuritySettings
+        settings/billing -> BillingSettings
+        settings/appearance -> AppearanceSettings
+        settings/notifications -> NotificationSettings (feature-gated)
+        settings/loading, error -> scoped detail status/recovery
+
     work/* -> WorkShell -> ConsumerPage
-    settings/* -> SettingsChrome -> ConsumerPage
     vimla/* -> OperatorWorkspace -> ConsumerPage
 ```
 
-`(consumer)` is a route group under the existing root layout, so it adds no URL segment or extra root document. `ConsumerPage` provides only local navigation and spacing. The global shell and notification inbox remain mounted across consumer destinations. Authentication and verified-email redirects remain client integrations; the API still authorizes every protected operation. A server-side initial session check is a separate future auth task.
+`(consumer)` is a route group under the existing root layout, so it adds no URL segment or extra root document. `ConsumerPage` remains available for page-local composition where a feature does not need a persistent route shell. The global shell and notification inbox remain mounted across consumer destinations. Authentication and verified-email redirects remain client integrations; the API still authorizes every protected operation. A server-side initial session check is a separate future auth task.
 
 ## Selection, state and failure boundaries
 
@@ -52,20 +62,30 @@ The selected project is never stored as navigation truth in the provider. The UR
 
 On narrow layouts a deterministic Back control points to `/projects`; it does not depend on browser history, so direct deep links remain recoverable. On desktop the same control is hidden and the persistent project list remains visible beside the detail.
 
+### Settings
+
+Settings are stable local navigation rather than an entity collection. `SettingsRouteShell` reads the selected route segment and passes that selection into the presentation-only `MasterDetailLayout`; no React store owns the selected section.
+
+`/settings` is now the deterministic master/menu route. On narrow layouts it shows the settings navigation only. `/settings/account`, `/settings/security`, `/settings/billing`, `/settings/appearance` and `/settings/notifications` show the selected detail with an explicit Back link to `/settings`. This makes direct deep links recoverable without depending on browser history and avoids viewport-dependent redirects.
+
+At the shared wide breakpoint the same `SettingsNavigationPane` remains mounted beside the selected section. Switching sections uses normal Next links, so the navigation DOM is preserved while only the route detail changes. Account, appearance, billing, notification and security components keep their existing data flows; no billing, session, passkey, notification or account authority is copied into presentation state.
+
+Settings `loading.tsx` and `error.tsx` live below the persistent settings layout, so asynchronous route status and recovery do not remove global navigation or the settings menu. The error boundary uses the App Router `reset` contract.
+
 ## Responsive composition
 
-`@vimla/ui` exports a presentation-only `MasterDetailLayout`: master/detail content, labels and `detailOpen`. It imports no router or domain code. At the shared `lg` breakpoint (1024px) both panels appear; below it CSS hides the inactive panel, including its focusable elements. The 768px tablet still has the narrower global sidebar, so it uses one feature pane to avoid two unusably narrow columns. There is one list and one detail implementation across widths.
+`@vimla/ui` exports a presentation-only `MasterDetailLayout`: master/detail content, labels and `detailOpen`. It imports no router or domain code. At the shared `lg` breakpoint (1024px) both panels appear; below it CSS hides the inactive panel, including its focusable elements. The 768px tablet still has the narrower global sidebar, so it uses one feature pane to avoid two unusably narrow columns. There is one master and one detail implementation across widths.
 
-Both Chat and Projects opt into the application viewport mode so their persistent list/detail regions can scroll independently without document-level navigation jumps. Mobile still reserves safe-area-aware space for the global bottom navigation. Very short screens remain scrollable. Other consumers of `AppShell` retain document scrolling until their own route architecture explicitly requires a persistent viewport.
+Chat, Projects and Settings opt into the application viewport mode so their persistent navigation/list/detail regions can scroll independently without document-level navigation jumps. Mobile still reserves safe-area-aware space for the global bottom navigation. Very short screens remain scrollable. Other consumers of `AppShell` retain document scrolling until their own route architecture explicitly requires a persistent viewport.
 
-Project detail keeps the canonical project-local navigation inside the detail content. The master project list is a drill-down collection pane, not a second global navigation layer. `/projects/join` bypasses the project master pane.
+Project detail keeps the canonical project-local navigation inside the detail content. The master project list is a drill-down collection pane, not a second global navigation layer. `/projects/join` bypasses the project master pane. Settings navigation is likewise feature-local and visually subordinate to the one global Vimla navigation layer.
 
 ## Platform boundaries
 
 - **Shared today:** `@vimla/contracts` request/response types, validation, domain packages and `@vimla/e2ee` crypto. Client state is non-authoritative and does not decide permissions, billing or entitlements.
-- **Web adapters:** route files and feature route shells select IDs; feature components bind services/actions; API services encapsulate cookie transport/config. Navigation remains a platform concern rather than domain/store state.
-- **Web presentation:** `@vimla/ui` remains DOM/SCSS. `MasterDetailLayout` is presentation-only and project/chat agnostic. Tokens remain semantic; no universal DOM/native compatibility layer is introduced.
-- **Future only:** Next.js web, Tauri + React desktop, React Native + Expo mobile. Native navigators can supply selected IDs to equivalent feature/domain APIs and implement native master-detail navigation and platform capability adapters. No native apps, packages, dependencies or speculative adapter framework are created here.
+- **Web adapters:** route files and feature route shells select IDs/sections; feature components bind services/actions; API services encapsulate cookie transport/config. Navigation remains a platform concern rather than domain/store state.
+- **Web presentation:** `@vimla/ui` remains DOM/SCSS. `MasterDetailLayout` is presentation-only and project/chat/settings agnostic. Tokens remain semantic; no universal DOM/native compatibility layer is introduced.
+- **Future only:** Next.js web, Tauri + React desktop, React Native + Expo mobile. Native navigators can supply selected IDs/sections to equivalent feature/domain APIs and implement native master-detail navigation and platform capability adapters. No native apps, packages, dependencies or speculative adapter framework are created here.
 
 ## Verification
 
@@ -73,6 +93,8 @@ Project detail keeps the canonical project-local navigation inside the detail co
 
 `projects.spec.ts` covers project creation through the persistent master pane, selected-row routing, persistent master DOM identity across overview/members navigation, mobile list/detail switching, deterministic Back, deep-link refresh and the representative viewport matrix.
 
+`settings-layout.spec.ts` covers persistent Settings navigation DOM identity while switching sections, the deterministic mobile `/settings` menu/detail model, direct deep-link refresh and the representative viewport matrix.
+
 Run `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm test:integration`, `pnpm build`, `pnpm test:e2e` and `git diff --check` using local/test databases and mock providers. No formatter command is configured.
 
-Physical iOS Safari and Android Chrome virtual keyboards cannot be fully simulated by Playwright. Before a production UI rollout, verify critical project and chat interactions on representative physical devices, including portrait/landscape, safe areas and short viewport heights.
+Physical iOS Safari and Android Chrome virtual keyboards cannot be fully simulated by Playwright. Before a production UI rollout, verify critical project, settings and chat interactions on representative physical devices, including portrait/landscape, safe areas and short viewport heights.

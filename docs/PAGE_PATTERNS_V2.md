@@ -4,7 +4,7 @@
 
 Desktop/tablet: exactly ONE global navigation layer.
 
-List and detail retain separate URLs. Issue #15 adds a persistent local Messages list beside detail at ≥1024px, with one selected pane below that width. Issue #17 applies the same drill-down pattern to Projects. These collection panes are not global navigation. See `docs/CONSUMER_LAYOUT.md`.
+List and detail retain separate URLs. Issue #15 adds a persistent local Messages list beside detail at ≥1024px, with one selected pane below that width. Issue #17 applies the same drill-down pattern to Projects and the same persistent-route principle to Settings. These feature-local panes are not global navigation. See `docs/CONSUMER_LAYOUT.md`.
 
 ## Collection Page
 
@@ -56,4 +56,19 @@ Below that breakpoint `/projects` is the project collection and `/projects/[id].
 
 ## Settings
 
-Settings categories are local page navigation. They may form a compact in-content column on wide desktop, but are visually subordinate and not a second global app sidebar.
+Settings categories are persistent feature-local navigation, not an entity collection and not a second global app sidebar.
+
+At ≥1024px:
+
+`GlobalSidebar + MasterDetailLayout(SettingsNavigationPane, Selected settings section)`
+
+The navigation pane stays mounted while moving among Account, Security, Billing, Appearance and Notifications.
+
+Below 1024px:
+
+- `/settings` is the settings menu/master screen;
+- `/settings/<section>` is the selected section detail;
+- detail uses a deterministic Back link to `/settings`;
+- the same navigation and section components are used at every width.
+
+Selection remains URL-driven. Do not introduce a client store for the active settings section, and do not move billing/security/session authority into presentation state.
