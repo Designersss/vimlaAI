@@ -28,11 +28,13 @@ import {
   updateProject,
 } from "../services/api";
 import { ProjectShell } from "./ProjectShell";
+import { useProjectsWorkspace } from "./ProjectsWorkspaceProvider";
 import styles from "./Projects.module.scss";
 
 export function ProjectOverview({ projectId }: { projectId: string }): ReactElement {
   const t = useTranslations();
   const router = useRouter();
+  const { upsertProject, removeProject } = useProjectsWorkspace();
   const [project, setProject] = useState<ProjectView | null>(null);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -49,6 +51,7 @@ export function ProjectOverview({ projectId }: { projectId: string }): ReactElem
         setProject(loaded);
         setName(loaded.name);
         setDescription(loaded.description ?? "");
+        upsertProject(loaded);
       })
       .catch(async (caught: unknown) => {
         if (cancelled) {
@@ -62,6 +65,7 @@ export function ProjectOverview({ projectId }: { projectId: string }): ReactElem
           setProject(loaded);
           setName(loaded.name);
           setDescription(loaded.description ?? "");
+          upsertProject(loaded);
         } catch {
           setError(caught instanceof ProjectsApiError ? caught.code : "internal_error");
         }
@@ -69,7 +73,7 @@ export function ProjectOverview({ projectId }: { projectId: string }): ReactElem
     return () => {
       cancelled = true;
     };
-  }, [projectId]);
+  }, [projectId, upsertProject]);
 
   async function onSave(event: FormEvent): Promise<void> {
     event.preventDefault();
@@ -81,6 +85,7 @@ export function ProjectOverview({ projectId }: { projectId: string }): ReactElem
         description: description.trim().length > 0 ? description : null,
       });
       setProject(updated);
+      upsertProject(updated);
     } catch (caught: unknown) {
       setError(caught instanceof ProjectsApiError ? caught.code : "internal_error");
     } finally {
@@ -93,7 +98,8 @@ export function ProjectOverview({ projectId }: { projectId: string }): ReactElem
     setBusy(true);
     try {
       await deleteProject(projectId);
-      router.push("/projects");
+      removeProject(projectId);
+      router.push("/projects", { scroll: false });
     } catch (caught: unknown) {
       setError(caught instanceof ProjectsApiError ? caught.code : "internal_error");
       setBusy(false);
@@ -105,7 +111,8 @@ export function ProjectOverview({ projectId }: { projectId: string }): ReactElem
     setBusy(true);
     try {
       await leaveProject(projectId);
-      router.push("/projects");
+      removeProject(projectId);
+      router.push("/projects", { scroll: false });
     } catch (caught: unknown) {
       setError(caught instanceof ProjectsApiError ? caught.code : "internal_error");
       setBusy(false);
@@ -122,7 +129,7 @@ export function ProjectOverview({ projectId }: { projectId: string }): ReactElem
 
   if (!project) {
     return (
-      <ProjectShell>
+      <ProjectShell projectId={projectId}>
         <Alert variant="error">{tx(t, apiErrorMessageKey(error ?? "not_found"))}</Alert>
       </ProjectShell>
     );
