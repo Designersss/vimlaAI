@@ -63,7 +63,7 @@ test.describe("personal workspace", () => {
     await page.getByRole("button", { name: /добавить пункт|add item/i }).click();
     await expect(page.getByText("Eggs")).toBeVisible();
     await page.getByRole("button", { name: /ниже|move down/i }).first().click();
-    const rows = page.locator("ul li");
+    const rows = page.getByTestId("work-list-detail").locator("ul li");
     await expect(rows.nth(0)).toContainText("Eggs");
     await expect(rows.nth(1)).toContainText("Milk");
     const milk = page.getByRole("checkbox", { name: "Milk" });
