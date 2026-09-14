@@ -11,7 +11,6 @@ export function ProjectShell({
   children,
 }: {
   projectId?: string;
-  title?: string;
   children: ReactNode;
 }): ReactElement {
   const t = useTranslations();
