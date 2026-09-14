@@ -9,7 +9,7 @@ export function ProjectsHome(): ReactElement {
   const t = useTranslations();
   return (
     <div className={styles.emptyDetail} data-testid="projects-empty-detail">
-      <EmptyState title={t("projects.selectProject")} />
+      <EmptyState title={t("projects.title")} />
     </div>
   );
 }
