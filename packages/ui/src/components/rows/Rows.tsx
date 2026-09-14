@@ -174,8 +174,19 @@ export function ProjectRow(props: {
   subtitle?: string;
   members?: ReactNode;
   href?: string;
+  selected?: boolean;
+  renderLink?: (props: AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }) => ReactNode;
 }): ReactElement {
-  return <BaseListRow title={props.title} subtitle={props.subtitle} trailing={props.members} href={props.href} />;
+  return (
+    <BaseListRow
+      title={props.title}
+      subtitle={props.subtitle}
+      trailing={props.members}
+      href={props.href}
+      selected={props.selected}
+      renderLink={props.renderLink}
+    />
+  );
 }
 
 export function ConversationHeader({
