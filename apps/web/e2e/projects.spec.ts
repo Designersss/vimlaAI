@@ -11,7 +11,11 @@ async function createProject(page: Page, name: string): Promise<string> {
   await dialog.getByLabel(/название|name/i).fill(name);
   await dialog.getByRole("button", { name: /создать проект|create project/i }).click();
   await expect(page).toHaveURL(/\/projects\/[\w-]+$/);
-  const href = await master(page).getByRole("link", { name, exact: true }).getAttribute("href");
+  const href = await page
+    .getByTestId("projects-list-pane")
+    .locator("a")
+    .filter({ hasText: name })
+    .getAttribute("href");
   if (!href) throw new Error("Created project link is missing");
   return href;
 }
