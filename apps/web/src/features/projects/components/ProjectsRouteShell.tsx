@@ -23,8 +23,8 @@ export function ProjectsRouteShell({ children }: { children: ReactNode }): React
       <div className={styles.workspace} data-testid="projects-shell">
         <MasterDetailLayout
           detailOpen={Boolean(projectId)}
-          masterLabel={t("projects.listPane")}
-          detailLabel={t("projects.detailPane")}
+          masterLabel={t("projects.title")}
+          detailLabel={t("projects.overview")}
           master={<ProjectListPane selectedProjectId={projectId} />}
         >
           {children}
