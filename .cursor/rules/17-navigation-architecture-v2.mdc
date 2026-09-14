@@ -17,10 +17,12 @@ List/detail is drill-down:
 - Projects -> separate project page
 - Notes/Lists -> separate detail page
 
-Issue #15: Messages use a persistent local conversation-list pane alongside detail at ≥1024px and route-selected single panes below it. The list is not a second global navigation layer. See `docs/CONSUMER_LAYOUT.md`.
+Issue #15: Messages use a persistent local conversation-list pane alongside detail at ≥1024px and route-selected single panes below it. The list is not a second global navigation layer.
+
+Issue #17: normal Projects routes use the same approved drill-down architecture: a persistent local project-list pane alongside project detail at ≥1024px, and route-selected list/detail panes below it. `/projects/join` remains a focused flow. The project list is never global navigation. See `docs/CONSUMER_LAYOUT.md`.
 
 My Work local nav: Today / Tasks / Reminders / Lists / Notes.
-Project local nav: Overview / Chats / Work / Context / Members.
+Project local nav: Overview / Chats / Work / Context / Members. It remains inside project detail content rather than becoming another global sidebar.
 
 Mobile bottom nav has exactly Messages / My Work / Projects / Vimla. Settings/profile via account UI.
 

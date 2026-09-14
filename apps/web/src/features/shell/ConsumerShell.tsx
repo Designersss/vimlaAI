@@ -39,7 +39,8 @@ export function ConsumerShell({ children }: { children: ReactNode }): ReactEleme
     : pathname.startsWith("/projects") ? t("nav.projects")
     : pathname.startsWith("/settings") ? t("nav.settings")
     : pathname.startsWith("/vimla") ? t("nav.vimla") : t("nav.messages");
-  const viewport = pathname === "/app" || pathname.startsWith("/app/");
+  const viewport = pathname === "/app" || pathname.startsWith("/app/")
+    || pathname === "/projects" || pathname.startsWith("/projects/");
   const [user, setUser] = useState<CurrentUser | null>(null);
   const [boot, setBoot] = useState<"loading" | "ready" | "failed">("loading");
 
