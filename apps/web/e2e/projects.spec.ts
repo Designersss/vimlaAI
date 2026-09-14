@@ -37,7 +37,7 @@ test.describe("projects", () => {
     const firstHref = await createProject(page, "Atlas");
     await expect(page.getByRole("heading", { name: "Atlas" })).toBeVisible();
     await expect(master(page)).toBeVisible();
-    await expect(master(page).getByRole("link", { name: "Atlas", exact: true })).toHaveAttribute("aria-current", "page");
+    await expect(master(page).getByRole("link", { name: /Atlas/i })).toHaveAttribute("aria-current", "page");
 
     await page.goto("/projects");
     const secondHref = await createProject(page, "Borealis");
@@ -45,7 +45,7 @@ test.describe("projects", () => {
 
     const shellHandle = await page.getByTestId("consumer-shell").elementHandle();
     const masterHandle = await master(page).elementHandle();
-    await master(page).getByRole("link", { name: "Atlas", exact: true }).click();
+    await master(page).getByRole("link", { name: /Atlas/i }).click();
     await expect(page).toHaveURL(firstHref);
     expect(await shellHandle?.evaluate((element) => element.isConnected)).toBe(true);
     expect(await masterHandle?.evaluate((element) => element.isConnected)).toBe(true);
