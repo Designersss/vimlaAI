@@ -168,5 +168,6 @@ test("loading and failed detail stay scoped, and the consumer shell persists acr
     await expect(page.getByTestId("consumer-shell")).toHaveCount(1);
   }
   await page.goto("/settings");
-  await expect(page).toHaveURL("/settings/account");
+  await expect(page).toHaveURL("/settings");
+  await expect(page.getByTestId("settings-navigation-pane")).toBeVisible();
 });
