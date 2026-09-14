@@ -1,45 +1,30 @@
 "use client";
 
 import type { ReactElement, ReactNode } from "react";
-import { usePathname } from "next/navigation";
+import Link from "next/link";
 import { useTranslations } from "next-intl";
-import { Heading } from "@vimla/ui";
-import { CONSUMER_FEATURES } from "../../../../shared/config/consumer-features";
-import { LocalNavLink } from "../../../shell/ConsumerShell";
-import { ConsumerPage } from "../../../shell/ConsumerPage";
+import { ChevronLeftIcon, Heading, buttonClassName } from "@vimla/ui";
+import styles from "./SettingsChrome.module.scss";
 
 export function SettingsChrome({ title, children }: { title: string; children: ReactNode }): ReactElement {
   const t = useTranslations();
-  const pathname = usePathname();
 
   return (
-    <ConsumerPage
-      localNav={
-        <nav aria-label={t("nav.settings")}>
-          <LocalNavLink href="/settings/account" active={pathname === "/settings/account"}>
-            {t("nav.account")}
-          </LocalNavLink>
-          <LocalNavLink href="/settings/security" active={pathname === "/settings/security"}>
-            {t("nav.security")}
-          </LocalNavLink>
-          <LocalNavLink href="/settings/billing" active={pathname === "/settings/billing"}>
-            {t("nav.billing")}
-          </LocalNavLink>
-          <LocalNavLink href="/settings/appearance" active={pathname === "/settings/appearance"}>
-            {t("nav.appearance")}
-          </LocalNavLink>
-          {CONSUMER_FEATURES.notificationsSettings ? (
-            <LocalNavLink href="/settings/notifications" active={pathname === "/settings/notifications"}>
-              {t("nav.notifications")}
-            </LocalNavLink>
-          ) : null}
-        </nav>
-      }
-    >
-      <Heading as="h1" size="page">
-        {title}
-      </Heading>
+    <div className={styles.section} data-testid="settings-detail">
+      <div className={styles.sectionHeader}>
+        <Link
+          href="/settings"
+          scroll={false}
+          className={`${buttonClassName({ variant: "ghost", size: "sm" })} ${styles.mobileBack}`}
+        >
+          <ChevronLeftIcon size={16} aria-hidden="true" />
+          {t("common.back")}
+        </Link>
+        <Heading as="h1" size="page" className={styles.sectionTitle}>
+          {title}
+        </Heading>
+      </div>
       {children}
-    </ConsumerPage>
+    </div>
   );
 }
