@@ -33,10 +33,12 @@ import {
   updateMemberRole,
 } from "../services/api";
 import { ProjectShell } from "./ProjectShell";
+import { useProjectsWorkspace } from "./ProjectsWorkspaceProvider";
 import styles from "./Projects.module.scss";
 
 export function ProjectMembers({ projectId }: { projectId: string }): ReactElement {
   const t = useTranslations();
+  const { upsertProject } = useProjectsWorkspace();
   const [project, setProject] = useState<ProjectView | null>(null);
   const [members, setMembers] = useState<ProjectMemberView[]>([]);
   const [invites, setInvites] = useState<ProjectInviteView[]>([]);
@@ -61,6 +63,7 @@ export function ProjectMembers({ projectId }: { projectId: string }): ReactEleme
           return;
         }
         setProject(loaded);
+        upsertProject(loaded);
         setMembers(roster.members);
         setInvites(roster.invites);
       })
@@ -72,7 +75,7 @@ export function ProjectMembers({ projectId }: { projectId: string }): ReactEleme
     return () => {
       cancelled = true;
     };
-  }, [projectId]);
+  }, [projectId, upsertProject]);
 
   async function onInvite(event: FormEvent): Promise<void> {
     event.preventDefault();
@@ -99,7 +102,7 @@ export function ProjectMembers({ projectId }: { projectId: string }): ReactEleme
 
   if (!project) {
     return (
-      <ProjectShell>
+      <ProjectShell projectId={projectId}>
         <Alert variant="error">{tx(t, apiErrorMessageKey(error ?? "not_found"))}</Alert>
       </ProjectShell>
     );
