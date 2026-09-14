@@ -21,17 +21,32 @@ test.describe("settings persistent layout", () => {
 
     await navigation.getByRole("link", { name: /account|аккаунт|уч[её]тная запись/i }).click();
     await expect(page).toHaveURL("/settings/account");
-    await expect(page.getByRole("heading", { name: /account|аккаунт|уч[её]тная запись/i }).last()).toBeVisible();
+    await expect(
+      page.getByRole("heading", {
+        level: 1,
+        name: /^(account|аккаунт|уч[её]тная запись)$/i,
+      }),
+    ).toBeVisible();
     expect(await navigationHandle?.evaluate((element) => element.isConnected)).toBe(true);
 
     await navigation.getByRole("link", { name: /appearance|оформление/i }).click();
     await expect(page).toHaveURL("/settings/appearance");
-    await expect(page.getByRole("heading", { name: /appearance|оформление/i }).last()).toBeVisible();
+    await expect(
+      page.getByRole("heading", {
+        level: 1,
+        name: /^(appearance|оформление)$/i,
+      }),
+    ).toBeVisible();
     expect(await navigationHandle?.evaluate((element) => element.isConnected)).toBe(true);
 
     await navigation.getByRole("link", { name: /security|безопасность/i }).click();
     await expect(page).toHaveURL("/settings/security");
-    await expect(page.getByRole("heading", { name: /security|безопасность/i }).last()).toBeVisible();
+    await expect(
+      page.getByRole("heading", {
+        level: 1,
+        name: /^(security|безопасность)$/i,
+      }),
+    ).toBeVisible();
     expect(await navigationHandle?.evaluate((element) => element.isConnected)).toBe(true);
     await assertNoDocumentOverflow(page);
   });
