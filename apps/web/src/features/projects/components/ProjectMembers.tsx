@@ -106,7 +106,7 @@ export function ProjectMembers({ projectId }: { projectId: string }): ReactEleme
   }
 
   return (
-    <ProjectShell projectId={projectId} title={project.name}>
+    <ProjectShell projectId={projectId}>
       <div className={styles.stack}>
         <Heading as="h1" size="page">
           {t("projects.members")}
