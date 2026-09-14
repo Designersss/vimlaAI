@@ -23,7 +23,6 @@ export function WorkLists({ selectedListId }: { selectedListId?: string }): Reac
 
   useEffect(() => {
     let cancelled = false;
-    setError(null);
     void fetchLists()
       .then((page) => {
         if (!cancelled) {

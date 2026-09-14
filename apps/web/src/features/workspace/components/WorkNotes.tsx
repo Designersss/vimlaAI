@@ -24,7 +24,6 @@ export function WorkNotes({ selectedNoteId }: { selectedNoteId?: string }): Reac
 
   useEffect(() => {
     let cancelled = false;
-    setError(null);
     void fetchNotes({ q: query || undefined, archived })
       .then((page) => {
         if (!cancelled) {

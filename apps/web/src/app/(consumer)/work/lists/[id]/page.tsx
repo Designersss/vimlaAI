@@ -7,5 +7,5 @@ export default async function WorkListDetailPage({
   params: Promise<{ id: string }>;
 }): Promise<ReactElement> {
   const { id } = await params;
-  return <WorkListDetail listId={id} />;
+  return <WorkListDetail key={id} listId={id} />;
 }

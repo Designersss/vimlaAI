@@ -30,14 +30,16 @@ export function WorkListDetail({ listId }: { listId: string }): ReactElement {
 
   useEffect(() => {
     let cancelled = false;
-    setList(null);
-    setError(null);
     void fetchList(listId)
       .then((loaded) => {
-        if (!cancelled) setList(loaded);
+        if (!cancelled) {
+          setList(loaded);
+        }
       })
       .catch((caught: unknown) => {
-        if (!cancelled) setError(caught instanceof WorkspaceApiError ? caught.code : "internal_error");
+        if (!cancelled) {
+          setError(caught instanceof WorkspaceApiError ? caught.code : "internal_error");
+        }
       });
     return () => {
       cancelled = true;
@@ -56,7 +58,9 @@ export function WorkListDetail({ listId }: { listId: string }): ReactElement {
   }
 
   async function onToggle(itemId: string, completed: boolean): Promise<void> {
-    if (!list) return;
+    if (!list) {
+      return;
+    }
     const previous = list;
     setList({
       ...list,
@@ -73,14 +77,20 @@ export function WorkListDetail({ listId }: { listId: string }): ReactElement {
   }
 
   async function move(itemId: string, direction: -1 | 1): Promise<void> {
-    if (!list) return;
+    if (!list) {
+      return;
+    }
     const ids = list.items.map((item) => item.id);
     const index = ids.indexOf(itemId);
     const next = index + direction;
-    if (index < 0 || next < 0 || next >= ids.length) return;
+    if (index < 0 || next < 0 || next >= ids.length) {
+      return;
+    }
     const reordered = [...ids];
     const moved = reordered[index];
-    if (!moved) return;
+    if (!moved) {
+      return;
+    }
     reordered.splice(index, 1);
     reordered.splice(next, 0, moved);
     try {

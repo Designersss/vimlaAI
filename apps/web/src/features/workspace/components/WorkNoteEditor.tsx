@@ -24,8 +24,6 @@ export function WorkNoteEditor({ noteId }: { noteId: string }): ReactElement {
 
   useEffect(() => {
     let cancelled = false;
-    setNote(null);
-    setError(null);
     void fetchNote(noteId)
       .then((loaded) => {
         if (!cancelled) {
@@ -46,7 +44,9 @@ export function WorkNoteEditor({ noteId }: { noteId: string }): ReactElement {
 
   useEffect(() => {
     function onBeforeUnload(event: BeforeUnloadEvent): void {
-      if (!dirty) return;
+      if (!dirty) {
+        return;
+      }
       event.preventDefault();
       event.returnValue = t("work.dirtyWarning");
     }
@@ -89,7 +89,12 @@ export function WorkNoteEditor({ noteId }: { noteId: string }): ReactElement {
         <Input id="note-edit-title" value={title} onChange={(event) => setTitle(event.target.value)} />
       </FormField>
       <FormField label={t("work.content")} htmlFor="note-content">
-        <Textarea id="note-content" rows={16} value={content} onChange={(event) => setContent(event.target.value)} />
+        <Textarea
+          id="note-content"
+          rows={16}
+          value={content}
+          onChange={(event) => setContent(event.target.value)}
+        />
       </FormField>
       <pre className={styles.noteBody}>{content}</pre>
       <div className={styles.row}>

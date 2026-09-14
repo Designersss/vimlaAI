@@ -7,5 +7,5 @@ export default async function WorkNoteDetailPage({
   params: Promise<{ id: string }>;
 }): Promise<ReactElement> {
   const { id } = await params;
-  return <WorkNoteEditor noteId={id} />;
+  return <WorkNoteEditor key={id} noteId={id} />;
 }
