@@ -1,19 +1,28 @@
 .status {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
   padding: var(--vimla-space-6);
+  background: var(--vimla-bg-primary);
 }
 
 .topbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--vimla-space-2);
+  gap: var(--vimla-space-3);
   width: 100%;
   min-width: 0;
 }
 
 .title {
   margin: 0;
-  font-weight: 700;
+  min-width: 0;
+  color: var(--vimla-text-primary);
+  font-size: var(--vimla-type-label-size);
+  line-height: var(--vimla-type-body-line);
+  font-weight: var(--vimla-type-semibold-weight);
+  letter-spacing: -0.01em;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -27,6 +36,7 @@
   white-space: nowrap;
   color: var(--vimla-text-secondary);
   font-size: var(--vimla-type-caption-size);
+  line-height: var(--vimla-type-caption-line);
 }
 
 .page {
@@ -35,6 +45,7 @@
   min-width: 0;
   flex: 1;
   min-height: 0;
+  background: var(--vimla-bg-primary);
 }
 
 .localNav,
@@ -47,7 +58,8 @@
 
 .localNav {
   padding: var(--vimla-space-3) var(--vimla-page-pad);
-  border-bottom: 1px solid var(--vimla-border);
+  border-bottom: 1px solid var(--vimla-border-subtle);
+  background: var(--vimla-bg-secondary);
 }
 
 .actions {
@@ -60,6 +72,7 @@
 .body {
   padding: var(--vimla-space-4) var(--vimla-page-pad);
   overflow: auto;
+  overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
   gap: var(--vimla-space-4);
@@ -76,4 +89,22 @@
   min-width: 0;
   min-height: 0;
   flex: 1;
+}
+
+@media (max-width: 767px) {
+  .localNav {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    scrollbar-width: none;
+    overscroll-behavior-inline: contain;
+  }
+
+  .localNav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .localNav nav {
+    flex-wrap: nowrap;
+    min-width: max-content;
+  }
 }
