@@ -5,7 +5,7 @@
 @media (min-width: 768px) {
   .dock {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
     gap: var(--vimla-space-1);
     padding: var(--vimla-space-2);
     border-top: 1px solid var(--vimla-border-subtle);
