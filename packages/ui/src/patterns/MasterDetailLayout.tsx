@@ -4,12 +4,14 @@ import styles from "./MasterDetailLayout.module.scss";
 /** Web presentation only. The caller supplies selection, content and accessible pane labels. */
 export function MasterDetailLayout({
   master,
+  masterFooter,
   detailOpen,
   masterLabel,
   detailLabel,
   children,
 }: {
   master: ReactNode;
+  masterFooter?: ReactNode;
   detailOpen: boolean;
   masterLabel: string;
   detailLabel: string;
@@ -18,7 +20,8 @@ export function MasterDetailLayout({
   return (
     <div className={styles.layout} data-detail-open={detailOpen}>
       <section className={styles.master} aria-label={masterLabel}>
-        {master}
+        <div className={styles.masterContent}>{master}</div>
+        {masterFooter ? <div className={styles.masterFooter}>{masterFooter}</div> : null}
       </section>
       <section className={styles.detail} aria-label={detailLabel}>
         {children}
