@@ -56,14 +56,12 @@ export function CanonicalNav({ compact = false }: { compact?: boolean }): ReactE
     });
   }
 
-  if (!compact) {
-    items.push({
-      href: "/settings/account",
-      label: t("nav.settings"),
-      active: settingsActive,
-      icon: <SettingsIcon size={16} aria-hidden="true" />,
-    });
-  }
+  items.push({
+    href: "/settings/account",
+    label: t("nav.settings"),
+    active: settingsActive,
+    icon: <SettingsIcon size={compact ? 18 : 16} aria-hidden="true" />,
+  });
 
   if (compact) {
     return (
