@@ -20,22 +20,47 @@
   align-items: center;
 }
 
-.foundationSection {
+.foundationSection,
+.stateSection {
   display: grid !important;
   align-items: stretch !important;
   gap: var(--vimla-space-4) !important;
 }
 
-.foundationIntro {
+.foundationIntro,
+.sectionIntro {
   display: grid;
   gap: var(--vimla-space-1);
 }
 
-.foundationGrid {
+.foundationGrid,
+.stateGrid,
+.formGrid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
   gap: var(--vimla-space-3);
   width: 100%;
+}
+
+.foundationGrid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
+}
+
+.formGrid {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+}
+
+.inlineStates {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--vimla-space-2);
+}
+
+.stateGrid > * {
+  display: grid;
+  align-content: start;
+  gap: var(--vimla-space-3);
 }
 
 .tokenCard {
@@ -170,5 +195,10 @@
 
   .typeSpecimen {
     padding: var(--vimla-space-4);
+  }
+
+  .stateGrid,
+  .formGrid {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
