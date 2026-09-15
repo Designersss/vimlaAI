@@ -4,6 +4,7 @@ import type { ReactElement, ReactNode } from "react";
 import { useSelectedLayoutSegments } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { MasterDetailLayout } from "@vimla/ui";
+import { DesktopSectionDock } from "../../../shell/DesktopSectionDock";
 import { ConversationListPane } from "./ConversationListPane";
 
 /** Next-specific navigation adapter; the store has no concept of the selected route. */
@@ -17,6 +18,7 @@ export function ChatRouteShell({ children }: { children: ReactNode }): ReactElem
       masterLabel={t("chat.listPane")}
       detailLabel={t("chat.detailPane")}
       master={<ConversationListPane aiId={direct ? undefined : segments[0]} directId={direct ? segments[1] : undefined} />}
+      masterFooter={<DesktopSectionDock />}
     >
       {children}
     </MasterDetailLayout>
