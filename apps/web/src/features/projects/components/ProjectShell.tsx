@@ -23,6 +23,7 @@ export function ProjectShell({
       <Link
         href="/projects"
         scroll={false}
+        aria-label={t("common.back")}
         className={`${buttonClassName({ variant: "ghost", size: "sm" })} ${styles.mobileBack}`}
       >
         <ChevronLeftIcon size={16} aria-hidden="true" />
@@ -53,7 +54,9 @@ export function ProjectShell({
 
   return (
     <ConsumerPage localNav={localNav}>
-      <div data-testid="project-detail-shell">{children}</div>
+      <div className={styles.detailRoot} data-testid="project-detail-shell">
+        {children}
+      </div>
     </ConsumerPage>
   );
 }
