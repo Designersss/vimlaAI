@@ -92,7 +92,7 @@
   flex: 1;
 }
 
-@media (min-width: 1024px) {
+@media (min-width: 768px) {
   .page:has(.localNav) {
     display: grid;
     grid-template-columns: minmax(17rem, clamp(18rem, 29%, 22.5rem)) minmax(0, 1fr);
