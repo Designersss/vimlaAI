@@ -173,7 +173,11 @@ export function LocalNavLink({
     );
   }
   return (
-    <Link href={href} className={buttonClassName({ variant: active ? "primary" : "ghost", size: "sm" })}>
+    <Link
+      href={href}
+      aria-current={active ? "page" : undefined}
+      className={buttonClassName({ variant: active ? "primary" : "ghost", size: "sm" })}
+    >
       {children}
     </Link>
   );
