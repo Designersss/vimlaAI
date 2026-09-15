@@ -2,9 +2,10 @@
   display: flex;
   flex-direction: column;
   gap: var(--vimla-space-2);
-  padding: var(--vimla-space-3) var(--vimla-page-pad) calc(var(--vimla-safe-bottom) + var(--vimla-space-3));
-  border-top: 1px solid var(--vimla-border);
-  background: var(--vimla-surface);
+  padding: var(--vimla-space-3) max(var(--vimla-page-pad), calc((100% - 52rem) / 2)) calc(var(--vimla-safe-bottom) + var(--vimla-space-3));
+  border-top: 1px solid var(--vimla-border-subtle);
+  background: color-mix(in srgb, var(--vimla-surface-1) 94%, transparent);
+  backdrop-filter: blur(18px);
 }
 
 .chipRow {
@@ -17,16 +18,18 @@
   display: inline-flex;
   align-items: center;
   gap: var(--vimla-space-1);
-  padding: 0.2rem 0.6rem;
+  padding: 0.25rem 0.65rem;
+  border: 1px solid color-mix(in srgb, var(--vimla-accent) 24%, transparent);
   border-radius: var(--vimla-radius-round);
-  background: var(--vimla-brand-soft);
-  color: var(--vimla-brand);
+  background: var(--vimla-accent-soft);
+  color: var(--vimla-accent);
   font-size: var(--vimla-type-caption-size);
-  font-weight: 600;
+  line-height: var(--vimla-type-caption-line);
+  font-weight: var(--vimla-type-medium-weight);
 }
 
 .composerField {
-  min-height: 2.75rem;
+  min-height: 3rem;
   resize: none;
 }
 
@@ -43,7 +46,8 @@
 }
 
 .message {
-  max-width: min(36rem, 100%);
+  width: fit-content;
+  max-width: min(42rem, 88%);
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -52,27 +56,34 @@
 
 .messageUser {
   margin-inline-start: auto;
+  align-items: flex-end;
 }
 
 .bubble {
   margin: 0;
-  padding: var(--vimla-space-3);
-  border-radius: var(--vimla-radius-lg);
-  background: var(--vimla-surface-secondary);
+  padding: var(--vimla-space-3) var(--vimla-space-4);
+  border: 1px solid var(--vimla-border-subtle);
+  border-radius: var(--vimla-radius-message);
+  background: var(--vimla-surface-1);
+  color: var(--vimla-text-primary);
+  box-shadow: var(--vimla-shadow-sm);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 
 .bubbleUser {
-  background: var(--vimla-accent);
-  color: var(--vimla-accent-text);
+  border-color: color-mix(in srgb, var(--vimla-accent) 36%, var(--vimla-border-subtle));
+  background: var(--vimla-accent-soft);
+  color: var(--vimla-text-primary);
 }
 
 .role {
   margin: 0;
+  padding-inline: var(--vimla-space-1);
   color: var(--vimla-text-muted);
   font-size: var(--vimla-type-caption-size);
-  font-weight: 600;
+  line-height: var(--vimla-type-caption-line);
+  font-weight: var(--vimla-type-medium-weight);
 }
 
 .content {
@@ -86,9 +97,9 @@
   align-items: center;
   gap: var(--vimla-space-3);
   padding: var(--vimla-space-3);
-  border: 1px solid var(--vimla-border);
-  border-radius: var(--vimla-radius-md);
-  background: var(--vimla-surface);
+  border: 1px solid var(--vimla-border-default);
+  border-radius: var(--vimla-radius-card);
+  background: var(--vimla-surface-1);
   min-width: 0;
 }
 
@@ -143,16 +154,23 @@
   width: 100%;
   text-align: left;
   border: 1px solid transparent;
-  border-radius: var(--vimla-radius-md);
+  border-radius: var(--vimla-radius-sidebar-item);
   background: transparent;
-  color: var(--vimla-text);
+  color: var(--vimla-text-primary);
   padding: var(--vimla-space-3);
   cursor: pointer;
+  transition:
+    background-color var(--vimla-duration-hover) var(--vimla-ease),
+    border-color var(--vimla-duration-hover) var(--vimla-ease);
 }
 
-.pickerItem:hover,
+.pickerItem:hover {
+  background: var(--vimla-surface-2);
+}
+
 .pickerItemSelected {
-  background: var(--vimla-surface-hover);
+  border-color: var(--vimla-border-default);
+  background: var(--vimla-accent-soft);
 }
 
 .filters {
@@ -168,10 +186,10 @@
   justify-content: space-between;
   gap: var(--vimla-space-3);
   min-width: 0;
-  padding: var(--vimla-space-3);
-  border: 1px solid var(--vimla-border);
-  border-radius: var(--vimla-radius-lg);
-  background: var(--vimla-surface);
+  padding: var(--vimla-space-4);
+  border: 1px solid var(--vimla-border-default);
+  border-radius: var(--vimla-radius-card);
+  background: var(--vimla-surface-1);
 }
 
 .operatorCard[data-tone="success"] {
@@ -212,6 +230,19 @@
 
 @media (max-width: 767px) {
   .composer {
+    padding-inline: var(--vimla-page-pad);
     padding-bottom: calc(var(--vimla-safe-bottom) + var(--vimla-space-3));
+    backdrop-filter: none;
+  }
+
+  .message {
+    max-width: 94%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stream span {
+    animation: none;
+    opacity: 0.65;
   }
 }
