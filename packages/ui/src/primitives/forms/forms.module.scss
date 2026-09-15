@@ -7,20 +7,23 @@
 
 .label {
   font-size: var(--vimla-type-label-size);
-  font-weight: 600;
-  color: var(--vimla-text);
+  line-height: var(--vimla-type-body-line);
+  font-weight: var(--vimla-type-semibold-weight);
+  color: var(--vimla-text-primary);
 }
 
 .description {
   margin: 0;
   color: var(--vimla-text-muted);
   font-size: var(--vimla-type-caption-size);
+  line-height: var(--vimla-type-caption-line);
 }
 
 .error {
   margin: 0;
   color: var(--vimla-danger);
   font-size: var(--vimla-type-caption-size);
+  line-height: var(--vimla-type-caption-line);
 }
 
 .control,
@@ -30,27 +33,34 @@
   min-width: 0;
   min-height: var(--vimla-control-height);
   padding: 0 var(--vimla-control-pad-x);
-  border: 1px solid var(--vimla-border);
-  border-radius: var(--vimla-radius-md);
-  background: var(--vimla-surface);
-  color: var(--vimla-text);
+  border: 1px solid var(--vimla-border-default);
+  border-radius: var(--vimla-radius-control);
+  background: var(--vimla-surface-1);
+  color: var(--vimla-text-primary);
   transition:
-    border-color var(--vimla-duration-fast) var(--vimla-ease),
-    box-shadow var(--vimla-duration-fast) var(--vimla-ease),
-    background-color var(--vimla-duration-fast) var(--vimla-ease);
+    border-color var(--vimla-duration-hover) var(--vimla-ease),
+    box-shadow var(--vimla-duration-hover) var(--vimla-ease),
+    background-color var(--vimla-duration-hover) var(--vimla-ease),
+    opacity var(--vimla-duration-hover) var(--vimla-ease);
+}
+
+.control::placeholder,
+.textarea::placeholder {
+  color: var(--vimla-text-muted);
 }
 
 .textarea {
   min-height: 6.5rem;
-  padding: var(--vimla-space-3);
+  padding: var(--vimla-space-3) var(--vimla-control-pad-x);
   resize: vertical;
   line-height: var(--vimla-type-body-line);
 }
 
-.control:hover:not(:disabled),
+.control:hover:not(:disabled):not(:read-only),
 .select:hover:not(:disabled),
-.textarea:hover:not(:disabled) {
+.textarea:hover:not(:disabled):not(:read-only) {
   border-color: var(--vimla-border-strong);
+  background: var(--vimla-bg-secondary);
 }
 
 .control:focus-visible,
@@ -60,15 +70,29 @@
   box-shadow: 0 0 0 3px var(--vimla-accent-soft);
 }
 
+.control:read-only,
+.textarea:read-only {
+  background: var(--vimla-surface-2);
+  color: var(--vimla-text-secondary);
+}
+
 .control:disabled,
 .select:disabled,
 .textarea:disabled {
-  opacity: 0.6;
+  background: var(--vimla-surface-2);
+  color: var(--vimla-text-muted);
+  opacity: 0.58;
   cursor: not-allowed;
 }
 
-.invalid {
+.invalid,
+.invalid:hover:not(:disabled),
+.invalid:focus-visible {
   border-color: var(--vimla-danger);
+}
+
+.invalid:focus-visible {
+  box-shadow: 0 0 0 3px var(--vimla-danger-soft);
 }
 
 .passwordWrap,
@@ -89,14 +113,14 @@
 
 .searchIcon {
   position: absolute;
-  left: 0.75rem;
+  left: var(--vimla-space-3);
   color: var(--vimla-text-muted);
   pointer-events: none;
 }
 
 .suffix {
   position: absolute;
-  right: 0.25rem;
+  right: var(--vimla-space-1);
 }
 
 .otp {
@@ -106,11 +130,12 @@
 }
 
 .otpCell {
-  width: 2.5rem;
+  width: var(--vimla-control-height);
   min-height: var(--vimla-control-height);
   text-align: center;
   font-variant-numeric: tabular-nums;
-  font-size: 1.125rem;
+  font-size: var(--vimla-type-h4-size);
+  line-height: var(--vimla-type-h4-line);
 }
 
 .check,
@@ -118,7 +143,7 @@
   display: inline-flex;
   align-items: center;
   gap: var(--vimla-space-2);
-  color: var(--vimla-text);
+  color: var(--vimla-text-primary);
   cursor: pointer;
 }
 
@@ -128,13 +153,25 @@
   width: 1.125rem;
   height: 1.125rem;
   margin: 0;
-  border: 1px solid var(--vimla-border);
-  background: var(--vimla-surface);
+  border: 1px solid var(--vimla-border-default);
+  background: var(--vimla-surface-1);
   display: grid;
   place-content: center;
   transition:
-    background-color var(--vimla-duration-fast) var(--vimla-ease),
-    border-color var(--vimla-duration-fast) var(--vimla-ease);
+    background-color var(--vimla-duration-button) var(--vimla-ease),
+    border-color var(--vimla-duration-button) var(--vimla-ease),
+    box-shadow var(--vimla-duration-button) var(--vimla-ease);
+}
+
+.check input:hover:not(:disabled),
+.radio input:hover:not(:disabled) {
+  border-color: var(--vimla-border-strong);
+}
+
+.check input:focus-visible,
+.radio input:focus-visible {
+  outline: 2px solid var(--vimla-focus-ring);
+  outline-offset: 2px;
 }
 
 .check input {
@@ -164,13 +201,14 @@
   content: "";
   width: 0.4rem;
   height: 0.4rem;
-  border-radius: 50%;
+  border-radius: var(--vimla-radius-round);
   background: var(--vimla-accent-text);
 }
 
 .check input:disabled,
 .radio input:disabled {
   opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .switch {
@@ -178,14 +216,15 @@
   display: inline-flex;
   align-items: center;
   gap: var(--vimla-space-2);
-  min-height: 44px;
+  min-height: var(--vimla-touch-target);
+  color: var(--vimla-text-primary);
   cursor: pointer;
 }
 
 .switch input {
   position: absolute;
   width: 2.5rem;
-  height: 1.4rem;
+  height: 1.5rem;
   margin: 0;
   opacity: 0;
   cursor: pointer;
@@ -194,24 +233,28 @@
 
 .track {
   width: 2.5rem;
-  height: 1.4rem;
+  height: 1.5rem;
   border-radius: var(--vimla-radius-round);
-  background: var(--vimla-surface-hover);
-  border: 1px solid var(--vimla-border);
+  background: var(--vimla-surface-3);
+  border: 1px solid var(--vimla-border-default);
   position: relative;
-  transition: background-color var(--vimla-duration-fast) var(--vimla-ease);
+  transition:
+    background-color var(--vimla-duration-button) var(--vimla-ease),
+    border-color var(--vimla-duration-button) var(--vimla-ease),
+    box-shadow var(--vimla-duration-button) var(--vimla-ease);
 }
 
 .track::after {
   content: "";
   position: absolute;
-  top: 1px;
+  top: 2px;
   left: 2px;
-  width: 1.1rem;
-  height: 1.1rem;
-  border-radius: 50%;
-  background: var(--vimla-surface);
-  transition: transform var(--vimla-duration-fast) var(--vimla-ease);
+  width: 1.125rem;
+  height: 1.125rem;
+  border-radius: var(--vimla-radius-round);
+  background: var(--vimla-surface-1);
+  box-shadow: var(--vimla-shadow-sm);
+  transition: transform var(--vimla-duration-button) var(--vimla-ease);
 }
 
 .switch input:checked + .track {
@@ -232,6 +275,11 @@
   opacity: 0.5;
 }
 
+.switch:has(input:disabled) {
+  cursor: not-allowed;
+  color: var(--vimla-text-muted);
+}
+
 @media (max-width: 479px) {
   .otpCell {
     width: 2.25rem;
@@ -243,12 +291,12 @@
   .select,
   .textarea,
   .otpCell {
-    min-height: 44px;
+    min-height: var(--vimla-touch-target);
   }
 
   .check,
   .radio,
   .switch {
-    min-height: 44px;
+    min-height: var(--vimla-touch-target);
   }
 }
