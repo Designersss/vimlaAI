@@ -4,7 +4,7 @@ import type { ReactElement } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { CheckSquareIcon, FolderIcon, MessageSquareIcon, SettingsIcon } from "@vimla/ui";
+import { CheckSquareIcon, FolderIcon, MessageSquareIcon, SettingsIcon, VimlaMark } from "@vimla/ui";
 import { CONSUMER_FEATURES } from "../../shared/config/consumer-features";
 import styles from "./DesktopSectionDock.module.scss";
 
@@ -33,6 +33,14 @@ export function DesktopSectionDock(): ReactElement {
       active: pathname === "/work" || pathname.startsWith("/work/"),
       icon: <CheckSquareIcon size={18} aria-hidden="true" />,
     },
+    ...(CONSUMER_FEATURES.vimlaOperator
+      ? [{
+          href: "/vimla",
+          label: t("nav.vimla"),
+          active: pathname === "/vimla" || pathname.startsWith("/vimla/"),
+          icon: <VimlaMark size={18} />,
+        }]
+      : []),
     {
       href: "/settings/account",
       label: t("nav.settings"),
