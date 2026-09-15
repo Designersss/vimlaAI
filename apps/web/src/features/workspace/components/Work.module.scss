@@ -3,6 +3,7 @@
 .form {
   display: grid;
   gap: var(--vimla-space-3);
+  min-width: 0;
 }
 
 .row {
@@ -10,11 +11,13 @@
   flex-wrap: wrap;
   gap: var(--vimla-space-2);
   align-items: center;
+  min-width: 0;
 }
 
 .stack {
   display: grid;
-  gap: var(--vimla-space-3);
+  gap: var(--vimla-space-4);
+  min-width: 0;
 }
 
 .item {
@@ -28,6 +31,7 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   font-family: inherit;
+  line-height: var(--vimla-type-body-line);
 }
 
 .grow {
@@ -40,18 +44,34 @@
   flex: 1;
   min-width: 0;
   min-height: 0;
+  background: var(--vimla-bg-primary);
 }
 
 .collectionPane,
 .detailPane {
   min-width: 0;
   min-height: 100%;
-  padding: var(--vimla-space-3);
+}
+
+.collectionPane {
+  padding: var(--vimla-space-4);
+  background: var(--vimla-bg-secondary);
+}
+
+.detailPane {
+  padding: var(--vimla-space-4) var(--vimla-page-pad)
+    calc(var(--vimla-safe-bottom) + var(--vimla-space-5));
+  background: var(--vimla-bg-primary);
+}
+
+.detailPane > * {
+  width: min(100%, 52rem);
 }
 
 .collectionHome {
   min-height: 100%;
   padding: var(--vimla-space-5) var(--vimla-page-pad);
+  background: var(--vimla-bg-primary);
 }
 
 .detailHeader {
@@ -59,6 +79,8 @@
   align-items: center;
   gap: var(--vimla-space-2);
   min-width: 0;
+  padding-bottom: var(--vimla-space-2);
+  border-bottom: 1px solid var(--vimla-border-subtle);
 }
 
 .detailTitle {
@@ -68,8 +90,8 @@
 
 .mobileBack {
   display: inline-flex;
-  min-width: 44px;
-  min-height: 44px;
+  min-width: var(--vimla-touch-target);
+  min-height: var(--vimla-touch-target);
   flex-shrink: 0;
 }
 
@@ -81,16 +103,46 @@
   min-height: 0;
   align-items: center;
   justify-content: center;
-  padding: var(--vimla-space-4);
+  padding: var(--vimla-space-5);
+  background: var(--vimla-bg-primary);
 }
 
 @include bp.vimla-lg-up {
-  .collectionPane,
+  .collectionPane {
+    padding: var(--vimla-space-5) var(--vimla-space-4);
+  }
+
   .detailPane {
-    padding: var(--vimla-space-4);
+    padding: var(--vimla-space-5) var(--vimla-page-pad);
   }
 
   .mobileBack {
     display: none;
+  }
+}
+
+@media (max-width: 767px) {
+  .collectionPane {
+    padding-bottom: calc(var(--vimla-bottom-nav-height) + var(--vimla-safe-bottom) + var(--vimla-space-4));
+  }
+
+  .row > * {
+    max-width: 100%;
+  }
+
+  .grow {
+    min-width: min(12rem, 100%);
+  }
+}
+
+@media (max-height: 520px) and (orientation: landscape) {
+  .collectionPane,
+  .detailPane,
+  .collectionHome {
+    padding-block: var(--vimla-space-3);
+  }
+
+  .stack {
+    gap: var(--vimla-space-3);
   }
 }
