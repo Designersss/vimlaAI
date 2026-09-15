@@ -1,5 +1,21 @@
 .form {
-  display: flex;
-  flex-direction: column;
+  display: grid;
   gap: var(--vimla-space-4);
+  min-width: 0;
+}
+
+.form > button:last-child {
+  margin-top: var(--vimla-space-1);
+}
+
+@media (max-width: 767px) {
+  .form {
+    gap: var(--vimla-space-3);
+  }
+}
+
+@media (max-height: 520px) and (orientation: landscape) {
+  .form {
+    gap: var(--vimla-space-2);
+  }
 }
