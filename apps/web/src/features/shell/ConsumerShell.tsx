@@ -8,11 +8,9 @@ import type { CurrentUser } from "@vimla/contracts";
 import {
   AppShell,
   Avatar,
-  Button,
   DropdownMenu,
   DropdownMenuItem,
   ErrorState,
-  LogOutIcon,
   MobileBottomNavigation,
   Spinner,
   VisuallyHidden,
@@ -45,7 +43,9 @@ export function ConsumerShell({ children }: { children: ReactNode }): ReactEleme
     let cancelled = false;
     void fetchCurrentUser()
       .then(async (currentUser) => {
-        if (cancelled) return;
+        if (cancelled) {
+          return;
+        }
         if (!currentUser.emailVerified) {
           router.replace("/verify-email");
           return;
@@ -58,7 +58,9 @@ export function ConsumerShell({ children }: { children: ReactNode }): ReactEleme
         setBoot("ready");
       })
       .catch((error: unknown) => {
-        if (cancelled) return;
+        if (cancelled) {
+          return;
+        }
         if (error instanceof AuthRequiredError) {
           router.replace("/sign-in");
           return;
