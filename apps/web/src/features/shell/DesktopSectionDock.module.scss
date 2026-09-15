@@ -1,0 +1,61 @@
+.dock {
+  display: none;
+}
+
+@media (min-width: 1024px) {
+  .dock {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--vimla-space-1);
+    padding: var(--vimla-space-2);
+    border-top: 1px solid var(--vimla-border-subtle);
+    background: color-mix(in srgb, var(--vimla-bg-secondary) 94%, transparent);
+    backdrop-filter: blur(18px);
+  }
+
+  .item {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+    min-height: var(--vimla-touch-target);
+    border-radius: var(--vimla-radius-control);
+    color: var(--vimla-text-muted);
+    text-decoration: none;
+    transition:
+      background-color var(--vimla-duration-hover) var(--vimla-ease),
+      color var(--vimla-duration-hover) var(--vimla-ease),
+      transform var(--vimla-duration-button) var(--vimla-ease);
+  }
+
+  .item:hover {
+    background: var(--vimla-surface-2);
+    color: var(--vimla-text-primary);
+  }
+
+  .item:active {
+    transform: scale(var(--vimla-press-scale));
+  }
+
+  .itemActive {
+    background: var(--vimla-accent-soft);
+    color: var(--vimla-accent);
+  }
+
+  .itemActive::after {
+    content: "";
+    position: absolute;
+    inset-inline: 25%;
+    bottom: 3px;
+    height: 2px;
+    border-radius: var(--vimla-radius-round);
+    background: currentColor;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .item:active {
+    transform: none;
+  }
+}
