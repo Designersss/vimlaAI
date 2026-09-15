@@ -32,12 +32,12 @@ test("sign-in and sign-up keep keyboard-reachable primary controls", async ({ pa
 
   await page.goto("/sign-in");
   await expect(page.getByLabel(/email|почта/i)).toBeVisible();
-  await expect(page.getByLabel(/password|пароль/i)).toBeVisible();
+  await expect(page.getByRole("textbox", { name: /password|пароль/i })).toBeVisible();
   await expect(page.getByRole("button", { name: /sign in|войти/i })).toBeVisible();
 
   await page.goto("/sign-up");
   await expect(page.getByLabel(/name|имя/i)).toBeVisible();
   await expect(page.getByLabel(/email|почта/i)).toBeVisible();
-  await expect(page.getByLabel(/password|пароль/i)).toBeVisible();
+  await expect(page.getByRole("textbox", { name: /password|пароль/i })).toBeVisible();
   await expect(page.getByRole("button", { name: /create account|создать аккаунт/i })).toBeVisible();
 });
