@@ -14,17 +14,31 @@
 .detail {
   min-width: 0;
   min-height: 0;
+}
+
+.master {
+  display: flex;
+  flex-direction: column;
+  background: var(--vimla-bg-secondary);
+}
+
+.masterContent {
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
   overflow: auto;
   overscroll-behavior: contain;
 }
 
-.master {
-  background: var(--vimla-bg-secondary);
+.masterFooter {
+  flex: 0 0 auto;
 }
 
 .detail {
   display: none;
   flex-direction: column;
+  overflow: auto;
+  overscroll-behavior: contain;
   background: var(--vimla-bg-primary);
 }
 
@@ -33,7 +47,6 @@
   > .detail { display: flex; }
 }
 
-// At 768px the global sidebar leaves too little room for two usable panes.
 @include bp.vimla-lg-up {
   .layout {
     grid-template-columns: minmax(17rem, clamp(18rem, 29%, 22.5rem)) minmax(0, 1fr);
@@ -41,7 +54,7 @@
 
   .master,
   .layout[data-detail-open="true"] > .master {
-    display: block;
+    display: flex;
     border-inline-end: 1px solid var(--vimla-border-subtle);
   }
 
