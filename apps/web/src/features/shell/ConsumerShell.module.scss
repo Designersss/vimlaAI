@@ -49,7 +49,8 @@
 }
 
 .localNav,
-.localNav nav {
+.localNavContent,
+.localNavContent nav {
   display: flex;
   flex-wrap: wrap;
   gap: var(--vimla-space-2);
@@ -91,6 +92,44 @@
   flex: 1;
 }
 
+@media (min-width: 1024px) {
+  .page:has(.localNav) {
+    display: grid;
+    grid-template-columns: minmax(17rem, clamp(18rem, 29%, 22.5rem)) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .localNav {
+    min-width: 0;
+    min-height: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    flex-wrap: nowrap;
+    align-items: stretch;
+    gap: 0;
+    border-bottom: 0;
+    border-inline-end: 1px solid var(--vimla-border-subtle);
+    overflow: hidden;
+  }
+
+  .localNavContent {
+    min-width: 0;
+    min-height: 0;
+    flex: 1;
+    padding: var(--vimla-space-4);
+    display: block;
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+
+  .localNavContent nav {
+    flex-direction: column;
+    flex-wrap: nowrap;
+    align-items: stretch;
+  }
+}
+
 @media (max-width: 767px) {
   .localNav {
     overflow-x: auto;
@@ -103,7 +142,8 @@
     display: none;
   }
 
-  .localNav nav {
+  .localNavContent,
+  .localNavContent nav {
     flex-wrap: nowrap;
     min-width: max-content;
   }
