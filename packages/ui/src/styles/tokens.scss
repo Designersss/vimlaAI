@@ -1,13 +1,13 @@
-// Vimla UI System v2 palette lives only in this file.
-// Dark: bg #0B1220 / surface #111827 / #1A2332 / hover #273247 / border #334155
-// Light: bg #FAFBFD / surface #FFFFFF / #F3F6FA / hover #E8EEF6 / border #D9E1EA
-// Interactive system blue: dark #3B82F6 / light #007AFF
-// Identity Vimla violet: #6366F1 (identity / ◆ Vimla only)
-// Success #22C55E / Warning #F59E0B / Danger #EF4444
+// Vimla Design System 2026 foundation.
+// Raw palette values live only in this file. Product/component styles consume semantic --vimla-* tokens.
+// The system is dark-native, but dark and light themes share the same semantic contract.
 
 :root {
-  --vimla-font: "Segoe UI", "SF Pro Text", "Inter", system-ui, sans-serif;
+  // Typography. Inter is the canonical UI face; system fonts remain safe fallbacks until a bundled/web font is loaded.
+  --vimla-font: "Inter Variable", "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --vimla-font-mono: "JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 
+  // Canonical 4px spacing scale. Legacy token names are kept stable to avoid page-local migrations.
   --vimla-space-1: 4px;
   --vimla-space-2: 8px;
   --vimla-space-3: 12px;
@@ -19,6 +19,7 @@
   --vimla-space-8: 48px;
   --vimla-space-9: 64px;
 
+  // Generic radii retained for existing consumers.
   --vimla-radius-xs: 4px;
   --vimla-radius-sm: 8px;
   --vimla-radius-md: 10px;
@@ -26,23 +27,58 @@
   --vimla-radius-xl: 16px;
   --vimla-radius-round: 999px;
 
-  --vimla-type-page-size: 1.75rem;
-  --vimla-type-page-line: 2.125rem;
-  --vimla-type-section-size: 1.25rem;
-  --vimla-type-section-line: 1.625rem;
-  --vimla-type-sub-size: 1rem;
-  --vimla-type-sub-line: 1.375rem;
-  --vimla-type-body-size: 1rem;
-  --vimla-type-body-line: 1.5rem;
-  --vimla-type-secondary-size: 0.875rem;
-  --vimla-type-secondary-line: 1.25rem;
-  --vimla-type-caption-size: 0.75rem;
-  --vimla-type-caption-line: 1.0625rem;
-  --vimla-type-label-size: 0.875rem;
+  // Role radii are canonical for new/updated components.
+  --vimla-radius-control-small: 8px;
+  --vimla-radius-control: 10px;
+  --vimla-radius-sidebar-item: 12px;
+  --vimla-radius-card: 14px;
+  --vimla-radius-message: 18px;
+  --vimla-radius-modal: 18px;
+  --vimla-radius-promo: 20px;
+  --vimla-radius-sheet: 24px;
 
-  --vimla-duration-fast: 130ms;
-  --vimla-duration-normal: 180ms;
-  --vimla-duration-slow: 240ms;
+  // Type ramp from the 2026 design contract.
+  --vimla-type-display-size: 3.5rem;
+  --vimla-type-display-line: 3.75rem;
+  --vimla-type-display-weight: 500;
+  --vimla-type-page-size: 2.25rem;
+  --vimla-type-page-line: 2.75rem;
+  --vimla-type-page-weight: 500;
+  --vimla-type-section-size: 1.75rem;
+  --vimla-type-section-line: 2.25rem;
+  --vimla-type-section-weight: 550;
+  --vimla-type-sub-size: 1.375rem;
+  --vimla-type-sub-line: 1.75rem;
+  --vimla-type-sub-weight: 600;
+  --vimla-type-h4-size: 1.125rem;
+  --vimla-type-h4-line: 1.5rem;
+  --vimla-type-h4-weight: 600;
+  --vimla-type-body-size: 0.875rem;
+  --vimla-type-body-line: 1.3125rem;
+  --vimla-type-body-large-size: 1rem;
+  --vimla-type-body-large-line: 1.5rem;
+  --vimla-type-secondary-size: 0.8125rem;
+  --vimla-type-secondary-line: 1.125rem;
+  --vimla-type-caption-size: 0.75rem;
+  --vimla-type-caption-line: 1rem;
+  --vimla-type-overline-size: 0.6875rem;
+  --vimla-type-overline-line: 1rem;
+  --vimla-type-label-size: 0.875rem;
+  --vimla-type-regular-weight: 400;
+  --vimla-type-medium-weight: 500;
+  --vimla-type-semibold-weight: 600;
+
+  // Motion roles. Use role tokens rather than inventing per-component durations.
+  --vimla-duration-hover: 120ms;
+  --vimla-duration-button: 150ms;
+  --vimla-duration-dropdown: 180ms;
+  --vimla-duration-sidebar: 220ms;
+  --vimla-duration-modal: 240ms;
+  --vimla-duration-page: 250ms;
+  // Backward-compatible duration aliases.
+  --vimla-duration-fast: var(--vimla-duration-hover);
+  --vimla-duration-normal: var(--vimla-duration-dropdown);
+  --vimla-duration-slow: var(--vimla-duration-modal);
   --vimla-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
   --vimla-press-scale: 0.987;
 
@@ -59,92 +95,133 @@
   --vimla-safe-bottom: env(safe-area-inset-bottom, 0px);
   --vimla-safe-left: env(safe-area-inset-left, 0px);
 
-  --vimla-page-pad: var(--vimla-space-4);
+  // Layout roles.
+  --vimla-page-pad: var(--vimla-space-5);
+  --vimla-page-pad-mobile: var(--vimla-space-4);
+  --vimla-card-pad: var(--vimla-space-5);
+  --vimla-control-gap: var(--vimla-space-2);
   --vimla-control-height: 2.5rem;
-  --vimla-control-pad-x: 0.875rem;
+  --vimla-control-height-sm: 2rem;
+  --vimla-control-height-lg: 3rem;
+  --vimla-control-height-hero: 3.5rem;
+  --vimla-control-pad-x: var(--vimla-space-4);
   --vimla-sidebar-width: 15rem;
+  --vimla-sidebar-width-max: 16.5rem;
   --vimla-sidebar-tablet: 13rem;
-  --vimla-sidebar-collapsed: 4.5rem;
+  --vimla-sidebar-collapsed: 5.5rem;
+  --vimla-context-pane-min: 26.25rem;
+  --vimla-context-pane-max: 28.75rem;
   --vimla-content-max: 72rem;
   --vimla-bottom-nav-height: 4.25rem;
+  --vimla-touch-target: 2.75rem;
 
-  --vimla-shadow-sm: 0 1px 2px rgb(15 23 42 / 0.06);
-  --vimla-shadow-md: 0 8px 24px rgb(15 23 42 / 0.08);
-  --vimla-shadow-lg: 0 16px 40px rgb(15 23 42 / 0.1);
+  // Material roles. Dark theme overrides shadows to rely primarily on surface/border depth.
+  --vimla-shadow-sm: 0 1px 2px rgb(20 34 56 / 0.04);
+  --vimla-shadow-md: 0 8px 24px rgb(20 34 56 / 0.07);
+  --vimla-shadow-lg: 0 12px 40px rgb(20 34 56 / 0.1);
+  --vimla-shadow-floating: 0 12px 40px rgb(20 34 56 / 0.12), inset 0 1px rgb(255 255 255 / 0.45);
+  --vimla-glass-blur: 24px;
 }
 
 html[data-theme="light"],
 html:not([data-theme]) {
   color-scheme: light;
-  --vimla-bg: #fafbfd;
-  --vimla-surface: #ffffff;
-  --vimla-surface-secondary: #f3f6fa;
-  --vimla-surface-hover: #e8eef6;
-  --vimla-text: #0f172a;
-  --vimla-text-secondary: #475569;
-  --vimla-text-muted: #94a3b8;
-  --vimla-text-inverse: #f8fafc;
-  --vimla-border: #d9e1ea;
-  --vimla-border-strong: #94a3b8;
-  --vimla-accent: #007aff;
-  --vimla-accent-hover: #0066d6;
-  --vimla-accent-active: #0055b8;
-  --vimla-accent-soft: rgb(0 122 255 / 0.12);
+
+  // Foundation palette.
+  --vimla-bg-primary: #f7f9fc;
+  --vimla-bg-secondary: #fbfcfe;
+  --vimla-surface-1: #ffffff;
+  --vimla-surface-2: #f2f6fb;
+  --vimla-surface-3: #eaf1f9;
+  --vimla-border-subtle: #e5ebf2;
+  --vimla-border-default: #d7e0ea;
+  --vimla-text-primary: #142238;
+  --vimla-text-secondary: #66758a;
+  --vimla-text-muted: #8c99aa;
+  --vimla-accent: #4c91e8;
+  --vimla-accent-hover: #397fd5;
+  --vimla-accent-active: #3374c4;
+  --vimla-accent-soft: #e8f2ff;
+  --vimla-success: #239b76;
+  --vimla-warning: #b78021;
+  --vimla-danger: #dc4650;
+
+  // Existing semantic API mapped onto the new foundation.
+  --vimla-bg: var(--vimla-bg-primary);
+  --vimla-surface: var(--vimla-surface-1);
+  --vimla-surface-secondary: var(--vimla-surface-2);
+  --vimla-surface-hover: var(--vimla-surface-3);
+  --vimla-text: var(--vimla-text-primary);
+  --vimla-text-inverse: #f7f9fc;
+  --vimla-border: var(--vimla-border-default);
+  --vimla-border-strong: #b7c4d3;
   --vimla-accent-text: #ffffff;
-  --vimla-brand: #6366f1;
-  --vimla-brand-soft: rgb(99 102 241 / 0.14);
-  --vimla-success: #22c55e;
-  --vimla-success-soft: rgb(34 197 94 / 0.14);
-  --vimla-warning: #f59e0b;
-  --vimla-warning-soft: rgb(245 158 11 / 0.16);
-  --vimla-danger: #ef4444;
-  --vimla-danger-soft: rgb(239 68 68 / 0.14);
-  --vimla-focus-ring: #007aff;
-  --vimla-overlay: rgb(15 23 42 / 0.4);
-  --vimla-code-bg: #0f172a;
-  --vimla-code-text: #e2e8f0;
+  --vimla-brand: var(--vimla-accent);
+  --vimla-brand-soft: var(--vimla-accent-soft);
+  --vimla-success-soft: rgb(35 155 118 / 0.12);
+  --vimla-warning-soft: rgb(183 128 33 / 0.13);
+  --vimla-danger-soft: rgb(220 70 80 / 0.12);
+  --vimla-focus-ring: #4c91e8;
+  --vimla-overlay: rgb(20 34 56 / 0.32);
+  --vimla-code-bg: #142238;
+  --vimla-code-text: #f3f6fa;
+  --vimla-glass-bg: rgb(255 255 255 / 0.82);
 }
 
 html[data-theme="dark"] {
   color-scheme: dark;
-  --vimla-bg: #0b1220;
-  --vimla-surface: #111827;
-  --vimla-surface-secondary: #1a2332;
-  --vimla-surface-hover: #273247;
-  --vimla-text: #f1f5f9;
-  --vimla-text-secondary: #94a3b8;
-  --vimla-text-muted: #64748b;
-  --vimla-text-inverse: #0b1220;
-  --vimla-border: #334155;
-  --vimla-border-strong: #475569;
-  --vimla-accent: #3b82f6;
-  --vimla-accent-hover: #60a5fa;
-  --vimla-accent-active: #2563eb;
-  --vimla-accent-soft: rgb(59 130 246 / 0.18);
-  --vimla-accent-text: #ffffff;
-  --vimla-brand: #6366f1;
-  --vimla-brand-soft: rgb(99 102 241 / 0.22);
-  --vimla-success: #22c55e;
-  --vimla-success-soft: rgb(34 197 94 / 0.16);
-  --vimla-warning: #f59e0b;
-  --vimla-warning-soft: rgb(245 158 11 / 0.16);
-  --vimla-danger: #ef4444;
-  --vimla-danger-soft: rgb(239 68 68 / 0.16);
-  --vimla-focus-ring: #60a5fa;
-  --vimla-overlay: rgb(0 0 0 / 0.55);
-  --vimla-code-bg: #020617;
-  --vimla-code-text: #e2e8f0;
-  --vimla-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.28);
-  --vimla-shadow-md: 0 10px 28px rgb(0 0 0 / 0.32);
-  --vimla-shadow-lg: 0 18px 44px rgb(0 0 0 / 0.38);
+
+  // Foundation palette.
+  --vimla-bg-primary: #070b10;
+  --vimla-bg-secondary: #0a1018;
+  --vimla-surface-1: #0d141e;
+  --vimla-surface-2: #111a26;
+  --vimla-surface-3: #172231;
+  --vimla-border-subtle: #1a2735;
+  --vimla-border-default: #253447;
+  --vimla-text-primary: #f3f6fa;
+  --vimla-text-secondary: #a6b1c0;
+  --vimla-text-muted: #6e7d90;
+  --vimla-accent: #75b7ff;
+  --vimla-accent-hover: #8dc4ff;
+  --vimla-accent-active: #5ea5f2;
+  --vimla-accent-soft: #16283d;
+  --vimla-success: #62d5b3;
+  --vimla-warning: #e9bb6a;
+  --vimla-danger: #ff646d;
+
+  // Existing semantic API mapped onto the new foundation.
+  --vimla-bg: var(--vimla-bg-primary);
+  --vimla-surface: var(--vimla-surface-1);
+  --vimla-surface-secondary: var(--vimla-surface-2);
+  --vimla-surface-hover: var(--vimla-surface-3);
+  --vimla-text: var(--vimla-text-primary);
+  --vimla-text-inverse: #070b10;
+  --vimla-border: var(--vimla-border-default);
+  --vimla-border-strong: #34475e;
+  --vimla-accent-text: #07111d;
+  --vimla-brand: var(--vimla-accent);
+  --vimla-brand-soft: var(--vimla-accent-soft);
+  --vimla-success-soft: rgb(98 213 179 / 0.14);
+  --vimla-warning-soft: rgb(233 187 106 / 0.14);
+  --vimla-danger-soft: rgb(255 100 109 / 0.14);
+  --vimla-focus-ring: #75b7ff;
+  --vimla-overlay: rgb(0 0 0 / 0.58);
+  --vimla-code-bg: #05080d;
+  --vimla-code-text: #f3f6fa;
+  --vimla-glass-bg: rgb(13 20 30 / 0.82);
+  --vimla-shadow-sm: 0 1px 0 rgb(255 255 255 / 0.025);
+  --vimla-shadow-md: 0 8px 28px rgb(0 0 0 / 0.14), inset 0 1px rgb(255 255 255 / 0.02);
+  --vimla-shadow-lg: 0 12px 40px rgb(0 0 0 / 0.2), inset 0 1px rgb(255 255 255 / 0.025);
+  --vimla-shadow-floating: 0 12px 40px rgb(0 0 0 / 0.2), inset 0 1px rgb(255 255 255 / 0.025);
 }
 
 html[data-density="compact"] {
   --vimla-control-height: 2rem;
-  --vimla-control-pad-x: 0.625rem;
+  --vimla-control-pad-x: var(--vimla-space-3);
   --vimla-page-pad: var(--vimla-space-3);
-  --vimla-type-body-size: 0.875rem;
-  --vimla-type-body-line: 1.25rem;
+  --vimla-type-body-size: 0.8125rem;
+  --vimla-type-body-line: 1.125rem;
 }
 
 *,
@@ -168,8 +245,18 @@ body {
   font-family: var(--vimla-font);
   font-size: var(--vimla-type-body-size);
   line-height: var(--vimla-type-body-line);
+  font-weight: var(--vimla-type-regular-weight);
   background: var(--vimla-bg);
   color: var(--vimla-text);
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+code,
+kbd,
+pre,
+samp {
+  font-family: var(--vimla-font-mono);
 }
 
 img,
@@ -197,7 +284,7 @@ textarea {
 
 @media (max-width: 767px) {
   :root {
-    --vimla-page-pad: var(--vimla-space-3);
+    --vimla-page-pad: var(--vimla-page-pad-mobile);
   }
 }
 

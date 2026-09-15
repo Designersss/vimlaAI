@@ -9,9 +9,12 @@ test("auth shell has no document overflow", async ({ page }) => {
   await assertNoDocumentOverflow(page);
 });
 
-test("UI catalog shell is reachable in test", async ({ page }) => {
+test("UI catalog exposes the Design System 2026 foundation without overflow", async ({ page }) => {
   await page.goto("/dev/ui");
   await expect(page.getByRole("heading", { name: "Vimla UI catalog" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Design System 2026 foundation" })).toBeVisible();
+  await expect(page.getByLabel("Semantic surface tokens")).toBeVisible();
+  await expect(page.getByLabel("Typography specimen")).toBeVisible();
   await assertNoDocumentOverflow(page);
 });
 

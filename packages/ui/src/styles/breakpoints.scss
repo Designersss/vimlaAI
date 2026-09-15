@@ -1,9 +1,14 @@
-// Canonical Vimla breakpoints. Use these values; do not invent per-page widths.
+// Canonical Vimla responsive thresholds.
+// Existing sm/md/lg/xl/2xl names stay stable for current route architecture.
+// New context/desktop/wide roles express Design System 2026 layout behavior without page-local magic numbers.
 $vimla-bp-sm: 480px;
 $vimla-bp-md: 768px;
 $vimla-bp-lg: 1024px;
+$vimla-bp-context: 1100px;
 $vimla-bp-xl: 1280px;
+$vimla-bp-desktop: 1440px;
 $vimla-bp-2xl: 1536px;
+$vimla-bp-wide: 1728px;
 
 @mixin vimla-up($width) {
   @media (min-width: $width) {
@@ -29,14 +34,32 @@ $vimla-bp-2xl: 1536px;
   }
 }
 
+@mixin vimla-context-up {
+  @include vimla-up($vimla-bp-context) {
+    @content;
+  }
+}
+
 @mixin vimla-xl-up {
   @include vimla-up($vimla-bp-xl) {
     @content;
   }
 }
 
+@mixin vimla-desktop-up {
+  @include vimla-up($vimla-bp-desktop) {
+    @content;
+  }
+}
+
 @mixin vimla-2xl-up {
   @include vimla-up($vimla-bp-2xl) {
+    @content;
+  }
+}
+
+@mixin vimla-wide-up {
+  @include vimla-up($vimla-bp-wide) {
     @content;
   }
 }
