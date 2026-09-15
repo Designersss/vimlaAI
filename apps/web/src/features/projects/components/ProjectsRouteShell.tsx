@@ -4,6 +4,7 @@ import type { ReactElement, ReactNode } from "react";
 import { useSelectedLayoutSegments } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { MasterDetailLayout } from "@vimla/ui";
+import { DesktopSectionDock } from "../../shell/DesktopSectionDock";
 import { ProjectListPane } from "./ProjectListPane";
 import { ProjectsWorkspaceProvider } from "./ProjectsWorkspaceProvider";
 import styles from "./Projects.module.scss";
@@ -26,6 +27,7 @@ export function ProjectsRouteShell({ children }: { children: ReactNode }): React
           masterLabel={t("projects.title")}
           detailLabel={t("projects.overview")}
           master={<ProjectListPane selectedProjectId={projectId} />}
+          masterFooter={<DesktopSectionDock />}
         >
           {children}
         </MasterDetailLayout>
