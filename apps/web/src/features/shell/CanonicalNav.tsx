@@ -72,6 +72,7 @@ export function CanonicalNav({ compact = false }: { compact?: boolean }): ReactE
           <Link
             key={item.href}
             href={item.href}
+            aria-current={item.active ? "page" : undefined}
             className={mobileNavItemClassName({
               active: item.active,
               brand: item.href === "/vimla",
@@ -91,13 +92,14 @@ export function CanonicalNav({ compact = false }: { compact?: boolean }): ReactE
         <Link
           key={item.href}
           href={item.href}
+          aria-current={item.active ? "page" : undefined}
           className={sidebarItemClassName({
             active: item.active,
             brand: item.href === "/vimla",
           })}
         >
           {item.icon}
-          {item.label}
+          <span>{item.label}</span>
         </Link>
       ))}
     </>
