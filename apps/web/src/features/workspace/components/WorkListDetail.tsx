@@ -4,7 +4,7 @@ import { useEffect, useState, type FormEvent, type ReactElement } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import type { ListView } from "@vimla/contracts";
-import { Alert, Button, Card, Checkbox, EmptyState, FormField, Heading, Input } from "@vimla/ui";
+import { Alert, Button, Card, Checkbox, EmptyState, FormField, Input } from "@vimla/ui";
 import { apiErrorMessageKey } from "../../../shared/errors/error-keys";
 import { tx } from "../../../shared/i18n/translate";
 import {
@@ -16,14 +16,18 @@ import {
   reorderListItems,
   updateListItem,
 } from "../services/api";
+import { WorkDetailHeader } from "./WorkDetailHeader";
+import { useWorkspaceViewSync } from "./WorkspaceViewSync";
 import styles from "./Work.module.scss";
 
 export function WorkListDetail({ listId }: { listId: string }): ReactElement {
   const t = useTranslations();
   const router = useRouter();
+  const { invalidateLists } = useWorkspaceViewSync();
   const [list, setList] = useState<ListView | null>(null);
   const [text, setText] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [loadRevision, setLoadRevision] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -31,6 +35,7 @@ export function WorkListDetail({ listId }: { listId: string }): ReactElement {
       .then((loaded) => {
         if (!cancelled) {
           setList(loaded);
+          setError(null);
         }
       })
       .catch((caught: unknown) => {
@@ -41,7 +46,7 @@ export function WorkListDetail({ listId }: { listId: string }): ReactElement {
     return () => {
       cancelled = true;
     };
-  }, [listId]);
+  }, [listId, loadRevision]);
 
   async function onAdd(event: FormEvent): Promise<void> {
     event.preventDefault();
@@ -97,19 +102,33 @@ export function WorkListDetail({ listId }: { listId: string }): ReactElement {
     }
   }
 
-  if (!list && !error) {
-    return <p>{t("work.loading")}</p>;
-  }
-
   if (!list) {
-    return <Alert variant="error">{tx(t, apiErrorMessageKey(error ?? "not_found"))}</Alert>;
+    return (
+      <div className={styles.detailPane} data-testid="work-list-detail">
+        <WorkDetailHeader backHref="/work/lists" title={t("work.lists")} />
+        {error ? (
+          <div className={styles.stack}>
+            <Alert variant="error">{tx(t, apiErrorMessageKey(error))}</Alert>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setError(null);
+                setLoadRevision((revision) => revision + 1);
+              }}
+            >
+              {t("common.retry")}
+            </Button>
+          </div>
+        ) : (
+          <p role="status">{t("work.loading")}</p>
+        )}
+      </div>
+    );
   }
 
   return (
-    <div className={styles.stack}>
-      <Heading as="h1" size="page">
-        {list.title}
-      </Heading>
+    <div className={`${styles.stack} ${styles.detailPane}`} data-testid="work-list-detail">
+      <WorkDetailHeader backHref="/work/lists" title={list.title} />
       {error ? <Alert variant="error">{tx(t, apiErrorMessageKey(error))}</Alert> : null}
       <form className={styles.row} onSubmit={(event) => void onAdd(event)}>
         <FormField label={t("work.itemText")} htmlFor="list-item" className={styles.grow}>
@@ -168,7 +187,10 @@ export function WorkListDetail({ listId }: { listId: string }): ReactElement {
         variant="secondary"
         onClick={() =>
           void deleteList(listId)
-            .then(() => router.push("/work/lists"))
+            .then(() => {
+              invalidateLists();
+              router.push("/work/lists", { scroll: false });
+            })
             .catch((caught: unknown) => {
               setError(caught instanceof WorkspaceApiError ? caught.code : "internal_error");
             })

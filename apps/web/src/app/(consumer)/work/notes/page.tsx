@@ -1,11 +1,6 @@
 import type { ReactElement } from "react";
-import { WorkShell } from "../../../../features/shell/WorkShell";
-import { WorkNotes } from "../../../../features/workspace/components/WorkNotes";
+import { WorkCollectionHome } from "../../../../features/workspace/components/WorkCollectionHome";
 
 export default function WorkNotesPage(): ReactElement {
-  return (
-    <WorkShell>
-      <WorkNotes />
-    </WorkShell>
-  );
+  return <WorkCollectionHome kind="notes" />;
 }

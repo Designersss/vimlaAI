@@ -10,6 +10,7 @@ import {
   UseGuards,
 } from "@nestjs/common";
 import type { FastifyRequest } from "fastify";
+import { isAiError } from "@vimla/ai";
 import type { AuthenticatedUser } from "@vimla/auth";
 import type { OperatorConversation, OperatorRunView } from "@vimla/contracts";
 import { operatorConversationSchema } from "@vimla/contracts";
@@ -42,7 +43,15 @@ export class OperatorRunsController {
   @Post()
   @HttpCode(201)
   async create(@AuthUser() user: AuthenticatedUser, @Body() body: unknown, @Req() request: FastifyRequest): Promise<OperatorRunView> {
-    return this.operator.createRun(user.id, body, String(request.id));
+    const correlationId = String(request.id);
+    try {
+      return await this.operator.createRun(user.id, body, correlationId);
+    } catch (error: unknown) {
+      if (isAiError(error) && error.code === "AI_REQUEST_IN_PROGRESS") {
+        return this.operator.createRun(user.id, body, correlationId);
+      }
+      throw error;
+    }
   }
 
   @Get(":id")

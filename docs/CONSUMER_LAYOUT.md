@@ -1,6 +1,6 @@
 # Persistent consumer feature layouts
 
-Issue #15 introduced the persistent consumer shell and responsive chat master/detail architecture. Issue #17 extends the same route-layout principles to Projects and Settings where the product has real collection/detail or stable local-navigation semantics. Public feature URLs remain deterministic and feature gates remain authoritative.
+Issue #15 introduced the persistent consumer shell and responsive chat master/detail architecture. Issue #17 extends the same route-layout principles to Projects, Settings and Work where the product has real collection/detail or stable local-navigation semantics. Public feature URLs remain deterministic and feature gates remain authoritative.
 
 ## Route and component ownership
 
@@ -34,7 +34,22 @@ RootLayout (locale, appearance, toasts)
         settings/notifications -> NotificationSettings (feature-gated)
         settings/loading, error -> scoped detail status/recovery
 
-    work/* -> WorkShell -> ConsumerPage
+    work/layout -> WorkShell -> ConsumerPage (persistent Work navigation)
+      work/page -> WorkToday (single-pane)
+      work/tasks/page -> WorkTasks (single-pane)
+      work/reminders/page -> WorkReminders (single-pane)
+      work/notes/layout -> WorkNotesRouteShell -> MasterDetailLayout
+        WorkNotes (persistent collection pane)
+        work/notes/page -> no-selection state
+        work/notes/[id]/page -> WorkNoteEditor
+        work/notes/[id]/loading,error -> scoped detail recovery
+      work/lists/layout -> WorkListsRouteShell -> MasterDetailLayout
+        WorkLists (persistent collection pane)
+        work/lists/page -> no-selection state
+        work/lists/[id]/page -> WorkListDetail
+        work/lists/[id]/loading,error -> scoped detail recovery
+      work/loading,error -> scoped below persistent Work navigation
+
     vimla/* -> OperatorWorkspace -> ConsumerPage
 ```
 
@@ -72,19 +87,31 @@ At the shared wide breakpoint the same `SettingsNavigationPane` remains mounted 
 
 Settings `loading.tsx` and `error.tsx` live below the persistent settings layout, so asynchronous route status and recovery do not remove global navigation or the settings menu. The error boundary uses the App Router `reset` contract.
 
+### Work
+
+Work is intentionally mixed rather than forced into one universal master/detail structure. The `/work` route layout now owns `WorkShell`, so the feature-local Today / Tasks / Reminders / Lists / Notes navigation remains mounted while child routes change. The URL remains authoritative for the active Work subsection.
+
+Tasks and Reminders stay single-pane because the current domain has no route-addressable `/tasks/[id]` or `/reminders/[id]` detail screens. No fake detail routes or duplicate mobile implementations are introduced for architectural symmetry.
+
+Notes and Lists already have genuine collection/detail routes, so each collection gets a nested route shell using the same presentation-only `MasterDetailLayout`. `/work/notes` and `/work/lists` are the deterministic collection routes; `/work/notes/[id]` and `/work/lists/[id]` select details from the URL. At wide widths the collection pane stays mounted beside the detail. At narrow widths the same components behave as list -> detail screens, with an explicit Back link to the corresponding collection route. Direct detail deep links and refreshes therefore remain recoverable without depending on browser history.
+
+`WorkspaceViewSyncProvider` is scoped to the persistent Work layout and owns only revision counters used to refresh the visible Notes/Lists collections after successful authoritative create/update/delete operations. It does not store selected IDs, permissions, identity or persisted Workspace objects as authority. All Workspace persistence and ownership checks continue through the existing authenticated API and `@vimla/workspace` domain services.
+
+Detail route `loading.tsx` and `error.tsx` boundaries live inside the nested Notes/Lists layouts, so a loading or failed note/list detail does not remove the persistent collection on desktop or the outer Work navigation. Error boundaries use the App Router `error` + `reset` contract. The outer Work loading/error boundaries are likewise below `WorkShell`, preserving the feature navigation.
+
 ## Responsive composition
 
 `@vimla/ui` exports a presentation-only `MasterDetailLayout`: master/detail content, labels and `detailOpen`. It imports no router or domain code. At the shared `lg` breakpoint (1024px) both panels appear; below it CSS hides the inactive panel, including its focusable elements. The 768px tablet still has the narrower global sidebar, so it uses one feature pane to avoid two unusably narrow columns. There is one master and one detail implementation across widths.
 
-Chat, Projects and Settings opt into the application viewport mode so their persistent navigation/list/detail regions can scroll independently without document-level navigation jumps. Mobile still reserves safe-area-aware space for the global bottom navigation. Very short screens remain scrollable. Other consumers of `AppShell` retain document scrolling until their own route architecture explicitly requires a persistent viewport.
+Chat, Projects, Settings and Work opt into the application viewport mode so their persistent navigation/list/detail regions can scroll independently without document-level navigation jumps. Mobile still reserves safe-area-aware space for the global bottom navigation. Very short screens remain scrollable. Other consumers of `AppShell` retain document scrolling until their own route architecture explicitly requires a persistent viewport.
 
-Project detail keeps the canonical project-local navigation inside the detail content. The master project list is a drill-down collection pane, not a second global navigation layer. `/projects/join` bypasses the project master pane. Settings navigation is likewise feature-local and visually subordinate to the one global Vimla navigation layer.
+Project detail keeps the canonical project-local navigation inside the detail content. The master project list is a drill-down collection pane, not a second global navigation layer. `/projects/join` bypasses the project master pane. Settings navigation is likewise feature-local and visually subordinate to the one global Vimla navigation layer. Work keeps one persistent feature-local navigation row; only Notes and Lists add nested collection/detail composition because those routes have real entity-detail semantics.
 
 ## Platform boundaries
 
 - **Shared today:** `@vimla/contracts` request/response types, validation, domain packages and `@vimla/e2ee` crypto. Client state is non-authoritative and does not decide permissions, billing or entitlements.
 - **Web adapters:** route files and feature route shells select IDs/sections; feature components bind services/actions; API services encapsulate cookie transport/config. Navigation remains a platform concern rather than domain/store state.
-- **Web presentation:** `@vimla/ui` remains DOM/SCSS. `MasterDetailLayout` is presentation-only and project/chat/settings agnostic. Tokens remain semantic; no universal DOM/native compatibility layer is introduced.
+- **Web presentation:** `@vimla/ui` remains DOM/SCSS. `MasterDetailLayout` is presentation-only and chat/project/settings/work agnostic. Tokens remain semantic; no universal DOM/native compatibility layer is introduced.
 - **Future only:** Next.js web, Tauri + React desktop, React Native + Expo mobile. Native navigators can supply selected IDs/sections to equivalent feature/domain APIs and implement native master-detail navigation and platform capability adapters. No native apps, packages, dependencies or speculative adapter framework are created here.
 
 ## Verification
@@ -95,6 +122,8 @@ Project detail keeps the canonical project-local navigation inside the detail co
 
 `settings-layout.spec.ts` covers persistent Settings navigation DOM identity while switching sections, the deterministic mobile `/settings` menu/detail model, direct deep-link refresh and the representative viewport matrix.
 
+`work-layout.spec.ts` covers persistent Work navigation identity across Today/Tasks/Reminders/Notes/Lists, verifies Tasks/Reminders remain single-pane, exercises persistent Notes and Lists collection/detail behavior on desktop, deterministic Back and deep-link refresh on mobile, collection synchronization after note edits, and the representative nested-layout viewport matrix. `workspace.spec.ts` remains the domain-flow regression suite for Tasks, Reminders, Lists, Notes and Today.
+
 Run `pnpm lint`, `pnpm typecheck`, `pnpm test`, `pnpm test:integration`, `pnpm build`, `pnpm test:e2e` and `git diff --check` using local/test databases and mock providers. No formatter command is configured.
 
-Physical iOS Safari and Android Chrome virtual keyboards cannot be fully simulated by Playwright. Before a production UI rollout, verify critical project, settings and chat interactions on representative physical devices, including portrait/landscape, safe areas and short viewport heights.
+Physical iOS Safari and Android Chrome virtual keyboards cannot be fully simulated by Playwright. Before a production UI rollout, verify critical project, settings, chat and Work interactions on representative physical devices, including portrait/landscape, safe areas and short viewport heights.

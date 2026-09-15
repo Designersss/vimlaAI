@@ -67,3 +67,11 @@
   display: grid;
   gap: var(--vimla-space-2);
 }
+
+.root {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}

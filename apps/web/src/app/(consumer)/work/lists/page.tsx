@@ -1,11 +1,6 @@
 import type { ReactElement } from "react";
-import { WorkShell } from "../../../../features/shell/WorkShell";
-import { WorkLists } from "../../../../features/workspace/components/WorkLists";
+import { WorkCollectionHome } from "../../../../features/workspace/components/WorkCollectionHome";
 
 export default function WorkListsPage(): ReactElement {
-  return (
-    <WorkShell>
-      <WorkLists />
-    </WorkShell>
-  );
+  return <WorkCollectionHome kind="lists" />;
 }

@@ -3,9 +3,9 @@ import { signUp, uniqueEmail, verifyEmail } from "./helpers";
 import { assertNoDocumentOverflow } from "./responsive-helpers";
 
 test.describe("personal workspace", () => {
-  test("manages tasks, reminders, lists, notes and today without AI", async ({ page, request }) => {
-    test.setTimeout(120_000);
-    const email = uniqueEmail("e2e-work");
+  test("manages tasks and reminders and surfaces due items in today", async ({ page, request }) => {
+    test.setTimeout(60_000);
+    const email = uniqueEmail("e2e-work-today");
     await signUp(page, { name: "Ada", email, password: "correct-horse-battery" });
     await verifyEmail(page, request, email);
 
@@ -50,7 +50,18 @@ test.describe("personal workspace", () => {
     await expect(page.getByText("Call dentist")).toBeVisible();
     await expect(page.getByText(/^напоминание сохранено\.|^reminder saved\.$/i)).toBeVisible();
 
-    await page.getByRole("link", { name: /списки|lists/i }).first().click();
+    await page.goto("/work");
+    await expect(page.getByText("Due today task")).toBeVisible();
+    await expect(page.getByText("Call dentist")).toBeVisible();
+  });
+
+  test("manages checklist and plain lists", async ({ page, request }) => {
+    test.setTimeout(60_000);
+    const email = uniqueEmail("e2e-work-lists");
+    await signUp(page, { name: "Ada", email, password: "correct-horse-battery" });
+    await verifyEmail(page, request, email);
+
+    await page.goto("/work/lists");
     await page.locator("#list-title").fill("Groceries");
     await page.locator("#list-type").selectOption("CHECKLIST");
     await page.getByRole("button", { name: /создать|create/i }).click();
@@ -63,14 +74,14 @@ test.describe("personal workspace", () => {
     await page.getByRole("button", { name: /добавить пункт|add item/i }).click();
     await expect(page.getByText("Eggs")).toBeVisible();
     await page.getByRole("button", { name: /ниже|move down/i }).first().click();
-    const rows = page.locator("ul li");
+    const rows = page.getByTestId("work-list-detail").locator("ul li");
     await expect(rows.nth(0)).toContainText("Eggs");
     await expect(rows.nth(1)).toContainText("Milk");
     const milk = page.getByRole("checkbox", { name: "Milk" });
     await milk.click();
     await expect(milk).toBeChecked();
 
-    await page.getByRole("link", { name: /списки|lists/i }).first().click();
+    await page.goto("/work/lists");
     await page.locator("#list-title").fill("Reading");
     await page.locator("#list-type").selectOption("PLAIN");
     await page.getByRole("button", { name: /создать|create/i }).click();
@@ -79,22 +90,28 @@ test.describe("personal workspace", () => {
     await page.getByRole("button", { name: /добавить пункт|add item/i }).click();
     await expect(page.getByText("Chapter 1")).toBeVisible();
     await expect(page.getByRole("checkbox")).toHaveCount(0);
+  });
 
-    await page.getByRole("link", { name: /заметки|notes/i }).first().click();
+  test("creates, edits, pins, archives and searches notes", async ({ page, request }) => {
+    test.setTimeout(60_000);
+    const email = uniqueEmail("e2e-work-notes");
+    await signUp(page, { name: "Ada", email, password: "correct-horse-battery" });
+    await verifyEmail(page, request, email);
+
+    await page.goto("/work/notes");
     await page.getByLabel(/название|title/i).fill("Project ideas");
     await page.getByRole("button", { name: /создать|create/i }).click();
+    await expect(page).toHaveURL(/\/work\/notes\/.+/);
+    await expect(page.locator("#note-content")).toBeVisible();
     await page.locator("#note-content").fill("plain markdown text");
     await page.getByRole("button", { name: /сохранить|save/i }).click();
     await page.getByRole("button", { name: /закрепить|pin/i }).click();
     await page.getByRole("button", { name: /в архив|archive/i }).click();
-    await page.getByRole("link", { name: /заметки|notes/i }).first().click();
+
+    await page.goto("/work/notes");
     await page.getByRole("button", { name: /показать архив|show archived/i }).click();
     await page.getByPlaceholder(/поиск|search/i).fill("plain markdown");
     await expect(page.getByRole("link", { name: "Project ideas" })).toBeVisible();
-
-    await page.goto("/work");
-    await expect(page.getByText("Due today task")).toBeVisible();
-    await expect(page.getByText("Call dentist")).toBeVisible();
   });
 
   test("reschedules a reminder through the shared dialog", async ({ page, request }) => {
