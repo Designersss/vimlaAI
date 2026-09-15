@@ -1,6 +1,17 @@
-import type { ReactElement, ReactNode } from "react";
+import { cloneElement, isValidElement, type ReactElement, type ReactNode } from "react";
 import { cx } from "../../utils/cx";
 import styles from "./forms.module.scss";
+
+type DescribedControlProps = {
+  "aria-describedby"?: string;
+  "aria-errormessage"?: string;
+  "aria-invalid"?: boolean | "true" | "false";
+};
+
+function mergeIds(...ids: Array<string | undefined>): string | undefined {
+  const value = ids.filter(Boolean).join(" ");
+  return value || undefined;
+}
 
 export function FormField({
   label,
@@ -19,6 +30,15 @@ export function FormField({
 }): ReactElement {
   const descriptionId = description ? `${htmlFor}-description` : undefined;
   const errorId = error ? `${htmlFor}-error` : undefined;
+
+  const control = isValidElement<DescribedControlProps>(children)
+    ? cloneElement(children, {
+        "aria-describedby": mergeIds(children.props["aria-describedby"], descriptionId),
+        "aria-errormessage": errorId ?? children.props["aria-errormessage"],
+        "aria-invalid": error ? true : children.props["aria-invalid"],
+      })
+    : children;
+
   return (
     <div className={cx(styles.stack, className)}>
       <label className={styles.label} htmlFor={htmlFor}>
@@ -29,7 +49,7 @@ export function FormField({
           {description}
         </p>
       ) : null}
-      {children}
+      {control}
       {error ? (
         <p id={errorId} className={styles.error} role="alert">
           {error}
