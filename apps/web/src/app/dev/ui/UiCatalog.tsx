@@ -62,6 +62,7 @@ import {
   useAppearance,
   useToast,
 } from "@vimla/ui";
+import styles from "./catalog.module.scss";
 
 export function UiCatalog(): ReactElement {
   const { appearance, setAppearance } = useAppearance();
@@ -97,6 +98,60 @@ export function UiCatalog(): ReactElement {
             System
           </Segment>
         </SegmentedControl>
+      </section>
+
+      <section className={styles.foundationSection} aria-labelledby="foundation-2026-heading">
+        <div className={styles.foundationIntro}>
+          <Heading as="h2" size="section" id="foundation-2026-heading">
+            Design System 2026 foundation
+          </Heading>
+          <Text tone="secondary">
+            Canonical semantic surfaces and type roles. Switch appearance above to verify the same contract in both themes.
+          </Text>
+        </div>
+
+        <div className={styles.foundationGrid} aria-label="Semantic surface tokens">
+          <div className={`${styles.tokenCard} ${styles.surfacePrimary}`}>
+            <strong>Background primary</strong>
+            <span className={styles.tokenLabel}>--vimla-bg-primary</span>
+          </div>
+          <div className={`${styles.tokenCard} ${styles.surfaceSecondary}`}>
+            <strong>Background secondary</strong>
+            <span className={styles.tokenLabel}>--vimla-bg-secondary</span>
+          </div>
+          <div className={`${styles.tokenCard} ${styles.surfaceOne}`}>
+            <strong>Surface 1</strong>
+            <span className={styles.tokenLabel}>--vimla-surface-1</span>
+          </div>
+          <div className={`${styles.tokenCard} ${styles.surfaceTwo}`}>
+            <strong>Surface 2</strong>
+            <span className={styles.tokenLabel}>--vimla-surface-2</span>
+          </div>
+          <div className={`${styles.tokenCard} ${styles.surfaceThree}`}>
+            <strong>Surface 3</strong>
+            <span className={styles.tokenLabel}>--vimla-surface-3</span>
+          </div>
+          <div className={`${styles.tokenCard} ${styles.accentSurface}`}>
+            <strong>Accent soft</strong>
+            <span className={styles.tokenLabel}>--vimla-accent-soft / --vimla-accent</span>
+          </div>
+        </div>
+
+        <div className={styles.typeSpecimen} aria-label="Typography specimen">
+          <p className={styles.displaySample}>Think clearer.</p>
+          <p className={styles.h1Sample}>A calm, precise interface</p>
+          <p className={styles.h2Sample}>Typography carries hierarchy</p>
+          <p className={styles.bodySample}>
+            Body large is reserved for messages and important reading. Default interface copy remains compact and quiet.
+          </p>
+          <p className={styles.captionSample}>Caption · 12/16 · semantic secondary context</p>
+        </div>
+
+        <div className={styles.statusRow} aria-label="Semantic status colors">
+          <span className={`${styles.statusChip} ${styles.successChip}`}>Success</span>
+          <span className={`${styles.statusChip} ${styles.warningChip}`}>Warning</span>
+          <span className={`${styles.statusChip} ${styles.dangerChip}`}>Danger</span>
+        </div>
       </section>
 
       <section>
