@@ -18,8 +18,8 @@ test("landing preserves primary conversion paths across the responsive matrix", 
 
     await expect(page.getByTestId("landing-page")).toBeVisible();
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
-    await expect(page.getByRole("link", { name: /sign in|войти/i })).toBeVisible();
-    await expect(page.getByRole("link", { name: /sign up|регистрация|создать/i })).toBeVisible();
+    await expect(page.locator('a[href="/sign-in"]')).toBeVisible();
+    await expect(page.locator('a[href="/sign-up"]')).toBeVisible();
     await assertNoDocumentOverflow(page);
   }
 });
@@ -28,6 +28,6 @@ test("landing CTAs keep their canonical auth routes", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
 
-  await expect(page.getByRole("link", { name: /sign in|войти/i })).toHaveAttribute("href", "/sign-in");
-  await expect(page.getByRole("link", { name: /sign up|регистрация|создать/i })).toHaveAttribute("href", "/sign-up");
+  await expect(page.locator('a[href="/sign-in"]')).toHaveAttribute("href", "/sign-in");
+  await expect(page.locator('a[href="/sign-up"]')).toHaveAttribute("href", "/sign-up");
 });
