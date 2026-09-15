@@ -5,18 +5,30 @@
   flex: 1;
   min-width: 0;
   min-height: 0;
+  background: var(--vimla-bg-primary);
 }
 
 .collection {
   display: flex;
   flex-direction: column;
   gap: var(--vimla-space-4);
-  padding: var(--vimla-space-4);
   min-width: 0;
+  min-height: 100%;
+  padding: var(--vimla-space-5) var(--vimla-space-4);
+  background: var(--vimla-surface-1);
+}
+
+.collection > :first-child {
+  padding-bottom: var(--vimla-space-2);
+  border-bottom: 1px solid var(--vimla-border-subtle);
 }
 
 .paneStatus {
+  display: grid;
+  place-items: center;
+  min-height: 12rem;
   padding: var(--vimla-space-6);
+  color: var(--vimla-text-secondary);
 }
 
 .emptyDetail {
@@ -24,56 +36,90 @@
   place-items: center;
   min-width: 0;
   min-height: 100%;
-  padding: var(--vimla-space-6) var(--vimla-page-pad);
+  padding: var(--vimla-space-7) var(--vimla-page-pad);
+  background: var(--vimla-bg-primary);
+}
+
+.detailRoot {
+  width: 100%;
+  min-width: 0;
+  min-height: 100%;
 }
 
 .mobileBack {
-  min-width: 44px;
-  min-height: 44px;
+  min-width: var(--vimla-touch-target);
+  min-height: var(--vimla-touch-target);
   flex-shrink: 0;
 }
 
 .stack {
   display: grid;
-  gap: var(--vimla-space-4);
+  gap: var(--vimla-space-5);
+  width: min(100%, 56rem);
   min-width: 0;
+  margin-inline: auto;
+}
+
+.stack > .row:first-child {
+  padding-bottom: var(--vimla-space-3);
+  border-bottom: 1px solid var(--vimla-border-subtle);
 }
 
 .form {
   display: grid;
-  gap: var(--vimla-space-3);
+  gap: var(--vimla-space-4);
+}
+
+.form > button:last-child {
+  justify-self: start;
 }
 
 .row {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--vimla-space-2);
+  gap: var(--vimla-space-3);
   align-items: center;
+  min-width: 0;
+}
+
+.row > :first-child {
+  min-width: 0;
 }
 
 .grow {
   flex: 1;
-  min-width: 12rem;
+  min-width: min(12rem, 100%);
 }
 
 .list {
   display: grid;
-  gap: var(--vimla-space-2);
+  gap: var(--vimla-space-1);
   min-width: 0;
 }
 
 .cardLink {
   display: block;
   min-width: 0;
-  text-decoration: none;
+  border-radius: var(--vimla-radius-card);
   color: inherit;
+  text-decoration: none;
+  transition:
+    background-color var(--vimla-duration-hover) var(--vimla-ease),
+    border-color var(--vimla-duration-hover) var(--vimla-ease);
 }
 
 .memberRow {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: var(--vimla-space-3);
+  gap: var(--vimla-space-4);
   align-items: center;
+  min-width: 0;
+  padding: var(--vimla-space-3) 0;
+  border-bottom: 1px solid var(--vimla-border-subtle);
+}
+
+.memberRow:last-child {
+  border-bottom: 0;
 }
 
 .memberMeta {
@@ -87,11 +133,41 @@
   flex-wrap: wrap;
   gap: var(--vimla-space-2);
   align-items: center;
+  padding-top: var(--vimla-space-2);
 }
 
 .inviteLink {
-  overflow-wrap: anywhere;
   min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--vimla-accent);
+}
+
+@media (max-width: 767px) {
+  .collection {
+    padding: var(--vimla-space-4);
+  }
+
+  .stack {
+    gap: var(--vimla-space-4);
+  }
+
+  .memberRow {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .actions > * {
+    max-width: 100%;
+  }
+}
+
+@media (max-height: 520px) and (orientation: landscape) {
+  .collection {
+    padding-block: var(--vimla-space-3);
+  }
+
+  .stack {
+    gap: var(--vimla-space-3);
+  }
 }
 
 @include bp.vimla-lg-up {
