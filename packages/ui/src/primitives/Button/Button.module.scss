@@ -107,7 +107,10 @@
   width: 100%;
 }
 
-.hiddenLabel,
+.hiddenLabel {
+  opacity: 0;
+}
+
 .hiddenIcon {
   visibility: hidden;
 }
