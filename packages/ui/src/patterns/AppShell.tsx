@@ -22,12 +22,8 @@ export function AppShell({
 }): ReactElement {
   return (
     <div
-      className={cx(
-        styles.shell,
-        viewport ? styles.viewport : undefined,
-        collapsed ? styles.shellCollapsed : undefined,
-        !sidebar ? styles.shellIntegratedNavigation : undefined,
-      )}
+      className={cx(styles.shell, viewport ? styles.viewport : undefined, collapsed ? styles.shellCollapsed : undefined)}
+      style={!sidebar ? { gridTemplateColumns: "minmax(0, 1fr)" } : undefined}
     >
       {sidebar ? <aside className={styles.desktopSidebar}>{sidebar}</aside> : null}
       <div className={styles.main}>
