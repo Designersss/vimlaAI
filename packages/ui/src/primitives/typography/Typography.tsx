@@ -25,19 +25,23 @@ export function Heading({
 
 export function Text({
   tone = "body",
+  weight = "regular",
   as: Tag = "p",
   children,
   className,
   ...props
 }: HTMLAttributes<HTMLElement> & {
   tone?: "body" | "secondary" | "caption";
+  weight?: "regular" | "medium" | "semibold";
   as?: "p" | "span" | "div";
   children: ReactNode;
 }): ReactElement {
   const toneClass =
     tone === "secondary" ? styles.textSecondary : tone === "caption" ? styles.textCaption : styles.textBody;
+  const weightClass =
+    weight === "medium" ? styles.weightMedium : weight === "semibold" ? styles.weightSemibold : styles.weightRegular;
   return (
-    <Tag {...props} className={cx(toneClass, className)}>
+    <Tag {...props} className={cx(toneClass, weightClass, className)}>
       {children}
     </Tag>
   );

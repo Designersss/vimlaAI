@@ -1,29 +1,30 @@
 .alert {
   display: flex;
   gap: var(--vimla-space-3);
-  padding: var(--vimla-space-3);
-  border-radius: var(--vimla-radius-md);
-  border: 1px solid var(--vimla-border);
-  background: var(--vimla-surface-secondary);
+  padding: var(--vimla-space-3) var(--vimla-space-4);
+  border-radius: var(--vimla-radius-card);
+  border: 1px solid var(--vimla-border-subtle);
+  background: var(--vimla-surface-2);
+  color: var(--vimla-text-primary);
 }
 
 .alertInfo {
-  border-color: var(--vimla-accent);
+  border-color: color-mix(in srgb, var(--vimla-accent) 48%, var(--vimla-border-subtle));
   background: var(--vimla-accent-soft);
 }
 
 .alertSuccess {
-  border-color: var(--vimla-success);
+  border-color: color-mix(in srgb, var(--vimla-success) 48%, var(--vimla-border-subtle));
   background: var(--vimla-success-soft);
 }
 
 .alertWarning {
-  border-color: var(--vimla-warning);
+  border-color: color-mix(in srgb, var(--vimla-warning) 48%, var(--vimla-border-subtle));
   background: var(--vimla-warning-soft);
 }
 
 .alertError {
-  border-color: var(--vimla-danger);
+  border-color: color-mix(in srgb, var(--vimla-danger) 48%, var(--vimla-border-subtle));
   background: var(--vimla-danger-soft);
 }
 
@@ -31,18 +32,21 @@
   display: inline-flex;
   align-items: center;
   gap: var(--vimla-space-1);
-  padding: 0.15rem 0.5rem;
+  min-height: 1.5rem;
+  padding: 0 var(--vimla-space-2);
   border-radius: var(--vimla-radius-round);
   font-size: var(--vimla-type-caption-size);
-  font-weight: 600;
-  background: var(--vimla-surface-secondary);
+  line-height: var(--vimla-type-caption-line);
+  font-weight: var(--vimla-type-semibold-weight);
+  background: var(--vimla-surface-2);
   color: var(--vimla-text-secondary);
-  border: 1px solid transparent;
+  border: 1px solid var(--vimla-border-subtle);
 }
 
 .badgeAccent {
   background: var(--vimla-accent-soft);
   color: var(--vimla-accent-active);
+  border-color: transparent;
 }
 
 html[data-theme="dark"] .badgeAccent {
@@ -52,20 +56,23 @@ html[data-theme="dark"] .badgeAccent {
 .badgeSuccess {
   background: var(--vimla-success-soft);
   color: var(--vimla-success);
+  border-color: transparent;
 }
 
 .badgeWarning {
   background: var(--vimla-warning-soft);
   color: var(--vimla-warning);
+  border-color: transparent;
 }
 
 .badgeDanger {
   background: var(--vimla-danger-soft);
   color: var(--vimla-danger);
+  border-color: transparent;
 }
 
 .badgeLocked {
-  background: var(--vimla-surface-secondary);
+  background: var(--vimla-surface-2);
   color: var(--vimla-text-muted);
 }
 
@@ -78,8 +85,13 @@ html[data-theme="dark"] .badgeAccent {
   background: var(--vimla-accent-soft);
   color: var(--vimla-accent-active);
   font-size: var(--vimla-type-caption-size);
-  font-weight: 700;
+  line-height: var(--vimla-type-caption-line);
+  font-weight: var(--vimla-type-semibold-weight);
   overflow: hidden;
+}
+
+html[data-theme="dark"] .avatar {
+  color: var(--vimla-accent);
 }
 
 .avatar img {
@@ -94,12 +106,12 @@ html[data-theme="dark"] .badgeAccent {
 
 .avatarGroup .avatar + .avatar {
   margin-left: calc(var(--vimla-space-2) * -1);
-  border: 2px solid var(--vimla-surface);
+  border: 2px solid var(--vimla-surface-1);
 }
 
 .progress {
   height: 0.4rem;
-  background: var(--vimla-surface-hover);
+  background: var(--vimla-surface-3);
   border-radius: var(--vimla-radius-round);
   overflow: hidden;
 }
@@ -117,28 +129,30 @@ html[data-theme="dark"] .badgeAccent {
   gap: var(--vimla-space-1);
   min-width: 8rem;
   font-size: var(--vimla-type-caption-size);
+  line-height: var(--vimla-type-caption-line);
   color: var(--vimla-text-secondary);
 }
 
 .card {
-  background: var(--vimla-surface);
-  border: 1px solid var(--vimla-border);
-  border-radius: var(--vimla-radius-lg);
-  padding: var(--vimla-space-4);
+  background: var(--vimla-surface-1);
+  border: 1px solid var(--vimla-border-subtle);
+  border-radius: var(--vimla-radius-card);
+  padding: var(--vimla-card-pad);
   min-width: 0;
+  box-shadow: var(--vimla-shadow-sm);
 }
 
 .skeleton {
   display: block;
   background: linear-gradient(
     90deg,
-    var(--vimla-surface-secondary) 0%,
-    var(--vimla-surface-hover) 50%,
-    var(--vimla-surface-secondary) 100%
+    var(--vimla-surface-2) 0%,
+    var(--vimla-surface-3) 50%,
+    var(--vimla-surface-2) 100%
   );
   background-size: 200% 100%;
-  animation: shimmer var(--vimla-duration-slow) linear infinite;
-  border-radius: var(--vimla-radius-sm);
+  animation: shimmer 1.2s linear infinite;
+  border-radius: var(--vimla-radius-control-small);
   min-height: 0.9rem;
 }
 
@@ -158,7 +172,7 @@ html[data-theme="dark"] .badgeAccent {
 
 .divider {
   border: 0;
-  border-top: 1px solid var(--vimla-border);
+  border-top: 1px solid var(--vimla-border-subtle);
   margin: var(--vimla-space-4) 0;
 }
 

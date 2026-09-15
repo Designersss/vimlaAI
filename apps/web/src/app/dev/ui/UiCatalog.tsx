@@ -19,6 +19,8 @@ import {
   DirectConversationRow,
   Divider,
   Drawer,
+  DropdownMenu,
+  DropdownMenuItem,
   EmptyState,
   ErrorState,
   FolderRow,
@@ -30,6 +32,7 @@ import {
   MasterDetailLayout,
   ModelModeControl,
   ModelPickerDialog,
+  NativeSelect,
   NoteRow,
   OperatorActionCard,
   OtpInput,
@@ -37,6 +40,7 @@ import {
   PasswordInput,
   PlanLockedBanner,
   PlusIcon,
+  Popover,
   Progress,
   ProjectCard,
   ProjectListItem,
@@ -57,6 +61,7 @@ import {
   TaskRow,
   Text,
   Textarea,
+  Tooltip,
   UsageMeter,
   VimlaMentionChip,
   useAppearance,
@@ -70,6 +75,7 @@ export function UiCatalog(): ReactElement {
   const [detailOpen, setDetailOpen] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [popoverOpen, setPopoverOpen] = useState(false);
   const [otp, setOtp] = useState("");
   const [mode, setMode] = useState<"pro" | "auto">("pro");
   const [draft, setDraft] = useState("");
@@ -154,89 +160,210 @@ export function UiCatalog(): ReactElement {
         </div>
       </section>
 
-      <section>
-        <Heading as="h2" size="section">
-          Buttons
-        </Heading>
-        <Button>Primary</Button>
-        <Button variant="secondary">Secondary</Button>
-        <Button variant="ghost">Ghost</Button>
-        <Button variant="destructive">Destructive</Button>
-        <Button loading>Loading</Button>
-        <IconButton label="Add">
-          <PlusIcon size={16} />
-        </IconButton>
+      <section className={styles.stateSection} aria-labelledby="actions-heading">
+        <div className={styles.sectionIntro}>
+          <Heading as="h2" size="section" id="actions-heading">
+            Actions
+          </Heading>
+          <Text tone="secondary">Variants, sizes, disabled and busy states use the same shared interaction contract.</Text>
+        </div>
+        <div className={styles.stateGrid} aria-label="Button states">
+          <Card>
+            <Text weight="semibold">Variants</Text>
+            <div className={styles.inlineStates}>
+              <Button>Primary</Button>
+              <Button variant="secondary">Secondary</Button>
+              <Button variant="ghost">Ghost</Button>
+              <Button variant="destructive">Destructive</Button>
+            </div>
+          </Card>
+          <Card>
+            <Text weight="semibold">Size and availability</Text>
+            <div className={styles.inlineStates}>
+              <Button size="sm">Small</Button>
+              <Button size="lg">Large</Button>
+              <Button disabled>Disabled</Button>
+              <Button loading>Loading</Button>
+              <IconButton label="Add" loading>
+                <PlusIcon size={16} />
+              </IconButton>
+            </div>
+          </Card>
+        </div>
       </section>
 
-      <section>
-        <Heading as="h2" size="section">
-          Forms
-        </Heading>
-        <FormField label="Email" htmlFor="catalog-email">
-          <Input id="catalog-email" />
-        </FormField>
-        <FormField label="Password" htmlFor="catalog-password">
-          <PasswordInput id="catalog-password" revealLabel="Show" hideLabel="Hide" />
-        </FormField>
-        <SearchInput aria-label="Search" />
-        <Textarea aria-label="Notes" />
+      <section className={styles.stateSection} aria-labelledby="forms-heading">
+        <div className={styles.sectionIntro}>
+          <Heading as="h2" size="section" id="forms-heading">
+            Form controls
+          </Heading>
+          <Text tone="secondary">Labels, descriptions and errors are connected to controls by the shared FormField primitive.</Text>
+        </div>
+        <div className={styles.formGrid}>
+          <FormField label="Email" htmlFor="catalog-email" description="Normal field with supporting text.">
+            <Input id="catalog-email" placeholder="name@example.com" />
+          </FormField>
+          <FormField label="Invalid email" htmlFor="catalog-email-invalid" error="Enter a valid email address.">
+            <Input id="catalog-email-invalid" invalid defaultValue="not-an-email" />
+          </FormField>
+          <FormField label="Read only" htmlFor="catalog-readonly">
+            <Input id="catalog-readonly" readOnly value="Shared, non-editable value" />
+          </FormField>
+          <FormField label="Disabled" htmlFor="catalog-disabled">
+            <Input id="catalog-disabled" disabled value="Unavailable" />
+          </FormField>
+          <FormField label="Select" htmlFor="catalog-select">
+            <NativeSelect id="catalog-select" defaultValue="standard">
+              <option value="standard">Standard</option>
+              <option value="pro">PRO</option>
+            </NativeSelect>
+          </FormField>
+          <FormField label="Password" htmlFor="catalog-password">
+            <PasswordInput id="catalog-password" revealLabel="Show" hideLabel="Hide" />
+          </FormField>
+          <FormField label="Search" htmlFor="catalog-search">
+            <SearchInput id="catalog-search" placeholder="Search" />
+          </FormField>
+          <FormField label="Notes" htmlFor="catalog-notes">
+            <Textarea id="catalog-notes" placeholder="Write a note" />
+          </FormField>
+        </div>
         <div>
           <span id="catalog-otp">OTP</span>
           <OtpInput labelledBy="catalog-otp" value={otp} onChange={setOtp} />
         </div>
-        <Checkbox label="Checkbox" />
-        <Radio name="catalog-radio" label="Radio" defaultChecked />
-        <Switch label="Switch" />
+        <div className={styles.inlineStates} aria-label="Choice controls">
+          <Checkbox label="Checkbox" />
+          <Checkbox label="Disabled checkbox" disabled />
+          <Radio name="catalog-radio" label="Radio" defaultChecked />
+          <Radio name="catalog-radio" label="Disabled radio" disabled />
+          <Switch label="Switch" />
+          <Switch label="Disabled switch" disabled />
+        </div>
       </section>
 
-      <section>
-        <Heading as="h2" size="section">
-          Feedback
-        </Heading>
+      <section className={styles.stateSection} aria-labelledby="navigation-heading">
+        <div className={styles.sectionIntro}>
+          <Heading as="h2" size="section" id="navigation-heading">
+            Navigation primitives
+          </Heading>
+          <Text tone="secondary">Shared navigation controls only; global AppShell migration remains out of scope.</Text>
+        </div>
+        <Tabs label="Segmented tabs demo">
+          <Tab selected onSelect={() => undefined}>
+            Active
+          </Tab>
+          <Tab selected={false} onSelect={() => undefined}>
+            Inactive
+          </Tab>
+          <Tab selected={false} disabled onSelect={() => undefined}>
+            Disabled
+          </Tab>
+        </Tabs>
+        <Tabs label="Underline tabs demo" variant="underline">
+          <Tab selected onSelect={() => undefined}>
+            Overview
+          </Tab>
+          <Tab selected={false} onSelect={() => undefined}>
+            Activity
+          </Tab>
+        </Tabs>
+        <SegmentedControl label="State demo">
+          <Segment checked onSelect={() => undefined}>Selected</Segment>
+          <Segment checked={false} onSelect={() => undefined}>Idle</Segment>
+          <Segment checked={false} disabled onSelect={() => undefined}>Disabled</Segment>
+        </SegmentedControl>
+      </section>
+
+      <section className={styles.stateSection} aria-labelledby="surfaces-heading">
+        <div className={styles.sectionIntro}>
+          <Heading as="h2" size="section" id="surfaces-heading">
+            Surfaces and feedback
+          </Heading>
+          <Text tone="secondary">Quiet borders and semantic surfaces provide hierarchy without heavy decoration.</Text>
+        </div>
+        <div className={styles.stateGrid}>
+          <Card>
+            <Text weight="semibold">Status and identity</Text>
+            <div className={styles.inlineStates}>
+              <Badge>Neutral</Badge>
+              <Badge variant="accent">PRO</Badge>
+              <StatusBadge tone="success">Active</StatusBadge>
+              <Avatar name="Ada" />
+              <AvatarGroup>
+                <Avatar name="Ada" />
+                <Avatar name="Ben" />
+              </AvatarGroup>
+            </div>
+          </Card>
+          <Card>
+            <Text weight="semibold">Progress and loading</Text>
+            <Progress value={62} label="Usage" />
+            <UsageMeter label="Monthly usage" percent={38} />
+            <Skeleton />
+            <Spinner label="Loading" />
+          </Card>
+        </div>
         <Alert>Info</Alert>
         <Alert variant="success">Success</Alert>
         <Alert variant="warning">Warning</Alert>
         <Alert variant="error">Error</Alert>
-        <Badge>Neutral</Badge>
-        <Badge variant="accent">PRO</Badge>
-        <StatusBadge tone="success">Active</StatusBadge>
-        <Avatar name="Ada" />
-        <AvatarGroup>
-          <Avatar name="Ada" />
-          <Avatar name="Ben" />
-        </AvatarGroup>
-        <Progress value={62} label="Usage" />
-        <UsageMeter label="Monthly usage" percent={38} />
-        <Skeleton />
-        <Spinner label="Loading" />
         <EmptyState title="Empty" description="No items yet." />
         <ErrorState title="Failed" description="Try again." />
         <Divider />
       </section>
 
-      <section>
-        <Heading as="h2" size="section">
-          Overlays
-        </Heading>
-        <Button variant="secondary" onClick={() => setDialogOpen(true)}>
-          Open dialog
-        </Button>
-        <Button variant="secondary" onClick={() => setDrawerOpen(true)}>
-          Open drawer
-        </Button>
-        <Button
-          variant="secondary"
-          onClick={() => toast.publish({ title: "Saved", variant: "success" })}
-        >
-          Toast
-        </Button>
+      <section className={styles.stateSection} aria-labelledby="overlays-heading">
+        <div className={styles.sectionIntro}>
+          <Heading as="h2" size="section" id="overlays-heading">
+            Overlays
+          </Heading>
+          <Text tone="secondary">Dialog, drawer, menu, popover, tooltip and toast share viewport-safe surfaces and focus behavior.</Text>
+        </div>
+        <div className={styles.inlineStates}>
+          <Button variant="secondary" onClick={() => setDialogOpen(true)}>
+            Open dialog
+          </Button>
+          <Button variant="secondary" onClick={() => setDrawerOpen(true)}>
+            Open drawer
+          </Button>
+          <DropdownMenu label="Open menu">
+            <DropdownMenuItem onSelect={() => toast.publish({ title: "Menu action", variant: "success" })}>
+              Menu action
+            </DropdownMenuItem>
+            <DropdownMenuItem disabled onSelect={() => undefined}>
+              Disabled action
+            </DropdownMenuItem>
+          </DropdownMenu>
+          <Popover
+            open={popoverOpen}
+            onOpenChange={setPopoverOpen}
+            trigger={
+              <Button variant="secondary" size="sm" onClick={() => setPopoverOpen((value) => !value)} aria-expanded={popoverOpen}>
+                Popover
+              </Button>
+            }
+          >
+            <Text>Popover content</Text>
+          </Popover>
+          <Tooltip label="Shared tooltip">
+            <IconButton label="Tooltip target">
+              <PlusIcon size={16} />
+            </IconButton>
+          </Tooltip>
+          <Button variant="secondary" onClick={() => toast.publish({ title: "Saved", variant: "success" })}>
+            Toast
+          </Button>
+        </div>
         <Dialog
           open={dialogOpen}
           onOpenChange={setDialogOpen}
           title="Dialog"
           description="Shared modal."
           closeLabel="Close"
-        />
+        >
+          <Text>Dialog content remains usable in short and narrow viewports.</Text>
+        </Dialog>
         <Drawer open={drawerOpen} onOpenChange={setDrawerOpen} title="Drawer" closeLabel="Close">
           <Text>Navigation sheet</Text>
         </Drawer>
@@ -273,12 +400,7 @@ export function UiCatalog(): ReactElement {
           sendLabel="Send"
           mentionControl={<Button variant="ghost" size="sm">◆ @Vimla</Button>}
         />
-        <OperatorActionCard
-          title="Buy tickets"
-          detail="Tomorrow"
-          statusLabel="Created"
-          tone="success"
-        />
+        <OperatorActionCard title="Buy tickets" detail="Tomorrow" statusLabel="Created" tone="success" />
         <OperatorActionCard
           title="Delete task"
           statusLabel="Needs confirmation"
@@ -325,12 +447,8 @@ export function UiCatalog(): ReactElement {
           </tbody>
         </Table>
         <Pagination>
-          <Button size="sm" variant="secondary">
-            Previous
-          </Button>
-          <Button size="sm" variant="secondary">
-            Next
-          </Button>
+          <Button size="sm" variant="secondary">Previous</Button>
+          <Button size="sm" variant="secondary">Next</Button>
         </Pagination>
       </section>
 
@@ -339,31 +457,17 @@ export function UiCatalog(): ReactElement {
           Future page patterns (DEMO FIXTURES)
         </Heading>
         <Card>
-          <ProjectListItem
-            title="DEMO: Brand refresh"
-            meta="Not production data"
-            status={<ProjectStatusBadge status="locked" label="Locked" />}
-          />
+          <ProjectListItem title="DEMO: Brand refresh" meta="Not production data" status={<ProjectStatusBadge status="locked" label="Locked" />} />
           <ProjectCard title="DEMO: Workspace card">
             <MemberAvatarGroup names={["Ada", "Ben"]} />
           </ProjectCard>
           <PlanLockedBanner title="DEMO: Plan locked" description="Presentational only." />
           <ProjectLocalNav label="Project">
-            <Button size="sm" variant="ghost">
-              Overview
-            </Button>
-            <Button size="sm" variant="ghost">
-              Chats
-            </Button>
-            <Button size="sm" variant="ghost">
-              Work
-            </Button>
-            <Button size="sm" variant="ghost">
-              Context
-            </Button>
-            <Button size="sm" variant="ghost">
-              Members
-            </Button>
+            <Button size="sm" variant="ghost">Overview</Button>
+            <Button size="sm" variant="ghost">Chats</Button>
+            <Button size="sm" variant="ghost">Work</Button>
+            <Button size="sm" variant="ghost">Context</Button>
+            <Button size="sm" variant="ghost">Members</Button>
           </ProjectLocalNav>
           <AIConversationRow title="DEMO AI conversation" preview="Presentational only" time="10:24" />
           <DirectConversationRow name="DEMO Person" preview="Not production data" time="10:24" />
@@ -389,15 +493,6 @@ export function UiCatalog(): ReactElement {
           <Text>Presentation only. Narrow screens show one pane; wide screens show both.</Text>
         </MasterDetailLayout>
       </div>
-
-      <Tabs label="Tabs demo">
-        <Tab selected onSelect={() => undefined}>
-          One
-        </Tab>
-        <Tab selected={false} onSelect={() => undefined}>
-          Two
-        </Tab>
-      </Tabs>
     </main>
   );
 }

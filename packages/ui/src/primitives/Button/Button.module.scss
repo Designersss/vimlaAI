@@ -3,39 +3,38 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: var(--vimla-space-2);
+  gap: var(--vimla-control-gap);
   min-height: var(--vimla-control-height);
   min-width: var(--vimla-control-height);
   padding: 0 var(--vimla-control-pad-x);
   border: 1px solid transparent;
-  border-radius: var(--vimla-radius-md);
-  font-weight: 600;
+  border-radius: var(--vimla-radius-control);
+  font-weight: var(--vimla-type-semibold-weight);
   font-size: var(--vimla-type-secondary-size);
-  line-height: 1;
+  line-height: var(--vimla-type-secondary-line);
   text-decoration: none;
   cursor: pointer;
   transition:
-    background-color var(--vimla-duration-fast) var(--vimla-ease),
-    border-color var(--vimla-duration-fast) var(--vimla-ease),
-    color var(--vimla-duration-fast) var(--vimla-ease),
-    opacity var(--vimla-duration-fast) var(--vimla-ease),
-    transform var(--vimla-duration-fast) var(--vimla-ease),
-    box-shadow var(--vimla-duration-fast) var(--vimla-ease);
+    background-color var(--vimla-duration-button) var(--vimla-ease),
+    border-color var(--vimla-duration-button) var(--vimla-ease),
+    color var(--vimla-duration-button) var(--vimla-ease),
+    opacity var(--vimla-duration-button) var(--vimla-ease),
+    transform var(--vimla-duration-button) var(--vimla-ease),
+    box-shadow var(--vimla-duration-button) var(--vimla-ease);
 }
 
 .button:disabled {
   cursor: not-allowed;
-  opacity: 0.45;
+  opacity: 0.46;
 }
 
 .button:active:not(:disabled) {
   transform: scale(var(--vimla-press-scale));
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .button:active:not(:disabled) {
-    transform: none;
-  }
+.button:focus-visible {
+  outline: 2px solid var(--vimla-focus-ring);
+  outline-offset: 2px;
 }
 
 .primary {
@@ -52,13 +51,18 @@
 }
 
 .secondary {
-  background: var(--vimla-surface);
-  color: var(--vimla-text);
-  border-color: var(--vimla-border);
+  background: var(--vimla-surface-1);
+  color: var(--vimla-text-primary);
+  border-color: var(--vimla-border-default);
 }
 
 .secondary:hover:not(:disabled) {
-  background: var(--vimla-surface-hover);
+  background: var(--vimla-surface-2);
+  border-color: var(--vimla-border-strong);
+}
+
+.secondary:active:not(:disabled) {
+  background: var(--vimla-surface-3);
 }
 
 .ghost {
@@ -67,28 +71,35 @@
 }
 
 .ghost:hover:not(:disabled) {
-  background: var(--vimla-surface-hover);
-  color: var(--vimla-text);
+  background: var(--vimla-surface-2);
+  color: var(--vimla-text-primary);
+}
+
+.ghost:active:not(:disabled) {
+  background: var(--vimla-surface-3);
 }
 
 .destructive {
   background: transparent;
   color: var(--vimla-danger);
-  border-color: var(--vimla-danger);
+  border-color: color-mix(in srgb, var(--vimla-danger) 72%, transparent);
 }
 
 .destructive:hover:not(:disabled) {
   background: var(--vimla-danger-soft);
+  border-color: var(--vimla-danger);
 }
 
 .sm {
-  min-height: 2.25rem;
+  min-height: var(--vimla-control-height-sm);
   padding-inline: var(--vimla-space-3);
+  border-radius: var(--vimla-radius-control-small);
   font-size: var(--vimla-type-caption-size);
+  line-height: var(--vimla-type-caption-line);
 }
 
 .lg {
-  min-height: 2.75rem;
+  min-height: var(--vimla-control-height-lg);
   padding-inline: var(--vimla-space-5);
 }
 
@@ -97,6 +108,10 @@
 }
 
 .hiddenLabel {
+  opacity: 0;
+}
+
+.hiddenIcon {
   visibility: hidden;
 }
 
@@ -111,28 +126,45 @@
   animation: spin 0.8s linear infinite;
 }
 
+.iconButton {
+  width: var(--vimla-control-height);
+  padding: 0;
+}
+
+.iconButton.sm {
+  width: var(--vimla-control-height-sm);
+}
+
+.iconButton.lg {
+  width: var(--vimla-control-height-lg);
+}
+
 @keyframes spin {
   to {
     transform: rotate(360deg);
   }
 }
 
-.iconButton {
-  width: var(--vimla-control-height);
-  padding: 0;
-}
-
-.iconButton.primary {
-  border-radius: var(--vimla-radius-md);
+@media (prefers-reduced-motion: reduce) {
+  .button:active:not(:disabled) {
+    transform: none;
+  }
 }
 
 @media (pointer: coarse) {
   .button,
-  .iconButton {
-    min-height: 44px;
+  .iconButton,
+  .button.sm,
+  .button.lg,
+  .iconButton.sm,
+  .iconButton.lg {
+    min-height: var(--vimla-touch-target);
   }
 
-  .iconButton {
-    min-width: 44px;
+  .iconButton,
+  .iconButton.sm,
+  .iconButton.lg {
+    min-width: var(--vimla-touch-target);
+    width: var(--vimla-touch-target);
   }
 }

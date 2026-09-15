@@ -6,22 +6,23 @@
   display: grid;
   place-items: end;
   padding: var(--vimla-safe-top) var(--vimla-safe-right) var(--vimla-safe-bottom) var(--vimla-safe-left);
-  animation: overlayIn var(--vimla-duration-slow) var(--vimla-ease);
+  animation: overlayIn var(--vimla-duration-modal) var(--vimla-ease);
 }
 
 .dialog {
   width: min(100%, 32rem);
   max-height: min(90dvh, 40rem);
   overflow: auto;
-  background: var(--vimla-surface);
-  color: var(--vimla-text);
-  border-radius: var(--vimla-radius-xl) var(--vimla-radius-xl) 0 0;
-  border: 1px solid var(--vimla-border);
+  background: var(--vimla-surface-1);
+  color: var(--vimla-text-primary);
+  border-radius: var(--vimla-radius-sheet) var(--vimla-radius-sheet) 0 0;
+  border: 1px solid var(--vimla-border-subtle);
+  box-shadow: var(--vimla-shadow-floating);
   padding: var(--vimla-space-5);
   display: flex;
   flex-direction: column;
   gap: var(--vimla-space-4);
-  animation: dialogIn var(--vimla-duration-slow) var(--vimla-ease);
+  animation: dialogIn var(--vimla-duration-modal) var(--vimla-ease);
 }
 
 .header {
@@ -35,6 +36,8 @@
   margin: 0;
   font-size: var(--vimla-type-section-size);
   line-height: var(--vimla-type-section-line);
+  font-weight: var(--vimla-type-section-weight);
+  color: var(--vimla-text-primary);
 }
 
 .description {
@@ -62,8 +65,10 @@
   bottom: 0;
   left: 0;
   width: min(20rem, 100%);
-  background: var(--vimla-surface);
-  border-right: 1px solid var(--vimla-border);
+  background: var(--vimla-surface-1);
+  color: var(--vimla-text-primary);
+  border-right: 1px solid var(--vimla-border-subtle);
+  box-shadow: var(--vimla-shadow-floating);
   z-index: calc(var(--vimla-z-drawer) + 1);
   padding: calc(var(--vimla-safe-top) + var(--vimla-space-4)) var(--vimla-space-4)
     calc(var(--vimla-safe-bottom) + var(--vimla-space-4));
@@ -71,7 +76,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--vimla-space-4);
-  animation: drawerIn var(--vimla-duration-slow) var(--vimla-ease);
+  animation: drawerIn var(--vimla-duration-sidebar) var(--vimla-ease);
 }
 
 .sheet {
@@ -81,16 +86,18 @@
   bottom: 0;
   width: 100%;
   max-height: min(88dvh, 36rem);
-  background: var(--vimla-surface);
-  border-top: 1px solid var(--vimla-border);
-  border-radius: var(--vimla-radius-xl) var(--vimla-radius-xl) 0 0;
+  background: var(--vimla-surface-1);
+  color: var(--vimla-text-primary);
+  border-top: 1px solid var(--vimla-border-subtle);
+  border-radius: var(--vimla-radius-sheet) var(--vimla-radius-sheet) 0 0;
+  box-shadow: var(--vimla-shadow-floating);
   z-index: calc(var(--vimla-z-drawer) + 1);
   padding: var(--vimla-space-4) var(--vimla-space-4) calc(var(--vimla-safe-bottom) + var(--vimla-space-4));
   overflow: auto;
   display: flex;
   flex-direction: column;
   gap: var(--vimla-space-4);
-  animation: sheetIn var(--vimla-duration-slow) var(--vimla-ease);
+  animation: sheetIn var(--vimla-duration-sidebar) var(--vimla-ease);
 }
 
 .drawerRight {
@@ -98,7 +105,7 @@
   right: 0;
   width: min(24rem, 100%);
   border-right: none;
-  border-left: 1px solid var(--vimla-border);
+  border-left: 1px solid var(--vimla-border-subtle);
   animation-name: drawerInRight;
 }
 
@@ -107,19 +114,20 @@
   z-index: var(--vimla-z-dropdown);
   min-width: 12rem;
   max-width: min(20rem, calc(100vw - 2rem));
-  background: var(--vimla-surface);
-  border: 1px solid var(--vimla-border);
-  border-radius: var(--vimla-radius-md);
-  box-shadow: var(--vimla-shadow-md);
+  background: var(--vimla-surface-1);
+  color: var(--vimla-text-primary);
+  border: 1px solid var(--vimla-border-subtle);
+  border-radius: var(--vimla-radius-card);
+  box-shadow: var(--vimla-shadow-floating);
   padding: var(--vimla-space-1);
-  animation: menuIn var(--vimla-duration-fast) var(--vimla-ease);
+  animation: menuIn var(--vimla-duration-dropdown) var(--vimla-ease);
 }
 
 .submenu {
   margin-top: var(--vimla-space-1);
   margin-inline-start: var(--vimla-space-3);
   padding-inline-start: var(--vimla-space-2);
-  border-inline-start: 1px solid var(--vimla-border);
+  border-inline-start: 1px solid var(--vimla-border-subtle);
 }
 
 .menuItem {
@@ -131,22 +139,24 @@
   text-align: left;
   background: transparent;
   border: 0;
-  color: var(--vimla-text);
+  color: var(--vimla-text-primary);
   padding: var(--vimla-space-2) var(--vimla-space-3);
-  border-radius: var(--vimla-radius-sm);
+  border-radius: var(--vimla-radius-control-small);
   cursor: pointer;
-  min-height: 2.25rem;
-  transition: background-color var(--vimla-duration-fast) var(--vimla-ease);
+  min-height: var(--vimla-control-height-sm);
+  transition:
+    background-color var(--vimla-duration-hover) var(--vimla-ease),
+    color var(--vimla-duration-hover) var(--vimla-ease);
 }
 
 .menuItem:disabled {
-  opacity: 0.5;
+  opacity: 0.48;
   cursor: not-allowed;
 }
 
-.menuItem:hover,
+.menuItem:hover:not(:disabled),
 .menuItem:focus-visible {
-  background: var(--vimla-surface-hover);
+  background: var(--vimla-surface-2);
 }
 
 .tooltip {
@@ -154,10 +164,12 @@
   z-index: var(--vimla-z-tooltip);
   max-width: 16rem;
   padding: var(--vimla-space-1) var(--vimla-space-2);
-  border-radius: var(--vimla-radius-sm);
-  background: var(--vimla-text);
-  color: var(--vimla-bg);
+  border-radius: var(--vimla-radius-control-small);
+  background: var(--vimla-text-primary);
+  color: var(--vimla-bg-primary);
+  box-shadow: var(--vimla-shadow-sm);
   font-size: var(--vimla-type-caption-size);
+  line-height: var(--vimla-type-caption-line);
 }
 
 .toastRegion {
@@ -172,44 +184,36 @@
 }
 
 .toast {
-  background: var(--vimla-surface);
-  border: 1px solid var(--vimla-border);
-  border-radius: var(--vimla-radius-md);
-  box-shadow: var(--vimla-shadow-md);
-  padding: var(--vimla-space-3);
-  animation: menuIn var(--vimla-duration-normal) var(--vimla-ease);
+  background: var(--vimla-surface-1);
+  color: var(--vimla-text-primary);
+  border: 1px solid var(--vimla-border-subtle);
+  border-radius: var(--vimla-radius-card);
+  box-shadow: var(--vimla-shadow-floating);
+  padding: var(--vimla-space-3) var(--vimla-space-4);
+  animation: menuIn var(--vimla-duration-dropdown) var(--vimla-ease);
 }
 
 .toastSuccess {
-  border-color: var(--vimla-success);
+  border-color: color-mix(in srgb, var(--vimla-success) 52%, var(--vimla-border-subtle));
 }
 
 .toastWarning {
-  border-color: var(--vimla-warning);
+  border-color: color-mix(in srgb, var(--vimla-warning) 52%, var(--vimla-border-subtle));
 }
 
 .toastError {
-  border-color: var(--vimla-danger);
+  border-color: color-mix(in srgb, var(--vimla-danger) 52%, var(--vimla-border-subtle));
 }
 
-.anchor {
-  position: relative;
-  display: inline-flex;
-}
-
+.anchor,
 .tooltipWrap {
   position: relative;
   display: inline-flex;
 }
 
 @keyframes overlayIn {
-  from {
-    opacity: 0;
-  }
-
-  to {
-    opacity: 1;
-  }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 @keyframes dialogIn {
@@ -217,7 +221,6 @@
     opacity: 0;
     transform: scale(0.98) translateY(8px);
   }
-
   to {
     opacity: 1;
     transform: none;
@@ -229,7 +232,6 @@
     opacity: 0;
     transform: translateX(-8px);
   }
-
   to {
     opacity: 1;
     transform: none;
@@ -241,7 +243,6 @@
     opacity: 0;
     transform: translateX(8px);
   }
-
   to {
     opacity: 1;
     transform: none;
@@ -253,7 +254,6 @@
     opacity: 0;
     transform: translateY(12px);
   }
-
   to {
     opacity: 1;
     transform: none;
@@ -265,7 +265,6 @@
     opacity: 0;
     transform: translateY(-4px) scale(0.98);
   }
-
   to {
     opacity: 1;
     transform: none;
@@ -279,12 +278,12 @@
   }
 
   .dialog {
-    border-radius: var(--vimla-radius-xl);
+    border-radius: var(--vimla-radius-modal);
   }
 }
 
 @media (pointer: coarse) {
   .menuItem {
-    min-height: 44px;
+    min-height: var(--vimla-touch-target);
   }
 }

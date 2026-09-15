@@ -42,13 +42,16 @@ export function Button({
   type = "button",
   ...props
 }: ButtonProps): ReactElement {
+  const unavailable = Boolean(disabled || loading);
+
   return (
     <button
       {...props}
       type={type}
       className={buttonClassName({ variant, size, block, className })}
-      disabled={disabled || loading}
+      disabled={unavailable}
       aria-busy={loading || undefined}
+      data-loading={loading || undefined}
     >
       {loading ? <span className={styles.hiddenLabel}>{children}</span> : children}
       {loading ? (
@@ -68,18 +71,29 @@ export function IconButton({
   children,
   label,
   type = "button",
+  disabled,
   ...props
 }: Omit<ButtonProps, "children" | "block"> & { label: string; children: ReactNode }): ReactElement {
+  const unavailable = Boolean(disabled || loading);
+
   return (
     <button
       {...props}
       type={type}
       aria-label={label}
       className={buttonClassName({ variant, size, className: cx(styles.iconButton, className) })}
-      disabled={props.disabled || loading}
+      disabled={unavailable}
       aria-busy={loading || undefined}
+      data-loading={loading || undefined}
     >
-      {children}
+      <span className={loading ? styles.hiddenIcon : undefined} aria-hidden={loading || undefined}>
+        {children}
+      </span>
+      {loading ? (
+        <span className={styles.spinner} aria-hidden="true">
+          <LoaderCircleIcon size={16} />
+        </span>
+      ) : null}
     </button>
   );
 }

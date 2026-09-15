@@ -4,6 +4,7 @@
   line-height: var(--vimla-type-page-line);
   font-weight: var(--vimla-type-page-weight);
   letter-spacing: -0.025em;
+  color: var(--vimla-text-primary);
 }
 
 .headingSection {
@@ -12,6 +13,7 @@
   line-height: var(--vimla-type-section-line);
   font-weight: var(--vimla-type-section-weight);
   letter-spacing: -0.015em;
+  color: var(--vimla-text-primary);
 }
 
 .headingSub {
@@ -20,11 +22,12 @@
   line-height: var(--vimla-type-sub-line);
   font-weight: var(--vimla-type-sub-weight);
   letter-spacing: -0.01em;
+  color: var(--vimla-text-primary);
 }
 
 .textBody {
   margin: 0;
-  color: var(--vimla-text);
+  color: var(--vimla-text-primary);
   font-size: var(--vimla-type-body-size);
   line-height: var(--vimla-type-body-line);
 }
@@ -41,4 +44,16 @@
   color: var(--vimla-text-muted);
   font-size: var(--vimla-type-caption-size);
   line-height: var(--vimla-type-caption-line);
+}
+
+.weightRegular {
+  font-weight: var(--vimla-type-regular-weight);
+}
+
+.weightMedium {
+  font-weight: var(--vimla-type-medium-weight);
+}
+
+.weightSemibold {
+  font-weight: var(--vimla-type-semibold-weight);
 }

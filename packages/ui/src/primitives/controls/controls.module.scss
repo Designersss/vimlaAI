@@ -4,9 +4,9 @@
   flex-wrap: wrap;
   gap: var(--vimla-space-1);
   padding: var(--vimla-space-1);
-  border: 1px solid var(--vimla-border);
-  border-radius: var(--vimla-radius-lg);
-  background: var(--vimla-surface-secondary);
+  border: 1px solid var(--vimla-border-subtle);
+  border-radius: var(--vimla-radius-sidebar-item);
+  background: var(--vimla-surface-2);
 }
 
 .tab,
@@ -14,33 +14,41 @@
   border: 0;
   background: transparent;
   color: var(--vimla-text-secondary);
-  min-height: 2rem;
+  min-height: var(--vimla-control-height-sm);
   padding: 0 var(--vimla-space-3);
-  border-radius: var(--vimla-radius-md);
+  border-radius: var(--vimla-radius-control-small);
   cursor: pointer;
-  font-weight: 600;
+  font-weight: var(--vimla-type-semibold-weight);
   font-size: var(--vimla-type-secondary-size);
+  line-height: var(--vimla-type-secondary-line);
   transition:
-    background-color var(--vimla-duration-fast) var(--vimla-ease),
-    color var(--vimla-duration-fast) var(--vimla-ease),
-    box-shadow var(--vimla-duration-fast) var(--vimla-ease);
+    background-color var(--vimla-duration-button) var(--vimla-ease),
+    color var(--vimla-duration-button) var(--vimla-ease),
+    box-shadow var(--vimla-duration-button) var(--vimla-ease);
 }
 
 .tab:hover:not(:disabled),
 .segment:hover:not(:disabled) {
-  color: var(--vimla-text);
+  color: var(--vimla-text-primary);
+  background: var(--vimla-surface-3);
 }
 
 .tab[aria-selected="true"],
 .segment[aria-checked="true"] {
-  background: var(--vimla-surface);
-  color: var(--vimla-text);
+  background: var(--vimla-surface-1);
+  color: var(--vimla-text-primary);
   box-shadow: var(--vimla-shadow-sm);
+}
+
+.tab:focus-visible,
+.segment:focus-visible {
+  outline: 2px solid var(--vimla-focus-ring);
+  outline-offset: 2px;
 }
 
 .tab:disabled,
 .segment:disabled {
-  opacity: 0.5;
+  opacity: 0.48;
   cursor: not-allowed;
 }
 
@@ -49,7 +57,7 @@
   border: 0;
   padding: 0;
   gap: var(--vimla-space-4);
-  border-bottom: 1px solid var(--vimla-border);
+  border-bottom: 1px solid var(--vimla-border-subtle);
   border-radius: 0;
 }
 
@@ -58,6 +66,10 @@
   padding-inline: 0;
   box-shadow: none;
   border-bottom: 2px solid transparent;
+}
+
+.underlineTabs .tab:hover:not(:disabled) {
+  background: transparent;
 }
 
 .underlineTabs .tab[aria-selected="true"] {
@@ -70,6 +82,6 @@
 @media (pointer: coarse) {
   .tab,
   .segment {
-    min-height: 44px;
+    min-height: var(--vimla-touch-target);
   }
 }
