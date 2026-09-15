@@ -6,7 +6,7 @@
   border: 1px solid var(--vimla-border-subtle);
   border-radius: var(--vimla-radius-card);
   background: color-mix(in srgb, var(--vimla-surface-1) 94%, transparent);
-  box-shadow: var(--vimla-shadow-1);
+  box-shadow: var(--vimla-shadow-md);
 }
 
 .header {
@@ -38,7 +38,7 @@
   .cardSurface {
     gap: var(--vimla-space-3);
     padding: var(--vimla-space-5);
-    border-radius: var(--vimla-radius-panel);
+    border-radius: var(--vimla-radius-card);
   }
 
   .body {
