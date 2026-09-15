@@ -5,15 +5,17 @@
   min-width: 0;
   min-height: 0;
   display: flex;
+  background: var(--vimla-bg-primary);
 }
 
 .navigationPane {
   display: flex;
   flex-direction: column;
-  gap: var(--vimla-space-4);
+  gap: var(--vimla-space-5);
   min-width: 0;
   min-height: 100%;
   padding: var(--vimla-space-4) var(--vimla-page-pad);
+  background: var(--vimla-bg-secondary);
 }
 
 .navigation {
@@ -27,17 +29,24 @@
 .navigation span {
   width: 100%;
   justify-content: flex-start;
-  min-height: 44px;
+  min-height: var(--vimla-touch-target);
 }
 
 .section {
+  width: 100%;
   min-width: 0;
   min-height: 100%;
   padding: var(--vimla-space-4) var(--vimla-page-pad)
     calc(var(--vimla-safe-bottom) + var(--vimla-space-5));
   display: flex;
   flex-direction: column;
-  gap: var(--vimla-space-4);
+  gap: var(--vimla-space-5);
+  background: var(--vimla-bg-primary);
+}
+
+.section > * {
+  width: min(100%, 52rem);
+  margin-inline: auto;
 }
 
 .sectionHeader {
@@ -45,12 +54,14 @@
   align-items: center;
   gap: var(--vimla-space-2);
   min-width: 0;
+  padding-bottom: var(--vimla-space-3);
+  border-bottom: 1px solid var(--vimla-border-subtle);
 }
 
 .mobileBack {
   display: inline-flex;
-  min-width: 44px;
-  min-height: 44px;
+  min-width: var(--vimla-touch-target);
+  min-height: var(--vimla-touch-target);
   flex-shrink: 0;
 }
 
@@ -62,11 +73,39 @@
 .homeDetail {
   min-height: 100%;
   padding: var(--vimla-space-5) var(--vimla-page-pad);
+  background: var(--vimla-bg-primary);
+}
+
+.homeDetail > * {
+  width: min(100%, 52rem);
+  margin-inline: auto;
+}
+
+@media (max-width: 767px) {
+  .navigationPane {
+    background: var(--vimla-bg-primary);
+  }
+
+  .section {
+    gap: var(--vimla-space-4);
+  }
+}
+
+@media (max-height: 520px) and (orientation: landscape) {
+  .navigationPane,
+  .section,
+  .homeDetail {
+    padding-block: var(--vimla-space-3);
+  }
+
+  .section {
+    gap: var(--vimla-space-3);
+  }
 }
 
 @include bp.vimla-lg-up {
   .navigationPane {
-    padding-block: var(--vimla-space-5);
+    padding-block: var(--vimla-space-6);
   }
 
   .mobileBack {
@@ -75,6 +114,6 @@
 
   .section,
   .homeDetail {
-    padding-block: var(--vimla-space-5);
+    padding-block: var(--vimla-space-6);
   }
 }

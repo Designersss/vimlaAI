@@ -15,6 +15,7 @@ export function SettingsChrome({ title, children }: { title: string; children: R
         <Link
           href="/settings"
           scroll={false}
+          aria-label={t("common.back")}
           className={`${buttonClassName({ variant: "ghost", size: "sm" })} ${styles.mobileBack}`}
         >
           <ChevronLeftIcon size={16} aria-hidden="true" />
