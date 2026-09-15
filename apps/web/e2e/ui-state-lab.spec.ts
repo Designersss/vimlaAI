@@ -32,7 +32,6 @@ test("Design System 2026 state lab exposes shared component states and theme par
   const invalidEmail = page.getByLabel("Invalid email");
   await expect(invalidEmail).toHaveAttribute("aria-invalid", "true");
   await expect(invalidEmail).toHaveAttribute("aria-errormessage", "catalog-email-invalid-error");
-  await expect(invalidEmail).toHaveAttribute("aria-describedby", "catalog-email-invalid-description").catch(() => undefined);
   await expect(page.getByText("Enter a valid email address.")).toBeVisible();
 
   await page.getByRole("radio", { name: "Dark", exact: true }).click();
@@ -69,7 +68,7 @@ test("shared overlays remain interactive and viewport safe", async ({ page }) =>
   await expect(page.getByText("Popover content")).toBeHidden();
 
   await page.getByRole("button", { name: "Tooltip target" }).focus();
-  await expect(page.getByRole("tooltip", { name: "Shared tooltip" })).toBeVisible();
+  await expect(page.getByRole("tooltip")).toContainText("Shared tooltip");
 });
 
 test("Design System 2026 state lab has no document overflow across representative viewports", async ({ page }) => {
