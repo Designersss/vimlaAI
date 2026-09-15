@@ -49,9 +49,12 @@
   min-width: 0;
 }
 
-.copy h1 {
+.heroHeading {
   max-width: 13ch;
   margin: 0;
+  font-size: var(--vimla-type-display-size);
+  line-height: var(--vimla-type-display-line);
+  font-weight: var(--vimla-type-display-weight);
   text-wrap: balance;
 }
 
@@ -145,7 +148,7 @@
     gap: var(--vimla-space-4);
   }
 
-  .copy h1 {
+  .heroHeading {
     font-size: clamp(2.35rem, 12vw, 3.25rem);
     line-height: 1.04;
   }
