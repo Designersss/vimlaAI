@@ -8,23 +8,18 @@ import type { CurrentUser } from "@vimla/contracts";
 import {
   AppShell,
   Avatar,
-  BrandLockup,
   Button,
   DropdownMenu,
   DropdownMenuItem,
   ErrorState,
-  GlobalNav,
   LogOutIcon,
   MobileBottomNavigation,
-  Sidebar,
-  SidebarFooter,
   Spinner,
   VisuallyHidden,
   buttonClassName,
 } from "@vimla/ui";
 import { AuthRequiredError, fetchCurrentUser } from "../auth/services/current-user";
 import { authClient } from "../auth/services/auth-client";
-import { LanguageSwitcher } from "../../shared/i18n/LanguageSwitcher";
 import { CanonicalNav } from "./CanonicalNav";
 import { NotificationBell } from "../notifications/components/NotificationBell";
 import { readLocaleCookie, syncAuthenticatedLocale } from "../../shared/i18n/persist-locale";
@@ -50,9 +45,7 @@ export function ConsumerShell({ children }: { children: ReactNode }): ReactEleme
     let cancelled = false;
     void fetchCurrentUser()
       .then(async (currentUser) => {
-        if (cancelled) {
-          return;
-        }
+        if (cancelled) return;
         if (!currentUser.emailVerified) {
           router.replace("/verify-email");
           return;
@@ -65,9 +58,7 @@ export function ConsumerShell({ children }: { children: ReactNode }): ReactEleme
         setBoot("ready");
       })
       .catch((error: unknown) => {
-        if (cancelled) {
-          return;
-        }
+        if (cancelled) return;
         if (error instanceof AuthRequiredError) {
           router.replace("/sign-in");
           return;
@@ -97,28 +88,8 @@ export function ConsumerShell({ children }: { children: ReactNode }): ReactEleme
     return <ErrorState title={t("common.genericError")} />;
   }
 
-  const sidebar = (
-    <Sidebar>
-      <BrandLockup label={t("meta.productName")} />
-      <GlobalNav label={t("nav.primary")}>
-        <CanonicalNav />
-      </GlobalNav>
-      <SidebarFooter>
-        <LanguageSwitcher />
-        <p className={styles.user} data-testid="session-email">
-          {user.email}
-        </p>
-        <Button variant="ghost" size="sm" onClick={() => void signOut()}>
-          <LogOutIcon size={16} aria-hidden="true" />
-          {t("nav.signOut")}
-        </Button>
-      </SidebarFooter>
-    </Sidebar>
-  );
-
   return (
     <AppShell
-      sidebar={sidebar}
       viewport={viewport}
       topbarVisibility="all"
       topbar={
