@@ -14,6 +14,7 @@ export function WorkDetailHeader({ backHref, title }: { backHref: string; title:
       <Link
         href={backHref}
         scroll={false}
+        aria-label={t("common.back")}
         className={`${buttonClassName({ variant: "ghost", size: "sm" })} ${styles.mobileBack}`}
         data-testid="work-detail-back"
       >
