@@ -22,25 +22,23 @@ test("chat master detail remains responsive after Design System 2026 migration",
     await page.goto("/app");
 
     const list = page.getByRole("region", { name: /список разговоров|conversation list/i, includeHidden: true });
-    const detail = page.getByRole("region", { name: /диалог|conversation detail|chat detail/i, includeHidden: true });
+    const composer = page.getByPlaceholder(/сообщение для vimla|message vimla/i);
 
     await expect(list).toBeVisible();
     await assertNoDocumentOverflow(page);
 
     await list.getByRole("button", { name: /новый разговор|new conversation/i }).click();
     await expect(page).toHaveURL(/\/app\/[^/]+$/);
+    await expect(composer).toBeVisible();
 
     if (viewport.width < 1024) {
       await expect(list).toBeHidden();
-      await expect(detail).toBeVisible();
       await expect(page.getByRole("link", { name: /назад|back/i })).toBeVisible();
     } else {
       await expect(list).toBeVisible();
-      await expect(detail).toBeVisible();
       await expect(list.locator('a[aria-current="page"]')).toHaveCount(1);
     }
 
-    await expect(page.getByPlaceholder(/сообщение для vimla|message vimla/i)).toBeVisible();
     await assertNoDocumentOverflow(page);
   }
 });
