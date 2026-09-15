@@ -31,7 +31,7 @@ export default async function HomePage(): Promise<ReactElement> {
       <section className={styles.hero} aria-labelledby="landing-heading">
         <div className={styles.copy}>
           <Text tone="caption">{t("home.eyebrow")}</Text>
-          <Heading as="h1" size="display" id="landing-heading">
+          <Heading as="h1" size="page" id="landing-heading" className={styles.heroHeading}>
             {t("home.heading")}
           </Heading>
           <Text className={styles.tagline}>{t("home.tagline")}</Text>
