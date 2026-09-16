@@ -1,5 +1,5 @@
 import { Buffer } from "node:buffer";
-import { Prisma, type PrismaClient } from "@vimla/database";
+import { type Prisma, type PrismaClient } from "@vimla/database";
 import {
   ArtifactBindingError,
   ArtifactConflictError,
