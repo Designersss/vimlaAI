@@ -66,12 +66,12 @@ export interface ReadArtifactVersionResult extends ArtifactReference {
   versionMetadata: Prisma.JsonValue | null;
 }
 
-export interface ArtifactProvenanceNode {
+export interface ArtifactProvenance {
   reference: ArtifactReference;
   creatorInvocationId: string;
   planId: string;
+  planVersion: number;
+  planHash: string;
   messageId: string;
   conversationId: string;
-  parents: readonly ArtifactProvenanceNode[];
-  redactedParentCount: number;
 }
