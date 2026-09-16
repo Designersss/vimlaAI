@@ -49,7 +49,7 @@ describe("orchestration persistence", () => {
           conversationId: conversation.id,
           role: "USER",
           content: "Create a prompt and then consume it.",
-          status: "COMPLETED",
+          status: "COMPLETE",
         },
       });
       messageId = message.id;
