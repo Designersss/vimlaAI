@@ -21,32 +21,17 @@ test.describe("settings persistent layout", () => {
 
     await navigation.getByRole("link", { name: /account|аккаунт|уч[её]тная запись/i }).click();
     await expect(page).toHaveURL("/settings/account");
-    await expect(
-      page.getByRole("heading", {
-        level: 1,
-        name: /^(account|аккаунт|уч[её]тная запись)$/i,
-      }),
-    ).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: /^(account|аккаунт|уч[её]тная запись)$/i })).toBeVisible();
     expect(await navigationHandle?.evaluate((element) => element.isConnected)).toBe(true);
 
     await navigation.getByRole("link", { name: /appearance|оформление/i }).click();
     await expect(page).toHaveURL("/settings/appearance");
-    await expect(
-      page.getByRole("heading", {
-        level: 1,
-        name: /^(appearance|оформление)$/i,
-      }),
-    ).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: /^(appearance|оформление)$/i })).toBeVisible();
     expect(await navigationHandle?.evaluate((element) => element.isConnected)).toBe(true);
 
     await navigation.getByRole("link", { name: /security|безопасность/i }).click();
     await expect(page).toHaveURL("/settings/security");
-    await expect(
-      page.getByRole("heading", {
-        level: 1,
-        name: /^(security|безопасность)$/i,
-      }),
-    ).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: /^(security|безопасность)$/i })).toBeVisible();
     expect(await navigationHandle?.evaluate((element) => element.isConnected)).toBe(true);
     await assertNoDocumentOverflow(page);
   });
@@ -100,7 +85,7 @@ test.describe("settings persistent layout", () => {
       await page.goto("/settings/account");
       await expect(page.getByTestId("settings-detail")).toBeVisible();
       const navigation = page.getByTestId("settings-navigation-pane");
-      if (viewport.width < 1024) {
+      if (viewport.width < 768) {
         await expect(navigation).toBeHidden();
         await assertReachable(page, page.getByTestId("settings-detail").getByRole("link", { name: /back|назад/i }));
       } else {

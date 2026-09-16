@@ -114,7 +114,7 @@ test.describe("projects", () => {
       await page.setViewportSize(viewport);
       await page.goto(href);
       await expect(detail(page)).toBeVisible();
-      if (viewport.width < 1024) {
+      if (viewport.width < 768) {
         await expect(master(page)).toBeHidden();
         await assertReachable(page, detail(page).getByRole("link", { name: /назад|back/i }));
       } else {

@@ -78,7 +78,7 @@ test.describe("Secure Direct Chats", () => {
       await expect(alicePage.getByTestId("direct-chat-shell")).toBeVisible();
       await assertReachable(alicePage, alicePage.getByTestId("chat-composer-send"));
       await assertNoDocumentOverflow(alicePage);
-      if (viewport.width < 1024) {
+      if (viewport.width < 768) {
         await expect(aliceList).toBeHidden();
         await alicePage.getByRole("link", { name: /назад|back/i }).click();
         await expect(alicePage).toHaveURL("/app");

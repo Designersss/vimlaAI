@@ -182,7 +182,7 @@ test.describe("persistent Work layouts", () => {
       ]) {
         await page.goto(target.url);
         await expect(page.getByTestId(target.detail)).toBeVisible();
-        if (viewport.width < 1024) {
+        if (viewport.width < 768) {
           await expect(page.getByTestId(target.master)).toBeHidden();
           await assertReachable(page, page.getByTestId(target.detail).getByTestId("work-detail-back"));
         } else {

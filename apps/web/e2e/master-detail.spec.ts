@@ -18,7 +18,7 @@ async function createChat(page: Page, title: string): Promise<string> {
 async function watchPersistence(page: Page) {
   return page.evaluateHandle(() => {
     const shell = document.querySelector('[data-testid="consumer-shell"]');
-    const list = document.querySelector('[data-detail-open] > section');
+    const list = document.querySelector('[data-detail-open] > div > section');
     const bell = document.querySelector('[data-testid="notification-bell"]');
     if (!shell || !list || !bell) throw new Error("Missing persistent layout");
     const state = { shell, list, bell, removed: false, observer: new MutationObserver(() => {}) };
@@ -95,7 +95,7 @@ test("mobile uses the same panes, deterministic back and browser history across 
     await page.goto("/app");
     const list = master(page);
     await expect(list).toBeVisible();
-    if (viewport.width < 1024) await expect(detail(page)).toBeHidden();
+    if (viewport.width < 768) await expect(detail(page)).toBeHidden();
     if (viewport.width === 390) {
       await list.getByRole("link", { name: title, exact: true }).waitFor({ state: "visible" });
       await page.addStyleTag({ content: "nextjs-portal { display: none !important; }" });
@@ -108,7 +108,7 @@ test("mobile uses the same panes, deterministic back and browser history across 
     await expect(detail(page)).toBeVisible();
     await assertReachable(page, page.getByTestId("chat-composer-send"));
     await assertNoDocumentOverflow(page);
-    if (viewport.width < 1024) {
+    if (viewport.width < 768) {
       await expect(list).toBeHidden();
       if (viewport.width === 390) {
         await page.screenshot({ path: testInfo.outputPath("mobile-detail.png") });
@@ -122,7 +122,6 @@ test("mobile uses the same panes, deterministic back and browser history across 
       await expect(detail(page).getByRole("link", { name: "Back", exact: true })).toBeHidden();
     }
   }
-  // Direct deep-link entry has no prior list history, but Back still opens /app.
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(`/app/${id}`);
   await expect(composer(page)).toBeVisible();
@@ -160,6 +159,7 @@ test("loading and failed detail stay scoped, and the consumer shell persists acr
   await detail(page).getByRole("button", { name: /повторить|try again/i }).click();
   await expect(composer(page)).toBeVisible();
   await persistence.evaluate((s) => s.observer.disconnect());
+  await page.addStyleTag({ content: "nextjs-portal { display: none !important; }" });
   const shell = await page.getByTestId("consumer-shell").elementHandle();
   for (const href of ["/work", "/projects", "/settings/account", "/app"]) {
     await page.locator(`nav a[href="${href}"]:visible`).first().click();

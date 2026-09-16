@@ -4,6 +4,7 @@ import type { ReactElement, ReactNode } from "react";
 import { useSelectedLayoutSegment } from "next/navigation";
 import { useTranslations } from "next-intl";
 import { MasterDetailLayout } from "@vimla/ui";
+import { DesktopSectionDock } from "../../../shell/DesktopSectionDock";
 import { SettingsNavigationPane } from "./SettingsNavigationPane";
 import styles from "./SettingsChrome.module.scss";
 
@@ -24,6 +25,7 @@ export function SettingsRouteShell({ children }: { children: ReactNode }): React
         masterLabel={t("nav.settings")}
         detailLabel={detailLabel}
         master={<SettingsNavigationPane selectedSection={segment ?? undefined} />}
+        masterFooter={<DesktopSectionDock />}
       >
         {children}
       </MasterDetailLayout>

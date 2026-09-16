@@ -61,7 +61,7 @@
   overflow-wrap: anywhere;
 }
 
-@include bp.vimla-lg-up {
+@include bp.vimla-md-up {
   .collection {
     padding: var(--vimla-space-5) var(--vimla-space-4);
   }

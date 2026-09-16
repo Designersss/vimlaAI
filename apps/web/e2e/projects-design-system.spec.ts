@@ -34,7 +34,7 @@ test("projects preserve master detail and responsive presentation after Design S
 
     await expect(page.getByTestId("project-detail-shell")).toBeVisible();
 
-    if (viewport.width < 1024) {
+    if (viewport.width < 768) {
       await expect(page.getByTestId("projects-list-pane")).toBeHidden();
       await expect(page.getByRole("link", { name: /назад|back/i })).toBeVisible();
     } else {

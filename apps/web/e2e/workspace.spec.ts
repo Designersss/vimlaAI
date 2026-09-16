@@ -12,7 +12,9 @@ test.describe("personal workspace", () => {
     await page.goto("/work");
     await expect(page.getByTestId("work-shell")).toBeVisible();
     await expect(page.getByRole("heading", { name: /сегодня|today/i })).toBeVisible();
-    await expect(page.getByRole("link", { name: /мои дела|my work/i }).first()).toBeVisible();
+    const workNavigation = page.getByTestId("work-navigation");
+    await expect(workNavigation).toBeVisible();
+    await expect(workNavigation.locator('a[href="/work"][aria-current="page"]')).toBeVisible();
     await expect(page.getByText(/@vimla|project brain|library/i)).toHaveCount(0);
 
     await page.getByRole("link", { name: /задачи|tasks/i }).first().click();

@@ -23,9 +23,6 @@ test("canonical app shell navigation preserves route state across representative
 
     await expect(page.getByTestId("consumer-shell")).toBeVisible();
 
-    // Both desktop and mobile canonical navs stay mounted so route state remains
-    // consistent across responsive composition. Assert against the nav that is
-    // actually visible at the current viewport instead of matching both nodes.
     const canonicalNav = page
       .locator("nav:visible")
       .filter({ has: page.locator('a[href="/app"]') });
@@ -34,12 +31,12 @@ test("canonical app shell navigation preserves route state across representative
     await expect(canonicalNav).toBeVisible();
     await expect(canonicalNav.locator('a[href="/work"][aria-current="page"]')).toBeVisible();
     await expect(canonicalNav.locator('a[href="/app"][aria-current="page"]')).toHaveCount(0);
+    await expect(canonicalNav.locator('a[href="/settings/account"]')).toBeVisible();
 
     if (viewport.width < 768) {
-      await expect(page.locator("aside").first()).toBeHidden();
-      await expect(canonicalNav.locator('a[href="/work"]')).toBeVisible();
+      await expect(page.getByTestId("desktop-section-dock")).toBeHidden();
     } else {
-      await expect(page.locator("aside").first()).toBeVisible();
+      await expect(page.getByTestId("desktop-section-dock")).toBeVisible();
     }
 
     await assertNoDocumentOverflow(page);
