@@ -6,7 +6,7 @@ on:
   pull_request:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   ci:
@@ -58,8 +58,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4
@@ -74,20 +72,6 @@ jobs:
 
       - name: Install
         run: pnpm install --frozen-lockfile
-
-      - name: Autofix PR-06 artifacts lint
-        if: github.event_name == 'pull_request' && github.event.pull_request.number == 39
-        run: |
-          pnpm --filter @vimla/artifacts exec eslint . --fix --max-warnings 0
-          if git diff --quiet -- packages/artifacts; then
-            echo "No artifacts lint fixes required"
-          else
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add packages/artifacts
-            git commit -m "style(artifacts): apply lint fixes"
-            git push origin HEAD:${{ github.head_ref }}
-          fi
 
       - name: Lint
         run: pnpm lint
