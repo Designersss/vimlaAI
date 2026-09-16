@@ -107,7 +107,7 @@
   background: var(--vimla-bg-primary);
 }
 
-@include bp.vimla-lg-up {
+@include bp.vimla-md-up {
   .collectionPane {
     padding: var(--vimla-space-5) var(--vimla-space-4);
   }
