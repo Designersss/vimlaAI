@@ -12,8 +12,36 @@ import { Redis } from "ioredis";
 import pino from "pino";
 import { closeHttpServer, listenWorkerHealth } from "./health.js";
 import { createNotificationRuntime, parseDeliveryJobPayload } from "./notifications.js";
+import {
+  MockInvocationExecutorRegistry,
+  OrchestrationRuntime,
+  parseInvocationExecutePayload,
+  parseOrchestrationDispatchPayload,
+  type QueuePublisher,
+  type RuntimeLogger,
+} from "./orchestration.js";
 import { createWorkerPaymentService } from "./payment-reconciliation.js";
-import { MAINTENANCE_QUEUE_NAME, redisConnectionOptions } from "./queue.js";
+import {
+  INVOCATION_EXECUTE_JOB_NAME,
+  INVOCATION_EXECUTE_QUEUE_NAME,
+  MAINTENANCE_QUEUE_NAME,
+  ORCHESTRATION_DISPATCH_JOB_NAME,
+  ORCHESTRATION_DISPATCH_QUEUE_NAME,
+  ORCHESTRATION_RECONCILE_INTERVAL_MS,
+  ORCHESTRATION_RECONCILE_JOB_NAME,
+  ORCHESTRATION_RECONCILE_SCHEDULER_ID,
+  redisConnectionOptions,
+} from "./queue.js";
+
+type OrchestrationResources = {
+  dispatchQueue: Queue;
+  executionQueue: Queue;
+  dispatchWorker: Worker;
+  executionWorker: Worker;
+  dispatchConnection: Redis;
+  executionConnection: Redis;
+  reconcileTimer: NodeJS.Timeout;
+};
 
 async function bootstrap(): Promise<void> {
   const config = loadWorkerConfig();
@@ -50,14 +78,14 @@ async function bootstrap(): Promise<void> {
   await pingDatabase(prisma);
   logger.info("connected to PostgreSQL");
 
-  const billingLogger = {
-    info: (fields: Record<string, string | number | boolean | null>, message: string) => {
+  const billingLogger: RuntimeLogger = {
+    info: (fields, message) => {
       logger.info(fields, message);
     },
-    warn: (fields: Record<string, string | number | boolean | null>, message: string) => {
+    warn: (fields, message) => {
       logger.warn(fields, message);
     },
-    error: (fields: Record<string, string | number | boolean | null>, message: string) => {
+    error: (fields, message) => {
       logger.error(fields, message);
     },
   };
@@ -124,6 +152,16 @@ async function bootstrap(): Promise<void> {
   const startupCounters = await notifications.reconciler.reconcile();
   logger.info(startupCounters, "reminder.reconcile.startup");
 
+  const orchestrationResources =
+    config.appEnv === "local" || config.appEnv === "test"
+      ? await startOrchestrationRuntime(
+          prisma,
+          queueConnection,
+          redisOptions.url,
+          billingLogger,
+        )
+      : undefined;
+
   const paymentTimer = setInterval(() => {
     void payments
       .reconcilePending(new Date(Date.now() - reconcileAfterMs), 25)
@@ -151,6 +189,7 @@ async function bootstrap(): Promise<void> {
     {
       maintenanceQueue: MAINTENANCE_QUEUE_NAME,
       notificationQueue: NOTIFICATIONS_QUEUE_NAME,
+      orchestrationPreviewEnabled: orchestrationResources !== undefined,
       workerHealthPort: config.workerHealthPort ?? null,
     },
     "worker ready",
@@ -159,7 +198,18 @@ async function bootstrap(): Promise<void> {
   const shutdown = async (signal: string): Promise<void> => {
     logger.info({ signal }, "worker shutting down");
     clearInterval(paymentTimer);
+    if (orchestrationResources) {
+      clearInterval(orchestrationResources.reconcileTimer);
+    }
     await closeHttpServer(healthServer);
+    if (orchestrationResources) {
+      await orchestrationResources.executionWorker.close();
+      await orchestrationResources.dispatchWorker.close();
+      await orchestrationResources.executionQueue.close();
+      await orchestrationResources.dispatchQueue.close();
+      await orchestrationResources.executionConnection.quit();
+      await orchestrationResources.dispatchConnection.quit();
+    }
     await notificationWorker.close();
     await maintenanceWorker.close();
     await notificationQueue.close();
@@ -176,6 +226,124 @@ async function bootstrap(): Promise<void> {
   process.once("SIGTERM", () => {
     void shutdown("SIGTERM");
   });
+}
+
+async function startOrchestrationRuntime(
+  prisma: ReturnType<typeof createPrismaClient>,
+  queueConnection: Redis,
+  redisUrl: string,
+  runtimeLogger: RuntimeLogger,
+): Promise<OrchestrationResources> {
+  const dispatchConnection = new Redis(redisUrl, { maxRetriesPerRequest: null });
+  const executionConnection = new Redis(redisUrl, { maxRetriesPerRequest: null });
+  const dispatchQueue = new Queue(ORCHESTRATION_DISPATCH_QUEUE_NAME, { connection: queueConnection });
+  const executionQueue = new Queue(INVOCATION_EXECUTE_QUEUE_NAME, { connection: queueConnection });
+  const runtime = new OrchestrationRuntime(
+    prisma,
+    queuePublisher(dispatchQueue),
+    queuePublisher(executionQueue),
+    runtimeLogger,
+    { executorRegistry: new MockInvocationExecutorRegistry() },
+  );
+
+  const dispatchWorker = new Worker(
+    ORCHESTRATION_DISPATCH_QUEUE_NAME,
+    async (job) => {
+      if (job.name === ORCHESTRATION_RECONCILE_JOB_NAME) {
+        await runtime.reconcile();
+        return { ok: true as const };
+      }
+      if (job.name === ORCHESTRATION_DISPATCH_JOB_NAME) {
+        const payload = parseOrchestrationDispatchPayload(job.data);
+        await runtime.dispatchPlan(payload.planId);
+        return { ok: true as const };
+      }
+      runtimeLogger.info(
+        { jobId: job.id ?? null, name: job.name },
+        "unknown orchestration dispatch job",
+      );
+      return { ok: true as const };
+    },
+    { connection: dispatchConnection, concurrency: 4 },
+  );
+
+  const executionWorker = new Worker(
+    INVOCATION_EXECUTE_QUEUE_NAME,
+    async (job) => {
+      if (job.name === INVOCATION_EXECUTE_JOB_NAME) {
+        const payload = parseInvocationExecutePayload(job.data);
+        await runtime.processInvocation(payload.planId, payload.invocationId);
+        return { ok: true as const };
+      }
+      runtimeLogger.info(
+        { jobId: job.id ?? null, name: job.name },
+        "unknown invocation execution job",
+      );
+      return { ok: true as const };
+    },
+    { connection: executionConnection, concurrency: 16 },
+  );
+
+  dispatchWorker.on("error", (error: Error) => {
+    runtimeLogger.error({ err: error.message }, "orchestration dispatch worker error");
+  });
+  executionWorker.on("error", (error: Error) => {
+    runtimeLogger.error({ err: error.message }, "orchestration execution worker error");
+  });
+  dispatchWorker.on("failed", (job, error: Error) => {
+    runtimeLogger.error(
+      { jobId: job?.id ?? null, err: error.message },
+      "orchestration dispatch job failed",
+    );
+  });
+  executionWorker.on("failed", (job, error: Error) => {
+    runtimeLogger.error(
+      { jobId: job?.id ?? null, err: error.message },
+      "orchestration execution job failed",
+    );
+  });
+
+  await dispatchWorker.waitUntilReady();
+  await executionWorker.waitUntilReady();
+  await dispatchQueue.upsertJobScheduler(
+    ORCHESTRATION_RECONCILE_SCHEDULER_ID,
+    { every: ORCHESTRATION_RECONCILE_INTERVAL_MS },
+    { name: ORCHESTRATION_RECONCILE_JOB_NAME, data: { reason: "repeat" } },
+  );
+  await runtime.reconcile();
+
+  const reconcileTimer = setInterval(() => {
+    void runtime.reconcile().catch((error: unknown) => {
+      runtimeLogger.error(
+        { err: error instanceof Error ? error.message : "unknown" },
+        "orchestration reconciliation loop failed",
+      );
+    });
+  }, ORCHESTRATION_RECONCILE_INTERVAL_MS);
+
+  runtimeLogger.info(
+    {
+      dispatchQueue: ORCHESTRATION_DISPATCH_QUEUE_NAME,
+      executionQueue: INVOCATION_EXECUTE_QUEUE_NAME,
+    },
+    "orchestration preview runtime ready",
+  );
+
+  return {
+    dispatchQueue,
+    executionQueue,
+    dispatchWorker,
+    executionWorker,
+    dispatchConnection,
+    executionConnection,
+    reconcileTimer,
+  };
+}
+
+function queuePublisher(queue: Queue): QueuePublisher {
+  return {
+    add: async (name, data, options) => queue.add(name, data, options),
+  };
 }
 
 await bootstrap();
