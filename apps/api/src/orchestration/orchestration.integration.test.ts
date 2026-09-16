@@ -5,6 +5,7 @@ import { loadApiConfig } from "@vimla/config/server";
 import { createPrismaClient, type PrismaClient } from "@vimla/database";
 import { createVimlaApiApp } from "../create-app.js";
 import { registerVerifiedUser } from "../test/identity-helpers.js";
+import type { ExecutionPlanDefinition } from "./contracts.js";
 
 const testDatabaseUrl = process.env.TEST_DATABASE_URL;
 if (!testDatabaseUrl) {
@@ -255,33 +256,33 @@ describe("execution plan API", () => {
   }
 });
 
-function sequentialPlan() {
+function sequentialPlan(): ExecutionPlanDefinition {
   return {
-    schemaVersion: 1 as const,
+    schemaVersion: 1,
     goal: "Create a prompt, then use the prompt artifact to create an image",
     maxParallelism: 2,
     invocations: [
       {
         id: "prompt",
         purpose: "Create an image prompt",
-        target: { kind: "AI_MODEL" as const, modelSlug: "gpt" },
-        outputs: [{ name: "prompt", artifactType: "PROMPT" as const }],
+        target: { kind: "AI_MODEL", modelSlug: "gpt" },
+        outputs: [{ name: "prompt", artifactType: "PROMPT" }],
         acceptanceCriteria: [],
-        riskClass: "READ_ONLY" as const,
-        approvalPolicy: "AUTO" as const,
-        failurePolicy: "FAIL_PLAN" as const,
-        joinPolicy: "ALL_REQUIRED" as const,
+        riskClass: "READ_ONLY",
+        approvalPolicy: "AUTO",
+        failurePolicy: "FAIL_PLAN",
+        joinPolicy: "ALL_REQUIRED",
       },
       {
         id: "image",
         purpose: "Create an image from the prompt",
-        target: { kind: "AI_MODEL" as const, modelSlug: "image-model" },
-        outputs: [{ name: "image", artifactType: "IMAGE" as const }],
+        target: { kind: "AI_MODEL", modelSlug: "image-model" },
+        outputs: [{ name: "image", artifactType: "IMAGE" }],
         acceptanceCriteria: [],
-        riskClass: "READ_ONLY" as const,
-        approvalPolicy: "AUTO" as const,
-        failurePolicy: "FAIL_PLAN" as const,
-        joinPolicy: "ALL_REQUIRED" as const,
+        riskClass: "READ_ONLY",
+        approvalPolicy: "AUTO",
+        failurePolicy: "FAIL_PLAN",
+        joinPolicy: "ALL_REQUIRED",
       },
     ],
     dependencies: [
@@ -289,12 +290,12 @@ function sequentialPlan() {
         id: "prompt-to-image",
         fromInvocationId: "prompt",
         toInvocationId: "image",
-        condition: { kind: "DATA" as const },
+        condition: { kind: "DATA" },
         inputBindings: [
           {
             inputName: "prompt",
             sourceOutputName: "prompt",
-            expectedArtifactType: "PROMPT" as const,
+            expectedArtifactType: "PROMPT",
           },
         ],
       },
@@ -302,22 +303,22 @@ function sequentialPlan() {
   };
 }
 
-function approvalPlan() {
+function approvalPlan(): ExecutionPlanDefinition {
   return {
-    schemaVersion: 1 as const,
+    schemaVersion: 1,
     goal: "Prepare a Vimla reminder but require explicit approval",
     maxParallelism: 1,
     invocations: [
       {
         id: "remind",
         purpose: "Create a reminder",
-        target: { kind: "VIMLA" as const },
+        target: { kind: "VIMLA" },
         outputs: [],
         acceptanceCriteria: [],
-        riskClass: "INTERNAL_WRITE" as const,
-        approvalPolicy: "USER_CONFIRMATION" as const,
-        failurePolicy: "FAIL_PLAN" as const,
-        joinPolicy: "ALL_REQUIRED" as const,
+        riskClass: "INTERNAL_WRITE",
+        approvalPolicy: "USER_CONFIRMATION",
+        failurePolicy: "FAIL_PLAN",
+        joinPolicy: "ALL_REQUIRED",
       },
     ],
     dependencies: [],
