@@ -8,9 +8,11 @@ import type { CurrentUser } from "@vimla/contracts";
 import {
   AppShell,
   Avatar,
+  Button,
   DropdownMenu,
   DropdownMenuItem,
   ErrorState,
+  LogOutIcon,
   MobileBottomNavigation,
   Spinner,
   VisuallyHidden,
@@ -18,6 +20,7 @@ import {
 } from "@vimla/ui";
 import { AuthRequiredError, fetchCurrentUser } from "../auth/services/current-user";
 import { authClient } from "../auth/services/auth-client";
+import { LanguageSwitcher } from "../../shared/i18n/LanguageSwitcher";
 import { CanonicalNav } from "./CanonicalNav";
 import { NotificationBell } from "../notifications/components/NotificationBell";
 import { readLocaleCookie, syncAuthenticatedLocale } from "../../shared/i18n/persist-locale";
@@ -43,9 +46,7 @@ export function ConsumerShell({ children }: { children: ReactNode }): ReactEleme
     let cancelled = false;
     void fetchCurrentUser()
       .then(async (currentUser) => {
-        if (cancelled) {
-          return;
-        }
+        if (cancelled) return;
         if (!currentUser.emailVerified) {
           router.replace("/verify-email");
           return;
@@ -58,9 +59,7 @@ export function ConsumerShell({ children }: { children: ReactNode }): ReactEleme
         setBoot("ready");
       })
       .catch((error: unknown) => {
-        if (cancelled) {
-          return;
-        }
+        if (cancelled) return;
         if (error instanceof AuthRequiredError) {
           router.replace("/sign-in");
           return;
@@ -98,7 +97,12 @@ export function ConsumerShell({ children }: { children: ReactNode }): ReactEleme
         <div className={styles.topbar}>
           <p className={styles.title}>{title}</p>
           <div className={styles.actions}>
+            <LanguageSwitcher />
             <NotificationBell />
+            <Button variant="ghost" size="sm" onClick={() => void signOut()}>
+              <LogOutIcon size={16} aria-hidden="true" />
+              {t("nav.signOut")}
+            </Button>
             <DropdownMenu
               label={
                 <>
