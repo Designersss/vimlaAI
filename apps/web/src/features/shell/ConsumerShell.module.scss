@@ -100,6 +100,8 @@
   }
 
   .localNav {
+    grid-column: 1;
+    grid-row: 1;
     min-width: 0;
     min-height: 0;
     padding: 0;
@@ -111,6 +113,14 @@
     border-bottom: 0;
     border-inline-end: 1px solid var(--vimla-border-subtle);
     overflow: hidden;
+  }
+
+  .page:has(.localNav) > .body,
+  .page:has(.localNav) > .bodyFlush {
+    grid-column: 2;
+    grid-row: 1;
+    min-width: 0;
+    min-height: 0;
   }
 
   .localNavContent {
