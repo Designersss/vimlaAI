@@ -115,7 +115,13 @@ export function validateExecutionPlanGraph(
       throw new GraphValidationError("INVALID_CONDITIONAL_BINDING", `Only DATA dependencies may bind artifacts (${dependency.id})`);
     }
 
-    const sourceOutputs = outputsByInvocation.get(dependency.fromInvocationId)!;
+    const sourceOutputs = outputsByInvocation.get(dependency.fromInvocationId);
+    const incomingDependencies = incoming.get(dependency.toInvocationId);
+    const outgoingDependencies = outgoing.get(dependency.fromInvocationId);
+    if (!sourceOutputs || !incomingDependencies || !outgoingDependencies) {
+      throw new GraphValidationError("UNKNOWN_SOURCE", `Dependency ${dependency.id} references an unknown invocation`);
+    }
+
     const targetInputs = boundInputs.get(dependency.toInvocationId) ?? new Set<string>();
     for (const binding of dependency.inputBindings) {
       if (targetInputs.has(binding.inputName)) {
@@ -135,8 +141,8 @@ export function validateExecutionPlanGraph(
     }
     boundInputs.set(dependency.toInvocationId, targetInputs);
 
-    incoming.get(dependency.toInvocationId)!.push(dependency);
-    outgoing.get(dependency.fromInvocationId)!.push(dependency);
+    incomingDependencies.push(dependency);
+    outgoingDependencies.push(dependency);
   }
 
   for (const [id, deps] of outgoing) {
@@ -146,8 +152,11 @@ export function validateExecutionPlanGraph(
   }
 
   for (const invocation of plan.invocations) {
-    const incomingCount = incoming.get(invocation.id)!.length;
-    if (incomingCount < 2 && invocation.joinPolicy !== "ALL_REQUIRED") {
+    const incomingDependencies = incoming.get(invocation.id);
+    if (!incomingDependencies) {
+      throw new GraphValidationError("UNREACHABLE_INVOCATION", `Invocation ${invocation.id} is not present in normalized graph`);
+    }
+    if (incomingDependencies.length < 2 && invocation.joinPolicy !== "ALL_REQUIRED") {
       throw new GraphValidationError("INVALID_JOIN", `Invocation ${invocation.id} uses ${invocation.joinPolicy} without a multi-edge join`);
     }
   }
@@ -159,11 +168,12 @@ export function validateExecutionPlanGraph(
   const depth = new Map<string, number>(queue.map((id) => [id, 0]));
 
   for (let cursor = 0; cursor < queue.length; cursor += 1) {
-    const id = queue[cursor]!;
+    const id = queue[cursor];
+    if (id === undefined) continue;
     order.push(id);
     const currentDepth = depth.get(id) ?? 0;
-    for (const dep of outgoing.get(id) ?? []) {
-      const next = dep.toInvocationId;
+    for (const dependency of outgoing.get(id) ?? []) {
+      const next = dependency.toInvocationId;
       depth.set(next, Math.max(depth.get(next) ?? 0, currentDepth + 1));
       const nextDegree = (indegree.get(next) ?? 0) - 1;
       indegree.set(next, nextDegree);
