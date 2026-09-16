@@ -369,6 +369,25 @@ importers:
         specifier: ^3.2.4
         version: 3.2.7(@types/node@24.13.3)(jiti@2.7.0)(sass@1.104.0)(tsx@4.23.13)
 
+  packages/artifacts:
+    dependencies:
+      '@vimla/database':
+        specifier: workspace:*
+        version: link:../database
+    devDependencies:
+      '@types/node':
+        specifier: ^24.3.1
+        version: 24.13.3
+      eslint:
+        specifier: ^9.35.0
+        version: 9.39.5(jiti@2.7.0)
+      typescript:
+        specifier: ^5.9.2
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.7(@types/node@24.13.3)(jiti@2.7.0)(sass@1.104.0)(tsx@4.23.13)
+
   packages/auth:
     dependencies:
       '@better-auth/passkey':
@@ -611,6 +630,8 @@ importers:
       vitest:
         specifier: ^3.2.4
         version: 3.2.7(@types/node@24.13.3)(jiti@2.7.0)(sass@1.104.0)(tsx@4.23.13)
+
+  packages/orchestration: {}
 
   packages/projects:
     dependencies:
