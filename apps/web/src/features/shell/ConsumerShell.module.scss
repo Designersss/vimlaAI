@@ -93,15 +93,24 @@
 }
 
 @media (min-width: 768px) {
-  .page:has(.localNav) {
+  .page:has(> .localNav) {
     display: grid;
     grid-template-columns: minmax(17rem, clamp(18rem, 29%, 22.5rem)) minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr);
   }
 
-  .localNav {
+  .page:has(> .localNav) > .localNav {
     grid-column: 1;
     grid-row: 1;
+  }
+
+  .page:has(> .localNav) > .body,
+  .page:has(> .localNav) > .bodyFlush {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .localNav {
     min-width: 0;
     min-height: 0;
     padding: 0;
@@ -113,14 +122,6 @@
     border-bottom: 0;
     border-inline-end: 1px solid var(--vimla-border-subtle);
     overflow: hidden;
-  }
-
-  .page:has(.localNav) > .body,
-  .page:has(.localNav) > .bodyFlush {
-    grid-column: 2;
-    grid-row: 1;
-    min-width: 0;
-    min-height: 0;
   }
 
   .localNavContent {
