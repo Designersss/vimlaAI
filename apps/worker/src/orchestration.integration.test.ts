@@ -402,7 +402,7 @@ async function seedPlan(
       conversationId,
       role: "USER",
       content: "Execute the test DAG",
-      status: "COMPLETED",
+      status: "COMPLETE",
     },
   });
   await prisma.executionPlan.create({
