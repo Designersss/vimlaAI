@@ -159,6 +159,7 @@ test("loading and failed detail stay scoped, and the consumer shell persists acr
   await detail(page).getByRole("button", { name: /повторить|try again/i }).click();
   await expect(composer(page)).toBeVisible();
   await persistence.evaluate((s) => s.observer.disconnect());
+  await page.addStyleTag({ content: "nextjs-portal { display: none !important; }" });
   const shell = await page.getByTestId("consumer-shell").elementHandle();
   for (const href of ["/work", "/projects", "/settings/account", "/app"]) {
     await page.locator(`nav a[href="${href}"]:visible`).first().click();
