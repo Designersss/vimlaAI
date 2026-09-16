@@ -29,7 +29,7 @@ test("settings navigation remains responsive after Design System 2026 migration"
     await expect(page).toHaveURL(/\/settings\/account$/);
     await expect(page.getByTestId("settings-detail")).toBeVisible();
 
-    if (viewport.width < 1024) {
+    if (viewport.width < 768) {
       await expect(navigationPane).toBeHidden();
       await expect(page.getByRole("link", { name: /назад|back/i })).toBeVisible();
     } else {
