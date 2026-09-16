@@ -1,0 +1,47 @@
+name: PR06 lockfile sync
+
+on:
+  push:
+    branches:
+      - feat/artifact-service-pr06
+    paths:
+      - .github/workflows/pr06-lockfile-sync.yml
+
+permissions:
+  contents: write
+
+jobs:
+  sync-lockfile:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          ref: feat/artifact-service-pr06
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.17.0
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Regenerate lockfile only
+        run: pnpm install --lockfile-only --no-frozen-lockfile
+
+      - name: Commit lockfile
+        run: |
+          git diff --exit-code -- . ':(exclude)pnpm-lock.yaml'
+          if git diff --quiet -- pnpm-lock.yaml; then
+            echo "Lockfile already synchronized"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add pnpm-lock.yaml
+          git commit -m "chore: sync pnpm lockfile for artifacts package"
+          git push origin HEAD:feat/artifact-service-pr06
