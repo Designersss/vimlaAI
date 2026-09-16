@@ -10,7 +10,7 @@ if (!testDatabaseUrl) {
 }
 
 describe("Prisma persistence", () => {
-  it("connects and sees Better Auth tables", async () => {
+  it("connects and sees Better Auth and durable product tables", async () => {
     const client = createPrismaClient(testDatabaseUrl);
 
     try {
@@ -45,6 +45,19 @@ describe("Prisma persistence", () => {
           "workspace_object",
           "user_notification",
           "notification_delivery",
+          "execution_plan",
+          "invocation",
+          "invocation_dependency",
+          "invocation_run",
+          "context_snapshot",
+          "context_snapshot_item",
+          "context_bundle",
+          "artifact",
+          "artifact_version",
+          "artifact_access_grant",
+          "evaluation",
+          "ai_execution",
+          "tool_execution",
         ]),
       );
     } finally {

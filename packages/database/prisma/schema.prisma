@@ -47,6 +47,8 @@ model User {
   directMemberships          DirectConversationMember[]
   directMessagesSent         DirectMessage[]            @relation("DirectMessageSender")
   assignedWorkspaceTasks     WorkspaceTask[]            @relation("TaskAssignedBy")
+  executionPlans             ExecutionPlan[]
+  artifactAccessGrants       ArtifactAccessGrant[]
   twoFactorEnabled           Boolean           @default(false)
   twoFactor            TwoFactor?
   passkeys             Passkey[]
@@ -375,6 +377,7 @@ model Conversation {
   aiRequests               AiRequest[]
   sourcedWorkspaceObjects  WorkspaceObject[]
   operatorRuns             OperatorRun[]
+  executionPlans           ExecutionPlan[]
 
   @@index([userId, updatedAt])
   @@index([userId, kind])
@@ -397,6 +400,7 @@ model Message {
   sourcedWorkspaceObjects WorkspaceObject[]
   operatorRunId           String?
   operatorRun             OperatorRun?      @relation(fields: [operatorRunId], references: [id], onDelete: SetNull)
+  executionPlan           ExecutionPlan?
 
   @@index([conversationId, createdAt])
   @@index([aiRequestId])
@@ -437,6 +441,7 @@ model AiRequest {
   startedAt                  DateTime?
   finishedAt                 DateTime?
   messages                   Message[]
+  aiExecution                AIExecution?
 
   @@unique([userId, clientRequestId])
   @@index([conversationId, createdAt])
@@ -1001,6 +1006,7 @@ model OperatorRunStep {
   idempotencyKey String
   executedAt     DateTime?
   createdAt      DateTime    @default(now())
+  toolExecution  ToolExecution?
 
   @@unique([runId, sequence])
   @@unique([runId, idempotencyKey])
@@ -1133,4 +1139,247 @@ model DirectMessageEnvelope {
   @@unique([senderDeviceId, recipientDeviceId, dhPublicB64, messageNumber])
   @@index([recipientDeviceId, createdAt])
   @@map("direct_message_envelope")
+}
+
+// Context-aware orchestration persistence. Additive: existing Operator/AiRequest/workspace
+// tables remain authoritative for their current domains and financial history.
+model ExecutionPlan {
+  id             String       @id @default(uuid())
+  messageId      String       @unique
+  message        Message      @relation(fields: [messageId], references: [id], onDelete: Restrict)
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Restrict)
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Restrict)
+  schemaVersion  Int
+  version        Int          @default(1)
+  planHash       String
+  goal           String
+  status         String       @default("PLANNED")
+  maxParallelism Int
+  startedAt      DateTime?
+  frozenAt       DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  invocations    Invocation[]
+  dependencies   InvocationDependency[]
+  contextSnapshot ContextSnapshot?
+
+  @@index([userId, createdAt])
+  @@index([conversationId, createdAt])
+  @@index([status, createdAt])
+  @@map("execution_plan")
+}
+
+model Invocation {
+  id                 String        @id @default(uuid())
+  planId             String
+  plan               ExecutionPlan @relation(fields: [planId], references: [id], onDelete: Restrict)
+  sequence           Int
+  purpose            String
+  targetKind         String
+  targetModelSlug    String?
+  targetAgentId      String?
+  outputDeclarations Json
+  acceptanceCriteria Json
+  riskClass          String
+  approvalPolicy     String
+  failurePolicy      String
+  joinPolicy         String
+  status             String        @default("PENDING")
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  outgoingDependencies InvocationDependency[] @relation("InvocationDependencyFrom")
+  incomingDependencies InvocationDependency[] @relation("InvocationDependencyTo")
+  runs               InvocationRun[]
+  artifacts          Artifact[]
+  contextBundle      ContextBundle?
+
+  @@unique([planId, sequence])
+  @@index([planId, status])
+  @@index([status, createdAt])
+  @@map("invocation")
+}
+
+model InvocationDependency {
+  id               String        @id @default(uuid())
+  planId           String
+  plan             ExecutionPlan @relation(fields: [planId], references: [id], onDelete: Restrict)
+  fromInvocationId String
+  fromInvocation   Invocation    @relation("InvocationDependencyFrom", fields: [fromInvocationId], references: [id], onDelete: Restrict)
+  toInvocationId   String
+  toInvocation     Invocation    @relation("InvocationDependencyTo", fields: [toInvocationId], references: [id], onDelete: Restrict)
+  conditionKind    String
+  conditionOutcome String        @default("")
+  inputBindings    Json
+  createdAt        DateTime      @default(now())
+
+  @@unique([fromInvocationId, toInvocationId, conditionKind, conditionOutcome])
+  @@index([planId])
+  @@index([toInvocationId, conditionKind])
+  @@map("invocation_dependency")
+}
+
+model InvocationRun {
+  id             String     @id @default(uuid())
+  invocationId   String
+  invocation     Invocation @relation(fields: [invocationId], references: [id], onDelete: Restrict)
+  attempt        Int
+  idempotencyKey String     @unique
+  status         String
+  outcome        String?
+  errorCode      String?
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+  aiExecution    AIExecution?
+  toolExecution  ToolExecution?
+  evaluation     Evaluation?
+
+  @@unique([invocationId, attempt])
+  @@index([invocationId, status])
+  @@index([status, createdAt])
+  @@map("invocation_run")
+}
+
+model ContextSnapshot {
+  id           String        @id @default(uuid())
+  planId       String        @unique
+  plan         ExecutionPlan @relation(fields: [planId], references: [id], onDelete: Restrict)
+  version      Int           @default(1)
+  fingerprint  String
+  createdAt    DateTime      @default(now())
+  items        ContextSnapshotItem[]
+  bundles      ContextBundle[]
+
+  @@index([createdAt])
+  @@map("context_snapshot")
+}
+
+model ContextSnapshotItem {
+  id            String          @id @default(uuid())
+  snapshotId    String
+  snapshot      ContextSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Restrict)
+  sequence      Int
+  sourceType    String
+  sourceId      String
+  sourceVersion String?
+  fingerprint   String
+  classification String
+  contentRef    String?
+  metadata      Json?
+  createdAt     DateTime        @default(now())
+
+  @@unique([snapshotId, sequence])
+  @@index([sourceType, sourceId])
+  @@map("context_snapshot_item")
+}
+
+model ContextBundle {
+  id           String          @id @default(uuid())
+  invocationId String          @unique
+  invocation   Invocation      @relation(fields: [invocationId], references: [id], onDelete: Restrict)
+  snapshotId   String
+  snapshot     ContextSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Restrict)
+  fingerprint  String
+  manifest     Json
+  createdAt    DateTime        @default(now())
+
+  @@index([snapshotId])
+  @@map("context_bundle")
+}
+
+model Artifact {
+  id                  String     @id @default(uuid())
+  creatorInvocationId String
+  creatorInvocation   Invocation @relation(fields: [creatorInvocationId], references: [id], onDelete: Restrict)
+  outputName          String
+  type                String
+  classification      String
+  metadata            Json?
+  createdAt           DateTime   @default(now())
+  versions            ArtifactVersion[]
+  accessGrants        ArtifactAccessGrant[]
+
+  @@unique([creatorInvocationId, outputName])
+  @@index([creatorInvocationId, createdAt])
+  @@index([type, createdAt])
+  @@map("artifact")
+}
+
+model ArtifactVersion {
+  id          String   @id @default(uuid())
+  artifactId  String
+  artifact    Artifact @relation(fields: [artifactId], references: [id], onDelete: Restrict)
+  version     Int
+  contentRef  String?
+  contentJson Json?
+  fingerprint String
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  @@unique([artifactId, version])
+  @@index([fingerprint])
+  @@map("artifact_version")
+}
+
+model ArtifactAccessGrant {
+  id            String   @id @default(uuid())
+  artifactId    String
+  artifact      Artifact @relation(fields: [artifactId], references: [id], onDelete: Restrict)
+  granteeUserId String
+  granteeUser   User     @relation(fields: [granteeUserId], references: [id], onDelete: Restrict)
+  permission    String
+  createdAt     DateTime @default(now())
+  revokedAt     DateTime?
+
+  @@unique([artifactId, granteeUserId, permission])
+  @@index([granteeUserId, revokedAt])
+  @@map("artifact_access_grant")
+}
+
+model Evaluation {
+  id              String        @id @default(uuid())
+  invocationRunId String        @unique
+  invocationRun   InvocationRun @relation(fields: [invocationRunId], references: [id], onDelete: Restrict)
+  evaluatorKind   String
+  outcome         String
+  criteriaResults Json
+  summary         String?
+  createdAt       DateTime      @default(now())
+
+  @@index([outcome, createdAt])
+  @@map("evaluation")
+}
+
+model AIExecution {
+  id              String        @id @default(uuid())
+  invocationRunId String        @unique
+  invocationRun   InvocationRun @relation(fields: [invocationRunId], references: [id], onDelete: Restrict)
+  aiRequestId     String        @unique
+  aiRequest       AiRequest     @relation(fields: [aiRequestId], references: [id], onDelete: Restrict)
+  createdAt       DateTime      @default(now())
+
+  @@map("ai_execution")
+}
+
+model ToolExecution {
+  id                String           @id @default(uuid())
+  invocationRunId   String           @unique
+  invocationRun     InvocationRun    @relation(fields: [invocationRunId], references: [id], onDelete: Restrict)
+  operatorRunStepId String?          @unique
+  operatorRunStep   OperatorRunStep? @relation(fields: [operatorRunStepId], references: [id], onDelete: Restrict)
+  toolName          String
+  idempotencyKey    String           @unique
+  status            String
+  objectType        String?
+  objectId          String?
+  resultJson        Json?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  @@index([toolName, status])
+  @@map("tool_execution")
 }
