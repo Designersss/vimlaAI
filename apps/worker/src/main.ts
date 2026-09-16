@@ -18,6 +18,7 @@ import {
   parseInvocationExecutePayload,
   parseOrchestrationDispatchPayload,
   type QueuePublisher,
+  type RuntimeLogger,
 } from "./orchestration.js";
 import { createWorkerPaymentService } from "./payment-reconciliation.js";
 import {
@@ -77,14 +78,14 @@ async function bootstrap(): Promise<void> {
   await pingDatabase(prisma);
   logger.info("connected to PostgreSQL");
 
-  const billingLogger = {
-    info: (fields: Record<string, string | number | boolean | null>, message: string) => {
+  const billingLogger: RuntimeLogger = {
+    info: (fields, message) => {
       logger.info(fields, message);
     },
-    warn: (fields: Record<string, string | number | boolean | null>, message: string) => {
+    warn: (fields, message) => {
       logger.warn(fields, message);
     },
-    error: (fields: Record<string, string | number | boolean | null>, message: string) => {
+    error: (fields, message) => {
       logger.error(fields, message);
     },
   };
@@ -158,7 +159,6 @@ async function bootstrap(): Promise<void> {
           queueConnection,
           redisOptions.url,
           billingLogger,
-          logger,
         )
       : undefined;
 
@@ -232,12 +232,7 @@ async function startOrchestrationRuntime(
   prisma: ReturnType<typeof createPrismaClient>,
   queueConnection: Redis,
   redisUrl: string,
-  runtimeLogger: {
-    info(fields: Record<string, string | number | boolean | null>, message: string): void;
-    warn(fields: Record<string, string | number | boolean | null>, message: string): void;
-    error(fields: Record<string, string | number | boolean | null>, message: string): void;
-  },
-  logger: ReturnType<typeof pino>,
+  runtimeLogger: RuntimeLogger,
 ): Promise<OrchestrationResources> {
   const dispatchConnection = new Redis(redisUrl, { maxRetriesPerRequest: null });
   const executionConnection = new Redis(redisUrl, { maxRetriesPerRequest: null });
@@ -263,7 +258,10 @@ async function startOrchestrationRuntime(
         await runtime.dispatchPlan(payload.planId);
         return { ok: true as const };
       }
-      logger.info({ jobId: job.id, name: job.name }, "unknown orchestration dispatch job");
+      runtimeLogger.info(
+        { jobId: job.id ?? null, name: job.name },
+        "unknown orchestration dispatch job",
+      );
       return { ok: true as const };
     },
     { connection: dispatchConnection, concurrency: 4 },
@@ -277,23 +275,32 @@ async function startOrchestrationRuntime(
         await runtime.processInvocation(payload.planId, payload.invocationId);
         return { ok: true as const };
       }
-      logger.info({ jobId: job.id, name: job.name }, "unknown invocation execution job");
+      runtimeLogger.info(
+        { jobId: job.id ?? null, name: job.name },
+        "unknown invocation execution job",
+      );
       return { ok: true as const };
     },
     { connection: executionConnection, concurrency: 16 },
   );
 
   dispatchWorker.on("error", (error: Error) => {
-    logger.error({ err: error.message }, "orchestration dispatch worker error");
+    runtimeLogger.error({ err: error.message }, "orchestration dispatch worker error");
   });
   executionWorker.on("error", (error: Error) => {
-    logger.error({ err: error.message }, "orchestration execution worker error");
+    runtimeLogger.error({ err: error.message }, "orchestration execution worker error");
   });
   dispatchWorker.on("failed", (job, error: Error) => {
-    logger.error({ jobId: job?.id, err: error.message }, "orchestration dispatch job failed");
+    runtimeLogger.error(
+      { jobId: job?.id ?? null, err: error.message },
+      "orchestration dispatch job failed",
+    );
   });
   executionWorker.on("failed", (job, error: Error) => {
-    logger.error({ jobId: job?.id, err: error.message }, "orchestration execution job failed");
+    runtimeLogger.error(
+      { jobId: job?.id ?? null, err: error.message },
+      "orchestration execution job failed",
+    );
   });
 
   await dispatchWorker.waitUntilReady();
@@ -307,14 +314,14 @@ async function startOrchestrationRuntime(
 
   const reconcileTimer = setInterval(() => {
     void runtime.reconcile().catch((error: unknown) => {
-      logger.error(
+      runtimeLogger.error(
         { err: error instanceof Error ? error.message : "unknown" },
         "orchestration reconciliation loop failed",
       );
     });
   }, ORCHESTRATION_RECONCILE_INTERVAL_MS);
 
-  logger.info(
+  runtimeLogger.info(
     {
       dispatchQueue: ORCHESTRATION_DISPATCH_QUEUE_NAME,
       executionQueue: INVOCATION_EXECUTE_QUEUE_NAME,
