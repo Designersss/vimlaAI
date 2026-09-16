@@ -49,7 +49,7 @@
   > .detail { display: flex; }
 }
 
-@include bp.vimla-lg-up {
+@include bp.vimla-md-up {
   .layout {
     grid-template-columns: minmax(17rem, clamp(18rem, 29%, 22.5rem)) minmax(0, 1fr);
   }
