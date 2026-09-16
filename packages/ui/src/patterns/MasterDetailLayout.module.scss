@@ -12,6 +12,8 @@
 
 .master,
 .detail {
+  grid-column: 1;
+  grid-row: 1;
   min-width: 0;
   min-height: 0;
 }
@@ -54,11 +56,13 @@
 
   .master,
   .layout[data-detail-open="true"] > .master {
+    grid-column: 1;
     display: flex;
     border-inline-end: 1px solid var(--vimla-border-subtle);
   }
 
   .detail {
+    grid-column: 2;
     display: flex;
   }
 }
