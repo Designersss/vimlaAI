@@ -19,10 +19,12 @@ export function MasterDetailLayout({
 }): ReactElement {
   return (
     <div className={styles.layout} data-detail-open={detailOpen}>
-      <section className={styles.master} aria-label={masterLabel}>
-        <div className={styles.masterContent}>{master}</div>
+      <div className={styles.master}>
+        <section className={styles.masterContent} aria-label={masterLabel}>
+          {master}
+        </section>
         {masterFooter ? <div className={styles.masterFooter}>{masterFooter}</div> : null}
-      </section>
+      </div>
       <section className={styles.detail} aria-label={detailLabel}>
         {children}
       </section>
