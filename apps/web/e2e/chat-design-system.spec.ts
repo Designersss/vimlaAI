@@ -31,7 +31,7 @@ test("chat master detail remains responsive after Design System 2026 migration",
     await expect(page).toHaveURL(/\/app\/[^/]+$/);
     await expect(composer).toBeVisible();
 
-    if (viewport.width < 1024) {
+    if (viewport.width < 768) {
       await expect(list).toBeHidden();
       await expect(page.getByRole("link", { name: /назад|back/i })).toBeVisible();
     } else {
