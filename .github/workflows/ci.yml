@@ -6,7 +6,7 @@ on:
   pull_request:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   ci:
@@ -58,8 +58,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4
@@ -74,27 +72,6 @@ jobs:
 
       - name: Install
         run: pnpm install --frozen-lockfile
-
-      - name: Apply PR-06 worker test isolation fix
-        if: github.event_name == 'pull_request' && github.event.pull_request.number == 39
-        run: |
-          python - <<'PY'
-          from pathlib import Path
-          p = Path('apps/worker/src/orchestration.integration.test.ts')
-          s = p.read_text()
-          old = '''    const dispatchJob = dispatchQueue.take(ORCHESTRATION_DISPATCH_JOB_NAME);\n    await runtime.dispatchPlan(dispatchJob.data.planId ?? "");\n    expect(executionQueue.count(INVOCATION_EXECUTE_JOB_NAME)).toBe(1);'''
-          new = '''    const dispatchJobEntry = [...dispatchQueue.jobs.entries()].find(\n      ([, job]) => job.name === ORCHESTRATION_DISPATCH_JOB_NAME && job.data.planId === seeded.planId,\n    );\n    expect(dispatchJobEntry).toBeDefined();\n    if (!dispatchJobEntry) throw new Error("Missing recovered dispatch job for seeded plan");\n    dispatchQueue.jobs.delete(dispatchJobEntry[0]);\n    await runtime.dispatchPlan(dispatchJobEntry[1].data.planId ?? "");\n    expect(executionQueue.count(INVOCATION_EXECUTE_JOB_NAME)).toBe(1);'''
-          if old not in s:
-              raise SystemExit('target block not found')
-          p.write_text(s.replace(old, new, 1))
-          PY
-          pnpm --filter @vimla/worker lint
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add apps/worker/src/orchestration.integration.test.ts
-          git commit -m "test(worker): isolate queue-loss recovery plan"
-          git push origin HEAD:${{ github.head_ref }}
-          exit 0
 
       - name: Lint
         run: pnpm lint
