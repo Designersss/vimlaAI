@@ -28,10 +28,7 @@ test.describe("AI verification gate", () => {
     await expect(page.getByRole("menuitem", { name: /^pro$|^про$/i })).toBeVisible();
     await expect(page.getByText(/auto routing is not available|auto-маршрутизация пока недоступна/i)).toBeVisible();
     await page.keyboard.press("Escape");
-    await expect(page.getByRole("button", { name: /◆ @vimla/i })).toBeVisible();
-    await page.getByRole("button", { name: /◆ @vimla/i }).click();
-    await expect(page.getByText("◆ @Vimla").first()).toBeVisible();
-    await expect(page.getByRole("button", { name: /^pro ·|^про ·/i })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /◆ @vimla/i })).toHaveCount(0);
   });
 
   test("contextual @ picker filters, autocompletes and stays usable on mobile", async ({ page, request }) => {
@@ -71,5 +68,32 @@ test.describe("AI verification gate", () => {
     await picker.getByRole("option", { name: /@auto/i }).click();
     await expect(composer).toHaveValue("@auto ");
     await expect(composer).toBeFocused();
+  });
+
+  test("only selected structured @vimla routes into orchestration", async ({ page, request }) => {
+    const email = uniqueEmail("e2e-structured-route");
+    await signUp(page, { name: "Ada", email, password: "correct-horse-battery" });
+    await verifyEmail(page, request, email);
+    await purchasePro(page);
+    await startNewConversation(page);
+
+    const composer = page.getByPlaceholder(/сообщение для vimla|message vimla/i);
+    const send = page.getByRole("button", { name: /отправить|send/i });
+
+    await composer.fill("@vimla plain text");
+    await send.click();
+    await expect(page.getByText("Hello from Vimla")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText("Hello from Vimla")).toHaveCount(1);
+
+    await composer.fill("@vi");
+    const picker = page.getByTestId("mention-picker");
+    await expect(picker.getByRole("option", { name: /@vimla/i })).toBeVisible();
+    await picker.getByRole("option", { name: /@vimla/i }).click();
+    await composer.fill("@vimla structured action");
+    await send.click();
+
+    await expect(page.getByText("@vimla structured action")).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText("Hello from Vimla")).toHaveCount(1);
+    await expect(page.getByRole("button", { name: /◆ @vimla/i })).toHaveCount(0);
   });
 });
