@@ -133,7 +133,11 @@ function normalizeComposerHighlights(value: string, highlights: ComposerTextHigh
         highlight.endOffset <= value.length,
     )
     .sort((left, right) => left.startOffset - right.startOffset)
-    .filter((highlight, index, sorted) => index === 0 || highlight.startOffset >= sorted[index - 1]!.endOffset);
+    .filter((highlight, index, sorted) => {
+      if (index === 0) return true;
+      const previous = sorted[index - 1];
+      return previous ? highlight.startOffset >= previous.endOffset : true;
+    });
 }
 
 function renderComposerMirror(value: string, highlights: ComposerTextHighlight[]): ReactNode[] {
