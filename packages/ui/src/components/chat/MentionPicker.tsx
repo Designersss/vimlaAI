@@ -4,6 +4,7 @@ import styles from "./mention-picker.module.scss";
 
 export interface MentionPickerOption {
   id: string;
+  kind: "USER" | "SYSTEM_AGENT" | "AI_AUTO" | "AI_MODEL";
   handle: string;
   label: string;
   description?: string | null;
