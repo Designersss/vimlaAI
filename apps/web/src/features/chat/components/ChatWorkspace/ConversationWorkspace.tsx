@@ -26,6 +26,7 @@ import { fetchMentionSuggestions } from "../../services/mentions";
 import {
   createComposerMention,
   reconcileComposerMentions,
+  resolveTypedComposerMentions,
   toMessageMentionInputs,
   type ComposerMention,
 } from "../../services/composer-mentions";
@@ -230,8 +231,27 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
       return;
     }
 
-    const mentions = toMessageMentionInputs(composerMentions);
-    const invocationMention = composerMentions.some((candidate) => candidate.kind !== "USER");
+    let resolvedComposerMentions = composerMentions;
+    if (content.includes("@")) {
+      try {
+        const suggestions = await fetchMentionSuggestions({ q: "", conversationId });
+        resolvedComposerMentions = resolveTypedComposerMentions(content, [
+          ...suggestions.people,
+          ...suggestions.vimla,
+          ...suggestions.ai,
+        ]);
+      } catch (error: unknown) {
+        if (error instanceof AuthRequiredError) {
+          router.replace("/sign-in");
+          return;
+        }
+        store.failAssistant("internal_error");
+        return;
+      }
+    }
+
+    const mentions = toMessageMentionInputs(resolvedComposerMentions);
+    const invocationMention = resolvedComposerMentions.some((candidate) => candidate.kind !== "USER");
     setComposerMentions([]);
 
     if (invocationMention) {
