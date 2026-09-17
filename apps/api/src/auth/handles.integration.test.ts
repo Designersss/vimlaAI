@@ -83,6 +83,28 @@ describe("global handle identity", () => {
     expect(current.handleRequired).toBe(true);
     expect(current.handle).toBeNull();
 
+    const unverifiedModels = await app.inject({
+      method: "GET",
+      url: "/v1/ai/models",
+      headers: { origin },
+      cookies,
+    });
+    expect(unverifiedModels.statusCode).toBe(403);
+    expect(unverifiedModels.json()).toMatchObject({
+      error: {
+        code: "email_not_verified",
+      },
+    });
+
+    const user = await prisma.user.findUniqueOrThrow({
+      where: { email },
+      select: { id: true },
+    });
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { emailVerified: true },
+    });
+
     const models = await app.inject({
       method: "GET",
       url: "/v1/ai/models",
