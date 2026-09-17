@@ -156,7 +156,6 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
 
   useEffect(() => {
     if (!activeMention) {
-      setMentionSuggestions(null);
       return;
     }
 
