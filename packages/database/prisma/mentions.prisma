@@ -1,0 +1,16 @@
+model MessageMention {
+  id              String   @id @default(cuid())
+  messageId       String
+  handleId        String
+  kind            String
+  targetId        String?
+  canonicalHandle String
+  startOffset     Int
+  endOffset       Int
+  createdAt       DateTime @default(now())
+
+  @@unique([messageId, startOffset, endOffset])
+  @@index([messageId, startOffset])
+  @@index([handleId])
+  @@map("message_mention")
+}
