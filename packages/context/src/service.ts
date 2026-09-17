@@ -40,10 +40,55 @@ export class ContextSnapshotService {
     }
 
     const items = await this.collectExecutionPlanItems(input.actorUserId, input.planId);
-    return this.create({ ...input, items });
+    return this.persistSnapshot({ ...input, items }, true);
   }
 
   async create(input: CreateContextSnapshotInput): Promise<ContextSnapshotView> {
+    return this.persistSnapshot(input, false);
+  }
+
+  async getByPlan(actorUserId: string, planId: string): Promise<ContextSnapshotView> {
+    const snapshot = await this.findOwnedSnapshot(actorUserId, planId);
+    if (!snapshot) {
+      throw new ContextNotFoundError("Context snapshot not found");
+    }
+    return toView(snapshot);
+  }
+
+  async resolveForInvocation(input: ResolveInvocationContextInput): Promise<ContextSnapshotView> {
+    const invocation = await this.db.invocation.findFirst({
+      where: { id: input.invocationId, plan: { userId: input.actorUserId } },
+      select: { planId: true },
+    });
+    if (!invocation) {
+      throw new ContextNotFoundError("Invocation not found");
+    }
+
+    const snapshot = await this.getByPlan(input.actorUserId, invocation.planId);
+    for (const item of snapshot.items) {
+      await this.assertSourceAccess({
+        actorUserId: input.actorUserId,
+        sourceType: item.sourceType,
+        sourceId: item.sourceId,
+      });
+    }
+    return snapshot;
+  }
+
+  async assertSourceAccess(check: ContextAccessCheck): Promise<void> {
+    if (await this.hasBuiltInAccess(check)) {
+      return;
+    }
+    if (this.accessVerifier && (await this.accessVerifier(check))) {
+      return;
+    }
+    throw new ContextAccessDeniedError("Context source is no longer accessible");
+  }
+
+  private async persistSnapshot(
+    input: CreateContextSnapshotInput,
+    firstWriteWins: boolean,
+  ): Promise<ContextSnapshotView> {
     validateItems(input.items);
     const fingerprint = fingerprintContextSnapshot(input.items);
     const prepared = input.items.map((item, sequence) => ({
@@ -59,6 +104,9 @@ export class ContextSnapshotService {
           include: { items: true },
         });
         if (existing) {
+          if (!firstWriteWins && existing.fingerprint !== fingerprint) {
+            throw new ContextConflictError("A different context snapshot already exists for this plan");
+          }
           return existing;
         }
 
@@ -98,50 +146,18 @@ export class ContextSnapshotService {
 
       return toView(snapshot);
     } catch (error: unknown) {
-      const existing = await this.findOwnedSnapshot(input.actorUserId, input.planId);
-      if (existing) {
-        return toView(existing);
+      if (!isUniqueConstraintError(error)) {
+        throw error;
       }
-      throw error;
+      const existing = await this.findOwnedSnapshot(input.actorUserId, input.planId);
+      if (!existing) {
+        throw error;
+      }
+      if (!firstWriteWins && existing.fingerprint !== fingerprint) {
+        throw new ContextConflictError("A different context snapshot already exists for this plan");
+      }
+      return toView(existing);
     }
-  }
-
-  async getByPlan(actorUserId: string, planId: string): Promise<ContextSnapshotView> {
-    const snapshot = await this.findOwnedSnapshot(actorUserId, planId);
-    if (!snapshot) {
-      throw new ContextNotFoundError("Context snapshot not found");
-    }
-    return toView(snapshot);
-  }
-
-  async resolveForInvocation(input: ResolveInvocationContextInput): Promise<ContextSnapshotView> {
-    const invocation = await this.db.invocation.findFirst({
-      where: { id: input.invocationId, plan: { userId: input.actorUserId } },
-      select: { planId: true },
-    });
-    if (!invocation) {
-      throw new ContextNotFoundError("Invocation not found");
-    }
-
-    const snapshot = await this.getByPlan(input.actorUserId, invocation.planId);
-    for (const item of snapshot.items) {
-      await this.assertSourceAccess({
-        actorUserId: input.actorUserId,
-        sourceType: item.sourceType,
-        sourceId: item.sourceId,
-      });
-    }
-    return snapshot;
-  }
-
-  async assertSourceAccess(check: ContextAccessCheck): Promise<void> {
-    if (await this.hasBuiltInAccess(check)) {
-      return;
-    }
-    if (this.accessVerifier && (await this.accessVerifier(check))) {
-      return;
-    }
-    throw new ContextAccessDeniedError("Context source is no longer accessible");
   }
 
   private async collectExecutionPlanItems(
@@ -456,4 +472,13 @@ function parseClassification(value: string): ContextClassification {
     default:
       throw new ContextValidationError("Persisted context classification is invalid");
   }
+}
+
+function isUniqueConstraintError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "P2002"
+  );
 }
