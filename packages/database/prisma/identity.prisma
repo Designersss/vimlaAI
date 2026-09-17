@@ -1,0 +1,16 @@
+model Handle {
+  id             String   @id
+  handle         String
+  normalized     String   @unique
+  kind           String
+  status         String   @default("ACTIVE")
+  userId         String?  @unique
+  aiModelId      String?  @unique
+  systemKey      String?  @unique
+  reservationKey String?  @unique
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([kind, status])
+  @@map("handle")
+}
