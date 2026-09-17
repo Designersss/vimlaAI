@@ -24,6 +24,11 @@ export function uniqueEmail(label: string): string {
   return `${label}-${randomUUID()}@example.com`;
 }
 
+export function uniqueHandle(prefix = "user"): string {
+  const safePrefix = prefix.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 8) || "user";
+  return `${safePrefix}_${randomUUID().replaceAll("-", "").slice(0, 20)}`;
+}
+
 export async function fillOtp(page: Page, code: string): Promise<void> {
   const group = otpGroup(page);
   await expect(group).toBeVisible();
@@ -94,12 +99,13 @@ export async function fillInput(page: Page, selector: string, value: string): Pr
 
 export async function signUp(
   page: Page,
-  input: { name: string; email: string; password: string },
+  input: { name: string; email: string; password: string; handle?: string },
   locale: "ru" | "en" = "ru",
 ): Promise<void> {
   await seedLocale(page, locale);
   await page.goto("/sign-up");
   await fillInput(page, "#auth-name", input.name);
+  await fillInput(page, "#auth-handle", input.handle ?? uniqueHandle(input.name));
   await fillInput(page, "#auth-email", input.email);
   await fillInput(page, "#auth-password", input.password);
   await page.getByRole("button", { name: /создать аккаунт|create account/i }).click();
