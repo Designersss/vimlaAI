@@ -21,6 +21,7 @@
     "@vimla/auth": "workspace:*",
     "@vimla/billing": "workspace:*",
     "@vimla/config": "workspace:*",
+    "@vimla/context": "workspace:*",
     "@vimla/contracts": "workspace:*",
     "@vimla/database": "workspace:*",
     "@vimla/notifications": "workspace:*",
