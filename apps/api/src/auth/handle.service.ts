@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { ConflictException, Injectable } from "@nestjs/common";
+import { ConflictException, Inject, Injectable } from "@nestjs/common";
 import { handleInputSchema, type HandleAvailabilityResponse } from "@vimla/contracts";
 import { Prisma, type PrismaClient } from "@vimla/database";
 import { PrismaService } from "../persistence/prisma.service.js";
@@ -11,7 +11,7 @@ type ClaimedHandle = { handle: string; status: "PENDING" | "ACTIVE" };
 
 @Injectable()
 export class HandleService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
   async availability(input: string): Promise<HandleAvailabilityResponse> {
     const handle = handleInputSchema.parse(input);
