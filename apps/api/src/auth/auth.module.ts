@@ -3,6 +3,8 @@ import { PersistenceModule } from "../persistence/persistence.module.js";
 import { AuthGuard } from "./auth.guard.js";
 import { AuthService } from "./auth.service.js";
 import { VIMLA_AUTH } from "./auth.tokens.js";
+import { HandleController } from "./handle.controller.js";
+import { HandleService } from "./handle.service.js";
 import { OriginGuard } from "./origin.guard.js";
 import { MeController } from "./me.controller.js";
 import { SensitiveAreaGuard } from "./sensitive-area.guard.js";
@@ -10,9 +12,10 @@ import { VerifiedEmailGuard } from "./verified-email.guard.js";
 
 @Module({
   imports: [PersistenceModule],
-  controllers: [MeController],
+  controllers: [MeController, HandleController],
   providers: [
     AuthService,
+    HandleService,
     AuthGuard,
     VerifiedEmailGuard,
     SensitiveAreaGuard,
@@ -23,6 +26,14 @@ import { VerifiedEmailGuard } from "./verified-email.guard.js";
       useFactory: (authService: AuthService) => authService.auth,
     },
   ],
-  exports: [VIMLA_AUTH, AuthGuard, AuthService, VerifiedEmailGuard, SensitiveAreaGuard, OriginGuard],
+  exports: [
+    VIMLA_AUTH,
+    AuthGuard,
+    AuthService,
+    HandleService,
+    VerifiedEmailGuard,
+    SensitiveAreaGuard,
+    OriginGuard,
+  ],
 })
 export class AuthModule {}
