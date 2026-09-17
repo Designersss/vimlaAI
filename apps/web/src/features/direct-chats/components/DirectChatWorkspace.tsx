@@ -8,6 +8,7 @@ import type {
   DirectMessageKind,
   DirectMessageView,
   MentionSuggestionsResponse,
+  MessageMentionInput,
   OperatorRunView,
 } from "@vimla/contracts";
 import {
@@ -22,8 +23,6 @@ import {
   Switch,
   Text,
   UserMessage,
-  VimlaMark,
-  VimlaMentionChip,
   type MentionPickerOption,
 } from "@vimla/ui";
 import { AuthRequiredError, fetchCurrentUser } from "../../auth/services/current-user";
@@ -36,6 +35,13 @@ import {
   fetchOperatorRun,
 } from "../../operator/services/operator";
 import { fetchMentionSuggestions } from "../../chat/services/mentions";
+import {
+  createComposerMention,
+  reconcileComposerMentions,
+  resolveTypedComposerMentions,
+  toMessageMentionInputs,
+  type ComposerMention,
+} from "../../chat/services/composer-mentions";
 import { CONSUMER_FEATURES } from "../../../shared/config/consumer-features";
 import { apiErrorMessageKey } from "../../../shared/errors/error-keys";
 import { tx } from "../../../shared/i18n/translate";
@@ -78,6 +84,18 @@ function findActiveMention(value: string): ActiveMentionQuery | null {
   };
 }
 
+function exactMentionOption(options: MentionPickerOption[], query: string): MentionPickerOption | null {
+  if (query.length === 0) return null;
+  const normalized = query.toLowerCase();
+  return options.find((option) => option.handle.toLowerCase() === normalized) ?? null;
+}
+
+function upsertComposerMention(current: ComposerMention[], mention: ComposerMention): ComposerMention[] {
+  return [...current.filter((item) => item.startOffset !== mention.startOffset), mention].sort(
+    (left, right) => left.startOffset - right.startOffset,
+  );
+}
+
 export function DirectChatWorkspace({ conversationId }: { conversationId: string }): ReactElement {
   const t = useTranslations();
   const locale = useLocale();
@@ -91,18 +109,16 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
   const [rows, setRows] = useState<DecryptedRow[]>([]);
   const [draft, setDraft] = useState("");
   const draftRef = useRef("");
-  const [mention, setMention] = useState(false);
-  const mentionRef = useRef(false);
   const [activeMention, setActiveMention] = useState<ActiveMentionQuery | null>(null);
   const [mentionSuggestions, setMentionSuggestions] = useState<MentionSuggestionsResponse | null>(null);
   const [mentionOptionIndex, setMentionOptionIndex] = useState(0);
+  const [composerMentions, setComposerMentions] = useState<ComposerMention[]>([]);
   const [sending, setSending] = useState(false);
   const sendingLockRef = useRef(false);
   const [operatorBusy, setOperatorBusy] = useState(false);
   const [pendingRun, setPendingRun] = useState<OperatorRunView | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
-  mentionRef.current = mention;
 
   useEffect(() => {
     let cancelled = false;
@@ -169,6 +185,18 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
           if (cancelled) return;
           setMentionSuggestions(suggestions);
           setMentionOptionIndex(0);
+          const options = [...suggestions.people, ...suggestions.vimla, ...suggestions.ai];
+          const exact = exactMentionOption(options, activeMention.query);
+          if (exact) {
+            const recognized = createComposerMention({
+              localId: crypto.randomUUID(),
+              handleId: exact.id,
+              kind: exact.kind,
+              canonicalHandle: exact.handle,
+              startOffset: activeMention.start,
+            });
+            setComposerMentions((current) => upsertComposerMention(current, recognized));
+          }
         })
         .catch((caught: unknown) => {
           if (cancelled) return;
@@ -201,21 +229,48 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
   }
 
   function handleDraftChange(value: string): void {
+    const nextMention = findActiveMention(value);
+    setComposerMentions((current) => {
+      let reconciled = reconcileComposerMentions(draftRef.current, value, current);
+      const queryToResolve = nextMention ?? activeMention;
+      if (!queryToResolve) return reconciled;
+
+      const exact = exactMentionOption(mentionOptions, queryToResolve.query);
+      const token = `@${queryToResolve.query}`;
+      if (!exact || value.slice(queryToResolve.start, queryToResolve.start + token.length) !== token) {
+        return reconciled;
+      }
+
+      const recognized = createComposerMention({
+        localId: crypto.randomUUID(),
+        handleId: exact.id,
+        kind: exact.kind,
+        canonicalHandle: exact.handle,
+        startOffset: queryToResolve.start,
+      });
+      reconciled = upsertComposerMention(reconciled, recognized);
+      return reconciled;
+    });
     draftRef.current = value;
     setDraft(value);
-    const nextMention = findActiveMention(value);
+    setMentionSuggestions(null);
     setActiveMention(nextMention);
-    if (!nextMention) {
-      setMentionSuggestions(null);
-    }
     setMentionOptionIndex(0);
   }
 
   function selectMention(option: MentionPickerOption): void {
     if (!activeMention) return;
     const nextValue = `${draftRef.current.slice(0, activeMention.start)}@${option.handle} ${draftRef.current.slice(activeMention.end)}`;
+    const selected = createComposerMention({
+      localId: crypto.randomUUID(),
+      handleId: option.id,
+      kind: option.kind,
+      canonicalHandle: option.handle,
+      startOffset: activeMention.start,
+    });
     draftRef.current = nextValue;
     setDraft(nextValue);
+    setComposerMentions((current) => upsertComposerMention(current, selected));
     closeMentionPicker();
   }
 
@@ -256,34 +311,64 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
   }
 
   async function onSend(): Promise<void> {
-    const text = draftRef.current.trim();
-    const shouldInvoke = CONSUMER_FEATURES.vimlaOperator && mentionRef.current;
-    if (sendingLockRef.current || sending || operatorBusy || text.length === 0 || !conversation || !userId) {
+    const text = draftRef.current;
+    if (
+      sendingLockRef.current ||
+      sending ||
+      operatorBusy ||
+      text.trim().length === 0 ||
+      !conversation ||
+      !userId
+    ) {
       return;
     }
     closeMentionPicker();
+
+    let resolvedComposerMentions = composerMentions;
+    if (text.includes("@")) {
+      try {
+        const suggestions = await fetchMentionSuggestions({ q: "", directConversationId: conversationId });
+        resolvedComposerMentions = resolveTypedComposerMentions(text, [
+          ...suggestions.people,
+          ...suggestions.vimla,
+          ...suggestions.ai,
+        ]);
+      } catch (caught: unknown) {
+        if (caught instanceof AuthRequiredError) {
+          router.replace("/sign-in");
+          return;
+        }
+        setError("internal_error");
+        return;
+      }
+    }
+
+    const mentions = toMessageMentionInputs(resolvedComposerMentions);
+    const shouldInvokeVimla =
+      CONSUMER_FEATURES.vimlaOperator &&
+      resolvedComposerMentions.some(
+        (candidate) => candidate.kind === "SYSTEM_AGENT" && candidate.canonicalHandle === "vimla",
+      );
+
     sendingLockRef.current = true;
     draftRef.current = "";
     setDraft("");
+    setComposerMentions([]);
     try {
-      if (shouldInvoke) {
-        mentionRef.current = false;
-        setMention(false);
-        await invokeOperator(text);
+      if (shouldInvokeVimla) {
+        await invokeOperator(text, mentions);
         return;
       }
-      await postEncrypted("HUMAN", encodeDirectPlaintext({ type: "human", text }));
+      await postEncrypted("HUMAN", encodeDirectPlaintext({ type: "human", text }), mentions);
     } finally {
       sendingLockRef.current = false;
     }
   }
 
-  async function invokeOperator(text: string): Promise<void> {
+  async function invokeOperator(text: string, mentions: MessageMentionInput[]): Promise<void> {
     if (!conversation || !userId) {
       return;
     }
-    setMention(false);
-    mentionRef.current = false;
     setOperatorBusy(true);
     setError(null);
     try {
@@ -295,6 +380,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
           contextShared: false,
           peerIncluded: false,
         }),
+        mentions,
       );
       const contextBundle = {
         messages: rows.flatMap((row) => {
@@ -305,7 +391,11 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
           if (own && !conversation.privacy.shareOwnHistoryWithVimla) {
             return [];
           }
-          if (!own && (!conversation.privacy.includePeerHistoryWhenInvoking || !conversation.privacy.peerShareOwnHistoryWithVimla)) {
+          if (
+            !own &&
+            (!conversation.privacy.includePeerHistoryWhenInvoking ||
+              !conversation.privacy.peerShareOwnHistoryWithVimla)
+          ) {
             return [];
           }
           return [
@@ -348,13 +438,21 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         router.replace("/sign-in");
         return;
       }
-      setError(caught instanceof OperatorRequestError || caught instanceof DirectChatsApiError ? caught.code : "internal_error");
+      setError(
+        caught instanceof OperatorRequestError || caught instanceof DirectChatsApiError
+          ? caught.code
+          : "internal_error",
+      );
     } finally {
       setOperatorBusy(false);
     }
   }
 
-  async function postEncrypted(kind: DirectMessageKind, plaintext: string): Promise<void> {
+  async function postEncrypted(
+    kind: DirectMessageKind,
+    plaintext: string,
+    mentions: MessageMentionInput[] = [],
+  ): Promise<void> {
     if (!conversation || !userId) {
       return;
     }
@@ -368,12 +466,14 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         kind,
         plaintext,
         devices: latest.devices,
+        mentions,
       });
       const created = await sendDirectMessage(latest.id, {
         clientMessageId: crypto.randomUUID(),
         senderDeviceId: device.deviceId,
         kind,
         envelopes,
+        mentions,
       });
       await savePlaintext({
         conversationId: latest.id,
@@ -406,7 +506,15 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
   }
 
   if (boot !== "ready" || !conversation) {
-    return <ChatDetailStatus failed={boot === "failed"} retry={() => { setBoot("loading"); setAttempt((value) => value + 1); }} />;
+    return (
+      <ChatDetailStatus
+        failed={boot === "failed"}
+        retry={() => {
+          setBoot("loading");
+          setAttempt((value) => value + 1);
+        }}
+      />
+    );
   }
 
   return (
@@ -506,29 +614,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
           placeholder={t("direct.placeholder")}
           sendLabel={t("chat.send")}
           sending={sending || operatorBusy}
-          mentionControl={
-            CONSUMER_FEATURES.vimlaOperator ? (
-              <Button
-                type="button"
-                variant={mention ? "primary" : "ghost"}
-                onClick={() => setMention((value) => !value)}
-                aria-pressed={mention}
-                data-testid="direct-mention-vimla"
-              >
-                <VimlaMark size={14} />
-                {t("chat.mentionVimla")}
-              </Button>
-            ) : null
-          }
-          chips={
-            mention ? (
-              <VimlaMentionChip
-                label={t("chat.mentionVimla")}
-                onRemove={() => setMention(false)}
-                removeLabel={t("common.close")}
-              />
-            ) : null
-          }
+          highlights={composerMentions}
         />
       </div>
     </div>
