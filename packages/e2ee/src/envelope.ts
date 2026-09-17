@@ -17,12 +17,21 @@ export const DIRECT_MESSAGE_KINDS = [
 ] as const;
 export type DirectMessageKind = (typeof DIRECT_MESSAGE_KINDS)[number];
 
+export interface DirectRoutingMention {
+  handleId: string;
+  kind: string;
+  canonicalHandle: string;
+  startOffset: number;
+  endOffset: number;
+}
+
 export interface EnvelopeAssociatedData {
   conversationId: string;
   senderUserId: string;
   senderDeviceId: string;
   recipientDeviceId: string;
   kind: DirectMessageKind;
+  routingContext?: string;
 }
 
 export interface WireEnvelope {
@@ -35,17 +44,36 @@ export interface WireEnvelope {
   x3dhInit: X3dhInitHeader | null;
 }
 
-export function buildAssociatedData(input: EnvelopeAssociatedData): Uint8Array {
-  return utf8(
-    [
-      "VimlaDirectAD1",
-      input.conversationId,
-      input.senderUserId,
-      input.senderDeviceId,
-      input.recipientDeviceId,
-      input.kind,
-    ].join(":"),
+export function serializeDirectRoutingMentions(mentions: DirectRoutingMention[]): string {
+  return JSON.stringify(
+    [...mentions]
+      .sort((left, right) =>
+        left.startOffset - right.startOffset ||
+        left.endOffset - right.endOffset ||
+        left.handleId.localeCompare(right.handleId),
+      )
+      .map((mention) => ({
+        handleId: mention.handleId,
+        kind: mention.kind,
+        canonicalHandle: mention.canonicalHandle,
+        startOffset: mention.startOffset,
+        endOffset: mention.endOffset,
+      })),
   );
+}
+
+export function buildAssociatedData(input: EnvelopeAssociatedData): Uint8Array {
+  const base = [
+    input.conversationId,
+    input.senderUserId,
+    input.senderDeviceId,
+    input.recipientDeviceId,
+    input.kind,
+  ];
+  if (!input.routingContext) {
+    return utf8(["VimlaDirectAD1", ...base].join(":"));
+  }
+  return utf8(JSON.stringify(["VimlaDirectAD2", ...base, input.routingContext]));
 }
 
 export function encryptEnvelope(input: {

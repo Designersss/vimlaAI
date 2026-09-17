@@ -3,7 +3,7 @@ import { purchasePro, signUp, uniqueEmail, verifyEmail, webOrigin, apiBase } fro
 import { assertNoDocumentOverflow, assertReachable } from "./responsive-helpers";
 
 test.describe("Secure Direct Chats", () => {
-  test("two users exchange E2EE messages and invoke @Vimla in-thread", async ({ browser, request }) => {
+  test("two users receive E2EE user and @Vimla messages in realtime", async ({ browser, request }) => {
     test.setTimeout(180_000);
     const password = "correct-horse-battery";
     const aliceEmail = uniqueEmail("e2e-direct-alice");
@@ -46,10 +46,15 @@ test.describe("Secure Direct Chats", () => {
     const mentionPicker = alicePage.getByTestId("mention-picker");
     await expect(mentionPicker).toBeVisible();
     await expect(mentionPicker.getByRole("option", { name: /Nikita/i })).toBeVisible();
+    await expect(mentionPicker.getByRole("option", { name: /@vimla/i })).toBeVisible();
     await expect(mentionPicker.getByRole("option", { name: /@auto/i })).toBeVisible();
     await mentionPicker.getByRole("option", { name: /Nikita/i }).click();
     await expect(composer).toHaveValue(/^@nikita_[a-z0-9]+ $/i);
     await expect(composer).toBeFocused();
+
+    await composer.fill("@a");
+    await expect(mentionPicker).toBeVisible();
+    await expect(mentionPicker.getByRole("option", { name: /@auto/i })).toBeVisible();
 
     await composer.fill("hello from alice");
     await alicePage.getByTestId("chat-composer-send").click();
@@ -67,15 +72,21 @@ test.describe("Secure Direct Chats", () => {
       timeout: 20_000,
     });
 
-    const mentionButton = alicePage.getByTestId("direct-mention-vimla");
-    await mentionButton.click();
-    await expect(mentionButton).toHaveAttribute("aria-pressed", "true");
-    await composer.fill("@Vimla, кто победил в гран-при 2026?");
-    await expect(composer).toHaveValue("@Vimla, кто победил в гран-при 2026?");
-    await expect(mentionButton).toHaveAttribute("aria-pressed", "true");
+    await composer.fill("live from alice");
+    await alicePage.getByTestId("chat-composer-send").click();
+    await expect(nikitaPage.getByTestId("direct-message-human").filter({ hasText: "live from alice" })).toBeVisible({
+      timeout: 20_000,
+    });
+
+    await expect(alicePage.getByTestId("direct-mention-vimla")).toHaveCount(0);
+    await composer.fill("@vimla");
+    await expect(alicePage.getByTestId("composer-mention-highlight")).toHaveText("@vimla", { timeout: 20_000 });
+    await composer.fill("@vimla кто победил в гран-при 2026?");
     await alicePage.getByTestId("chat-composer-send").click();
     await expect(alicePage.getByTestId("direct-message-invoke")).toBeVisible({ timeout: 20_000 });
     await expect(alicePage.getByTestId("direct-message-response")).toBeVisible({ timeout: 20_000 });
+    await expect(nikitaPage.getByTestId("direct-message-invoke")).toBeVisible({ timeout: 20_000 });
+    await expect(nikitaPage.getByTestId("direct-message-response")).toBeVisible({ timeout: 20_000 });
 
     for (const viewport of [
       { width: 320, height: 568 },
@@ -101,15 +112,11 @@ test.describe("Secure Direct Chats", () => {
       }
     }
 
-    // A fresh browser has the authenticated session but no IndexedDB device.
-    // The persistent list and deep-linked detail must share one device setup.
     const coldContext = await browser.newContext({ storageState: await aliceContext.storageState() });
     const coldPage = await coldContext.newPage();
     let registrations = 0;
     coldPage.on("request", (outgoing) => {
-      if (outgoing.method() === "POST" && outgoing.url() === `${apiBase}/v1/direct-chats/devices`) {
-        registrations += 1;
-      }
+      if (outgoing.method() === "POST" && outgoing.url() === `${apiBase}/v1/direct-chats/devices`) registrations += 1;
     });
     await coldPage.goto(directUrl);
     await expect(coldPage.getByTestId("direct-chat-shell")).toBeVisible();

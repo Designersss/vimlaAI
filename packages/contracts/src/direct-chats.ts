@@ -1,10 +1,12 @@
 import { z } from "zod";
+import { messageMentionInputSchema, messageMentionViewSchema } from "./mentions.js";
 
 export const DIRECT_CHAT_LIMITS = {
   ciphertextMax: 65_536,
   headerMax: 4_096,
   signatureMax: 256,
   envelopesMax: 32,
+  mentionsMax: 32,
   pageLimitDefault: 30,
   pageLimitMax: 50,
   contextMessagesMax: 16,
@@ -105,6 +107,7 @@ export const sendDirectMessageSchema = z
     senderDeviceId: z.string().uuid(),
     kind: directMessageKindSchema,
     envelopes: z.array(wireEnvelopeSchema).min(1).max(DIRECT_CHAT_LIMITS.envelopesMax),
+    mentions: z.array(messageMentionInputSchema).max(DIRECT_CHAT_LIMITS.mentionsMax).default([]),
   })
   .strict();
 export type SendDirectMessage = z.infer<typeof sendDirectMessageSchema>;
@@ -218,6 +221,7 @@ export const directMessageViewSchema = z.object({
   kind: directMessageKindSchema,
   createdAt: z.string(),
   envelope: directEnvelopeViewSchema.nullable(),
+  mentions: z.array(messageMentionViewSchema).default([]),
 });
 export type DirectMessageView = z.infer<typeof directMessageViewSchema>;
 

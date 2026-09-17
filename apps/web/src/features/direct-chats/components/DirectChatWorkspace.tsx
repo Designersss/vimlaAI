@@ -8,6 +8,7 @@ import type {
   DirectMessageKind,
   DirectMessageView,
   MentionSuggestionsResponse,
+  MessageMentionInput,
   OperatorRunView,
 } from "@vimla/contracts";
 import {
@@ -22,8 +23,6 @@ import {
   Switch,
   Text,
   UserMessage,
-  VimlaMark,
-  VimlaMentionChip,
   type MentionPickerOption,
 } from "@vimla/ui";
 import { AuthRequiredError, fetchCurrentUser } from "../../auth/services/current-user";
@@ -36,6 +35,13 @@ import {
   fetchOperatorRun,
 } from "../../operator/services/operator";
 import { fetchMentionSuggestions } from "../../chat/services/mentions";
+import {
+  createComposerMention,
+  reconcileComposerMentions,
+  resolveTypedComposerMentions,
+  toMessageMentionInputs,
+  type ComposerMention,
+} from "../../chat/services/composer-mentions";
 import { CONSUMER_FEATURES } from "../../../shared/config/consumer-features";
 import { apiErrorMessageKey } from "../../../shared/errors/error-keys";
 import { tx } from "../../../shared/i18n/translate";
@@ -50,6 +56,7 @@ import {
 } from "../services/api";
 import { savePlaintext } from "../services/crypto-store";
 import { decodeDirectPlaintext, encodeDirectPlaintext, type DirectPlaintextPayload } from "../services/payload";
+import { subscribeDirectChatEvents } from "../services/realtime";
 import { decryptMessage, encryptForDevices, ensureLocalDevice } from "../services/session";
 import { useChatWorkspace, usePrepareChatDevice } from "../../chat/components/ChatWorkspace/ChatWorkspaceProvider";
 import { ChatConversationHeader } from "../../chat/components/ChatWorkspace/ChatConversationHeader";
@@ -78,6 +85,28 @@ function findActiveMention(value: string): ActiveMentionQuery | null {
   };
 }
 
+function exactMentionOption(options: MentionPickerOption[], query: string): MentionPickerOption | null {
+  if (query.length === 0) return null;
+  const normalized = query.toLowerCase();
+  return options.find((option) => option.handle.toLowerCase() === normalized) ?? null;
+}
+
+function upsertComposerMention(current: ComposerMention[], mention: ComposerMention): ComposerMention[] {
+  return [...current.filter((item) => item.startOffset !== mention.startOffset), mention].sort(
+    (left, right) => left.startOffset - right.startOffset,
+  );
+}
+
+function mergeDecryptedRows(current: DecryptedRow[], incoming: DecryptedRow[]): DecryptedRow[] {
+  const byId = new Map(current.map((row) => [row.message.id, row]));
+  for (const row of incoming) byId.set(row.message.id, row);
+  return [...byId.values()].sort(
+    (left, right) =>
+      new Date(left.message.createdAt).getTime() - new Date(right.message.createdAt).getTime() ||
+      left.message.id.localeCompare(right.message.id),
+  );
+}
+
 export function DirectChatWorkspace({ conversationId }: { conversationId: string }): ReactElement {
   const t = useTranslations();
   const locale = useLocale();
@@ -91,18 +120,16 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
   const [rows, setRows] = useState<DecryptedRow[]>([]);
   const [draft, setDraft] = useState("");
   const draftRef = useRef("");
-  const [mention, setMention] = useState(false);
-  const mentionRef = useRef(false);
   const [activeMention, setActiveMention] = useState<ActiveMentionQuery | null>(null);
   const [mentionSuggestions, setMentionSuggestions] = useState<MentionSuggestionsResponse | null>(null);
   const [mentionOptionIndex, setMentionOptionIndex] = useState(0);
+  const [composerMentions, setComposerMentions] = useState<ComposerMention[]>([]);
   const [sending, setSending] = useState(false);
   const sendingLockRef = useRef(false);
   const [operatorBusy, setOperatorBusy] = useState(false);
   const [pendingRun, setPendingRun] = useState<OperatorRunView | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
-  mentionRef.current = mention;
 
   useEffect(() => {
     let cancelled = false;
@@ -114,9 +141,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
           return;
         }
         await syncAuthenticatedLocale(currentUser.locale);
-        if (cancelled) {
-          return;
-        }
+        if (cancelled) return;
         const cookieLocale = readLocaleCookie();
         if (cookieLocale && cookieLocale !== locale) {
           router.refresh();
@@ -127,9 +152,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         const device = await ensureLocalDevice();
         const page = await fetchDirectMessages(conversationId, device.deviceId);
         const decrypted = await decryptPage(detail, page.items);
-        if (cancelled) {
-          return;
-        }
+        if (cancelled) return;
         setUserId(currentUser.id);
         setConversation(detail);
         setRows(decrypted.reverse());
@@ -138,9 +161,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         const read = await markDirectChatRead(conversationId);
         if (!cancelled) workspace.updateDirectConversation(read);
       } catch (caught: unknown) {
-        if (cancelled) {
-          return;
-        }
+        if (cancelled) return;
         if (caught instanceof AuthRequiredError) {
           router.replace("/sign-in");
           return;
@@ -155,20 +176,74 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
   }, [attempt, conversationId, locale, prepareDevice, router, workspace]);
 
   useEffect(() => {
-    if (!activeMention) {
-      return;
-    }
+    if (boot !== "ready") return;
+    let cancelled = false;
+    let syncing = false;
+    let queued = false;
 
+    const syncLatest = async (): Promise<void> => {
+      if (syncing) {
+        queued = true;
+        return;
+      }
+      syncing = true;
+      do {
+        queued = false;
+        try {
+          const detail = await fetchDirectConversation(conversationId);
+          const device = await ensureLocalDevice();
+          const page = await fetchDirectMessages(conversationId, device.deviceId);
+          const decrypted = await decryptPage(detail, page.items);
+          if (cancelled) break;
+          setConversation(detail);
+          setRows((current) => mergeDecryptedRows(current, decrypted.reverse()));
+          const read = await markDirectChatRead(conversationId);
+          if (!cancelled) workspace.updateDirectConversation(read);
+        } catch (caught: unknown) {
+          if (cancelled) break;
+          if (caught instanceof AuthRequiredError) {
+            router.replace("/sign-in");
+            break;
+          }
+          setError(caught instanceof DirectChatsApiError ? caught.code : "internal_error");
+        }
+      } while (queued && !cancelled);
+      syncing = false;
+    };
+
+    const unsubscribe = subscribeDirectChatEvents({
+      onOpen: () => void syncLatest(),
+      onMessage: (event) => {
+        if (event.conversationId === conversationId) void syncLatest();
+      },
+    });
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [boot, conversationId, router, workspace]);
+
+  useEffect(() => {
+    if (!activeMention) return;
     let cancelled = false;
     const timer = window.setTimeout(() => {
-      void fetchMentionSuggestions({
-        q: activeMention.query,
-        directConversationId: conversationId,
-      })
+      void fetchMentionSuggestions({ q: activeMention.query, directConversationId: conversationId })
         .then((suggestions) => {
           if (cancelled) return;
           setMentionSuggestions(suggestions);
           setMentionOptionIndex(0);
+          const options = [...suggestions.people, ...suggestions.vimla, ...suggestions.ai];
+          const exact = exactMentionOption(options, activeMention.query);
+          if (exact) {
+            const recognized = createComposerMention({
+              localId: crypto.randomUUID(),
+              handleId: exact.id,
+              kind: exact.kind,
+              canonicalHandle: exact.handle,
+              startOffset: activeMention.start,
+            });
+            setComposerMentions((current) => upsertComposerMention(current, recognized));
+          }
         })
         .catch((caught: unknown) => {
           if (cancelled) return;
@@ -179,7 +254,6 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
           setMentionSuggestions(null);
         });
     }, 120);
-
     return () => {
       cancelled = true;
       window.clearTimeout(timer);
@@ -187,10 +261,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
   }, [activeMention, conversationId, router]);
 
   const mentionOptions = useMemo(
-    () =>
-      mentionSuggestions
-        ? [...mentionSuggestions.people, ...mentionSuggestions.vimla, ...mentionSuggestions.ai]
-        : [],
+    () => mentionSuggestions ? [...mentionSuggestions.people, ...mentionSuggestions.vimla, ...mentionSuggestions.ai] : [],
     [mentionSuggestions],
   );
 
@@ -201,47 +272,65 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
   }
 
   function handleDraftChange(value: string): void {
+    const nextMention = findActiveMention(value);
+    setComposerMentions((current) => {
+      let reconciled = reconcileComposerMentions(draftRef.current, value, current);
+      const queryToResolve = nextMention ?? activeMention;
+      if (!queryToResolve) return reconciled;
+      const exact = exactMentionOption(mentionOptions, queryToResolve.query);
+      const token = `@${queryToResolve.query}`;
+      if (!exact || value.slice(queryToResolve.start, queryToResolve.start + token.length) !== token) return reconciled;
+      const recognized = createComposerMention({
+        localId: crypto.randomUUID(),
+        handleId: exact.id,
+        kind: exact.kind,
+        canonicalHandle: exact.handle,
+        startOffset: queryToResolve.start,
+      });
+      reconciled = upsertComposerMention(reconciled, recognized);
+      return reconciled;
+    });
     draftRef.current = value;
     setDraft(value);
-    const nextMention = findActiveMention(value);
+    setMentionSuggestions(null);
     setActiveMention(nextMention);
-    if (!nextMention) {
-      setMentionSuggestions(null);
-    }
     setMentionOptionIndex(0);
   }
 
   function selectMention(option: MentionPickerOption): void {
     if (!activeMention) return;
     const nextValue = `${draftRef.current.slice(0, activeMention.start)}@${option.handle} ${draftRef.current.slice(activeMention.end)}`;
+    const selected = createComposerMention({
+      localId: crypto.randomUUID(),
+      handleId: option.id,
+      kind: option.kind,
+      canonicalHandle: option.handle,
+      startOffset: activeMention.start,
+    });
     draftRef.current = nextValue;
     setDraft(nextValue);
+    setComposerMentions((current) => upsertComposerMention(current, selected));
     closeMentionPicker();
   }
 
   function handleComposerKeyDown(event: KeyboardEvent<HTMLDivElement>): void {
     if (!activeMention) return;
-
     if (event.key === "Escape") {
       event.preventDefault();
       closeMentionPicker();
       return;
     }
-
     if (mentionOptions.length === 0) return;
-
     if (event.key === "ArrowDown") {
       event.preventDefault();
       setMentionOptionIndex((index) => (index + 1) % mentionOptions.length);
       return;
     }
-
     if (event.key === "ArrowUp") {
       event.preventDefault();
       setMentionOptionIndex((index) => (index - 1 + mentionOptions.length) % mentionOptions.length);
       return;
     }
-
     if (event.key === "Enter" || event.key === "Tab") {
       event.preventDefault();
       const selected = mentionOptions[mentionOptionIndex];
@@ -256,65 +345,63 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
   }
 
   async function onSend(): Promise<void> {
-    const text = draftRef.current.trim();
-    const shouldInvoke = CONSUMER_FEATURES.vimlaOperator && mentionRef.current;
-    if (sendingLockRef.current || sending || operatorBusy || text.length === 0 || !conversation || !userId) {
-      return;
-    }
+    const text = draftRef.current;
+    if (sendingLockRef.current || sending || operatorBusy || text.trim().length === 0 || !conversation || !userId) return;
     closeMentionPicker();
+    let resolvedComposerMentions = composerMentions;
+    if (text.includes("@")) {
+      try {
+        const suggestions = await fetchMentionSuggestions({ q: "", directConversationId: conversationId });
+        resolvedComposerMentions = resolveTypedComposerMentions(text, [
+          ...suggestions.people,
+          ...suggestions.vimla,
+          ...suggestions.ai,
+        ]);
+      } catch (caught: unknown) {
+        if (caught instanceof AuthRequiredError) {
+          router.replace("/sign-in");
+          return;
+        }
+        setError("internal_error");
+        return;
+      }
+    }
+    const mentions = toMessageMentionInputs(resolvedComposerMentions);
+    const shouldInvokeVimla = CONSUMER_FEATURES.vimlaOperator && resolvedComposerMentions.some(
+      (candidate) => candidate.kind === "SYSTEM_AGENT" && candidate.canonicalHandle === "vimla",
+    );
     sendingLockRef.current = true;
     draftRef.current = "";
     setDraft("");
+    setComposerMentions([]);
     try {
-      if (shouldInvoke) {
-        mentionRef.current = false;
-        setMention(false);
-        await invokeOperator(text);
+      if (shouldInvokeVimla) {
+        await invokeOperator(text, mentions);
         return;
       }
-      await postEncrypted("HUMAN", encodeDirectPlaintext({ type: "human", text }));
+      await postEncrypted("HUMAN", encodeDirectPlaintext({ type: "human", text }), mentions);
     } finally {
       sendingLockRef.current = false;
     }
   }
 
-  async function invokeOperator(text: string): Promise<void> {
-    if (!conversation || !userId) {
-      return;
-    }
-    setMention(false);
-    mentionRef.current = false;
+  async function invokeOperator(text: string, mentions: MessageMentionInput[]): Promise<void> {
+    if (!conversation || !userId) return;
     setOperatorBusy(true);
     setError(null);
     try {
       await postEncrypted(
         "OPERATOR_INVOKE",
-        encodeDirectPlaintext({
-          type: "invoke",
-          text,
-          contextShared: false,
-          peerIncluded: false,
-        }),
+        encodeDirectPlaintext({ type: "invoke", text, contextShared: false, peerIncluded: false }),
+        mentions,
       );
       const contextBundle = {
         messages: rows.flatMap((row) => {
-          if (!row.payload || row.payload.type !== "human") {
-            return [];
-          }
+          if (!row.payload || row.payload.type !== "human") return [];
           const own = row.message.senderUserId === userId;
-          if (own && !conversation.privacy.shareOwnHistoryWithVimla) {
-            return [];
-          }
-          if (!own && (!conversation.privacy.includePeerHistoryWhenInvoking || !conversation.privacy.peerShareOwnHistoryWithVimla)) {
-            return [];
-          }
-          return [
-            {
-              senderUserId: row.message.senderUserId,
-              sentAt: row.message.createdAt,
-              text: row.payload.text,
-            },
-          ];
+          if (own && !conversation.privacy.shareOwnHistoryWithVimla) return [];
+          if (!own && (!conversation.privacy.includePeerHistoryWhenInvoking || !conversation.privacy.peerShareOwnHistoryWithVimla)) return [];
+          return [{ senderUserId: row.message.senderUserId, sentAt: row.message.createdAt, text: row.payload.text }];
         }),
       };
       const run = await createOperatorRun({
@@ -326,21 +413,13 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
       });
       setPendingRun(run);
       if (run.publicMessage) {
-        await postEncrypted(
-          "OPERATOR_RESPONSE",
-          encodeDirectPlaintext({ type: "response", text: run.publicMessage, runId: run.id }),
-        );
+        await postEncrypted("OPERATOR_RESPONSE", encodeDirectPlaintext({ type: "response", text: run.publicMessage, runId: run.id }));
       }
       const action = run.actions[0];
       if (action) {
         await postEncrypted(
           "OPERATOR_ACTION",
-          encodeDirectPlaintext({
-            type: "action",
-            title: action.title,
-            detail: action.detail,
-            status: action.status,
-          }),
+          encodeDirectPlaintext({ type: "action", title: action.title, detail: action.detail, status: action.status }),
         );
       }
     } catch (caught: unknown) {
@@ -354,10 +433,8 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
     }
   }
 
-  async function postEncrypted(kind: DirectMessageKind, plaintext: string): Promise<void> {
-    if (!conversation || !userId) {
-      return;
-    }
+  async function postEncrypted(kind: DirectMessageKind, plaintext: string, mentions: MessageMentionInput[] = []): Promise<void> {
+    if (!conversation || !userId) return;
     setSending(true);
     try {
       const latest = await reloadConversation();
@@ -368,12 +445,14 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         kind,
         plaintext,
         devices: latest.devices,
+        mentions,
       });
       const created = await sendDirectMessage(latest.id, {
         clientMessageId: crypto.randomUUID(),
         senderDeviceId: device.deviceId,
         kind,
         envelopes,
+        mentions,
       });
       await savePlaintext({
         conversationId: latest.id,
@@ -383,10 +462,9 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         senderUserId: userId,
         createdAt: created.createdAt,
       });
-      setRows((current) => [
-        ...current,
+      setRows((current) => mergeDecryptedRows(current, [
         { message: created, payload: decodeDirectPlaintext(kind, plaintext) },
-      ]);
+      ]));
     } catch (caught: unknown) {
       setError(caught instanceof DirectChatsApiError ? caught.code : "internal_error");
     } finally {
@@ -395,18 +473,24 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
   }
 
   async function onLoadOlder(): Promise<void> {
-    if (!nextCursor || !conversation) {
-      return;
-    }
+    if (!nextCursor || !conversation) return;
     const device = await ensureLocalDevice();
     const page = await fetchDirectMessages(conversationId, device.deviceId, nextCursor);
     const decrypted = await decryptPage(conversation, page.items);
-    setRows((current) => [...decrypted.reverse(), ...current]);
+    setRows((current) => mergeDecryptedRows(current, decrypted.reverse()));
     setNextCursor(page.nextCursor);
   }
 
   if (boot !== "ready" || !conversation) {
-    return <ChatDetailStatus failed={boot === "failed"} retry={() => { setBoot("loading"); setAttempt((value) => value + 1); }} />;
+    return (
+      <ChatDetailStatus
+        failed={boot === "failed"}
+        retry={() => {
+          setBoot("loading");
+          setAttempt((value) => value + 1);
+        }}
+      />
+    );
   }
 
   return (
@@ -418,18 +502,14 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
             label={t("direct.shareOwn")}
             checked={conversation.privacy.shareOwnHistoryWithVimla}
             onChange={(event) => {
-              void updateDirectChatPrivacy(conversation.id, {
-                shareOwnHistoryWithVimla: event.currentTarget.checked,
-              }).then(setConversation);
+              void updateDirectChatPrivacy(conversation.id, { shareOwnHistoryWithVimla: event.currentTarget.checked }).then(setConversation);
             }}
           />
           <Switch
             label={t("direct.includePeer")}
             checked={conversation.privacy.includePeerHistoryWhenInvoking}
             onChange={(event) => {
-              void updateDirectChatPrivacy(conversation.id, {
-                includePeerHistoryWhenInvoking: event.currentTarget.checked,
-              }).then(setConversation);
+              void updateDirectChatPrivacy(conversation.id, { includePeerHistoryWhenInvoking: event.currentTarget.checked }).then(setConversation);
             }}
           />
           <Text tone="caption">
@@ -437,21 +517,11 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
           </Text>
         </div>
         <div className={styles.messages}>
-          {nextCursor ? (
-            <Button variant="ghost" onClick={() => void onLoadOlder()}>
-              {t("direct.loadOlder")}
-            </Button>
-          ) : null}
+          {nextCursor ? <Button variant="ghost" onClick={() => void onLoadOlder()}>{t("direct.loadOlder")}</Button> : null}
           {error ? <Alert variant="error">{tx(t, apiErrorMessageKey(error))}</Alert> : null}
           {rows.length === 0 ? <EmptyState title={t("direct.empty")} /> : null}
           {rows.map((row) => (
-            <DirectRow
-              key={row.message.id}
-              row={row}
-              self={row.message.senderUserId === userId}
-              youLabel={t("chat.you")}
-              peerName={conversation.peer.name}
-            />
+            <DirectRow key={row.message.id} row={row} self={row.message.senderUserId === userId} youLabel={t("chat.you")} peerName={conversation.peer.name} />
           ))}
           {pendingRun ? (
             <OperatorRunPanel
@@ -461,26 +531,17 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
                 setOperatorBusy(true);
                 void (async () => {
                   const token = pendingRun.confirmationToken ?? (await fetchOperatorRun(pendingRun.id)).confirmationToken;
-                  if (!token) {
-                    throw new OperatorRequestError("operator_confirmation_invalid");
-                  }
+                  if (!token) throw new OperatorRequestError("operator_confirmation_invalid");
                   const run = await confirmOperatorRun(pendingRun.id, token);
                   setPendingRun(run);
                   if (run.publicMessage) {
-                    await postEncrypted(
-                      "OPERATOR_RESPONSE",
-                      encodeDirectPlaintext({ type: "response", text: run.publicMessage, runId: run.id }),
-                    );
+                    await postEncrypted("OPERATOR_RESPONSE", encodeDirectPlaintext({ type: "response", text: run.publicMessage, runId: run.id }));
                   }
                 })()
-                  .catch((caught: unknown) => {
-                    setError(caught instanceof OperatorRequestError ? caught.code : "internal_error");
-                  })
+                  .catch((caught: unknown) => setError(caught instanceof OperatorRequestError ? caught.code : "internal_error"))
                   .finally(() => setOperatorBusy(false));
               }}
-              onCancel={() => {
-                void cancelOperatorRun(pendingRun.id).then(setPendingRun);
-              }}
+              onCancel={() => { void cancelOperatorRun(pendingRun.id).then(setPendingRun); }}
             />
           ) : null}
         </div>
@@ -506,29 +567,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
           placeholder={t("direct.placeholder")}
           sendLabel={t("chat.send")}
           sending={sending || operatorBusy}
-          mentionControl={
-            CONSUMER_FEATURES.vimlaOperator ? (
-              <Button
-                type="button"
-                variant={mention ? "primary" : "ghost"}
-                onClick={() => setMention((value) => !value)}
-                aria-pressed={mention}
-                data-testid="direct-mention-vimla"
-              >
-                <VimlaMark size={14} />
-                {t("chat.mentionVimla")}
-              </Button>
-            ) : null
-          }
-          chips={
-            mention ? (
-              <VimlaMentionChip
-                label={t("chat.mentionVimla")}
-                onRemove={() => setMention(false)}
-                removeLabel={t("common.close")}
-              />
-            ) : null
-          }
+          highlights={composerMentions}
         />
       </div>
     </div>
@@ -541,46 +580,24 @@ async function decryptPage(detail: DirectConversationView, items: DirectMessageV
   for (const message of items) {
     const senderPublic = map.get(message.senderDeviceId) ?? message.envelope?.x3dhInit?.identityEd25519Public ?? "";
     const payload = senderPublic
-      ? await decryptMessage({
-          conversationId: detail.id,
-          message,
-          senderIdentityEd25519Public: senderPublic,
-        })
+      ? await decryptMessage({ conversationId: detail.id, message, senderIdentityEd25519Public: senderPublic })
       : null;
     decrypted.push({ message, payload });
   }
   return decrypted;
 }
 
-function DirectRow({
-  row,
-  self,
-  youLabel,
-  peerName,
-}: {
-  row: DecryptedRow;
-  self: boolean;
-  youLabel: string;
-  peerName: string;
-}): ReactElement {
+function DirectRow({ row, self, youLabel, peerName }: { row: DecryptedRow; self: boolean; youLabel: string; peerName: string }): ReactElement {
   const t = useTranslations();
   const label = self ? youLabel : peerName;
   if (!row.payload) {
-    return (
-      <article className={styles.undecryptable} data-testid="direct-message-undecryptable">
-        <Text tone="caption">{t("direct.undecryptable")}</Text>
-      </article>
-    );
+    return <article className={styles.undecryptable} data-testid="direct-message-undecryptable"><Text tone="caption">{t("direct.undecryptable")}</Text></article>;
   }
   if (row.payload.type === "human") {
     return self ? (
-      <UserMessage label={label}>
-        <span data-testid="direct-message-human">{row.payload.text}</span>
-      </UserMessage>
+      <UserMessage label={label}><span data-testid="direct-message-human">{row.payload.text}</span></UserMessage>
     ) : (
-      <AssistantMessage label={label}>
-        <span data-testid="direct-message-human">{row.payload.text}</span>
-      </AssistantMessage>
+      <AssistantMessage label={label}><span data-testid="direct-message-human">{row.payload.text}</span></AssistantMessage>
     );
   }
   if (row.payload.type === "invoke") {
@@ -595,11 +612,7 @@ function DirectRow({
     );
   }
   if (row.payload.type === "response") {
-    return (
-      <AssistantMessage label={t("chat.assistant")}>
-        <span data-testid="direct-message-response">{row.payload.text}</span>
-      </AssistantMessage>
-    );
+    return <AssistantMessage label={t("chat.assistant")}><span data-testid="direct-message-response">{row.payload.text}</span></AssistantMessage>;
   }
   return (
     <Card data-testid="direct-message-action">

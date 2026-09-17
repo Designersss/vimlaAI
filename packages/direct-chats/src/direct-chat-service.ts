@@ -8,12 +8,19 @@ import {
   type DirectEnvelopeView,
   type DirectMessageView,
   type DirectParticipant,
+  type MessageMentionView,
   type SendDirectMessage,
   type UpdateDirectChatPrivacy,
   type WireEnvelopeDto,
   x3dhInitHeaderSchema,
 } from "@vimla/contracts";
-import { b64ToBytes, buildAssociatedData, signaturePayload, verifyDirectMessage } from "@vimla/e2ee";
+import {
+  b64ToBytes,
+  buildAssociatedData,
+  serializeDirectRoutingMentions,
+  signaturePayload,
+  verifyDirectMessage,
+} from "@vimla/e2ee";
 import type { DirectChatParticipant } from "./assignee.js";
 import { toDeviceView } from "./device-service.js";
 import { DirectChatError } from "./errors.js";
@@ -172,13 +179,19 @@ export class DirectChatService {
     });
     const page = rows.slice(0, query.limit);
     const last = page.at(-1);
+    const mentions = await this.readMentionMap(page.map((row) => row.id));
     return {
-      items: page.map((row) => toMessageView(row, query.deviceId)),
+      items: page.map((row) => toMessageView(row, query.deviceId, mentions.get(row.id) ?? [])),
       nextCursor: rows.length > query.limit && last ? encodeCursor(last.createdAt, last.id) : null,
     };
   }
 
-  async send(actor: ActorContext, conversationId: string, input: SendDirectMessage): Promise<DirectMessageView> {
+  async send(
+    actor: ActorContext,
+    conversationId: string,
+    input: SendDirectMessage,
+    resolvedMentions: MessageMentionView[] = [],
+  ): Promise<DirectMessageView> {
     const conversation = await this.requireMemberConversation(actor.userId, conversationId);
     const senderDevice = await this.requireActiveDevice(actor.userId, input.senderDeviceId);
     if (input.envelopes.length > this.options.maxEnvelopes) {
@@ -200,12 +213,16 @@ export class DirectChatService {
       throw new DirectChatError("VALIDATION_ERROR", "Envelopes must cover every active member device");
     }
 
+    const routingContext = input.mentions.length > 0
+      ? serializeDirectRoutingMentions(input.mentions)
+      : undefined;
     for (const envelope of input.envelopes) {
       this.assertEnvelope(envelope, senderDevice, devicesById, {
         conversationId,
         senderUserId: actor.userId,
         senderDeviceId: senderDevice.id,
         kind: input.kind,
+        routingContext,
       });
     }
 
@@ -220,7 +237,8 @@ export class DirectChatService {
       include: { envelopes: { where: { recipientDeviceId: senderDevice.id } } },
     });
     if (existing) {
-      return toMessageView(existing, senderDevice.id);
+      const mentions = await this.readMentionMap([existing.id]);
+      return toMessageView(existing, senderDevice.id, mentions.get(existing.id) ?? []);
     }
 
     try {
@@ -248,13 +266,27 @@ export class DirectChatService {
           },
           include: { envelopes: true },
         });
+        if (resolvedMentions.length > 0) {
+          await tx.directMessageMention.createMany({
+            data: resolvedMentions.map((mention) => ({
+              id: mention.id,
+              directMessageId: message.id,
+              handleId: mention.handleId,
+              kind: mention.kind,
+              targetId: mention.targetId,
+              canonicalHandle: mention.canonicalHandle,
+              startOffset: mention.startOffset,
+              endOffset: mention.endOffset,
+            })),
+          });
+        }
         await tx.directConversation.update({
           where: { id: conversationId },
           data: { lastMessageAt: message.createdAt },
         });
         return message;
       });
-      return toMessageView(created, senderDevice.id);
+      return toMessageView(created, senderDevice.id, resolvedMentions);
     } catch (error: unknown) {
       if (isUnique(error)) {
         const replay = await this.db.directMessage.findUnique({
@@ -268,7 +300,8 @@ export class DirectChatService {
           include: { envelopes: { where: { recipientDeviceId: senderDevice.id } } },
         });
         if (replay) {
-          return toMessageView(replay, senderDevice.id);
+          const mentions = await this.readMentionMap([replay.id]);
+          return toMessageView(replay, senderDevice.id, mentions.get(replay.id) ?? []);
         }
         throw new DirectChatError("TAMPERED", "Message envelope was rejected");
       }
@@ -311,6 +344,30 @@ export class DirectChatService {
     };
   }
 
+  private async readMentionMap(messageIds: string[]): Promise<Map<string, MessageMentionView[]>> {
+    const grouped = new Map<string, MessageMentionView[]>();
+    if (messageIds.length === 0) return grouped;
+    const rows = await this.db.directMessageMention.findMany({
+      where: { directMessageId: { in: messageIds } },
+      orderBy: [{ directMessageId: "asc" }, { startOffset: "asc" }],
+    });
+    for (const row of rows) {
+      if (!isMentionKind(row.kind)) continue;
+      const current = grouped.get(row.directMessageId) ?? [];
+      current.push({
+        id: row.id,
+        handleId: row.handleId,
+        kind: row.kind,
+        targetId: row.targetId,
+        canonicalHandle: row.canonicalHandle,
+        startOffset: row.startOffset,
+        endOffset: row.endOffset,
+      });
+      grouped.set(row.directMessageId, current);
+    }
+    return grouped;
+  }
+
   private assertEnvelope(
     envelope: WireEnvelopeDto,
     senderDevice: { id: string; identityEd25519Public: string },
@@ -320,6 +377,7 @@ export class DirectChatService {
       senderUserId: string;
       senderDeviceId: string;
       kind: SendDirectMessage["kind"];
+      routingContext?: string;
     },
   ): void {
     if (envelope.ciphertextB64.length > this.options.maxCiphertextBytes) {
@@ -335,6 +393,7 @@ export class DirectChatService {
       senderDeviceId: ad.senderDeviceId,
       recipientDeviceId: envelope.recipientDeviceId,
       kind: ad.kind,
+      routingContext: ad.routingContext,
     });
     const header = b64ToBytes(envelope.headerB64);
     const ciphertext = b64ToBytes(envelope.ciphertextB64);
@@ -459,6 +518,7 @@ function toMessageView(
     }>;
   },
   deviceId: string,
+  mentions: MessageMentionView[],
 ): DirectMessageView {
   const envelope = row.envelopes.find((item) => item.recipientDeviceId === deviceId) ?? row.envelopes[0] ?? null;
   return {
@@ -470,6 +530,7 @@ function toMessageView(
     kind: isKind(row.kind) ? row.kind : "HUMAN",
     createdAt: row.createdAt.toISOString(),
     envelope: envelope ? toEnvelopeView(envelope) : null,
+    mentions,
   };
 }
 
@@ -507,6 +568,10 @@ function isKind(value: string | undefined): value is DirectMessageView["kind"] {
     value === "OPERATOR_RESPONSE" ||
     value === "OPERATOR_ACTION"
   );
+}
+
+function isMentionKind(value: string): value is MessageMentionView["kind"] {
+  return value === "USER" || value === "SYSTEM_AGENT" || value === "AI_AUTO" || value === "AI_MODEL";
 }
 
 function encodeCursor(at: Date, id: string): string {
