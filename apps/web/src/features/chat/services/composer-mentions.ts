@@ -51,7 +51,13 @@ export function createComposerMention(input: {
 }
 
 export function toMessageMentionInputs(mentions: ComposerMention[]): MessageMentionInput[] {
-  return mentions.map(({ localId: _localId, ...mention }) => mention);
+  return mentions.map((mention) => ({
+    handleId: mention.handleId,
+    kind: mention.kind,
+    canonicalHandle: mention.canonicalHandle,
+    startOffset: mention.startOffset,
+    endOffset: mention.endOffset,
+  }));
 }
 
 function findChange(previousText: string, nextText: string): {
