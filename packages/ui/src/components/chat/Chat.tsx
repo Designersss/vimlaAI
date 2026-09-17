@@ -1,4 +1,4 @@
-import { useRef, type FormEvent, type ReactElement, type ReactNode, type UIEvent } from "react";
+import type { FormEvent, ReactElement, ReactNode, UIEvent } from "react";
 import { ChevronRightIcon, SendIcon, VimlaMark, XIcon } from "../../icons";
 import { IconButton, Button } from "../../primitives/Button/Button";
 import { Textarea } from "../../primitives/forms/Input";
@@ -68,7 +68,6 @@ export function ChatComposer({
   highlights?: ComposerTextHighlight[];
   variant?: "ai" | "direct" | "operator";
 }): ReactElement {
-  const mirrorRef = useRef<HTMLDivElement>(null);
   const normalizedHighlights = normalizeComposerHighlights(value, highlights);
   const hasHighlights = normalizedHighlights.length > 0;
 
@@ -78,9 +77,10 @@ export function ChatComposer({
   }
 
   function syncMirrorScroll(event: UIEvent<HTMLTextAreaElement>): void {
-    if (!mirrorRef.current) return;
-    mirrorRef.current.scrollTop = event.currentTarget.scrollTop;
-    mirrorRef.current.scrollLeft = event.currentTarget.scrollLeft;
+    const mirror = event.currentTarget.previousElementSibling;
+    if (!(mirror instanceof HTMLElement)) return;
+    mirror.scrollTop = event.currentTarget.scrollTop;
+    mirror.scrollLeft = event.currentTarget.scrollLeft;
   }
 
   return (
@@ -88,7 +88,7 @@ export function ChatComposer({
       {chips ? <div className={styles.chipRow}>{chips}</div> : null}
       <div className={styles.composerFieldWrap}>
         {hasHighlights ? (
-          <div ref={mirrorRef} className={styles.composerMirror} aria-hidden="true">
+          <div className={styles.composerMirror} aria-hidden="true">
             {renderComposerMirror(value, normalizedHighlights)}
           </div>
         ) : null}
