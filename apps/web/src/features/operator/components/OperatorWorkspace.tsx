@@ -138,6 +138,7 @@ export function OperatorWorkspace(): ReactElement {
         content,
         status: "COMPLETE",
         createdAt: now,
+        mentions: [],
       },
       {
         id: `assistant-${now}`,
@@ -145,6 +146,7 @@ export function OperatorWorkspace(): ReactElement {
         content: run.publicMessage ?? "",
         status: "COMPLETE",
         createdAt: now,
+        mentions: [],
         operatorRun: run,
       },
     ]);
