@@ -80,6 +80,10 @@ test.describe("Secure Direct Chats", () => {
     await expect(alicePage.getByTestId("direct-message-invoke")).toBeVisible({ timeout: 20_000 });
     await expect(alicePage.getByTestId("direct-message-response")).toBeVisible({ timeout: 20_000 });
 
+    await nikitaPage.reload();
+    await expect(nikitaPage.getByTestId("direct-chat-shell")).toBeVisible({ timeout: 20_000 });
+    await expect(nikitaPage.getByTestId("direct-message-invoke")).toBeVisible({ timeout: 20_000 });
+
     for (const viewport of [
       { width: 320, height: 568 },
       { width: 390, height: 844 },
