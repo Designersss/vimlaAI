@@ -32,6 +32,47 @@ export class ChatMentionRoutingService {
     return mentions.some((mention) => mention.kind !== "USER") ? "ORCHESTRATION" : "CHAT";
   }
 
+  async attachToAiRequest(input: {
+    userId: string;
+    clientRequestId: string;
+    resolvedMentions: ResolvedChatMention[];
+  }): Promise<void> {
+    if (input.resolvedMentions.length === 0) return;
+
+    const request = await this.prisma.client.aiRequest.findUnique({
+      where: {
+        userId_clientRequestId: {
+          userId: input.userId,
+          clientRequestId: input.clientRequestId,
+        },
+      },
+      select: {
+        messages: {
+          where: { role: "USER" },
+          orderBy: { createdAt: "asc" },
+          take: 1,
+          select: { id: true },
+        },
+      },
+    });
+    const messageId = request?.messages[0]?.id;
+    if (!messageId) return;
+
+    await this.prisma.client.messageMention.createMany({
+      data: input.resolvedMentions.map((mention) => ({
+        id: mention.id,
+        messageId,
+        handleId: mention.handleId,
+        kind: mention.kind,
+        targetId: mention.targetId,
+        canonicalHandle: mention.canonicalHandle,
+        startOffset: mention.startOffset,
+        endOffset: mention.endOffset,
+      })),
+      skipDuplicates: true,
+    });
+  }
+
   async persist(input: {
     userId: string;
     conversationId: string;
