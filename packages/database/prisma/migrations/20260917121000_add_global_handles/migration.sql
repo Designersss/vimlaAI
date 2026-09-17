@@ -93,3 +93,33 @@ SELECT 'model:' || "id", lower("slug"), lower("slug"), 'AI_MODEL', CASE WHEN "ac
 FROM "ai_model"
 WHERE lower("slug") NOT IN (SELECT "normalized" FROM "handle")
 ON CONFLICT ("normalized") DO NOTHING;
+
+CREATE OR REPLACE FUNCTION sync_ai_model_handle() RETURNS trigger AS $$
+BEGIN
+  IF TG_OP = 'UPDATE' AND NEW."slug" <> OLD."slug" THEN
+    RAISE EXCEPTION 'ai_model.slug is immutable once published';
+  END IF;
+
+  INSERT INTO "handle" (
+    "id", "handle", "normalized", "kind", "status", "aiModelId", "createdAt", "updatedAt"
+  ) VALUES (
+    'model:' || NEW."id",
+    lower(NEW."slug"),
+    lower(NEW."slug"),
+    'AI_MODEL',
+    CASE WHEN NEW."active" THEN 'ACTIVE' ELSE 'RETIRED' END,
+    NEW."id",
+    CURRENT_TIMESTAMP,
+    CURRENT_TIMESTAMP
+  )
+  ON CONFLICT ("aiModelId") DO UPDATE SET
+    "status" = EXCLUDED."status",
+    "updatedAt" = CURRENT_TIMESTAMP;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER "ai_model_handle_sync"
+AFTER INSERT OR UPDATE OF "active", "slug" ON "ai_model"
+FOR EACH ROW EXECUTE FUNCTION sync_ai_model_handle();
