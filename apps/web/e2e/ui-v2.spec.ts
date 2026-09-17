@@ -3,7 +3,7 @@ import { purchasePro, signUp, uniqueEmail, verifyEmail } from "./helpers";
 import { assertNoDocumentOverflow } from "./responsive-helpers";
 
 test.describe("UI system v2", () => {
-  test("auth split layout, appearance, messages drill-down and composer gating", async ({ page, request }) => {
+  test("auth split layout, appearance, messages drill-down and structured mention composer", async ({ page, request }) => {
     test.setTimeout(120_000);
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto("/sign-in");
@@ -32,15 +32,23 @@ test.describe("UI system v2", () => {
     await page.goto("/app");
     await expect(page.getByRole("heading", { name: /сообщения|messages/i, level: 1 })).toBeVisible();
     await page.getByRole("button", { name: /новый разговор|new conversation/i }).click();
-    await expect(page.getByPlaceholder(/сообщение для vimla|message vimla/i)).toBeVisible();
+
+    const composer = page.getByPlaceholder(/сообщение для vimla|message vimla/i);
+    await expect(composer).toBeVisible();
     await page.getByRole("button", { name: /^pro ·|^про ·/i }).click();
     await expect(page.getByRole("menuitem", { name: /^auto$/i })).toBeDisabled();
     await page.keyboard.press("Escape");
-    await page.getByRole("button", { name: /◆ @vimla/i }).focus();
-    await expect(page.getByRole("button", { name: /◆ @vimla/i })).toBeFocused();
-    await page.getByRole("button", { name: /◆ @vimla/i }).click();
-    await expect(page.getByText("◆ @Vimla").first()).toBeVisible();
-    await expect(page.getByRole("button", { name: /^pro ·|^про ·/i })).toHaveCount(0);
+
+    await expect(page.getByRole("button", { name: /◆ @vimla/i })).toHaveCount(0);
+    await composer.focus();
+    await expect(composer).toBeFocused();
+    await composer.fill("@vi");
+    const picker = page.getByTestId("mention-picker");
+    await expect(picker.getByRole("option", { name: /@vimla/i })).toBeVisible();
+    await composer.press("Enter");
+    await expect(composer).toHaveValue("@vimla ");
+    await expect(picker).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /^pro ·|^про ·/i })).toBeVisible();
     await assertNoDocumentOverflow(page);
   });
 });
