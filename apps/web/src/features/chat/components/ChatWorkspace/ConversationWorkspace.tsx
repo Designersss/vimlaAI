@@ -63,6 +63,18 @@ function findActiveMention(value: string): ActiveMentionQuery | null {
   };
 }
 
+function exactMentionOption(options: MentionPickerOption[], query: string): MentionPickerOption | null {
+  if (query.length === 0) return null;
+  const normalized = query.toLowerCase();
+  return options.find((option) => option.handle.toLowerCase() === normalized) ?? null;
+}
+
+function upsertComposerMention(current: ComposerMention[], mention: ComposerMention): ComposerMention[] {
+  return [...current.filter((item) => item.startOffset !== mention.startOffset), mention].sort(
+    (left, right) => left.startOffset - right.startOffset,
+  );
+}
+
 export const ConversationWorkspace = observer(function ConversationWorkspace({
   conversationId,
 }: {
@@ -126,6 +138,18 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
           if (cancelled) return;
           setMentionSuggestions(suggestions);
           setMentionOptionIndex(0);
+          const options = [...suggestions.people, ...suggestions.vimla, ...suggestions.ai];
+          const exact = exactMentionOption(options, activeMention.query);
+          if (exact) {
+            const recognized = createComposerMention({
+              localId: crypto.randomUUID(),
+              handleId: exact.id,
+              kind: exact.kind,
+              canonicalHandle: exact.handle,
+              startOffset: activeMention.start,
+            });
+            setComposerMentions((current) => upsertComposerMention(current, recognized));
+          }
         })
         .catch((error: unknown) => {
           if (cancelled) return;
@@ -163,9 +187,29 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
   }
 
   function handleDraftChange(value: string): void {
-    setComposerMentions((current) => reconcileComposerMentions(store.draft, value, current));
-    store.setDraft(value);
     const nextMention = findActiveMention(value);
+    setComposerMentions((current) => {
+      let reconciled = reconcileComposerMentions(store.draft, value, current);
+      const queryToResolve = nextMention ?? activeMention;
+      if (!queryToResolve) return reconciled;
+
+      const exact = exactMentionOption(mentionOptions, queryToResolve.query);
+      const token = `@${queryToResolve.query}`;
+      if (!exact || value.slice(queryToResolve.start, queryToResolve.start + token.length) !== token) {
+        return reconciled;
+      }
+
+      const recognized = createComposerMention({
+        localId: crypto.randomUUID(),
+        handleId: exact.id,
+        kind: exact.kind,
+        canonicalHandle: exact.handle,
+        startOffset: queryToResolve.start,
+      });
+      reconciled = upsertComposerMention(reconciled, recognized);
+      return reconciled;
+    });
+    store.setDraft(value);
     setMentionSuggestions(null);
     setActiveMention(nextMention);
     setMentionOptionIndex(0);
@@ -182,7 +226,7 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
       startOffset: activeMention.start,
     });
     store.setDraft(nextValue);
-    setComposerMentions((current) => [...current, selected].sort((left, right) => left.startOffset - right.startOffset));
+    setComposerMentions((current) => upsertComposerMention(current, selected));
     closeMentionPicker();
   }
 
@@ -394,6 +438,7 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
           placeholder={t("chat.placeholder")}
           sendLabel={t("chat.send")}
           sending={store.streaming || operatorBusy}
+          highlights={composerMentions}
           variant="ai"
           modelControl={
             <ModelModeControl
