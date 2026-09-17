@@ -17,27 +17,38 @@ import type { AuthenticatedUser } from "@vimla/auth";
 import { parseVimlaLocale } from "@vimla/shared";
 import { PrismaService } from "../persistence/prisma.service.js";
 import { API_CONFIG, type ApiRuntimeConfig } from "../config/api-config.js";
+import { AllowHandleOnboarding } from "./allow-handle-onboarding.decorator.js";
 import { AuthGuard } from "./auth.guard.js";
 import { AuthUser } from "./current-user.decorator.js";
+import { HandleService } from "./handle.service.js";
 import { OriginGuard } from "./origin.guard.js";
 
 @Controller("v1")
+@AllowHandleOnboarding()
 @UseGuards(AuthGuard)
 export class MeController {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(API_CONFIG) private readonly config: ApiRuntimeConfig,
+    private readonly handles: HandleService,
   ) {}
 
   @Get("me")
   async getMe(@AuthUser() user: AuthenticatedUser): Promise<CurrentUser> {
-    const preference = await this.readPreference(user.id);
+    await this.handles.activateVerified(user.id);
+    const [preference, handle] = await Promise.all([
+      this.readPreference(user.id),
+      this.handles.readForUser(user.id),
+    ]);
     return currentUserSchema.parse({
       id: user.id,
       email: user.email,
       name: user.name,
       image: user.image,
       emailVerified: user.emailVerified,
+      handle: handle?.handle ?? null,
+      handleStatus: handle?.status ?? null,
+      handleRequired: handle === null,
       locale: parseVimlaLocale(preference?.locale, this.config.authDefaultLocale),
       timezone: preference?.timezone ?? null,
     });
