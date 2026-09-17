@@ -33,6 +33,7 @@ import { SensitiveArea, SensitiveMutation } from "../auth/sensitive-area.js";
 import { SensitiveAreaGuard } from "../auth/sensitive-area.guard.js";
 import { OriginGuard } from "../auth/origin.guard.js";
 import { sseResponseHeaders } from "./sse-headers.js";
+import { AiRateLimitGuard } from "./ai-rate-limit.guard.js";
 import { ChatMentionRoutingService } from "./chat-mention-routing.service.js";
 import { TextChatService } from "./text-chat.service.js";
 import { buildOperatorRunView } from "../operator/view.js";
@@ -103,6 +104,7 @@ export class ConversationsController {
 
   @Post(":id/messages")
   @SensitiveMutation()
+  @UseGuards(AiRateLimitGuard)
   async sendMessage(
     @AuthUser() user: AuthenticatedUser,
     @Param("id") conversationId: string,
@@ -123,7 +125,26 @@ export class ConversationsController {
     reply.raw.write(":\n\n");
 
     const response = reply.raw;
+    const sink = {
+      isClientOpen: () => !response.writableEnded,
+      write: (chunk: string) => {
+        if (!response.writableEnded) response.write(chunk);
+      },
+    };
+
     try {
+      if (parsed.data.mentions.length === 0) {
+        await this.chat.assertTextEnabled();
+        await this.chat.streamMessage({
+          userId: user.id,
+          conversationId,
+          body: parsed.data,
+          correlationId: String(request.id),
+          sink,
+        });
+        return;
+      }
+
       const result = await this.routing.persist({
         userId: user.id,
         conversationId,
@@ -152,9 +173,7 @@ export class ConversationsController {
         response.write(encodeVimlaSse("error", payload));
       }
     } finally {
-      if (!response.writableEnded) {
-        response.end();
-      }
+      if (!response.writableEnded) response.end();
     }
   }
 }
