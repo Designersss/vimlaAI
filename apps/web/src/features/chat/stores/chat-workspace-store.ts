@@ -48,6 +48,7 @@ export class ConversationState {
         content,
         status: "COMPLETE",
         createdAt: now,
+        mentions: [],
       },
       {
         id: `local-assistant-${now}-${this.revision}`,
@@ -55,6 +56,7 @@ export class ConversationState {
         content: "",
         status: "STREAMING",
         createdAt: now,
+        mentions: [],
       },
     ];
     this.streamingMessageId = `local-assistant-${now}-${this.revision}`;
