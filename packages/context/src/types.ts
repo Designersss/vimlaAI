@@ -22,9 +22,15 @@ export interface ContextSnapshotItemInput {
   metadata?: Prisma.InputJsonValue | null;
 }
 
-export interface ContextSnapshotItemView extends ContextSnapshotItemInput {
+export interface ContextSnapshotItemView {
   id: string;
   sequence: number;
+  sourceType: ContextSourceType;
+  sourceId: string;
+  sourceVersion: string | null;
+  classification: ContextClassification;
+  contentRef: string | null;
+  metadata: Prisma.JsonValue | null;
   fingerprint: string;
   createdAt: string;
 }
@@ -42,6 +48,16 @@ export interface CreateContextSnapshotInput {
   actorUserId: string;
   planId: string;
   items: readonly ContextSnapshotItemInput[];
+}
+
+export interface CreateExecutionPlanSnapshotInput {
+  actorUserId: string;
+  planId: string;
+}
+
+export interface ResolveInvocationContextInput {
+  actorUserId: string;
+  invocationId: string;
 }
 
 export interface ContextAccessCheck {
