@@ -15,6 +15,23 @@ model MessageMention {
   @@map("message_mention")
 }
 
+model DirectMessageMention {
+  id              String   @id @default(cuid())
+  directMessageId String
+  handleId        String
+  kind            String
+  targetId        String?
+  canonicalHandle String
+  startOffset     Int
+  endOffset       Int
+  createdAt       DateTime @default(now())
+
+  @@unique([directMessageId, startOffset, endOffset])
+  @@index([directMessageId, startOffset])
+  @@index([handleId])
+  @@map("direct_message_mention")
+}
+
 model ChatMessageSubmission {
   id              String   @id @default(cuid())
   userId          String
