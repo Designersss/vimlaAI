@@ -104,7 +104,7 @@ export {
   createTaskSchema,
   ianaTimeZoneSchema,
   isIanaTimeZone,
-  listListListsQuerySchema,
+  listListsQuerySchema,
   listNotesQuerySchema,
   listRemindersQuerySchema,
   listTasksQuerySchema,
