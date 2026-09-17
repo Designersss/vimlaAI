@@ -17,14 +17,19 @@ export {
   type HandleAvailabilityResponse,
 } from "./handles.js";
 export {
+  aiModelHandleSchema,
   mentionCandidateKindSchema,
   mentionCandidateSchema,
   mentionSuggestionsQuerySchema,
   mentionSuggestionsResponseSchema,
+  messageMentionInputSchema,
+  messageMentionViewSchema,
   type MentionCandidate,
   type MentionCandidateKind,
   type MentionSuggestionsQuery,
   type MentionSuggestionsResponse,
+  type MessageMentionInput,
+  type MessageMentionView,
 } from "./mentions.js";
 export {
   currentUserSchema,
@@ -75,6 +80,7 @@ export {
 } from "./health.js";
 export {
   aiModelsResponseSchema,
+  chatMessageRouteSchema,
   chatMessageSchema,
   conversationCreatedSchema,
   conversationDetailSchema,
@@ -86,6 +92,7 @@ export {
   sendMessageSchema,
   type AiModelsResponse,
   type ChatMessage,
+  type ChatMessageRoute,
   type ConversationCreated,
   type ConversationDetail,
   type ConversationSummary,
