@@ -330,8 +330,13 @@ describe("orchestration runtime", () => {
     dispatchQueue.failAdds = false;
     await runtime.reconcile();
     expect(dispatchQueue.count(ORCHESTRATION_DISPATCH_JOB_NAME)).toBeGreaterThanOrEqual(1);
-    const dispatchJob = dispatchQueue.take(ORCHESTRATION_DISPATCH_JOB_NAME);
-    await runtime.dispatchPlan(dispatchJob.data.planId ?? "");
+    const dispatchJobEntry = [...dispatchQueue.jobs.entries()].find(
+      ([, job]) => job.name === ORCHESTRATION_DISPATCH_JOB_NAME && job.data.planId === seeded.planId,
+    );
+    expect(dispatchJobEntry).toBeDefined();
+    if (!dispatchJobEntry) throw new Error("Missing recovered dispatch job for seeded plan");
+    dispatchQueue.jobs.delete(dispatchJobEntry[0]);
+    await runtime.dispatchPlan(dispatchJobEntry[1].data.planId ?? "");
     expect(executionQueue.count(INVOCATION_EXECUTE_JOB_NAME)).toBe(1);
   });
 

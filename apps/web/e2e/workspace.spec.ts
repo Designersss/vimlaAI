@@ -28,9 +28,15 @@ test.describe("personal workspace", () => {
     await page.getByRole("button", { name: /удалить|delete/i }).click();
     await expect(page.getByText("Buy milk")).toHaveCount(0);
 
-    const laterToday = new Date();
+    const now = new Date();
+    const laterToday = new Date(now);
     laterToday.setHours(laterToday.getHours() + 2);
-    if (laterToday.getDate() !== new Date().getDate()) {
+    if (
+      laterToday.getFullYear() !== now.getFullYear() ||
+      laterToday.getMonth() !== now.getMonth() ||
+      laterToday.getDate() !== now.getDate()
+    ) {
+      laterToday.setTime(now.getTime());
       laterToday.setHours(23, 59, 0, 0);
     }
     const nowLocal = toDatetimeLocal(laterToday);
