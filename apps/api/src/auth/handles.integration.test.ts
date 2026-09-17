@@ -90,7 +90,12 @@ describe("global handle identity", () => {
       cookies,
     });
     expect(models.statusCode).toBe(403);
-    expect(models.json()).toMatchObject({ message: "Choose a public handle to continue" });
+    expect(models.json()).toMatchObject({
+      error: {
+        code: "handle_required",
+        message: "Choose a public handle to continue",
+      },
+    });
   });
 
   it("allows exactly one concurrent claimant for the same global handle", async () => {
