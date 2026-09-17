@@ -42,12 +42,15 @@ export class AuthGuard implements CanActivate {
       return true;
     }
 
-    // Keep identity verification as the first product-access gate. Routes that
-    // require a verified email have their dedicated guard, which owns the
-    // email_not_verified error contract. Handle onboarding applies only after
-    // the account reaches that verified identity state.
+    // Identity verification is always the first product-access gate. Keeping
+    // this check in AuthGuard makes the ordering consistent for every ordinary
+    // authenticated product API, including routes that do not also attach the
+    // dedicated VerifiedEmailGuard.
     if (!session.user.emailVerified) {
-      return true;
+      throw new ForbiddenException({
+        code: "email_not_verified",
+        message: "Email is not verified",
+      });
     }
 
     await this.handles.activateVerified(session.user.id);
