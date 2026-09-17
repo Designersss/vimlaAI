@@ -9,6 +9,7 @@ import {
   generateSignedPreKey,
   initRatchetInitiator,
   initRatchetResponder,
+  serializeDirectRoutingMentions,
   serializeRatchet,
   utf8,
   x3dhInitiate,
@@ -17,7 +18,13 @@ import {
   type PublicPreKeyBundle,
   type WireEnvelope,
 } from "@vimla/e2ee";
-import type { CryptoDeviceView, DirectEnvelopeView, DirectMessageView, WireEnvelopeDto } from "@vimla/contracts";
+import type {
+  CryptoDeviceView,
+  DirectEnvelopeView,
+  DirectMessageView,
+  MessageMentionInput,
+  WireEnvelopeDto,
+} from "@vimla/contracts";
 import { fetchPrekeyBundles, registerCryptoDevice } from "./api";
 import {
   encodeIdentity,
@@ -79,10 +86,14 @@ export async function encryptForDevices(input: {
   kind: DirectMessageKind;
   plaintext: string;
   devices: CryptoDeviceView[];
+  mentions?: MessageMentionInput[];
 }): Promise<WireEnvelopeDto[]> {
   const material = await ensureLocalDevice();
   const identity = identityFromMaterial(material);
   const envelopes: WireEnvelopeDto[] = [];
+  const routingContext = input.mentions && input.mentions.length > 0
+    ? serializeDirectRoutingMentions(input.mentions)
+    : undefined;
   for (const device of input.devices.filter((item) => !item.revoked)) {
     const existing = await loadRatchet(input.conversationId, device.id);
     let x3dhInit: WireEnvelope["x3dhInit"] = null;
@@ -107,6 +118,7 @@ export async function encryptForDevices(input: {
         senderDeviceId: material.deviceId,
         recipientDeviceId: device.id,
         kind: input.kind,
+        routingContext,
       },
       x3dhInit,
     });
@@ -166,6 +178,9 @@ export async function decryptMessage(input: {
     return null;
   }
   try {
+    const routingContext = input.message.mentions.length > 0
+      ? serializeDirectRoutingMentions(input.message.mentions)
+      : undefined;
     const opened = decryptEnvelope({
       senderIdentityEd25519Public: b64ToBytes(input.senderIdentityEd25519Public),
       state,
@@ -176,6 +191,7 @@ export async function decryptMessage(input: {
         senderDeviceId: input.message.senderDeviceId,
         recipientDeviceId: envelope.recipientDeviceId,
         kind: input.message.kind,
+        routingContext,
       },
     });
     const text = new TextDecoder().decode(opened);
