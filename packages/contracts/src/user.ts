@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { handleSchema, userHandleStatusSchema } from "./handles.js";
 
 export const vimlaLocaleSchema = z.enum(["ru", "en"]);
 export type VimlaLocale = z.infer<typeof vimlaLocaleSchema>;
@@ -9,6 +10,9 @@ export const currentUserSchema = z.object({
   name: z.string(),
   image: z.string().nullable(),
   emailVerified: z.boolean(),
+  handle: handleSchema.nullable(),
+  handleStatus: userHandleStatusSchema.nullable(),
+  handleRequired: z.boolean(),
   locale: vimlaLocaleSchema,
   timezone: z.string().nullable(),
 });

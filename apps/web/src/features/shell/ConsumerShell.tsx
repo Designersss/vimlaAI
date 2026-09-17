@@ -51,6 +51,10 @@ export function ConsumerShell({ children }: { children: ReactNode }): ReactEleme
           router.replace("/verify-email");
           return;
         }
+        if (currentUser.handleRequired || currentUser.handleStatus !== "ACTIVE") {
+          router.replace("/claim-handle");
+          return;
+        }
         await syncAuthenticatedLocale(currentUser.locale);
         if (cancelled) return;
         const cookieLocale = readLocaleCookie();

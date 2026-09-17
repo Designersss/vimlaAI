@@ -1,18 +1,26 @@
 import {
+  ForbiddenException,
   Inject,
   Injectable,
   UnauthorizedException,
   type CanActivate,
   type ExecutionContext,
 } from "@nestjs/common";
+import { Reflector } from "@nestjs/core";
 import type { FastifyRequest } from "fastify";
 import { fromNodeHeaders } from "better-auth/node";
 import { toAuthenticatedUser, type VimlaAuth } from "@vimla/auth";
+import { ALLOW_HANDLE_ONBOARDING } from "./allow-handle-onboarding.decorator.js";
+import { HandleService } from "./handle.service.js";
 import { VIMLA_AUTH } from "./auth.tokens.js";
 
 @Injectable()
 export class AuthGuard implements CanActivate {
-  constructor(@Inject(VIMLA_AUTH) private readonly auth: VimlaAuth) {}
+  constructor(
+    @Inject(VIMLA_AUTH) private readonly auth: VimlaAuth,
+    @Inject(Reflector) private readonly reflector: Reflector,
+    @Inject(HandleService) private readonly handles: HandleService,
+  ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<FastifyRequest>();
@@ -25,6 +33,35 @@ export class AuthGuard implements CanActivate {
     }
 
     request.vimlaUser = toAuthenticatedUser(session.user);
+
+    const allowOnboarding = this.reflector.getAllAndOverride<boolean>(ALLOW_HANDLE_ONBOARDING, [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (allowOnboarding) {
+      return true;
+    }
+
+    // Identity verification is always the first product-access gate. Keeping
+    // this check in AuthGuard makes the ordering consistent for every ordinary
+    // authenticated product API, including routes that do not also attach the
+    // dedicated VerifiedEmailGuard.
+    if (!session.user.emailVerified) {
+      throw new ForbiddenException({
+        code: "email_not_verified",
+        message: "Email is not verified",
+      });
+    }
+
+    await this.handles.activateVerified(session.user.id);
+    const handle = await this.handles.readForUser(session.user.id);
+    if (!handle || handle.status !== "ACTIVE") {
+      throw new ForbiddenException({
+        code: "handle_required",
+        message: "Choose a public handle to continue",
+      });
+    }
+
     return true;
   }
 }

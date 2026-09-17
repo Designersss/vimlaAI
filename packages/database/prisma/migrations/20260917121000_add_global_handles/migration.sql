@@ -1,0 +1,139 @@
+CREATE TABLE "handle" (
+  "id" TEXT NOT NULL,
+  "handle" TEXT NOT NULL,
+  "normalized" TEXT NOT NULL,
+  "kind" TEXT NOT NULL,
+  "status" TEXT NOT NULL DEFAULT 'ACTIVE',
+  "userId" TEXT,
+  "aiModelId" TEXT,
+  "systemKey" TEXT,
+  "reservationExpiresAt" TIMESTAMP(3),
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "handle_pkey" PRIMARY KEY ("id")
+);
+
+CREATE UNIQUE INDEX "handle_normalized_key" ON "handle"("normalized");
+CREATE UNIQUE INDEX "handle_userId_key" ON "handle"("userId");
+CREATE UNIQUE INDEX "handle_aiModelId_key" ON "handle"("aiModelId");
+CREATE UNIQUE INDEX "handle_systemKey_key" ON "handle"("systemKey");
+CREATE INDEX "handle_kind_status_idx" ON "handle"("kind", "status");
+CREATE INDEX "handle_status_reservationExpiresAt_idx" ON "handle"("status", "reservationExpiresAt");
+
+ALTER TABLE "handle"
+  ADD CONSTRAINT "handle_canonical_lowercase_check"
+  CHECK (
+    "handle" = lower("handle")
+    AND "normalized" = "handle"
+    AND (
+      (
+        "kind" = 'AI_MODEL'
+        AND char_length("handle") BETWEEN 3 AND 128
+        AND "handle" ~ '^[a-z0-9._-]+$'
+        AND "handle" ~ '^[a-z0-9]'
+        AND "handle" ~ '[a-z0-9]$'
+        AND "handle" !~ '[._-]{2}'
+      )
+      OR
+      (
+        "kind" <> 'AI_MODEL'
+        AND char_length("handle") BETWEEN 3 AND 32
+        AND "handle" ~ '^[a-z0-9._]+$'
+        AND "handle" ~ '^[a-z0-9]'
+        AND "handle" ~ '[a-z0-9]$'
+        AND "handle" !~ '[._]{2}'
+      )
+    )
+  );
+
+ALTER TABLE "handle"
+  ADD CONSTRAINT "handle_status_check"
+  CHECK ("status" IN ('ACTIVE', 'PENDING', 'RETIRED'));
+
+ALTER TABLE "handle"
+  ADD CONSTRAINT "handle_target_shape_check"
+  CHECK (
+    ("kind" = 'USER'
+      AND "userId" IS NOT NULL
+      AND "aiModelId" IS NULL
+      AND "systemKey" IS NULL
+      AND (
+        ("status" = 'PENDING' AND "reservationExpiresAt" IS NOT NULL)
+        OR ("status" IN ('ACTIVE', 'RETIRED') AND "reservationExpiresAt" IS NULL)
+      ))
+    OR
+    ("kind" = 'SYSTEM_AGENT'
+      AND "status" IN ('ACTIVE', 'RETIRED')
+      AND "systemKey" IS NOT NULL
+      AND "userId" IS NULL
+      AND "aiModelId" IS NULL
+      AND "reservationExpiresAt" IS NULL)
+    OR
+    ("kind" = 'AI_MODEL'
+      AND "status" IN ('ACTIVE', 'RETIRED')
+      AND "aiModelId" IS NOT NULL
+      AND "userId" IS NULL
+      AND "systemKey" IS NULL
+      AND "reservationExpiresAt" IS NULL)
+    OR
+    ("kind" = 'RESERVED'
+      AND "status" = 'ACTIVE'
+      AND "userId" IS NULL
+      AND "aiModelId" IS NULL
+      AND "systemKey" IS NULL
+      AND "reservationExpiresAt" IS NULL)
+  );
+
+INSERT INTO "handle" ("id", "handle", "normalized", "kind", "status", "systemKey") VALUES
+  ('system:vimla', 'vimla', 'vimla', 'SYSTEM_AGENT', 'ACTIVE', 'VIMLA'),
+  ('system:auto', 'auto', 'auto', 'SYSTEM_AGENT', 'ACTIVE', 'AI_AUTO');
+
+INSERT INTO "handle" ("id", "handle", "normalized", "kind", "status") VALUES
+  ('reserved:chatgpt', 'chatgpt', 'chatgpt', 'RESERVED', 'ACTIVE'),
+  ('reserved:claude', 'claude', 'claude', 'RESERVED', 'ACTIVE'),
+  ('reserved:gemini', 'gemini', 'gemini', 'RESERVED', 'ACTIVE'),
+  ('reserved:openai', 'openai', 'openai', 'RESERVED', 'ACTIVE'),
+  ('reserved:anthropic', 'anthropic', 'anthropic', 'RESERVED', 'ACTIVE'),
+  ('reserved:google', 'google', 'google', 'RESERVED', 'ACTIVE'),
+  ('reserved:admin', 'admin', 'admin', 'RESERVED', 'ACTIVE'),
+  ('reserved:administrator', 'administrator', 'administrator', 'RESERVED', 'ACTIVE'),
+  ('reserved:system', 'system', 'system', 'RESERVED', 'ACTIVE'),
+  ('reserved:support', 'support', 'support', 'RESERVED', 'ACTIVE'),
+  ('reserved:security', 'security', 'security', 'RESERVED', 'ACTIVE'),
+  ('reserved:moderator', 'moderator', 'moderator', 'RESERVED', 'ACTIVE');
+
+INSERT INTO "handle" ("id", "handle", "normalized", "kind", "status", "aiModelId")
+SELECT 'model:' || "id", lower("slug"), lower("slug"), 'AI_MODEL', CASE WHEN "active" THEN 'ACTIVE' ELSE 'RETIRED' END, "id"
+FROM "ai_model"
+WHERE lower("slug") NOT IN (SELECT "normalized" FROM "handle")
+ON CONFLICT ("normalized") DO NOTHING;
+
+CREATE OR REPLACE FUNCTION sync_ai_model_handle() RETURNS trigger AS $$
+BEGIN
+  IF TG_OP = 'UPDATE' AND NEW."slug" <> OLD."slug" THEN
+    RAISE EXCEPTION 'ai_model.slug is immutable once published';
+  END IF;
+
+  INSERT INTO "handle" (
+    "id", "handle", "normalized", "kind", "status", "aiModelId", "createdAt", "updatedAt"
+  ) VALUES (
+    'model:' || NEW."id",
+    lower(NEW."slug"),
+    lower(NEW."slug"),
+    'AI_MODEL',
+    CASE WHEN NEW."active" THEN 'ACTIVE' ELSE 'RETIRED' END,
+    NEW."id",
+    CURRENT_TIMESTAMP,
+    CURRENT_TIMESTAMP
+  )
+  ON CONFLICT ("aiModelId") DO UPDATE SET
+    "status" = EXCLUDED."status",
+    "updatedAt" = CURRENT_TIMESTAMP;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER "ai_model_handle_sync"
+AFTER INSERT OR UPDATE OF "active", "slug" ON "ai_model"
+FOR EACH ROW EXECUTE FUNCTION sync_ai_model_handle();
