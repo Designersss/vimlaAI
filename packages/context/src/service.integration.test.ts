@@ -132,7 +132,7 @@ describe("ContextSnapshotService", () => {
         ownerUserId: projectOwnerUserId,
         name: "Shared project",
         members: {
-          create: { userId: actorUserId, role: "EDITOR" },
+          create: { userId: actorUserId, role: "MEMBER" },
         },
       },
     });
