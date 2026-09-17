@@ -8,7 +8,9 @@ import {
   Patch,
   Post,
   Query,
+  Sse,
   UseGuards,
+  type MessageEvent,
 } from "@nestjs/common";
 import type { AuthenticatedUser } from "@vimla/auth";
 import {
@@ -34,12 +36,14 @@ import {
   type DirectMessagesResponse,
   type PrekeyBundlesResponse,
 } from "@vimla/contracts";
+import type { Observable } from "rxjs";
 import { AuthGuard } from "../auth/auth.guard.js";
 import { AuthUser } from "../auth/current-user.decorator.js";
 import { OriginGuard } from "../auth/origin.guard.js";
 import { SensitiveArea } from "../auth/sensitive-area.js";
 import { SensitiveAreaGuard } from "../auth/sensitive-area.guard.js";
 import { DirectMentionRoutingService } from "./direct-mention-routing.service.js";
+import { DirectChatRealtimeService } from "./direct-chat-realtime.service.js";
 import { DirectChatsFacade } from "./direct-chats.facade.js";
 import { DirectChatsRateLimitGuard } from "./direct-chats-rate-limit.guard.js";
 import { parseRequest } from "./http.js";
@@ -113,6 +117,7 @@ export class DirectChatsController {
   constructor(
     @Inject(DirectChatsFacade) private readonly directChats: DirectChatsFacade,
     @Inject(DirectMentionRoutingService) private readonly mentionRouting: DirectMentionRoutingService,
+    @Inject(DirectChatRealtimeService) private readonly realtime: DirectChatRealtimeService,
   ) {}
 
   @Post()
@@ -134,6 +139,12 @@ export class DirectChatsController {
       cursor: parsed.cursor,
     });
     return directConversationsResponseSchema.parse(page);
+  }
+
+  @Sse("events")
+  events(@AuthUser() user: AuthenticatedUser): Observable<MessageEvent> {
+    this.directChats.assertEnabled();
+    return this.realtime.stream(user.id);
   }
 
   @Get(":id")
@@ -199,6 +210,18 @@ export class DirectChatsController {
       id,
       input,
       resolvedMentions,
+    );
+    const participants = await this.directChats.chats.participants(user.id, id);
+    await this.realtime.publish(
+      participants.map((participant) => participant.userId),
+      {
+        type: "direct_message",
+        conversationId: created.conversationId,
+        messageId: created.id,
+        senderUserId: created.senderUserId,
+        kind: created.kind,
+        createdAt: created.createdAt,
+      },
     );
     this.directChats.logMutation("message.send", user.id, id);
     return directMessageViewSchema.parse(created);
