@@ -32,3 +32,33 @@ ALTER TABLE "message_mention"
 ALTER TABLE "message_mention"
   ADD CONSTRAINT "message_mention_handleId_fkey"
   FOREIGN KEY ("handleId") REFERENCES "handle"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+CREATE TABLE "chat_message_submission" (
+  "id" TEXT NOT NULL,
+  "userId" TEXT NOT NULL,
+  "conversationId" TEXT NOT NULL,
+  "clientRequestId" TEXT NOT NULL,
+  "messageId" TEXT NOT NULL,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+  CONSTRAINT "chat_message_submission_pkey" PRIMARY KEY ("id")
+);
+
+CREATE UNIQUE INDEX "chat_message_submission_userId_clientRequestId_key"
+  ON "chat_message_submission"("userId", "clientRequestId");
+CREATE UNIQUE INDEX "chat_message_submission_messageId_key"
+  ON "chat_message_submission"("messageId");
+CREATE INDEX "chat_message_submission_conversationId_createdAt_idx"
+  ON "chat_message_submission"("conversationId", "createdAt");
+
+ALTER TABLE "chat_message_submission"
+  ADD CONSTRAINT "chat_message_submission_userId_fkey"
+  FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+ALTER TABLE "chat_message_submission"
+  ADD CONSTRAINT "chat_message_submission_conversationId_fkey"
+  FOREIGN KEY ("conversationId") REFERENCES "conversation"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+ALTER TABLE "chat_message_submission"
+  ADD CONSTRAINT "chat_message_submission_messageId_fkey"
+  FOREIGN KEY ("messageId") REFERENCES "message"("id") ON DELETE CASCADE ON UPDATE CASCADE;
