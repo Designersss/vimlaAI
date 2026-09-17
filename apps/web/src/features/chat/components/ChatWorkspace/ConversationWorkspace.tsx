@@ -328,7 +328,7 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
           )
         )}
       </div>
-      <div onKeyDown={handleComposerKeyDown}>
+      <div style={{ position: "relative" }} onKeyDown={handleComposerKeyDown}>
         {store.error ? <Alert variant="error">{tx(t, apiErrorMessageKey(store.error))}</Alert> : null}
         <MentionPicker
           open={activeMention !== null}
