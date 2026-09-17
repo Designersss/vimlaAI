@@ -1,12 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { ConflictException, Injectable } from "@nestjs/common";
-import { handleInputSchema, type ClaimedHandleResponse, type HandleAvailabilityResponse } from "@vimla/contracts";
+import { handleInputSchema, type HandleAvailabilityResponse } from "@vimla/contracts";
 import { Prisma, type PrismaClient } from "@vimla/database";
 import { PrismaService } from "../persistence/prisma.service.js";
 
 const PENDING_HANDLE_TTL_MS = 24 * 60 * 60 * 1000;
 
 type HandleClient = PrismaClient | Prisma.TransactionClient;
+type ClaimedHandle = { handle: string; status: "PENDING" | "ACTIVE" };
 
 @Injectable()
 export class HandleService {
@@ -22,7 +23,7 @@ export class HandleService {
     return { handle, available: existing === null };
   }
 
-  async claim(userId: string, input: string): Promise<ClaimedHandleResponse> {
+  async claim(userId: string, input: string): Promise<ClaimedHandle> {
     const handle = handleInputSchema.parse(input);
     try {
       return await this.prisma.client.$transaction(async (tx) => {
@@ -87,7 +88,7 @@ export class HandleService {
     }
   }
 
-  async readForUser(userId: string): Promise<{ handle: string; status: "PENDING" | "ACTIVE" } | null> {
+  async readForUser(userId: string): Promise<ClaimedHandle | null> {
     const row = await this.prisma.client.handle.findUnique({
       where: { userId },
       select: { handle: true, status: true },
