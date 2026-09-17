@@ -50,7 +50,7 @@ type ActiveMentionQuery = {
 };
 
 function findActiveMention(value: string): ActiveMentionQuery | null {
-  const match = /(?:^|\s)@([a-zA-Z0-9._]*)$/.exec(value);
+  const match = /(?:^|\s)@([a-zA-Z0-9._-]*)$/.exec(value);
   if (!match) return null;
   const query = match[1] ?? "";
   return {
