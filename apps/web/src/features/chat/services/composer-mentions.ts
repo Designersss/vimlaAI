@@ -1,7 +1,13 @@
-import type { MentionCandidateKind, MessageMentionInput } from "@vimla/contracts";
+import type { MentionCandidate, MentionCandidateKind, MessageMentionInput } from "@vimla/contracts";
 
 export type ComposerMention = MessageMentionInput & {
   localId: string;
+};
+
+type MentionToken = {
+  canonicalHandle: string;
+  startOffset: number;
+  endOffset: number;
 };
 
 export function reconcileComposerMentions(
@@ -50,6 +56,29 @@ export function createComposerMention(input: {
   };
 }
 
+export function resolveTypedComposerMentions(
+  text: string,
+  candidates: MentionCandidate[],
+): ComposerMention[] {
+  const candidateByHandle = new Map(
+    candidates.map((candidate) => [candidate.handle.toLowerCase(), candidate] as const),
+  );
+
+  return findMentionTokens(text).flatMap((token, index) => {
+    const candidate = candidateByHandle.get(token.canonicalHandle);
+    if (!candidate) return [];
+    return [
+      createComposerMention({
+        localId: `resolved-${index}-${token.startOffset}`,
+        handleId: candidate.id,
+        kind: candidate.kind,
+        canonicalHandle: candidate.handle,
+        startOffset: token.startOffset,
+      }),
+    ];
+  });
+}
+
 export function toMessageMentionInputs(mentions: ComposerMention[]): MessageMentionInput[] {
   return mentions.map((mention) => ({
     handleId: mention.handleId,
@@ -58,6 +87,35 @@ export function toMessageMentionInputs(mentions: ComposerMention[]): MessageMent
     startOffset: mention.startOffset,
     endOffset: mention.endOffset,
   }));
+}
+
+function findMentionTokens(text: string): MentionToken[] {
+  const tokens: MentionToken[] = [];
+  const matcher = /@([A-Za-z0-9][A-Za-z0-9._-]*)/g;
+  const handleCharacter = /[A-Za-z0-9._-]/;
+  let match: RegExpExecArray | null;
+
+  while ((match = matcher.exec(text)) !== null) {
+    const startOffset = match.index;
+    const before = startOffset > 0 ? text[startOffset - 1] ?? "" : "";
+    if (handleCharacter.test(before)) continue;
+
+    let rawHandle = match[1] ?? "";
+    while (/[._-]$/.test(rawHandle)) rawHandle = rawHandle.slice(0, -1);
+    if (rawHandle.length === 0) continue;
+
+    const endOffset = startOffset + rawHandle.length + 1;
+    const after = text[endOffset] ?? "";
+    if (handleCharacter.test(after)) continue;
+
+    tokens.push({
+      canonicalHandle: rawHandle.toLowerCase(),
+      startOffset,
+      endOffset,
+    });
+  }
+
+  return tokens;
 }
 
 function findChange(previousText: string, nextText: string): {
