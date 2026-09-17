@@ -25,11 +25,25 @@ ALTER TABLE "handle"
   CHECK (
     "handle" = lower("handle")
     AND "normalized" = "handle"
-    AND char_length("handle") BETWEEN 3 AND 32
-    AND "handle" ~ '^[a-z0-9._]+$'
-    AND "handle" ~ '^[a-z0-9]'
-    AND "handle" ~ '[a-z0-9]$'
-    AND "handle" !~ '[._]{2}'
+    AND (
+      (
+        "kind" = 'AI_MODEL'
+        AND char_length("handle") BETWEEN 3 AND 128
+        AND "handle" ~ '^[a-z0-9._-]+$'
+        AND "handle" ~ '^[a-z0-9]'
+        AND "handle" ~ '[a-z0-9]$'
+        AND "handle" !~ '[._-]{2}'
+      )
+      OR
+      (
+        "kind" <> 'AI_MODEL'
+        AND char_length("handle") BETWEEN 3 AND 32
+        AND "handle" ~ '^[a-z0-9._]+$'
+        AND "handle" ~ '^[a-z0-9]'
+        AND "handle" ~ '[a-z0-9]$'
+        AND "handle" !~ '[._]{2}'
+      )
+    )
   );
 
 ALTER TABLE "handle"
