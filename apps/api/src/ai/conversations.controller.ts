@@ -119,6 +119,13 @@ export class ConversationsController {
 
     await this.chat.getConversation(user.id, conversationId);
 
+    const resolvedMentions = await this.routing.resolve({
+      userId: user.id,
+      content: parsed.data.content,
+      mentions: parsed.data.mentions,
+    });
+    const route = this.routing.routeFor(resolvedMentions);
+
     reply.hijack();
     // hijack() skips Nest CORS; the browser reads this cross-origin SSE body.
     reply.raw.writeHead(200, sseResponseHeaders(this.config.webOrigin));
@@ -133,7 +140,7 @@ export class ConversationsController {
     };
 
     try {
-      if (parsed.data.mentions.length === 0) {
+      if (route === "CHAT") {
         await this.chat.assertTextEnabled();
         await this.chat.streamMessage({
           userId: user.id,
@@ -141,6 +148,11 @@ export class ConversationsController {
           body: parsed.data,
           correlationId: String(request.id),
           sink,
+        });
+        await this.routing.attachToAiRequest({
+          userId: user.id,
+          clientRequestId: parsed.data.clientRequestId,
+          resolvedMentions,
         });
         return;
       }
@@ -151,6 +163,7 @@ export class ConversationsController {
         clientRequestId: parsed.data.clientRequestId,
         content: parsed.data.content,
         mentions: parsed.data.mentions,
+        resolvedMentions,
       });
       if (!response.writableEnded) {
         response.write(
