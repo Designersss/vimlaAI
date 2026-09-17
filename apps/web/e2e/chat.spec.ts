@@ -92,7 +92,9 @@ test.describe("AI verification gate", () => {
     await composer.fill("@vimla structured action");
     await send.click();
 
-    await expect(page.getByText("@vimla structured action")).toBeVisible({ timeout: 20_000 });
+    await expect(
+      page.locator("p").filter({ hasText: /^@vimla structured action$/ }),
+    ).toBeVisible({ timeout: 20_000 });
     await expect(page.getByText("Hello from Vimla")).toHaveCount(1);
     await expect(page.getByRole("button", { name: /◆ @vimla/i })).toHaveCount(0);
   });
