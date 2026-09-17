@@ -8,7 +8,7 @@ import type {
 import { Prisma } from "@vimla/database";
 import { PrismaService } from "../persistence/prisma.service.js";
 
-type ResolvedMention = MessageMentionView;
+export type ResolvedChatMention = MessageMentionView;
 
 type PersistedRoutingResult = {
   messageId: string;
@@ -20,12 +20,25 @@ type PersistedRoutingResult = {
 export class ChatMentionRoutingService {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
+  async resolve(input: {
+    userId: string;
+    content: string;
+    mentions: MessageMentionInput[];
+  }): Promise<ResolvedChatMention[]> {
+    return this.resolveMentions(input);
+  }
+
+  routeFor(mentions: Array<Pick<MessageMentionView, "kind">>): ChatMessageRoute {
+    return mentions.some((mention) => mention.kind !== "USER") ? "ORCHESTRATION" : "CHAT";
+  }
+
   async persist(input: {
     userId: string;
     conversationId: string;
     clientRequestId: string;
     content: string;
     mentions: MessageMentionInput[];
+    resolvedMentions?: ResolvedChatMention[];
   }): Promise<PersistedRoutingResult> {
     const conversation = await this.prisma.client.conversation.findFirst({
       where: { id: input.conversationId, userId: input.userId, kind: "CHAT" },
@@ -35,12 +48,12 @@ export class ChatMentionRoutingService {
       throw new NotFoundException("Conversation was not found");
     }
 
-    const resolved = await this.resolveMentions({
+    const resolved = input.resolvedMentions ?? await this.resolveMentions({
       userId: input.userId,
       content: input.content,
       mentions: input.mentions,
     });
-    const route = routeFor(resolved);
+    const route = this.routeFor(resolved);
     const messageId = randomUUID();
 
     try {
@@ -113,7 +126,7 @@ export class ChatMentionRoutingService {
     const mentions = await this.readForMessage(replay.messageId);
     return {
       messageId: replay.messageId,
-      route: routeFor(mentions),
+      route: this.routeFor(mentions),
       mentions,
     };
   }
@@ -146,7 +159,7 @@ export class ChatMentionRoutingService {
     userId: string;
     content: string;
     mentions: MessageMentionInput[];
-  }): Promise<ResolvedMention[]> {
+  }): Promise<ResolvedChatMention[]> {
     const ordered = [...input.mentions].sort((left, right) =>
       left.startOffset - right.startOffset || left.endOffset - right.endOffset,
     );
@@ -264,10 +277,6 @@ function matchesToken(content: string, mention: MessageMentionInput): boolean {
   const after = content[mention.endOffset] ?? "";
   const handleCharacter = /[A-Za-z0-9._-]/;
   return !handleCharacter.test(before) && !handleCharacter.test(after);
-}
-
-function routeFor(mentions: Array<Pick<MessageMentionView, "kind">>): ChatMessageRoute {
-  return mentions.some((mention) => mention.kind !== "USER") ? "ORCHESTRATION" : "CHAT";
 }
 
 function toView(row: {
