@@ -4,6 +4,7 @@ import {
   Get,
   HttpCode,
   Inject,
+  Logger,
   Param,
   Patch,
   Post,
@@ -114,6 +115,8 @@ export class DirectChatPrekeysController {
 @SensitiveArea()
 @UseGuards(AuthGuard, OriginGuard, SensitiveAreaGuard, DirectChatsRateLimitGuard)
 export class DirectChatsController {
+  private readonly logger = new Logger(DirectChatsController.name);
+
   constructor(
     @Inject(DirectChatsFacade) private readonly directChats: DirectChatsFacade,
     @Inject(DirectMentionRoutingService) private readonly mentionRouting: DirectMentionRoutingService,
@@ -211,18 +214,27 @@ export class DirectChatsController {
       input,
       resolvedMentions,
     );
-    const participants = await this.directChats.chats.participants(user.id, id);
-    await this.realtime.publish(
-      participants.map((participant) => participant.userId),
-      {
-        type: "direct_message",
+    try {
+      const participants = await this.directChats.chats.participants(user.id, id);
+      await this.realtime.publish(
+        participants.map((participant) => participant.userId),
+        {
+          type: "direct_message",
+          conversationId: created.conversationId,
+          messageId: created.id,
+          senderUserId: created.senderUserId,
+          kind: created.kind,
+          createdAt: created.createdAt,
+        },
+      );
+    } catch (error: unknown) {
+      this.logger.warn({
+        msg: "direct_chats.realtime_notify_failed_after_commit",
         conversationId: created.conversationId,
         messageId: created.id,
-        senderUserId: created.senderUserId,
-        kind: created.kind,
-        createdAt: created.createdAt,
-      },
-    );
+        error: error instanceof Error ? error.message : "unknown",
+      });
+    }
     this.directChats.logMutation("message.send", user.id, id);
     return directMessageViewSchema.parse(created);
   }
