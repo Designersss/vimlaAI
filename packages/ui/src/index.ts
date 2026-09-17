@@ -125,6 +125,11 @@ export {
   type AiInteractionMode,
   type AutoEffortLevel,
 } from "./components/chat/Chat";
+export {
+  MentionPicker,
+  type MentionPickerOption,
+  type MentionPickerSection,
+} from "./components/chat/MentionPicker";
 export { ModelModeControl, ModelPickerDialog } from "./components/chat/ModelPicker";
 export { filterCatalogModels, uniqueModelVendors, type CatalogModelOption } from "./components/chat/model-filters";
 export {
