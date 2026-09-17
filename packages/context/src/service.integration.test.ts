@@ -1,7 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createPrismaClient, type PrismaClient } from "@vimla/database";
-import { ContextAccessDeniedError, ContextSnapshotService } from "./index.js";
+import {
+  ContextAccessDeniedError,
+  ContextConflictError,
+  ContextSnapshotService,
+} from "./index.js";
 
 const testDatabaseUrl = process.env.TEST_DATABASE_URL;
 if (!testDatabaseUrl) {
@@ -103,7 +107,7 @@ describe("ContextSnapshotService", () => {
     });
   });
 
-  it("re-checks protected access at invocation time without mutating frozen provenance", async () => {
+  it("rejects conflicting explicit replay and re-checks protected access at invocation time", async () => {
     const actorUserId = await createUser(prisma, "context-member");
     const projectOwnerUserId = await createUser(prisma, "context-owner");
     const conversation = await prisma.conversation.create({
@@ -133,20 +137,27 @@ describe("ContextSnapshotService", () => {
       },
     });
 
+    const projectItem = {
+      sourceType: "PROJECT" as const,
+      sourceId: project.id,
+      sourceVersion: project.updatedAt.toISOString(),
+      classification: "PRIVATE" as const,
+      contentRef: `vimla://projects/${project.id}`,
+      metadata: { name: project.name },
+    };
     const snapshot = await service.create({
       actorUserId,
       planId,
-      items: [
-        {
-          sourceType: "PROJECT",
-          sourceId: project.id,
-          sourceVersion: project.updatedAt.toISOString(),
-          classification: "PRIVATE",
-          contentRef: `vimla://projects/${project.id}`,
-          metadata: { name: project.name },
-        },
-      ],
+      items: [projectItem],
     });
+
+    await expect(
+      service.create({
+        actorUserId,
+        planId,
+        items: [{ ...projectItem, sourceVersion: "different-version" }],
+      }),
+    ).rejects.toBeInstanceOf(ContextConflictError);
 
     await expect(service.resolveForInvocation({ actorUserId, invocationId })).resolves.toEqual(snapshot);
 
