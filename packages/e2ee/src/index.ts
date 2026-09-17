@@ -29,9 +29,11 @@ export {
   encryptEnvelope,
   decryptEnvelope,
   buildAssociatedData,
+  serializeDirectRoutingMentions,
   signaturePayload,
   DIRECT_MESSAGE_KINDS,
   type DirectMessageKind,
+  type DirectRoutingMention,
   type EnvelopeAssociatedData,
   type WireEnvelope,
 } from "./envelope.js";
