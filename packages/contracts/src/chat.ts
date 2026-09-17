@@ -20,7 +20,7 @@ export const sendMessageSchema = z
     mentions: z.array(messageMentionInputSchema).max(32).default([]),
   })
   .strict();
-export type SendMessage = z.infer<typeof sendMessageSchema>;
+export type SendMessage = z.input<typeof sendMessageSchema>;
 
 export const retailAiModelSchema = z.object({
   id: z.string().min(1),
