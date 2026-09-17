@@ -7,7 +7,7 @@ CREATE TABLE "handle" (
   "userId" TEXT,
   "aiModelId" TEXT,
   "systemKey" TEXT,
-  "reservationKey" TEXT,
+  "reservationExpiresAt" TIMESTAMP(3),
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT "handle_pkey" PRIMARY KEY ("id")
@@ -17,8 +17,8 @@ CREATE UNIQUE INDEX "handle_normalized_key" ON "handle"("normalized");
 CREATE UNIQUE INDEX "handle_userId_key" ON "handle"("userId");
 CREATE UNIQUE INDEX "handle_aiModelId_key" ON "handle"("aiModelId");
 CREATE UNIQUE INDEX "handle_systemKey_key" ON "handle"("systemKey");
-CREATE UNIQUE INDEX "handle_reservationKey_key" ON "handle"("reservationKey");
 CREATE INDEX "handle_kind_status_idx" ON "handle"("kind", "status");
+CREATE INDEX "handle_status_reservationExpiresAt_idx" ON "handle"("status", "reservationExpiresAt");
 
 ALTER TABLE "handle"
   ADD CONSTRAINT "handle_canonical_lowercase_check"
@@ -39,16 +39,35 @@ ALTER TABLE "handle"
 ALTER TABLE "handle"
   ADD CONSTRAINT "handle_target_shape_check"
   CHECK (
-    ("kind" = 'USER' AND (
-      ("status" = 'PENDING' AND "userId" IS NULL AND "reservationKey" IS NOT NULL)
-      OR ("status" IN ('ACTIVE', 'RETIRED') AND "userId" IS NOT NULL)
-    ) AND "aiModelId" IS NULL AND "systemKey" IS NULL)
+    ("kind" = 'USER'
+      AND "userId" IS NOT NULL
+      AND "aiModelId" IS NULL
+      AND "systemKey" IS NULL
+      AND (
+        ("status" = 'PENDING' AND "reservationExpiresAt" IS NOT NULL)
+        OR ("status" IN ('ACTIVE', 'RETIRED') AND "reservationExpiresAt" IS NULL)
+      ))
     OR
-    ("kind" = 'SYSTEM_AGENT' AND "status" IN ('ACTIVE', 'RETIRED') AND "systemKey" IS NOT NULL AND "userId" IS NULL AND "aiModelId" IS NULL AND "reservationKey" IS NULL)
+    ("kind" = 'SYSTEM_AGENT'
+      AND "status" IN ('ACTIVE', 'RETIRED')
+      AND "systemKey" IS NOT NULL
+      AND "userId" IS NULL
+      AND "aiModelId" IS NULL
+      AND "reservationExpiresAt" IS NULL)
     OR
-    ("kind" = 'AI_MODEL' AND "status" IN ('ACTIVE', 'RETIRED') AND "aiModelId" IS NOT NULL AND "userId" IS NULL AND "systemKey" IS NULL AND "reservationKey" IS NULL)
+    ("kind" = 'AI_MODEL'
+      AND "status" IN ('ACTIVE', 'RETIRED')
+      AND "aiModelId" IS NOT NULL
+      AND "userId" IS NULL
+      AND "systemKey" IS NULL
+      AND "reservationExpiresAt" IS NULL)
     OR
-    ("kind" = 'RESERVED' AND "status" = 'ACTIVE' AND "userId" IS NULL AND "aiModelId" IS NULL AND "systemKey" IS NULL AND "reservationKey" IS NULL)
+    ("kind" = 'RESERVED'
+      AND "status" = 'ACTIVE'
+      AND "userId" IS NULL
+      AND "aiModelId" IS NULL
+      AND "systemKey" IS NULL
+      AND "reservationExpiresAt" IS NULL)
   );
 
 INSERT INTO "handle" ("id", "handle", "normalized", "kind", "status", "systemKey") VALUES
