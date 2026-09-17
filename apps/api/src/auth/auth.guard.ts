@@ -18,8 +18,8 @@ import { VIMLA_AUTH } from "./auth.tokens.js";
 export class AuthGuard implements CanActivate {
   constructor(
     @Inject(VIMLA_AUTH) private readonly auth: VimlaAuth,
-    private readonly reflector: Reflector,
-    private readonly handles: HandleService,
+    @Inject(Reflector) private readonly reflector: Reflector,
+    @Inject(HandleService) private readonly handles: HandleService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
