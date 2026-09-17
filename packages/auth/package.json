@@ -22,6 +22,7 @@
   "dependencies": {
     "@better-auth/passkey": "^1.7.3",
     "@vimla/config": "workspace:*",
+    "@vimla/contracts": "workspace:*",
     "@vimla/database": "workspace:*",
     "@vimla/notifications": "workspace:*",
     "@vimla/shared": "workspace:*",
