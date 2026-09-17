@@ -35,6 +35,9 @@ export const handleInputSchema = z
   .transform(normalizeHandleInput)
   .pipe(handleSchema);
 
+export const userHandleStatusSchema = z.enum(["PENDING", "ACTIVE"]);
+export type UserHandleStatus = z.infer<typeof userHandleStatusSchema>;
+
 export const claimHandleSchema = z
   .object({
     handle: handleInputSchema,
@@ -47,3 +50,9 @@ export const handleAvailabilityResponseSchema = z.object({
   available: z.boolean(),
 });
 export type HandleAvailabilityResponse = z.infer<typeof handleAvailabilityResponseSchema>;
+
+export const claimedHandleResponseSchema = z.object({
+  handle: handleSchema,
+  status: userHandleStatusSchema,
+});
+export type ClaimedHandleResponse = z.infer<typeof claimedHandleResponseSchema>;
