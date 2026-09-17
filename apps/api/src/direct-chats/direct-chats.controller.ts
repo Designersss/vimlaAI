@@ -39,6 +39,7 @@ import { AuthUser } from "../auth/current-user.decorator.js";
 import { OriginGuard } from "../auth/origin.guard.js";
 import { SensitiveArea } from "../auth/sensitive-area.js";
 import { SensitiveAreaGuard } from "../auth/sensitive-area.guard.js";
+import { DirectMentionRoutingService } from "./direct-mention-routing.service.js";
 import { DirectChatsFacade } from "./direct-chats.facade.js";
 import { DirectChatsRateLimitGuard } from "./direct-chats-rate-limit.guard.js";
 import { parseRequest } from "./http.js";
@@ -109,7 +110,10 @@ export class DirectChatPrekeysController {
 @SensitiveArea()
 @UseGuards(AuthGuard, OriginGuard, SensitiveAreaGuard, DirectChatsRateLimitGuard)
 export class DirectChatsController {
-  constructor(@Inject(DirectChatsFacade) private readonly directChats: DirectChatsFacade) {}
+  constructor(
+    @Inject(DirectChatsFacade) private readonly directChats: DirectChatsFacade,
+    @Inject(DirectMentionRoutingService) private readonly mentionRouting: DirectMentionRoutingService,
+  ) {}
 
   @Post()
   @HttpCode(201)
@@ -185,7 +189,17 @@ export class DirectChatsController {
   ): Promise<DirectMessageView> {
     this.directChats.assertEnabled();
     const input = parseRequest(sendDirectMessageSchema, body, "Invalid Direct Chat message payload");
-    const created = await this.directChats.chats.send(this.directChats.actor(user), id, input);
+    const resolvedMentions = await this.mentionRouting.resolve({
+      userId: user.id,
+      conversationId: id,
+      mentions: input.mentions,
+    });
+    const created = await this.directChats.chats.send(
+      this.directChats.actor(user),
+      id,
+      input,
+      resolvedMentions,
+    );
     this.directChats.logMutation("message.send", user.id, id);
     return directMessageViewSchema.parse(created);
   }
