@@ -17,6 +17,15 @@ describe("mention suggestion contracts", () => {
     });
   });
 
+  it("accepts canonical exact-model queries with hyphens", () => {
+    expect(
+      mentionSuggestionsQuerySchema.parse({
+        q: "@GPT-5-6-Luna",
+        conversationId: "conversation-1",
+      }).q,
+    ).toBe("gpt-5-6-luna");
+  });
+
   it("rejects ambiguous multi-surface context", () => {
     const result = mentionSuggestionsQuerySchema.safeParse({
       projectId: "project-1",
@@ -26,42 +35,51 @@ describe("mention suggestion contracts", () => {
   });
 
   it("parses presentation-safe sectioned candidates", () => {
-    expect(
-      mentionSuggestionsResponseSchema.parse({
-        people: [
-          {
-            id: "handle-user-1",
-            kind: "USER",
-            handle: "denis",
-            label: "Denis",
-            description: null,
-            avatarUrl: null,
-            role: "MEMBER",
-          },
-        ],
-        vimla: [
-          {
-            id: "handle-vimla",
-            kind: "SYSTEM_AGENT",
-            handle: "vimla",
-            label: "Vimla",
-            description: null,
-            avatarUrl: null,
-            role: null,
-          },
-        ],
-        ai: [
-          {
-            id: "handle-auto",
-            kind: "AI_AUTO",
-            handle: "auto",
-            label: "Auto",
-            description: null,
-            avatarUrl: null,
-            role: null,
-          },
-        ],
-      }).ai[0]?.handle,
-    ).toBe("auto");
+    const parsed = mentionSuggestionsResponseSchema.parse({
+      people: [
+        {
+          id: "handle-user-1",
+          kind: "USER",
+          handle: "denis",
+          label: "Denis",
+          description: null,
+          avatarUrl: null,
+          role: "MEMBER",
+        },
+      ],
+      vimla: [
+        {
+          id: "handle-vimla",
+          kind: "SYSTEM_AGENT",
+          handle: "vimla",
+          label: "Vimla",
+          description: null,
+          avatarUrl: null,
+          role: null,
+        },
+      ],
+      ai: [
+        {
+          id: "handle-auto",
+          kind: "AI_AUTO",
+          handle: "auto",
+          label: "Auto",
+          description: null,
+          avatarUrl: null,
+          role: null,
+        },
+        {
+          id: "handle-model-1",
+          kind: "AI_MODEL",
+          handle: "gpt-5-6-luna",
+          label: "GPT-5.6 Luna",
+          description: "OpenAI",
+          avatarUrl: null,
+          role: null,
+        },
+      ],
+    });
+
+    expect(parsed.ai.map((candidate) => candidate.handle)).toEqual(["auto", "gpt-5-6-luna"]);
   });
 });
