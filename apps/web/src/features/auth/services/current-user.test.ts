@@ -11,6 +11,9 @@ describe("fetchCurrentUser", () => {
           name: "Ada",
           image: null,
           emailVerified: true,
+          handle: "ada",
+          handleStatus: "ACTIVE",
+          handleRequired: false,
           locale: "ru",
           timezone: null,
         }),
@@ -20,6 +23,9 @@ describe("fetchCurrentUser", () => {
 
     const user = await fetchCurrentUser(fetchImpl);
     expect(user.email).toBe("ada@example.com");
+    expect(user.handle).toBe("ada");
+    expect(user.handleStatus).toBe("ACTIVE");
+    expect(user.handleRequired).toBe(false);
     expect(fetchImpl).toHaveBeenCalledWith(
       "http://localhost:3001/v1/me",
       expect.objectContaining({ credentials: "include" }),
