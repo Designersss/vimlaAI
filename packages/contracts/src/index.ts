@@ -5,6 +5,18 @@ export {
   type ApiErrorResponse,
 } from "./errors.js";
 export {
+  HANDLE_MAX_LENGTH,
+  HANDLE_MIN_LENGTH,
+  claimHandleSchema,
+  handleAvailabilityResponseSchema,
+  handleInputSchema,
+  handleSchema,
+  normalizeHandleInput,
+  type ClaimHandle,
+  type Handle,
+  type HandleAvailabilityResponse,
+} from "./handles.js";
+export {
   currentUserSchema,
   updateLocalePreferenceSchema,
   updatePreferencesSchema,
