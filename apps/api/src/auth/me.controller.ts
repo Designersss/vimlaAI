@@ -30,7 +30,7 @@ export class MeController {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(API_CONFIG) private readonly config: ApiRuntimeConfig,
-    private readonly handles: HandleService,
+    @Inject(HandleService) private readonly handles: HandleService,
   ) {}
 
   @Get("me")
