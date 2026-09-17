@@ -70,8 +70,8 @@ test.describe("AI verification gate", () => {
     await expect(composer).toBeFocused();
   });
 
-  test("only selected structured @vimla routes into orchestration", async ({ page, request }) => {
-    const email = uniqueEmail("e2e-structured-route");
+  test("manually typed exact @vimla resolves into orchestration without picker selection", async ({ page, request }) => {
+    const email = uniqueEmail("e2e-typed-route");
     await signUp(page, { name: "Ada", email, password: "correct-horse-battery" });
     await verifyEmail(page, request, email);
     await purchasePro(page);
@@ -80,22 +80,17 @@ test.describe("AI verification gate", () => {
     const composer = page.getByPlaceholder(/сообщение для vimla|message vimla/i);
     const send = page.getByRole("button", { name: /отправить|send/i });
 
-    await composer.fill("@vimla plain text");
-    await send.click();
-    await expect(page.getByText("Hello from Vimla")).toBeVisible({ timeout: 20_000 });
-    await expect(page.getByText("Hello from Vimla")).toHaveCount(1);
-
-    await composer.fill("@vi");
-    const picker = page.getByTestId("mention-picker");
-    await expect(picker.getByRole("option", { name: /@vimla/i })).toBeVisible();
-    await picker.getByRole("option", { name: /@vimla/i }).click();
-    await composer.fill("@vimla structured action");
+    await composer.fill("@vimla typed action");
     await send.click();
 
     await expect(
-      page.locator("p").filter({ hasText: /^@vimla structured action$/ }),
+      page.locator("p").filter({ hasText: /^@vimla typed action$/ }),
     ).toBeVisible({ timeout: 20_000 });
-    await expect(page.getByText("Hello from Vimla")).toHaveCount(1);
+    await expect(page.getByText("Hello from Vimla")).toHaveCount(0);
     await expect(page.getByRole("button", { name: /◆ @vimla/i })).toHaveCount(0);
+
+    await composer.fill("@unknown plain text");
+    await send.click();
+    await expect(page.getByText("Hello from Vimla")).toBeVisible({ timeout: 20_000 });
   });
 });
