@@ -7,6 +7,11 @@ import {
   InternalServerErrorException,
   NotFoundException,
 } from "@nestjs/common";
+import {
+  ContextConflictError,
+  ContextNotFoundError,
+  ContextSnapshotService,
+} from "@vimla/context";
 import { type Prisma } from "@vimla/database";
 import { API_CONFIG, type ApiRuntimeConfig } from "../config/api-config.js";
 import { PrismaService } from "../persistence/prisma.service.js";
@@ -69,7 +74,9 @@ export class OrchestrationService {
       include: planInclude,
     });
     if (existing) {
-      return this.resolveCreateReplay(existing, planHash);
+      const replay = this.resolveCreateReplay(existing, planHash);
+      await this.ensureContextSnapshot(userId, existing.id);
+      return replay;
     }
 
     const planId = randomUUID();
@@ -133,11 +140,14 @@ export class OrchestrationService {
         include: planInclude,
       });
       if (replay) {
-        return this.resolveCreateReplay(replay, planHash);
+        const view = this.resolveCreateReplay(replay, planHash);
+        await this.ensureContextSnapshot(userId, replay.id);
+        return view;
       }
       throw new ConflictException("Execution plan could not be created");
     }
 
+    await this.ensureContextSnapshot(userId, planId);
     return this.getOne(userId, planId);
   }
 
@@ -155,6 +165,8 @@ export class OrchestrationService {
 
   async start(userId: string, id: string): Promise<ExecutionPlanView> {
     this.assertPreviewEnabled();
+    await this.ensureContextSnapshot(userId, id);
+
     return this.prisma.client.$transaction(async (tx) => {
       const current = await tx.executionPlan.findFirst({
         where: { id, userId },
@@ -300,6 +312,21 @@ export class OrchestrationService {
       }
       return toView(approved);
     });
+  }
+
+  private async ensureContextSnapshot(userId: string, planId: string): Promise<void> {
+    try {
+      const context = new ContextSnapshotService(this.prisma.client);
+      await context.createForExecutionPlan({ actorUserId: userId, planId });
+    } catch (error: unknown) {
+      if (error instanceof ContextNotFoundError) {
+        throw new NotFoundException("Execution plan not found");
+      }
+      if (error instanceof ContextConflictError) {
+        throw new ConflictException(error.message);
+      }
+      throw error;
+    }
   }
 
   private resolveCreateReplay(existing: PersistedPlan, requestedHash: string): ExecutionPlanView {
