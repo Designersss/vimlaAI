@@ -29,9 +29,50 @@
   font-weight: var(--vimla-type-medium-weight);
 }
 
+.composerFieldWrap {
+  position: relative;
+  min-width: 0;
+}
+
 .composerField {
+  position: relative;
+  z-index: 1;
   min-height: 3rem;
   resize: none;
+}
+
+.composerMirror {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  box-sizing: border-box;
+  min-height: 3rem;
+  overflow: hidden;
+  padding: var(--vimla-space-3) var(--vimla-control-pad-x);
+  border: 1px solid transparent;
+  border-radius: var(--vimla-radius-control);
+  background: var(--vimla-surface-1);
+  color: var(--vimla-text-primary);
+  font: inherit;
+  line-height: var(--vimla-type-body-line);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
+
+.composerMentionHighlight {
+  border-radius: var(--vimla-radius-xs);
+  background: var(--vimla-accent-soft);
+  color: var(--vimla-accent);
+  font-weight: var(--vimla-type-medium-weight);
+}
+
+.composerFieldWrap .composerFieldHighlighted,
+.composerFieldWrap .composerFieldHighlighted:hover:not(:disabled):not(:read-only),
+.composerFieldWrap .composerFieldHighlighted:focus-visible {
+  background: transparent;
+  color: transparent;
+  caret-color: var(--vimla-text-primary);
 }
 
 .composerActions {
@@ -161,8 +202,8 @@
   padding: var(--vimla-space-3);
   cursor: pointer;
   transition:
-    background-color var(--vimla-duration-hover) var(--vimla-ease),
-    border-color var(--vimla-duration-hover) var(--vimla-ease);
+    background-color var(--vimla-duration-button) var(--vimla-ease),
+    border-color var(--vimla-duration-button) var(--vimla-ease);
 }
 
 .pickerItem:hover {

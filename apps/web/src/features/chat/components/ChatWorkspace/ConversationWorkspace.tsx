@@ -10,13 +10,10 @@ import {
   AssistantMessage,
   ChatComposer,
   EmptyState,
-  Button,
   MentionPicker,
   ModelModeControl,
   ModelPickerDialog,
   UserMessage,
-  VimlaMark,
-  VimlaMentionChip,
   type AiInteractionMode,
   type AutoEffortLevel,
   type MentionPickerOption,
@@ -26,6 +23,13 @@ import { fetchUsage } from "../../../billing/services/usage";
 import { fetchAiModels } from "../../services/models";
 import { fetchConversation } from "../../services/conversations";
 import { fetchMentionSuggestions } from "../../services/mentions";
+import {
+  createComposerMention,
+  reconcileComposerMentions,
+  resolveTypedComposerMentions,
+  toMessageMentionInputs,
+  type ComposerMention,
+} from "../../services/composer-mentions";
 import { streamAssistantMessage } from "../../services/stream-message";
 import { useChatWorkspace } from "./ChatWorkspaceProvider";
 import { ChatConversationHeader } from "./ChatConversationHeader";
@@ -35,7 +39,6 @@ import { tx } from "../../../../shared/i18n/translate";
 import { CONSUMER_FEATURES } from "../../../../shared/config/consumer-features";
 import { OperatorRunPanel } from "../../../operator/components/OperatorRunPanel";
 import {
-  createOperatorRun,
   OperatorRequestError,
   confirmOperatorRun,
   cancelOperatorRun,
@@ -60,6 +63,18 @@ function findActiveMention(value: string): ActiveMentionQuery | null {
   };
 }
 
+function exactMentionOption(options: MentionPickerOption[], query: string): MentionPickerOption | null {
+  if (query.length === 0) return null;
+  const normalized = query.toLowerCase();
+  return options.find((option) => option.handle.toLowerCase() === normalized) ?? null;
+}
+
+function upsertComposerMention(current: ComposerMention[], mention: ComposerMention): ComposerMention[] {
+  return [...current.filter((item) => item.startOffset !== mention.startOffset), mention].sort(
+    (left, right) => left.startOffset - right.startOffset,
+  );
+}
+
 export const ConversationWorkspace = observer(function ConversationWorkspace({
   conversationId,
 }: {
@@ -75,10 +90,10 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
   const [mode, setMode] = useState<AiInteractionMode>("pro");
   const [autoLevel, setAutoLevel] = useState<AutoEffortLevel>("medium");
   const [pickerOpen, setPickerOpen] = useState(false);
-  const [mention, setMention] = useState(false);
   const [activeMention, setActiveMention] = useState<ActiveMentionQuery | null>(null);
   const [mentionSuggestions, setMentionSuggestions] = useState<MentionSuggestionsResponse | null>(null);
   const [mentionOptionIndex, setMentionOptionIndex] = useState(0);
+  const [composerMentions, setComposerMentions] = useState<ComposerMention[]>([]);
   const operatorBusy = store.operatorBusy;
   const setOperatorBusy = (value: boolean): void => store.setOperatorBusy(value);
 
@@ -123,6 +138,18 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
           if (cancelled) return;
           setMentionSuggestions(suggestions);
           setMentionOptionIndex(0);
+          const options = [...suggestions.people, ...suggestions.vimla, ...suggestions.ai];
+          const exact = exactMentionOption(options, activeMention.query);
+          if (exact) {
+            const recognized = createComposerMention({
+              localId: crypto.randomUUID(),
+              handleId: exact.id,
+              kind: exact.kind,
+              canonicalHandle: exact.handle,
+              startOffset: activeMention.start,
+            });
+            setComposerMentions((current) => upsertComposerMention(current, recognized));
+          }
         })
         .catch((error: unknown) => {
           if (cancelled) return;
@@ -160,8 +187,29 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
   }
 
   function handleDraftChange(value: string): void {
-    store.setDraft(value);
     const nextMention = findActiveMention(value);
+    setComposerMentions((current) => {
+      let reconciled = reconcileComposerMentions(store.draft, value, current);
+      const queryToResolve = nextMention ?? activeMention;
+      if (!queryToResolve) return reconciled;
+
+      const exact = exactMentionOption(mentionOptions, queryToResolve.query);
+      const token = `@${queryToResolve.query}`;
+      if (!exact || value.slice(queryToResolve.start, queryToResolve.start + token.length) !== token) {
+        return reconciled;
+      }
+
+      const recognized = createComposerMention({
+        localId: crypto.randomUUID(),
+        handleId: exact.id,
+        kind: exact.kind,
+        canonicalHandle: exact.handle,
+        startOffset: queryToResolve.start,
+      });
+      reconciled = upsertComposerMention(reconciled, recognized);
+      return reconciled;
+    });
+    store.setDraft(value);
     setMentionSuggestions(null);
     setActiveMention(nextMention);
     setMentionOptionIndex(0);
@@ -170,7 +218,15 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
   function selectMention(option: MentionPickerOption): void {
     if (!activeMention) return;
     const nextValue = `${store.draft.slice(0, activeMention.start)}@${option.handle} ${store.draft.slice(activeMention.end)}`;
+    const selected = createComposerMention({
+      localId: crypto.randomUUID(),
+      handleId: option.id,
+      kind: option.kind,
+      canonicalHandle: option.handle,
+      startOffset: activeMention.start,
+    });
     store.setDraft(nextValue);
+    setComposerMentions((current) => upsertComposerMention(current, selected));
     closeMentionPicker();
   }
 
@@ -208,49 +264,85 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
     if (store.streaming || operatorBusy) {
       return;
     }
-    const content = store.draft.trim();
-    if (content.length === 0) {
+    const content = store.draft;
+    if (content.trim().length === 0) {
       return;
     }
     closeMentionPicker();
-
-    if (CONSUMER_FEATURES.vimlaOperator && mention) {
-      store.beginUserMessage(content);
-      setMention(false);
-      setOperatorBusy(true);
-      try {
-        const run = await createOperatorRun({
-          clientRequestId: crypto.randomUUID(),
-          content,
-          conversationId,
-        });
-        store.finishOperator(run);
-        void fetchUsage().then((usage) => workspace.setUsage(usage));
-      } catch (error: unknown) {
-        if (error instanceof AuthRequiredError) {
-          router.replace("/sign-in");
-          return;
-        }
-        store.failAssistant(error instanceof OperatorRequestError ? error.code : "internal_error");
-      } finally {
-        setOperatorBusy(false);
-      }
-      return;
-    }
 
     const modelId = workspace.selectedModelId;
     if (!modelId) {
       return;
     }
 
+    let resolvedComposerMentions = composerMentions;
+    if (content.includes("@")) {
+      try {
+        const suggestions = await fetchMentionSuggestions({ q: "", conversationId });
+        resolvedComposerMentions = resolveTypedComposerMentions(content, [
+          ...suggestions.people,
+          ...suggestions.vimla,
+          ...suggestions.ai,
+        ]);
+      } catch (error: unknown) {
+        if (error instanceof AuthRequiredError) {
+          router.replace("/sign-in");
+          return;
+        }
+        store.failAssistant("internal_error");
+        return;
+      }
+    }
+
+    const mentions = toMessageMentionInputs(resolvedComposerMentions);
+    const invocationMention = resolvedComposerMentions.some((candidate) => candidate.kind !== "USER");
+    setComposerMentions([]);
+
+    if (invocationMention) {
+      const revision = store.revision;
+      store.setDraft("");
+      setOperatorBusy(true);
+      let failed = false;
+      try {
+        await streamAssistantMessage({
+          conversationId,
+          clientRequestId: crypto.randomUUID(),
+          modelId,
+          content,
+          mentions,
+          onDelta: () => undefined,
+          onRoute: () => undefined,
+          onDone: () => undefined,
+          onError: (code) => {
+            failed = true;
+            store.failAssistant(code);
+          },
+        });
+        if (!failed) {
+          const detail = await fetchConversation(conversationId);
+          store.setMessages(detail.messages, revision);
+          setTitle(detail.title);
+        }
+      } catch (error: unknown) {
+        if (error instanceof AuthRequiredError) {
+          router.replace("/sign-in");
+          return;
+        }
+        store.failAssistant("internal_error");
+      } finally {
+        setOperatorBusy(false);
+      }
+      return;
+    }
+
     store.beginUserMessage(content);
-    setMention(false);
     try {
       await streamAssistantMessage({
         conversationId,
         clientRequestId: crypto.randomUUID(),
         modelId,
         content,
+        mentions,
         onDelta: (text) => store.appendAssistantDelta(text),
         onDone: () => {
           store.finishAssistant();
@@ -346,55 +438,32 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
           placeholder={t("chat.placeholder")}
           sendLabel={t("chat.send")}
           sending={store.streaming || operatorBusy}
-          variant={mention ? "operator" : "ai"}
-          chips={
-            mention ? (
-              <VimlaMentionChip
-                label={t("chat.mentionVimla")}
-                onRemove={() => setMention(false)}
-                removeLabel={t("common.close")}
-              />
-            ) : null
-          }
-          mentionControl={
-            CONSUMER_FEATURES.vimlaOperator ? (
-              <Button
-                variant={mention ? "primary" : "ghost"}
-                size="sm"
-                aria-pressed={mention}
-                onClick={() => setMention((value) => !value)}
-              >
-                <VimlaMark size={16} aria-hidden="true" />
-                {t("chat.mentionVimla")}
-              </Button>
-            ) : undefined
-          }
+          highlights={composerMentions}
+          variant="ai"
           modelControl={
-            mention ? undefined : (
-              <ModelModeControl
-                mode={mode}
-                autoLevel={autoLevel}
-                autoEnabled={CONSUMER_FEATURES.autoRouter}
-                selectedModelLabel={selectedModel?.displayName ?? t("chat.model")}
-                autoLabel={t("chat.auto")}
-                proLabel={t("chat.pro")}
-                minimumLabel={t("chat.autoMinimum")}
-                mediumLabel={t("chat.autoMedium")}
-                maximumLabel={t("chat.autoMaximum")}
-                autoUnavailableHint={t("chat.autoUnavailable")}
-                onSelectAuto={(level) => {
-                  if (!CONSUMER_FEATURES.autoRouter) {
-                    return;
-                  }
-                  setMode("auto");
-                  setAutoLevel(level);
-                }}
-                onSelectPro={() => {
-                  setMode("pro");
-                  setPickerOpen(true);
-                }}
-              />
-            )
+            <ModelModeControl
+              mode={mode}
+              autoLevel={autoLevel}
+              autoEnabled={CONSUMER_FEATURES.autoRouter}
+              selectedModelLabel={selectedModel?.displayName ?? t("chat.model")}
+              autoLabel={t("chat.auto")}
+              proLabel={t("chat.pro")}
+              minimumLabel={t("chat.autoMinimum")}
+              mediumLabel={t("chat.autoMedium")}
+              maximumLabel={t("chat.autoMaximum")}
+              autoUnavailableHint={t("chat.autoUnavailable")}
+              onSelectAuto={(level) => {
+                if (!CONSUMER_FEATURES.autoRouter) {
+                  return;
+                }
+                setMode("auto");
+                setAutoLevel(level);
+              }}
+              onSelectPro={() => {
+                setMode("pro");
+                setPickerOpen(true);
+              }}
+            />
           }
         />
       </div>

@@ -3,7 +3,7 @@ import type { ChatMessage, DirectConversationSummary } from "@vimla/contracts";
 import { ChatWorkspaceStore } from "./chat-workspace-store";
 
 const history: ChatMessage[] = [{
-  id: "saved", role: "USER", content: "Saved message", status: "COMPLETE", createdAt: "2026-09-14T00:00:00Z",
+  id: "saved", role: "USER", content: "Saved message", status: "COMPLETE", createdAt: "2026-09-14T00:00:00Z", mentions: [],
 }];
 
 describe("persistent chat workspace", () => {

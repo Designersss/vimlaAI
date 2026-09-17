@@ -1,4 +1,4 @@
-import type { FormEvent, ReactElement, ReactNode } from "react";
+import type { FormEvent, ReactElement, ReactNode, UIEvent } from "react";
 import { ChevronRightIcon, SendIcon, VimlaMark, XIcon } from "../../icons";
 import { IconButton, Button } from "../../primitives/Button/Button";
 import { Textarea } from "../../primitives/forms/Input";
@@ -34,6 +34,11 @@ export function VimlaMentionChip({
   );
 }
 
+export interface ComposerTextHighlight {
+  startOffset: number;
+  endOffset: number;
+}
+
 export function ChatComposer({
   value,
   onChange,
@@ -46,6 +51,7 @@ export function ChatComposer({
   mentionControl,
   modelControl,
   chips,
+  highlights = [],
   variant = "ai",
 }: {
   value: string;
@@ -59,24 +65,43 @@ export function ChatComposer({
   mentionControl?: ReactNode;
   modelControl?: ReactNode;
   chips?: ReactNode;
+  highlights?: ComposerTextHighlight[];
   variant?: "ai" | "direct" | "operator";
 }): ReactElement {
+  const normalizedHighlights = normalizeComposerHighlights(value, highlights);
+  const hasHighlights = normalizedHighlights.length > 0;
+
   function handleSubmit(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
     onSubmit();
   }
 
+  function syncMirrorScroll(event: UIEvent<HTMLTextAreaElement>): void {
+    const mirror = event.currentTarget.previousElementSibling;
+    if (!(mirror instanceof HTMLElement)) return;
+    mirror.scrollTop = event.currentTarget.scrollTop;
+    mirror.scrollLeft = event.currentTarget.scrollLeft;
+  }
+
   return (
     <form className={styles.composer} onSubmit={handleSubmit} data-composer-variant={variant}>
       {chips ? <div className={styles.chipRow}>{chips}</div> : null}
-      <Textarea
-        className={styles.composerField}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        placeholder={placeholder}
-        rows={2}
-        disabled={disabled}
-      />
+      <div className={styles.composerFieldWrap}>
+        {hasHighlights ? (
+          <div className={styles.composerMirror} aria-hidden="true">
+            {renderComposerMirror(value, normalizedHighlights)}
+          </div>
+        ) : null}
+        <Textarea
+          className={cx(styles.composerField, hasHighlights ? styles.composerFieldHighlighted : undefined)}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          onScroll={syncMirrorScroll}
+          placeholder={placeholder}
+          rows={2}
+          disabled={disabled}
+        />
+      </div>
       <div className={styles.composerActions}>
         {mentionControl}
         {variant === "operator" ? null : modelControl}
@@ -95,6 +120,53 @@ export function ChatComposer({
       </div>
     </form>
   );
+}
+
+function normalizeComposerHighlights(value: string, highlights: ComposerTextHighlight[]): ComposerTextHighlight[] {
+  return [...highlights]
+    .filter(
+      (highlight) =>
+        Number.isInteger(highlight.startOffset) &&
+        Number.isInteger(highlight.endOffset) &&
+        highlight.startOffset >= 0 &&
+        highlight.endOffset > highlight.startOffset &&
+        highlight.endOffset <= value.length,
+    )
+    .sort((left, right) => left.startOffset - right.startOffset)
+    .filter((highlight, index, sorted) => {
+      if (index === 0) return true;
+      const previous = sorted[index - 1];
+      return previous ? highlight.startOffset >= previous.endOffset : true;
+    });
+}
+
+function renderComposerMirror(value: string, highlights: ComposerTextHighlight[]): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  let cursor = 0;
+
+  highlights.forEach((highlight, index) => {
+    if (cursor < highlight.startOffset) {
+      nodes.push(value.slice(cursor, highlight.startOffset));
+    }
+    nodes.push(
+      <mark
+        key={`${highlight.startOffset}-${highlight.endOffset}-${index}`}
+        className={styles.composerMentionHighlight}
+        data-testid="composer-mention-highlight"
+      >
+        {value.slice(highlight.startOffset, highlight.endOffset)}
+      </mark>,
+    );
+    cursor = highlight.endOffset;
+  });
+
+  if (cursor < value.length) {
+    nodes.push(value.slice(cursor));
+  }
+  if (value.endsWith("\n")) {
+    nodes.push("\u200b");
+  }
+  return nodes;
 }
 
 export function UserMessage({
@@ -133,7 +205,7 @@ export function AttachmentCard({
   trailing,
 }: {
   name: string;
-  meta?: string;
+  meta?: string | null;
   trailing?: ReactNode;
 }): ReactElement {
   return (

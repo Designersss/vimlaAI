@@ -13,6 +13,7 @@ import { PersistenceModule } from "../persistence/persistence.module.js";
 import { AI_GATEWAY, AI_PROVIDER } from "./ai.tokens.js";
 import { AiConcurrencyService } from "./concurrency.service.js";
 import { AiRateLimitGuard } from "./ai-rate-limit.guard.js";
+import { ChatMentionRoutingService } from "./chat-mention-routing.service.js";
 import { ConversationsController } from "./conversations.controller.js";
 import { ModelsController } from "./models.controller.js";
 import { TextChatService } from "./text-chat.service.js";
@@ -23,6 +24,7 @@ import { TextChatService } from "./text-chat.service.js";
   providers: [
     AiRateLimitGuard,
     AiConcurrencyService,
+    ChatMentionRoutingService,
     {
       provide: AI_PROVIDER,
       inject: [API_CONFIG],

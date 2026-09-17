@@ -1,3 +1,4 @@
+import type { ChatMessageRoute, MessageMentionInput } from "@vimla/contracts";
 import { publicWebConfig } from "../../../shared/config/public-env";
 import { AuthRequiredError } from "../../auth/services/current-user";
 
@@ -6,8 +7,10 @@ export async function streamAssistantMessage(input: {
   clientRequestId: string;
   modelId: string;
   content: string;
+  mentions?: MessageMentionInput[];
   onDelta: (text: string) => void;
   onDone: () => void;
+  onRoute?: (route: ChatMessageRoute) => void;
   onError: (code: string) => void;
 }): Promise<void> {
   const response = await fetch(
@@ -20,6 +23,7 @@ export async function streamAssistantMessage(input: {
         clientRequestId: input.clientRequestId,
         modelId: input.modelId,
         content: input.content,
+        mentions: input.mentions ?? [],
       }),
     },
   );
@@ -59,6 +63,7 @@ export async function streamAssistantMessage(input: {
       terminal = true;
       input.onDone();
     },
+    onRoute: input.onRoute,
     onError: (code: string) => {
       terminal = true;
       input.onError(code);
@@ -85,6 +90,7 @@ function consumeSse(
   input: {
     onDelta: (text: string) => void;
     onDone: () => void;
+    onRoute?: (route: ChatMessageRoute) => void;
     onError: (code: string) => void;
   },
   flush = false,
@@ -109,6 +115,7 @@ function applySseBlock(
   input: {
     onDelta: (text: string) => void;
     onDone: () => void;
+    onRoute?: (route: ChatMessageRoute) => void;
     onError: (code: string) => void;
   },
 ): void {
@@ -131,6 +138,13 @@ function applySseBlock(
     const payload = JSON.parse(dataLines.join("\n")) as Record<string, unknown>;
     if (event === "delta" && typeof payload.text === "string") {
       input.onDelta(payload.text);
+    }
+    if (
+      event === "route" &&
+      input.onRoute &&
+      (payload.route === "CHAT" || payload.route === "ORCHESTRATION")
+    ) {
+      input.onRoute(payload.route);
     }
     if (event === "done") {
       input.onDone();

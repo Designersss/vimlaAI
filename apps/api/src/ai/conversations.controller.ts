@@ -34,6 +34,7 @@ import { SensitiveAreaGuard } from "../auth/sensitive-area.guard.js";
 import { OriginGuard } from "../auth/origin.guard.js";
 import { sseResponseHeaders } from "./sse-headers.js";
 import { AiRateLimitGuard } from "./ai-rate-limit.guard.js";
+import { ChatMentionRoutingService } from "./chat-mention-routing.service.js";
 import { TextChatService } from "./text-chat.service.js";
 import { buildOperatorRunView } from "../operator/view.js";
 
@@ -43,6 +44,7 @@ import { buildOperatorRunView } from "../operator/view.js";
 export class ConversationsController {
   constructor(
     @Inject(TextChatService) private readonly chat: TextChatService,
+    @Inject(ChatMentionRoutingService) private readonly routing: ChatMentionRoutingService,
     @Inject(API_CONFIG) private readonly config: ApiRuntimeConfig,
   ) {}
 
@@ -83,6 +85,7 @@ export class ConversationsController {
     @Param("id") id: string,
   ): Promise<ConversationDetail> {
     const conversation = await this.chat.getConversation(user.id, id);
+    const mentions = await this.routing.readForMessages(conversation.messages.map((message) => message.id));
     return conversationDetailSchema.parse({
       id: conversation.id,
       title: conversation.title,
@@ -94,6 +97,7 @@ export class ConversationsController {
         status: message.status,
         createdAt: message.createdAt.toISOString(),
         operatorRun: message.operatorRun ? buildOperatorRunView(message.operatorRun, null) : null,
+        mentions: mentions.get(message.id) ?? [],
       })),
     });
   }
@@ -113,9 +117,14 @@ export class ConversationsController {
       throw new BadRequestException("Invalid message payload");
     }
 
-    await this.chat.assertTextEnabled();
-
     await this.chat.getConversation(user.id, conversationId);
+
+    const resolvedMentions = await this.routing.resolve({
+      userId: user.id,
+      content: parsed.data.content,
+      mentions: parsed.data.mentions,
+    });
+    const route = this.routing.routeFor(resolvedMentions);
 
     reply.hijack();
     // hijack() skips Nest CORS; the browser reads this cross-origin SSE body.
@@ -126,29 +135,58 @@ export class ConversationsController {
     const sink = {
       isClientOpen: () => !response.writableEnded,
       write: (chunk: string) => {
-        if (!response.writableEnded) {
-          response.write(chunk);
-        }
+        if (!response.writableEnded) response.write(chunk);
       },
     };
 
     try {
-      await this.chat.streamMessage({
+      if (route === "CHAT") {
+        await this.chat.assertTextEnabled();
+        await this.chat.streamMessage({
+          userId: user.id,
+          conversationId,
+          body: parsed.data,
+          correlationId: String(request.id),
+          sink,
+        });
+        await this.routing.attachToAiRequest({
+          userId: user.id,
+          clientRequestId: parsed.data.clientRequestId,
+          resolvedMentions,
+        });
+        return;
+      }
+
+      const result = await this.routing.persist({
         userId: user.id,
         conversationId,
-        body: parsed.data,
-        correlationId: String(request.id),
-        sink,
+        clientRequestId: parsed.data.clientRequestId,
+        content: parsed.data.content,
+        mentions: parsed.data.mentions,
+        resolvedMentions,
       });
+      if (!response.writableEnded) {
+        response.write(
+          encodeVimlaSse("route", {
+            route: result.route,
+            messageId: result.messageId,
+            mentionCount: result.mentions.length,
+          }),
+        );
+        response.write(
+          encodeVimlaSse("done", {
+            messageId: result.messageId,
+            route: result.route,
+          }),
+        );
+      }
     } catch (error: unknown) {
       const payload = publicStreamError(error, String(request.id));
       if (!response.writableEnded) {
         response.write(encodeVimlaSse("error", payload));
       }
     } finally {
-      if (!response.writableEnded) {
-        response.end();
-      }
+      if (!response.writableEnded) response.end();
     }
   }
 }

@@ -6,7 +6,7 @@ const MODEL_HANDLE_CHARACTERS = /^[a-z0-9._-]+$/;
 const MODEL_HANDLE_BOUNDARY = /^[a-z0-9].*[a-z0-9]$/;
 const MODEL_CONSECUTIVE_SEPARATORS = /[._-]{2}/;
 
-const aiModelHandleSchema = z
+export const aiModelHandleSchema = z
   .string()
   .min(3)
   .max(MODEL_HANDLE_MAX_LENGTH)
@@ -34,6 +34,45 @@ export const mentionCandidateSchema = z.discriminatedUnion("kind", [
   mentionCandidatePresentationSchema.extend({ kind: z.literal("AI_MODEL"), handle: aiModelHandleSchema }).strict(),
 ]);
 export type MentionCandidate = z.infer<typeof mentionCandidateSchema>;
+
+const structuredCanonicalHandleSchema = z.union([handleSchema, aiModelHandleSchema]);
+const messageMentionBaseSchema = z.object({
+  handleId: z.string().min(1).max(160),
+  kind: mentionCandidateKindSchema,
+  canonicalHandle: structuredCanonicalHandleSchema,
+  startOffset: z.number().int().nonnegative(),
+  endOffset: z.number().int().positive(),
+});
+
+export const messageMentionInputSchema = messageMentionBaseSchema
+  .strict()
+  .superRefine((value, context) => {
+    if (value.endOffset <= value.startOffset) {
+      context.addIssue({
+        code: "custom",
+        path: ["endOffset"],
+        message: "Mention end offset must be after its start offset",
+      });
+    }
+  });
+export type MessageMentionInput = z.infer<typeof messageMentionInputSchema>;
+
+export const messageMentionViewSchema = messageMentionBaseSchema
+  .extend({
+    id: z.string().min(1),
+    targetId: z.string().min(1).nullable(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.endOffset <= value.startOffset) {
+      context.addIssue({
+        code: "custom",
+        path: ["endOffset"],
+        message: "Mention end offset must be after its start offset",
+      });
+    }
+  });
+export type MessageMentionView = z.infer<typeof messageMentionViewSchema>;
 
 const mentionQuerySchema = z
   .string()
