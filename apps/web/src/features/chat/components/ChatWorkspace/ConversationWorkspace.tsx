@@ -110,7 +110,6 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
 
   useEffect(() => {
     if (!activeMention) {
-      setMentionSuggestions(null);
       return;
     }
 
@@ -163,10 +162,8 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
   function handleDraftChange(value: string): void {
     store.setDraft(value);
     const nextMention = findActiveMention(value);
+    setMentionSuggestions(null);
     setActiveMention(nextMention);
-    if (!nextMention) {
-      setMentionSuggestions(null);
-    }
     setMentionOptionIndex(0);
   }
 
