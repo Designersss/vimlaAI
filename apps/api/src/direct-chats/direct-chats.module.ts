@@ -7,13 +7,14 @@ import {
   DirectChatsController,
 } from "./direct-chats.controller.js";
 import { DirectMentionRoutingService } from "./direct-mention-routing.service.js";
+import { DirectChatRealtimeService } from "./direct-chat-realtime.service.js";
 import { DirectChatsFacade } from "./direct-chats.facade.js";
 import { DirectChatsRateLimitGuard } from "./direct-chats-rate-limit.guard.js";
 
 @Module({
   imports: [PersistenceModule, AuthModule],
   controllers: [DirectChatDevicesController, DirectChatPrekeysController, DirectChatsController],
-  providers: [DirectMentionRoutingService, DirectChatsFacade, DirectChatsRateLimitGuard],
+  providers: [DirectMentionRoutingService, DirectChatRealtimeService, DirectChatsFacade, DirectChatsRateLimitGuard],
   exports: [DirectChatsFacade],
 })
 export class DirectChatsModule {}
