@@ -1,6 +1,7 @@
 import {
   Inject,
   Injectable,
+  Logger,
   type MessageEvent,
   type OnModuleDestroy,
   type OnModuleInit,
@@ -25,6 +26,7 @@ export interface DirectChatRealtimeEvent {
 
 @Injectable()
 export class DirectChatRealtimeService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new Logger(DirectChatRealtimeService.name);
   private readonly subscriber: Redis;
   private readonly listeners = new Map<string, Set<(event: DirectChatRealtimeEvent) => void>>();
 
@@ -72,7 +74,18 @@ export class DirectChatRealtimeService implements OnModuleInit, OnModuleDestroy 
 
   async publish(userIds: string[], event: DirectChatRealtimeEvent): Promise<void> {
     const payload = JSON.stringify(event);
-    await Promise.all([...new Set(userIds)].map((userId) => this.redis.client.publish(`${CHANNEL_PREFIX}${userId}`, payload)));
+    try {
+      await Promise.all(
+        [...new Set(userIds)].map((userId) => this.redis.client.publish(`${CHANNEL_PREFIX}${userId}`, payload)),
+      );
+    } catch (error: unknown) {
+      this.logger.warn({
+        msg: "direct_chats.realtime_publish_failed",
+        conversationId: event.conversationId,
+        messageId: event.messageId,
+        error: error instanceof Error ? error.message : "unknown",
+      });
+    }
   }
 
   async onModuleDestroy(): Promise<void> {
