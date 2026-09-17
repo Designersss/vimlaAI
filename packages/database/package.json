@@ -10,22 +10,19 @@
     }
   },
   "files": ["dist", "prisma"],
-  "prisma": {
-    "schema": "./prisma"
-  },
   "scripts": {
-    "generate": "prisma generate",
-    "prepare": "prisma generate",
-    "build": "prisma generate && tsc -p tsconfig.json",
+    "generate": "prisma generate --schema ./prisma",
+    "prepare": "prisma generate --schema ./prisma",
+    "build": "prisma generate --schema ./prisma && tsc -p tsconfig.json",
     "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
     "lint": "eslint . --max-warnings 0",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:integration": "vitest run --config vitest.integration.config.ts",
     "ensure-test-db": "tsx scripts/ensure-test-database.ts",
-    "migrate:dev": "prisma migrate dev",
-    "migrate:deploy": "prisma migrate deploy",
-    "studio": "prisma studio"
+    "migrate:dev": "prisma migrate dev --schema ./prisma",
+    "migrate:deploy": "prisma migrate deploy --schema ./prisma",
+    "studio": "prisma studio --schema ./prisma"
   },
   "dependencies": {
     "@prisma/client": "^6.15.0",
