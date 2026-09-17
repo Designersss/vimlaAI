@@ -8,6 +8,7 @@ import {
   seedLocale,
   signUp,
   uniqueEmail,
+  uniqueHandle,
   verifyEmail,
   webOrigin,
 } from "./helpers";
@@ -66,6 +67,7 @@ test.describe("registration", () => {
     });
 
     await page.getByLabel(/имя|name/i).fill("Ada");
+    await page.locator("#auth-handle").fill(uniqueHandle("retry"));
     await page.getByLabel(/email/i).fill(existing);
     await page.locator("#auth-password").fill("correct-horse-battery");
     await page.getByRole("button", { name: /создать аккаунт|create account/i }).click();
