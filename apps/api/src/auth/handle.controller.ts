@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   Get,
+  Inject,
   Post,
   Query,
   UseGuards,
@@ -17,7 +18,7 @@ import { OriginGuard } from "./origin.guard.js";
 
 @Controller("v1/handles")
 export class HandleController {
-  constructor(private readonly handles: HandleService) {}
+  constructor(@Inject(HandleService) private readonly handles: HandleService) {}
 
   @Get("availability")
   async availability(@Query("handle") rawHandle?: string) {
