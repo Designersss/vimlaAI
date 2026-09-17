@@ -17,6 +17,16 @@ export {
   type HandleAvailabilityResponse,
 } from "./handles.js";
 export {
+  mentionCandidateKindSchema,
+  mentionCandidateSchema,
+  mentionSuggestionsQuerySchema,
+  mentionSuggestionsResponseSchema,
+  type MentionCandidate,
+  type MentionCandidateKind,
+  type MentionSuggestionsQuery,
+  type MentionSuggestionsResponse,
+} from "./mentions.js";
+export {
   currentUserSchema,
   updateLocalePreferenceSchema,
   updatePreferencesSchema,

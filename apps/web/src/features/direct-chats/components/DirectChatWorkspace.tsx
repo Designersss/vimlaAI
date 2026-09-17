@@ -1,9 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactElement } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactElement } from "react";
 import { useRouter } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
-import type { DirectConversationView, DirectMessageKind, DirectMessageView, OperatorRunView } from "@vimla/contracts";
+import type {
+  DirectConversationView,
+  DirectMessageKind,
+  DirectMessageView,
+  MentionSuggestionsResponse,
+  OperatorRunView,
+} from "@vimla/contracts";
 import {
   Alert,
   AssistantMessage,
@@ -12,11 +18,13 @@ import {
   Card,
   ChatComposer,
   EmptyState,
+  MentionPicker,
   Switch,
   Text,
   UserMessage,
   VimlaMark,
   VimlaMentionChip,
+  type MentionPickerOption,
 } from "@vimla/ui";
 import { AuthRequiredError, fetchCurrentUser } from "../../auth/services/current-user";
 import { OperatorRunPanel } from "../../operator/components/OperatorRunPanel";
@@ -27,6 +35,7 @@ import {
   createOperatorRun,
   fetchOperatorRun,
 } from "../../operator/services/operator";
+import { fetchMentionSuggestions } from "../../chat/services/mentions";
 import { CONSUMER_FEATURES } from "../../../shared/config/consumer-features";
 import { apiErrorMessageKey } from "../../../shared/errors/error-keys";
 import { tx } from "../../../shared/i18n/translate";
@@ -52,6 +61,23 @@ interface DecryptedRow {
   payload: DirectPlaintextPayload | null;
 }
 
+type ActiveMentionQuery = {
+  start: number;
+  end: number;
+  query: string;
+};
+
+function findActiveMention(value: string): ActiveMentionQuery | null {
+  const match = /(?:^|\s)@([a-zA-Z0-9._-]*)$/.exec(value);
+  if (!match) return null;
+  const query = match[1] ?? "";
+  return {
+    start: value.length - query.length - 1,
+    end: value.length,
+    query,
+  };
+}
+
 export function DirectChatWorkspace({ conversationId }: { conversationId: string }): ReactElement {
   const t = useTranslations();
   const locale = useLocale();
@@ -67,6 +93,9 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
   const draftRef = useRef("");
   const [mention, setMention] = useState(false);
   const mentionRef = useRef(false);
+  const [activeMention, setActiveMention] = useState<ActiveMentionQuery | null>(null);
+  const [mentionSuggestions, setMentionSuggestions] = useState<MentionSuggestionsResponse | null>(null);
+  const [mentionOptionIndex, setMentionOptionIndex] = useState(0);
   const [sending, setSending] = useState(false);
   const sendingLockRef = useRef(false);
   const [operatorBusy, setOperatorBusy] = useState(false);
@@ -125,6 +154,101 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
     };
   }, [attempt, conversationId, locale, prepareDevice, router, workspace]);
 
+  useEffect(() => {
+    if (!activeMention) {
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void fetchMentionSuggestions({
+        q: activeMention.query,
+        directConversationId: conversationId,
+      })
+        .then((suggestions) => {
+          if (cancelled) return;
+          setMentionSuggestions(suggestions);
+          setMentionOptionIndex(0);
+        })
+        .catch((caught: unknown) => {
+          if (cancelled) return;
+          if (caught instanceof AuthRequiredError) {
+            router.replace("/sign-in");
+            return;
+          }
+          setMentionSuggestions(null);
+        });
+    }, 120);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [activeMention, conversationId, router]);
+
+  const mentionOptions = useMemo(
+    () =>
+      mentionSuggestions
+        ? [...mentionSuggestions.people, ...mentionSuggestions.vimla, ...mentionSuggestions.ai]
+        : [],
+    [mentionSuggestions],
+  );
+
+  function closeMentionPicker(): void {
+    setActiveMention(null);
+    setMentionSuggestions(null);
+    setMentionOptionIndex(0);
+  }
+
+  function handleDraftChange(value: string): void {
+    draftRef.current = value;
+    setDraft(value);
+    const nextMention = findActiveMention(value);
+    setActiveMention(nextMention);
+    if (!nextMention) {
+      setMentionSuggestions(null);
+    }
+    setMentionOptionIndex(0);
+  }
+
+  function selectMention(option: MentionPickerOption): void {
+    if (!activeMention) return;
+    const nextValue = `${draftRef.current.slice(0, activeMention.start)}@${option.handle} ${draftRef.current.slice(activeMention.end)}`;
+    draftRef.current = nextValue;
+    setDraft(nextValue);
+    closeMentionPicker();
+  }
+
+  function handleComposerKeyDown(event: KeyboardEvent<HTMLDivElement>): void {
+    if (!activeMention) return;
+
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeMentionPicker();
+      return;
+    }
+
+    if (mentionOptions.length === 0) return;
+
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setMentionOptionIndex((index) => (index + 1) % mentionOptions.length);
+      return;
+    }
+
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setMentionOptionIndex((index) => (index - 1 + mentionOptions.length) % mentionOptions.length);
+      return;
+    }
+
+    if (event.key === "Enter" || event.key === "Tab") {
+      event.preventDefault();
+      const selected = mentionOptions[mentionOptionIndex];
+      if (selected) selectMention(selected);
+    }
+  }
+
   async function reloadConversation(): Promise<DirectConversationView> {
     const detail = await fetchDirectConversation(conversationId);
     setConversation(detail);
@@ -137,6 +261,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
     if (sendingLockRef.current || sending || operatorBusy || text.length === 0 || !conversation || !userId) {
       return;
     }
+    closeMentionPicker();
     sendingLockRef.current = true;
     draftRef.current = "";
     setDraft("");
@@ -360,41 +485,52 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
           ) : null}
         </div>
       </div>
-      <ChatComposer
-        variant="direct"
-        value={draft}
-        onChange={(value) => {
-          draftRef.current = value;
-          setDraft(value);
-        }}
-        onSubmit={() => void onSend()}
-        placeholder={t("direct.placeholder")}
-        sendLabel={t("chat.send")}
-        sending={sending || operatorBusy}
-        mentionControl={
-          CONSUMER_FEATURES.vimlaOperator ? (
-            <Button
-              type="button"
-              variant={mention ? "primary" : "ghost"}
-              onClick={() => setMention((value) => !value)}
-              aria-pressed={mention}
-              data-testid="direct-mention-vimla"
-            >
-              <VimlaMark size={14} />
-              {t("chat.mentionVimla")}
-            </Button>
-          ) : null
-        }
-        chips={
-          mention ? (
-            <VimlaMentionChip
-              label={t("chat.mentionVimla")}
-              onRemove={() => setMention(false)}
-              removeLabel={t("common.close")}
-            />
-          ) : null
-        }
-      />
+      <div style={{ position: "relative" }} onKeyDown={handleComposerKeyDown}>
+        <MentionPicker
+          open={activeMention !== null}
+          ariaLabel="Mentions"
+          emptyLabel="No matching mentions"
+          activeId={mentionOptions[mentionOptionIndex]?.id ?? null}
+          sections={[
+            { id: "people", label: "People", options: mentionSuggestions?.people ?? [] },
+            { id: "vimla", label: "Vimla", options: mentionSuggestions?.vimla ?? [] },
+            { id: "ai", label: "AI", options: mentionSuggestions?.ai ?? [] },
+          ]}
+          onSelect={selectMention}
+        />
+        <ChatComposer
+          variant="direct"
+          value={draft}
+          onChange={handleDraftChange}
+          onSubmit={() => void onSend()}
+          placeholder={t("direct.placeholder")}
+          sendLabel={t("chat.send")}
+          sending={sending || operatorBusy}
+          mentionControl={
+            CONSUMER_FEATURES.vimlaOperator ? (
+              <Button
+                type="button"
+                variant={mention ? "primary" : "ghost"}
+                onClick={() => setMention((value) => !value)}
+                aria-pressed={mention}
+                data-testid="direct-mention-vimla"
+              >
+                <VimlaMark size={14} />
+                {t("chat.mentionVimla")}
+              </Button>
+            ) : null
+          }
+          chips={
+            mention ? (
+              <VimlaMentionChip
+                label={t("chat.mentionVimla")}
+                onRemove={() => setMention(false)}
+                removeLabel={t("common.close")}
+              />
+            ) : null
+          }
+        />
+      </div>
     </div>
   );
 }

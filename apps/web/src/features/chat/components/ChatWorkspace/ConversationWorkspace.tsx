@@ -1,15 +1,17 @@
 "use client";
 
 import { observer } from "mobx-react-lite";
-import { useEffect, useMemo, useState, type ReactElement } from "react";
+import { useEffect, useMemo, useState, type KeyboardEvent, type ReactElement } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
+import type { MentionSuggestionsResponse } from "@vimla/contracts";
 import {
   Alert,
   AssistantMessage,
   ChatComposer,
   EmptyState,
   Button,
+  MentionPicker,
   ModelModeControl,
   ModelPickerDialog,
   UserMessage,
@@ -17,11 +19,13 @@ import {
   VimlaMentionChip,
   type AiInteractionMode,
   type AutoEffortLevel,
+  type MentionPickerOption,
 } from "@vimla/ui";
 import { AuthRequiredError } from "../../../auth/services/current-user";
 import { fetchUsage } from "../../../billing/services/usage";
 import { fetchAiModels } from "../../services/models";
 import { fetchConversation } from "../../services/conversations";
+import { fetchMentionSuggestions } from "../../services/mentions";
 import { streamAssistantMessage } from "../../services/stream-message";
 import { useChatWorkspace } from "./ChatWorkspaceProvider";
 import { ChatConversationHeader } from "./ChatConversationHeader";
@@ -39,6 +43,23 @@ import {
 } from "../../../operator/services/operator";
 import styles from "./ChatWorkspace.module.scss";
 
+type ActiveMentionQuery = {
+  start: number;
+  end: number;
+  query: string;
+};
+
+function findActiveMention(value: string): ActiveMentionQuery | null {
+  const match = /(?:^|\s)@([a-zA-Z0-9._-]*)$/.exec(value);
+  if (!match) return null;
+  const query = match[1] ?? "";
+  return {
+    start: value.length - query.length - 1,
+    end: value.length,
+    query,
+  };
+}
+
 export const ConversationWorkspace = observer(function ConversationWorkspace({
   conversationId,
 }: {
@@ -55,6 +76,9 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
   const [autoLevel, setAutoLevel] = useState<AutoEffortLevel>("medium");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [mention, setMention] = useState(false);
+  const [activeMention, setActiveMention] = useState<ActiveMentionQuery | null>(null);
+  const [mentionSuggestions, setMentionSuggestions] = useState<MentionSuggestionsResponse | null>(null);
+  const [mentionOptionIndex, setMentionOptionIndex] = useState(0);
   const operatorBusy = store.operatorBusy;
   const setOperatorBusy = (value: boolean): void => store.setOperatorBusy(value);
 
@@ -84,10 +108,101 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
     };
   }, [attempt, conversationId, router, store, workspace]);
 
+  useEffect(() => {
+    if (!activeMention) {
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      void fetchMentionSuggestions({
+        q: activeMention.query,
+        conversationId,
+      })
+        .then((suggestions) => {
+          if (cancelled) return;
+          setMentionSuggestions(suggestions);
+          setMentionOptionIndex(0);
+        })
+        .catch((error: unknown) => {
+          if (cancelled) return;
+          if (error instanceof AuthRequiredError) {
+            router.replace("/sign-in");
+            return;
+          }
+          setMentionSuggestions(null);
+        });
+    }, 120);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [activeMention, conversationId, router]);
+
   const selectedModel = useMemo(
     () => workspace.models.find((model) => model.id === workspace.selectedModelId),
     [workspace.models, workspace.selectedModelId],
   );
+
+  const mentionOptions = useMemo(
+    () =>
+      mentionSuggestions
+        ? [...mentionSuggestions.people, ...mentionSuggestions.vimla, ...mentionSuggestions.ai]
+        : [],
+    [mentionSuggestions],
+  );
+
+  function closeMentionPicker(): void {
+    setActiveMention(null);
+    setMentionSuggestions(null);
+    setMentionOptionIndex(0);
+  }
+
+  function handleDraftChange(value: string): void {
+    store.setDraft(value);
+    const nextMention = findActiveMention(value);
+    setMentionSuggestions(null);
+    setActiveMention(nextMention);
+    setMentionOptionIndex(0);
+  }
+
+  function selectMention(option: MentionPickerOption): void {
+    if (!activeMention) return;
+    const nextValue = `${store.draft.slice(0, activeMention.start)}@${option.handle} ${store.draft.slice(activeMention.end)}`;
+    store.setDraft(nextValue);
+    closeMentionPicker();
+  }
+
+  function handleComposerKeyDown(event: KeyboardEvent<HTMLDivElement>): void {
+    if (!activeMention) return;
+
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeMentionPicker();
+      return;
+    }
+
+    if (mentionOptions.length === 0) return;
+
+    if (event.key === "ArrowDown") {
+      event.preventDefault();
+      setMentionOptionIndex((index) => (index + 1) % mentionOptions.length);
+      return;
+    }
+
+    if (event.key === "ArrowUp") {
+      event.preventDefault();
+      setMentionOptionIndex((index) => (index - 1 + mentionOptions.length) % mentionOptions.length);
+      return;
+    }
+
+    if (event.key === "Enter" || event.key === "Tab") {
+      event.preventDefault();
+      const selected = mentionOptions[mentionOptionIndex];
+      if (selected) selectMention(selected);
+    }
+  }
 
   async function onSubmit(): Promise<void> {
     if (store.streaming || operatorBusy) {
@@ -97,6 +212,7 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
     if (content.length === 0) {
       return;
     }
+    closeMentionPicker();
 
     if (CONSUMER_FEATURES.vimlaOperator && mention) {
       store.beginUserMessage(content);
@@ -209,11 +325,23 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
           )
         )}
       </div>
-      <div>
+      <div style={{ position: "relative" }} onKeyDown={handleComposerKeyDown}>
         {store.error ? <Alert variant="error">{tx(t, apiErrorMessageKey(store.error))}</Alert> : null}
+        <MentionPicker
+          open={activeMention !== null}
+          ariaLabel="Mentions"
+          emptyLabel="No matching mentions"
+          activeId={mentionOptions[mentionOptionIndex]?.id ?? null}
+          sections={[
+            { id: "people", label: "People", options: mentionSuggestions?.people ?? [] },
+            { id: "vimla", label: "Vimla", options: mentionSuggestions?.vimla ?? [] },
+            { id: "ai", label: "AI", options: mentionSuggestions?.ai ?? [] },
+          ]}
+          onSelect={selectMention}
+        />
         <ChatComposer
           value={store.draft}
-          onChange={(value) => store.setDraft(value)}
+          onChange={handleDraftChange}
           onSubmit={() => void onSubmit()}
           placeholder={t("chat.placeholder")}
           sendLabel={t("chat.send")}

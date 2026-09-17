@@ -42,6 +42,15 @@ test.describe("Secure Direct Chats", () => {
     const persistentList = await aliceList.elementHandle();
 
     const composer = alicePage.getByPlaceholder(/сообщение этому человеку|message this person/i);
+    await composer.fill("@");
+    const mentionPicker = alicePage.getByTestId("mention-picker");
+    await expect(mentionPicker).toBeVisible();
+    await expect(mentionPicker.getByRole("option", { name: /Nikita/i })).toBeVisible();
+    await expect(mentionPicker.getByRole("option", { name: /@auto/i })).toBeVisible();
+    await mentionPicker.getByRole("option", { name: /Nikita/i }).click();
+    await expect(composer).toHaveValue(/^@nikita_[a-z0-9]+ $/i);
+    await expect(composer).toBeFocused();
+
     await composer.fill("hello from alice");
     await alicePage.getByTestId("chat-composer-send").click();
     await expect(alicePage.getByTestId("direct-message-human").filter({ hasText: "hello from alice" })).toBeVisible({

@@ -33,4 +33,43 @@ test.describe("AI verification gate", () => {
     await expect(page.getByText("◆ @Vimla").first()).toBeVisible();
     await expect(page.getByRole("button", { name: /^pro ·|^про ·/i })).toHaveCount(0);
   });
+
+  test("contextual @ picker filters, autocompletes and stays usable on mobile", async ({ page, request }) => {
+    const email = uniqueEmail("e2e-mentions");
+    await signUp(page, { name: "Ada", email, password: "correct-horse-battery" });
+    await verifyEmail(page, request, email);
+    await purchasePro(page);
+    await startNewConversation(page);
+
+    const composer = page.getByPlaceholder(/сообщение для vimla|message vimla/i);
+    const picker = page.getByTestId("mention-picker");
+
+    await composer.fill("@");
+    await expect(picker).toBeVisible();
+    await expect(picker.getByRole("option", { name: /@vimla/i })).toBeVisible();
+    await expect(picker.getByRole("option", { name: /@auto/i })).toBeVisible();
+
+    await composer.fill("@au");
+    await expect(picker.getByRole("option", { name: /@auto/i })).toBeVisible();
+    await composer.press("Enter");
+    await expect(composer).toHaveValue("@auto ");
+    await expect(picker).toHaveCount(0);
+
+    await composer.fill("@");
+    await expect(picker).toBeVisible();
+    await composer.press("Escape");
+    await expect(picker).toHaveCount(0);
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await composer.fill("@au");
+    await expect(picker).toBeVisible();
+    const box = await picker.boundingBox();
+    expect(box).not.toBeNull();
+    expect(Math.abs((box?.y ?? 0) + (box?.height ?? 0) - 844)).toBeLessThanOrEqual(2);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
+    await picker.getByRole("option", { name: /@auto/i }).click();
+    await expect(composer).toHaveValue("@auto ");
+    await expect(composer).toBeFocused();
+  });
 });
