@@ -4,6 +4,7 @@ import { createPrismaClient } from "@vimla/database";
 import { loadApiConfig } from "@vimla/config/server";
 import { currentUserSchema } from "@vimla/contracts";
 import { createVimlaApiApp } from "../create-app.js";
+import { verifyEmailOtp } from "../test/identity-helpers.js";
 
 const testDatabaseUrl = process.env.TEST_DATABASE_URL;
 if (!testDatabaseUrl) {
@@ -75,7 +76,7 @@ describe("global handle identity", () => {
 
   it("blocks ordinary product APIs until an active handle exists", async () => {
     const email = `handleless-${suffix}@example.com`;
-    const cookies = await signUp(app, email);
+    let cookies = await signUp(app, email);
 
     const me = await app.inject({ method: "GET", url: "/v1/me", headers: { origin }, cookies });
     expect(me.statusCode).toBe(200);
@@ -96,14 +97,7 @@ describe("global handle identity", () => {
       },
     });
 
-    const user = await prisma.user.findUniqueOrThrow({
-      where: { email },
-      select: { id: true },
-    });
-    await prisma.user.update({
-      where: { id: user.id },
-      data: { emailVerified: true },
-    });
+    cookies = await verifyEmailOtp(app, email, cookies);
 
     const models = await app.inject({
       method: "GET",
@@ -149,7 +143,7 @@ describe("global handle identity", () => {
 
   it("normalizes a claim and activates it after email verification", async () => {
     const email = `activate-${suffix}@example.com`;
-    const cookies = await signUp(app, email);
+    let cookies = await signUp(app, email);
     const handle = `user_${suffix.replaceAll("-", "").slice(-12)}`;
 
     const claim = await app.inject({
@@ -163,8 +157,7 @@ describe("global handle identity", () => {
     expect(claim.statusCode).toBeLessThan(300);
     expect(claim.json()).toEqual({ handle, status: "PENDING" });
 
-    const user = await prisma.user.findUniqueOrThrow({ where: { email }, select: { id: true } });
-    await prisma.user.update({ where: { id: user.id }, data: { emailVerified: true } });
+    cookies = await verifyEmailOtp(app, email, cookies);
 
     const me = await app.inject({ method: "GET", url: "/v1/me", headers: { origin }, cookies });
     expect(me.statusCode).toBe(200);
