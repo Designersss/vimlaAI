@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { messageMentionInputSchema, messageMentionViewSchema } from "./mentions.js";
 import { operatorRunViewSchema } from "./operator.js";
 
 export const createConversationSchema = z
@@ -13,6 +14,7 @@ export const sendMessageSchema = z
     clientRequestId: z.string().uuid(),
     modelId: z.string().min(1).max(128),
     content: z.string().min(1),
+    mentions: z.array(messageMentionInputSchema).max(32).default([]),
   })
   .strict();
 export type SendMessage = z.infer<typeof sendMessageSchema>;
@@ -53,6 +55,7 @@ export const chatMessageSchema = z.object({
   status: z.enum(["COMPLETE", "STREAMING", "FAILED"]),
   createdAt: z.string(),
   operatorRun: operatorRunViewSchema.nullable().optional(),
+  mentions: z.array(messageMentionViewSchema).default([]),
 });
 export type ChatMessage = z.infer<typeof chatMessageSchema>;
 
