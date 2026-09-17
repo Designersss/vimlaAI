@@ -10,6 +10,7 @@ import {
   generateSignedPreKey,
   initRatchetInitiator,
   initRatchetResponder,
+  serializeDirectRoutingMentions,
   utf8,
   x3dhInitiate,
   x3dhRespond,
@@ -19,6 +20,7 @@ import {
   type WireEnvelope,
 } from "@vimla/e2ee";
 import { seedVimlaAiModels } from "@vimla/ai";
+import type { MessageMentionInput } from "@vimla/contracts";
 import { seedVimlaPlans } from "@vimla/billing";
 import { loadApiConfig } from "@vimla/config/server";
 import { createPrismaClient } from "@vimla/database";
@@ -206,6 +208,147 @@ describe("direct chats API", () => {
     });
     expect(page.json().items).toHaveLength(1);
     expect(page.json().nextCursor).toBeTruthy();
+  });
+
+  it("binds structured mention routing to signatures and rejects forged Direct Chat targets", async () => {
+    const alice = await readyUser(app, "dc-mentions-alice", "Alice");
+    const nikita = await readyUser(app, "dc-mentions-nikita", "Nikita");
+    const oscar = await readyUser(app, "dc-mentions-oscar", "Oscar");
+    const aliceDevice = await registerHarness(app, alice);
+    await registerHarness(app, nikita);
+    const chat = await createChat(app, alice.cookies, nikita.email);
+
+    const prisma = app.get(PrismaService).client;
+    const vimlaHandle = await prisma.handle.findUnique({ where: { systemKey: "VIMLA" } });
+    const oscarHandle = await prisma.handle.findUnique({ where: { userId: oscar.id } });
+    expect(vimlaHandle).toBeTruthy();
+    expect(oscarHandle).toBeTruthy();
+    if (!vimlaHandle || !oscarHandle) {
+      throw new Error("expected seeded/system user handles");
+    }
+
+    const vimlaMention: MessageMentionInput = {
+      handleId: vimlaHandle.id,
+      kind: "SYSTEM_AGENT",
+      canonicalHandle: vimlaHandle.normalized,
+      startOffset: 0,
+      endOffset: 6,
+    };
+
+    const valid = await sendPlain(
+      app,
+      alice,
+      aliceDevice,
+      chat.id,
+      "HUMAN",
+      "@vimla ping",
+      [vimlaMention],
+    );
+    expect(valid.statusCode).toBe(201);
+    expect(valid.json().mentions).toEqual([
+      expect.objectContaining({
+        handleId: vimlaHandle.id,
+        kind: "SYSTEM_AGENT",
+        canonicalHandle: vimlaHandle.normalized,
+        startOffset: 0,
+        endOffset: 6,
+      }),
+    ]);
+    const persisted = await prisma.directMessageMention.findMany({
+      where: { directMessageId: valid.json().id },
+    });
+    expect(persisted).toHaveLength(1);
+    expect(persisted[0]?.handleId).toBe(vimlaHandle.id);
+
+    const chatView = await app.inject({
+      method: "GET",
+      url: `/v1/direct-chats/${chat.id}`,
+      headers: { origin },
+      cookies: alice.cookies,
+    });
+    const devices = chatView.json().devices as Array<{ id: string; userId: string }>;
+
+    const signedEnvelopes = [];
+    for (const device of devices) {
+      signedEnvelopes.push(
+        await encryptTo(
+          app,
+          alice,
+          aliceDevice,
+          device,
+          chat.id,
+          "HUMAN",
+          "@vimla signed",
+          [vimlaMention],
+        ),
+      );
+    }
+    const tamperedRouting = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/${chat.id}/messages`,
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: {
+        clientMessageId: randomUUID(),
+        senderDeviceId: aliceDevice.deviceId,
+        kind: "HUMAN",
+        envelopes: signedEnvelopes,
+        mentions: [{ ...vimlaMention, endOffset: 7 }],
+      },
+    });
+    expect(tamperedRouting.statusCode).toBe(400);
+
+    const outsideMention: MessageMentionInput = {
+      handleId: oscarHandle.id,
+      kind: "USER",
+      canonicalHandle: oscarHandle.normalized,
+      startOffset: 0,
+      endOffset: Math.min(8, oscarHandle.normalized.length + 1),
+    };
+    const outsideEnvelopes = [];
+    for (const device of devices) {
+      outsideEnvelopes.push(
+        await encryptTo(
+          app,
+          alice,
+          aliceDevice,
+          device,
+          chat.id,
+          "HUMAN",
+          `@${oscarHandle.normalized} ping`,
+          [outsideMention],
+        ),
+      );
+    }
+    const outside = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/${chat.id}/messages`,
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: {
+        clientMessageId: randomUUID(),
+        senderDeviceId: aliceDevice.deviceId,
+        kind: "HUMAN",
+        envelopes: outsideEnvelopes,
+        mentions: [outsideMention],
+      },
+    });
+    expect(outside.statusCode).toBe(400);
+
+    const wrongKind = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/${chat.id}/messages`,
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: {
+        clientMessageId: randomUUID(),
+        senderDeviceId: aliceDevice.deviceId,
+        kind: "HUMAN",
+        envelopes: outsideEnvelopes,
+        mentions: [{ ...vimlaMention, kind: "AI_MODEL" }],
+      },
+    });
+    expect(wrongKind.statusCode).toBe(400);
   });
 
   it("lets @Vimla answer in-thread, isolates context, and assigns tasks only inside the chat", async () => {
@@ -484,6 +627,7 @@ async function sendPlain(
   conversationId: string,
   kind: "HUMAN" | "OPERATOR_INVOKE" | "OPERATOR_RESPONSE" | "OPERATOR_ACTION",
   plaintext: string,
+  mentions: MessageMentionInput[] = [],
 ) {
   const chat = await app.inject({
     method: "GET",
@@ -494,7 +638,7 @@ async function sendPlain(
   const devices = chat.json().devices as Array<{ id: string; userId: string }>;
   const envelopes = [];
   for (const device of devices) {
-    envelopes.push(await encryptTo(app, sender, senderDevice, device, conversationId, kind, plaintext));
+    envelopes.push(await encryptTo(app, sender, senderDevice, device, conversationId, kind, plaintext, mentions));
   }
   return app.inject({
     method: "POST",
@@ -506,6 +650,7 @@ async function sendPlain(
       senderDeviceId: senderDevice.deviceId,
       kind,
       envelopes,
+      mentions,
     },
   });
 }
@@ -554,6 +699,7 @@ async function encryptTo(
   conversationId: string,
   kind: "HUMAN" | "OPERATOR_INVOKE" | "OPERATOR_RESPONSE" | "OPERATOR_ACTION",
   plaintext: string,
+  mentions: MessageMentionInput[] = [],
 ): Promise<WireEnvelope & { recipientDeviceId: string }> {
   let state = senderDevice.ratchets.get(recipient.id) ?? null;
   let x3dhInit: WireEnvelope["x3dhInit"] = null;
@@ -580,6 +726,7 @@ async function encryptTo(
     state = initRatchetInitiator(initiated.sharedKey, initiated.remoteRatchetPublic);
     x3dhInit = initiated.initHeader;
   }
+  const routingContext = mentions.length > 0 ? serializeDirectRoutingMentions(mentions) : undefined;
   const envelope = encryptEnvelope({
     identity: senderDevice.identity,
     state,
@@ -590,6 +737,7 @@ async function encryptTo(
       senderDeviceId: senderDevice.deviceId,
       recipientDeviceId: recipient.id,
       kind,
+      routingContext,
     },
     x3dhInit,
   });
