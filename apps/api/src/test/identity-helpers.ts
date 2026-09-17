@@ -87,6 +87,41 @@ export async function registerVerifiedUser(
   if (me.statusCode !== 200 || !(me.json() as { emailVerified: boolean }).emailVerified) {
     throw new Error("expected verified email after OTP");
   }
+
+  const handle = `test_${randomUUID().replaceAll("-", "").slice(0, 20)}`;
+  const claim = await app.inject({
+    method: "POST",
+    url: "/v1/handles/claim",
+    headers: { origin, "content-type": "application/json" },
+    cookies,
+    payload: { handle },
+  });
+  if (claim.statusCode < 200 || claim.statusCode >= 300) {
+    throw new Error(`handle claim failed: ${claim.statusCode} ${claim.body}`);
+  }
+
+  const ready = await app.inject({
+    method: "GET",
+    url: "/v1/me",
+    headers: { origin },
+    cookies,
+  });
+  const readyBody = ready.json() as {
+    emailVerified?: boolean;
+    handle?: string | null;
+    handleStatus?: string | null;
+    handleRequired?: boolean;
+  };
+  if (
+    ready.statusCode !== 200 ||
+    !readyBody.emailVerified ||
+    readyBody.handle !== handle ||
+    readyBody.handleStatus !== "ACTIVE" ||
+    readyBody.handleRequired !== false
+  ) {
+    throw new Error(`expected active handle after verification: ${ready.statusCode} ${ready.body}`);
+  }
+
   return { ...created, cookies };
 }
 
