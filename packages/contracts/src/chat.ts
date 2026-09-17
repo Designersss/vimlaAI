@@ -9,10 +9,13 @@ export const createConversationSchema = z
   .strict();
 export type CreateConversation = z.infer<typeof createConversationSchema>;
 
+export const chatMessageRouteSchema = z.enum(["CHAT", "ORCHESTRATION"]);
+export type ChatMessageRoute = z.infer<typeof chatMessageRouteSchema>;
+
 export const sendMessageSchema = z
   .object({
     clientRequestId: z.string().uuid(),
-    modelId: z.string().min(1).max(128),
+    modelId: z.string().min(1).max(128).optional(),
     content: z.string().min(1),
     mentions: z.array(messageMentionInputSchema).max(32).default([]),
   })
