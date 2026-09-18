@@ -15,6 +15,8 @@ export interface CuratedModelSeed {
   cacheReadMicroRubPerMillion: MicroRub | null;
   cacheWriteMicroRubPerMillion: MicroRub | null;
   billingBoundedness: ProviderBillingBoundedness;
+  supportsToolUse: boolean;
+  autoPriority: number;
   verifiedAt: Date;
   source: string;
 }
@@ -40,6 +42,8 @@ export const VIMLA_AI_MODEL_CATALOG: readonly CuratedModelSeed[] = [
     cacheReadMicroRubPerMillion: price(6n),
     cacheWriteMicroRubPerMillion: price(75n),
     billingBoundedness: "HARD_BOUNDED",
+    supportsToolUse: true,
+    autoPriority: 20,
     verifiedAt: PRICE_VERIFIED_AT,
     source: PRICE_SOURCE,
   },
@@ -56,6 +60,8 @@ export const VIMLA_AI_MODEL_CATALOG: readonly CuratedModelSeed[] = [
     cacheReadMicroRubPerMillion: price(30n),
     cacheWriteMicroRubPerMillion: price(369n),
     billingBoundedness: "HARD_BOUNDED",
+    supportsToolUse: true,
+    autoPriority: 10,
     verifiedAt: PRICE_VERIFIED_AT,
     source: PRICE_SOURCE,
   },
@@ -72,6 +78,8 @@ export const VIMLA_AI_MODEL_CATALOG: readonly CuratedModelSeed[] = [
     cacheReadMicroRubPerMillion: null,
     cacheWriteMicroRubPerMillion: null,
     billingBoundedness: "HARD_BOUNDED",
+    supportsToolUse: false,
+    autoPriority: 30,
     verifiedAt: PRICE_VERIFIED_AT,
     source: PRICE_SOURCE,
   },
