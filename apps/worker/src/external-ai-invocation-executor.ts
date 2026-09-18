@@ -529,6 +529,7 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
             data: {
               status: "USAGE_DURABLE",
               toolCallsJson,
+              toolCallError: provider.toolCallError,
             },
           }),
         ]);
@@ -564,8 +565,9 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
           this.prisma.aiRequest.update({
             where: { id: request.aiRequestId },
             data: {
-              status: "SUCCEEDED",
-              financialStatus: settledStatus === "ANOMALY" ? "ANOMALY" : "SETTLED",
+              status: provider.toolCallError ? "FAILED" : "SUCCEEDED",
+              financialStatus:
+                settledStatus === "ANOMALY" ? "ANOMALY" : "SETTLED",
               userSettledUsageMicroRub: settledMicroRub,
               finishedAt: new Date(),
             },
