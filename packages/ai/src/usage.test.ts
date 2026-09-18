@@ -12,6 +12,16 @@ describe("normalizeProviderUsage", () => {
       }),
     ).toThrow(AiError);
   });
+
+  it("rejects cacheWrite greater than input", () => {
+    expect(() =>
+      normalizeProviderUsage({
+        inputTokens: 10n,
+        outputTokens: 1n,
+        cacheWriteTokens: 11n,
+      }),
+    ).toThrow(AiError);
+  });
 });
 
 describe("readOpenAiUsage", () => {

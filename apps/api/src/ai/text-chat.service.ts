@@ -2,19 +2,21 @@ import { Inject, Injectable, Logger, NotFoundException, BadRequestException } fr
 import { isAiTextOperatorDisabled } from "@vimla/admin";
 import {
   AiError,
+  DEFAULT_AI_EXECUTION_BUDGET_PROFILES,
   encodeVimlaSse,
-  estimateInputTokens,
-  estimateReservationMicroRub,
+  estimateProviderRequestInputTokens,
   providerCostFromUsage,
+  resolveAiExecutionBudget,
   selectContextMessages,
   utf8ByteLength,
+  VIMLA_AI_MODEL_CATALOG,
   ProviderCallError,
   type PriceVersionQuote,
   type ProviderChatMessage,
   type ProviderStreamEvent,
   type VimlaAiGateway,
 } from "@vimla/ai";
-import type { BillingEngine, ReservationView } from "@vimla/billing";
+import { BillingError, type BillingEngine, type ReservationView } from "@vimla/billing";
 import type { SendMessage } from "@vimla/contracts";
 import { Prisma, type PrismaClient } from "@vimla/database";
 import { API_CONFIG, type ApiRuntimeConfig } from "../config/api-config.js";
@@ -70,13 +72,20 @@ export class TextChatService {
     });
 
     return models
-      .filter((model) =>
-        model.priceVersions.some(
+      .filter((model) => {
+        const hasActivePrice = model.priceVersions.some(
           (version) =>
             version.effectiveFrom <= now &&
             (version.effectiveTo === null || version.effectiveTo > now),
-        ),
-      )
+        );
+        const policy = VIMLA_AI_MODEL_CATALOG.find(
+          (entry) =>
+            entry.slug === model.slug &&
+            entry.provider === model.provider &&
+            entry.providerModelId === model.providerModelId,
+        );
+        return hasActivePrice && policy?.billingBoundedness === "HARD_BOUNDED";
+      })
       .map((model) => ({
         id: model.id,
         slug: model.slug,
@@ -179,72 +188,6 @@ export class TextChatService {
     }
   }
 
-  async completeInternalPrompt(input: {
-    userId: string;
-    conversationId: string;
-    clientRequestId: string;
-    messages: ProviderChatMessage[];
-    correlationId: string;
-  }): Promise<{ text: string; aiRequestId: string }> {
-    await this.assertTextEnabled();
-
-    const conversation = await this.prisma.conversation.findFirst({
-      where: { id: input.conversationId, userId: input.userId },
-    });
-    if (!conversation) {
-      throw new NotFoundException("Conversation was not found");
-    }
-
-    const promptBytes = input.messages.reduce((sum, message) => sum + utf8ByteLength(message.content), 0);
-    if (promptBytes > this.config.aiMaxContextBytes) {
-      throw new AiError("MESSAGE_TOO_LARGE", "Operator planner prompt exceeds the configured size limit", 400);
-    }
-
-    const models = await this.listRetailModels();
-    const selected = models[0];
-    if (!selected) {
-      throw new AiError("MODEL_UNAVAILABLE", "No operator model is available", 503);
-    }
-    const model = await this.resolveModel(selected.id);
-
-    const outcome = await this.beginOrReuseRequest({
-      userId: input.userId,
-      conversationId: conversation.id,
-      body: {
-        clientRequestId: input.clientRequestId,
-        modelId: model.id,
-        content: input.messages.at(-1)?.content ?? "operator",
-      },
-      model,
-      correlationId: input.correlationId,
-      persistUserMessage: false,
-    });
-
-    if (outcome.kind === "replay") {
-      return { text: outcome.text, aiRequestId: outcome.aiRequestId };
-    }
-
-    await this.concurrency.acquire(input.userId);
-    try {
-      const text = await this.runProviderFlow({
-        userId: input.userId,
-        conversation,
-        aiRequestId: outcome.aiRequestId,
-        model,
-        correlationId: input.correlationId,
-        sink: {
-          isClientOpen: () => true,
-          write: () => undefined,
-        },
-        providerMessages: input.messages,
-        persistAssistantMessage: false,
-      });
-      return { text, aiRequestId: outcome.aiRequestId };
-    } finally {
-      await this.concurrency.release(input.userId);
-    }
-  }
-
   private async runProviderFlow(input: {
     userId: string;
     conversation: { id: string; title: string | null };
@@ -267,25 +210,69 @@ export class TextChatService {
         content: message.content,
       }));
 
-    const estimatedInputTokens = estimateInputTokens(providerMessages);
-    const maxOutputTokens = Math.min(
-      this.config.aiDefaultMaxOutputTokens,
+    const estimatedInputTokens =
+      estimateProviderRequestInputTokens(providerMessages);
+    const preferredOutputTokens = this.config.aiDefaultMaxOutputTokens;
+    const minimumOutputTokens = Math.min(
+      DEFAULT_AI_EXECUTION_BUDGET_PROFILES.STANDARD.minimumOutputTokens,
+      preferredOutputTokens,
       input.model.maxOutputTokens,
     );
-    const estimatedCostMicroRub = estimateReservationMicroRub({
-      estimatedInputTokens: BigInt(estimatedInputTokens),
-      maxOutputTokens: BigInt(maxOutputTokens),
-      price: input.model.price,
-      safetyBps: BigInt(this.config.aiReservationSafetyBps),
-    });
-    const maxReservation = BigInt(this.config.aiMaxReservationMicroRub);
-    if (estimatedCostMicroRub > maxReservation) {
+    const contextMaxOutputTokens = Math.min(
+      input.model.maxOutputTokens,
+      Math.max(0, input.model.contextWindowTokens - estimatedInputTokens),
+    );
+    if (contextMaxOutputTokens < minimumOutputTokens) {
       await this.prisma.aiRequest.update({
         where: { id: input.aiRequestId },
         data: { status: "FAILED", finishedAt: new Date() },
       });
-      throw new AiError("AI_REQUEST_COST_LIMIT", "Estimated request cost exceeds the safety cap", 400);
+      throw new AiError(
+        "MODEL_UNAVAILABLE",
+        "The current context leaves insufficient room for a useful model response",
+        400,
+      );
     }
+
+    const capacity = await this.engine.getSpendableUsageState(input.userId);
+    const profiles = {
+      ...DEFAULT_AI_EXECUTION_BUDGET_PROFILES,
+      STANDARD: {
+        preferredOutputTokens,
+        minimumOutputTokens,
+      },
+    };
+    const budgetResult = resolveAiExecutionBudget({
+      profile: "STANDARD",
+      profiles,
+      modelMaxOutputTokens: contextMaxOutputTokens,
+      estimatedInputTokens,
+      availableMicroRub: capacity.availableMicroRub,
+      maxReservationMicroRub: BigInt(this.config.aiMaxReservationMicroRub),
+      price: input.model.price,
+      safetyBps: BigInt(this.config.aiReservationSafetyBps),
+    });
+    if (budgetResult.kind !== "FUNDED") {
+      await this.prisma.aiRequest.update({
+        where: { id: input.aiRequestId },
+        data: { status: "FAILED", finishedAt: new Date() },
+      });
+      if (budgetResult.kind === "REQUEST_COST_LIMIT") {
+        throw new AiError(
+          "AI_REQUEST_COST_LIMIT",
+          "Estimated request cost exceeds the safety cap",
+          400,
+        );
+      }
+      throw new BillingError(
+        "INSUFFICIENT_USAGE",
+        "Remaining AI allowance cannot fund the minimum useful response",
+      );
+    }
+
+    const maxOutputTokens = budgetResult.budget.selectedOutputTokens;
+    const estimatedCostMicroRub =
+      budgetResult.budget.estimatedCostMicroRub;
 
     await this.prisma.aiRequest.update({
       where: { id: input.aiRequestId },
@@ -358,6 +345,99 @@ export class TextChatService {
         }
       }
     } catch (error: unknown) {
+      if (usageEvent) {
+        let interruptedActualCost: bigint;
+        try {
+          interruptedActualCost = providerCostFromUsage(
+            usageEvent,
+            input.model.price,
+          );
+        } catch {
+          await this.markReconciliation({
+            aiRequestId: input.aiRequestId,
+            conversationId: input.conversation.id,
+            assistantText,
+            reason: "invalid_provider_usage_after_interruption",
+          });
+          throw new AiError(
+            "AI_RECONCILIATION_REQUIRED",
+            "Interrupted provider usage could not be normalized",
+            503,
+          );
+        }
+
+        await this.persistDurableUsage({
+          aiRequestId: input.aiRequestId,
+          outputText: null,
+          usage: usageEvent,
+          providerActualCostMicroRub: interruptedActualCost,
+        });
+
+        if (
+          usageEvent.inputTokens > BigInt(estimatedInputTokens) ||
+          usageEvent.outputTokens > BigInt(maxOutputTokens) ||
+          interruptedActualCost > estimatedCostMicroRub
+        ) {
+          await this.markFundedBoundViolation({
+            aiRequestId: input.aiRequestId,
+            reservationId,
+            assistantText,
+            usage: usageEvent,
+            providerActualCostMicroRub: interruptedActualCost,
+            estimatedInputTokens,
+            maxOutputTokens,
+            estimatedCostMicroRub,
+          });
+          throw new AiError(
+            "AI_RECONCILIATION_REQUIRED",
+            "Interrupted provider usage exceeded the funded request bound",
+            503,
+          );
+        }
+
+        let interruptedSettlement: ReservationView;
+        try {
+          interruptedSettlement = await this.engine.settleUsage({
+            userId: input.userId,
+            reservationId,
+            actualMicroRub: interruptedActualCost,
+            correlationId: input.correlationId,
+          });
+        } catch {
+          await this.prisma.aiRequest.update({
+            where: { id: input.aiRequestId },
+            data: {
+              status: "RECONCILIATION_REQUIRED",
+              financialStatus: "RECONCILIATION_HOLD",
+              finishedAt: new Date(),
+            },
+          });
+          throw new AiError(
+            "AI_RECONCILIATION_REQUIRED",
+            "Interrupted provider usage needs settlement reconciliation",
+            503,
+          );
+        }
+
+        await this.prisma.aiRequest.update({
+          where: { id: input.aiRequestId },
+          data: {
+            status: "FAILED",
+            financialStatus:
+              interruptedSettlement.status === "ANOMALY"
+                ? "ANOMALY"
+                : "SETTLED",
+            userSettledUsageMicroRub: interruptedSettlement.settledMicroRub,
+            finishedAt: new Date(),
+          },
+        });
+        throw new AiError(
+          "PROVIDER_AMBIGUOUS_FAILURE",
+          "Provider stream ended after usage was recorded",
+          502,
+        );
+      }
+
       await this.handleProviderFailure({
         userId: input.userId,
         aiRequestId: input.aiRequestId,
@@ -399,6 +479,35 @@ export class TextChatService {
       );
     }
 
+    await this.persistDurableUsage({
+      aiRequestId: input.aiRequestId,
+      outputText: assistantText,
+      usage: usageEvent,
+      providerActualCostMicroRub,
+    });
+
+    if (
+      usageEvent.inputTokens > BigInt(estimatedInputTokens) ||
+      usageEvent.outputTokens > BigInt(maxOutputTokens) ||
+      providerActualCostMicroRub > estimatedCostMicroRub
+    ) {
+      await this.markFundedBoundViolation({
+        aiRequestId: input.aiRequestId,
+        reservationId,
+        assistantText,
+        usage: usageEvent,
+        providerActualCostMicroRub,
+        estimatedInputTokens,
+        maxOutputTokens,
+        estimatedCostMicroRub,
+      });
+      throw new AiError(
+        "AI_RECONCILIATION_REQUIRED",
+        "Provider usage exceeded the funded request bound",
+        503,
+      );
+    }
+
     let settled: ReservationView;
     try {
       settled = await this.engine.settleUsage({
@@ -413,12 +522,6 @@ export class TextChatService {
         data: {
           status: "RECONCILIATION_REQUIRED",
           financialStatus: "RECONCILIATION_HOLD",
-          providerActualCostMicroRub,
-          actualInputTokens: numberTokens(usageEvent.inputTokens),
-          actualOutputTokens: numberTokens(usageEvent.outputTokens),
-          reasoningTokens: numberTokens(usageEvent.reasoningTokens),
-          cacheReadTokens: numberTokens(usageEvent.cacheReadTokens),
-          cacheWriteTokens: numberTokens(usageEvent.cacheWriteTokens),
           finishedAt: new Date(),
         },
       });
@@ -480,14 +583,7 @@ export class TextChatService {
       data: {
         status: "SUCCEEDED",
         financialStatus: settled.status === "ANOMALY" ? "ANOMALY" : "SETTLED",
-        actualInputTokens: numberTokens(usageEvent.inputTokens),
-        actualOutputTokens: numberTokens(usageEvent.outputTokens),
-        reasoningTokens: numberTokens(usageEvent.reasoningTokens),
-        cacheReadTokens: numberTokens(usageEvent.cacheReadTokens),
-        cacheWriteTokens: numberTokens(usageEvent.cacheWriteTokens),
-        providerActualCostMicroRub,
         userSettledUsageMicroRub: settled.settledMicroRub,
-        outputText: assistantText,
         finishedAt: new Date(),
       },
     });
@@ -621,10 +717,25 @@ export class TextChatService {
       throw new AiError("MODEL_UNAVAILABLE", "Model has no active price version", 400);
     }
 
+    const policy = VIMLA_AI_MODEL_CATALOG.find(
+      (entry) =>
+        entry.slug === model.slug &&
+        entry.provider === model.provider &&
+        entry.providerModelId === model.providerModelId,
+    );
+    if (!policy || policy.billingBoundedness !== "HARD_BOUNDED") {
+      throw new AiError(
+        "MODEL_UNAVAILABLE",
+        "Model billing cannot be hard-bounded",
+        400,
+      );
+    }
+
     return {
       id: model.id,
       provider: model.provider,
       providerModelId: model.providerModelId,
+      contextWindowTokens: model.contextWindowTokens,
       maxOutputTokens: model.maxOutputTokens,
       priceVersionId: price.id,
       price: {
@@ -634,6 +745,56 @@ export class TextChatService {
         cacheWriteMicroRubPerMillion: price.cacheWriteMicroRubPerMillion,
       },
     };
+  }
+
+  private async persistDurableUsage(input: {
+    aiRequestId: string;
+    outputText: string | null;
+    usage: Extract<ProviderStreamEvent, { type: "usage" }>["usage"];
+    providerActualCostMicroRub: bigint;
+  }): Promise<void> {
+    await this.prisma.aiRequest.update({
+      where: { id: input.aiRequestId },
+      data: {
+        providerActualCostMicroRub: input.providerActualCostMicroRub,
+        actualInputTokens: numberTokens(input.usage.inputTokens),
+        actualOutputTokens: numberTokens(input.usage.outputTokens),
+        reasoningTokens: numberTokens(input.usage.reasoningTokens),
+        cacheReadTokens: numberTokens(input.usage.cacheReadTokens),
+        cacheWriteTokens: numberTokens(input.usage.cacheWriteTokens),
+        outputText: input.outputText,
+      },
+    });
+  }
+
+  private async markFundedBoundViolation(input: {
+    aiRequestId: string;
+    reservationId: string;
+    assistantText: string;
+    usage: Extract<ProviderStreamEvent, { type: "usage" }>["usage"];
+    providerActualCostMicroRub: bigint;
+    estimatedInputTokens: number;
+    maxOutputTokens: number;
+    estimatedCostMicroRub: bigint;
+  }): Promise<void> {
+    await this.prisma.aiRequest.update({
+      where: { id: input.aiRequestId },
+      data: {
+        status: "RECONCILIATION_REQUIRED",
+        financialStatus: "RECONCILIATION_HOLD",
+        finishedAt: new Date(),
+      },
+    });
+    this.logger.error({
+      event: "ai_provider_boundedness_violation",
+      aiRequestId: input.aiRequestId,
+      reservationId: input.reservationId,
+      estimatedInputTokens: input.estimatedInputTokens,
+      maxOutputTokens: input.maxOutputTokens,
+      estimatedCostMicroRub: input.estimatedCostMicroRub.toString(10),
+      providerActualCostMicroRub:
+        input.providerActualCostMicroRub.toString(10),
+    });
   }
 
   private async handleProviderFailure(input: {
@@ -730,6 +891,7 @@ interface ResolvedModel {
   id: string;
   provider: string;
   providerModelId: string;
+  contextWindowTokens: number;
   maxOutputTokens: number;
   priceVersionId: string;
   price: PriceVersionQuote;

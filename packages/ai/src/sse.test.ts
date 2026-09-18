@@ -51,6 +51,40 @@ describe("OpenAiCompatSseParser", () => {
     ]);
   });
 
+  it("parses streamed tool-call deltas", () => {
+    const parser = new OpenAiCompatSseParser();
+    const payload = {
+      choices: [
+        {
+          delta: {
+            tool_calls: [
+              {
+                index: 0,
+                id: "call-1",
+                function: {
+                  name: "github.readFile",
+                  arguments: JSON.stringify({ path: "README.md" }),
+                },
+              },
+            ],
+          },
+        },
+      ],
+    };
+    const events = parser.push(
+      encoder.encode(`data: ${JSON.stringify(payload)}\n\n`),
+    );
+    expect(events).toEqual([
+      {
+        type: "tool_call_delta",
+        index: 0,
+        id: "call-1",
+        name: "github.readFile",
+        argumentsDelta: '{"path":"README.md"}',
+      },
+    ]);
+  });
+
   it("does not throw on empty choices", () => {
     const parser = new OpenAiCompatSseParser();
     expect(() => parser.push(encoder.encode('data: {"choices":[]}\n\n'))).not.toThrow();

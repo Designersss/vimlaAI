@@ -162,6 +162,8 @@ export type InvocationStatus =
   | "READY"
   | "RUNNING"
   | "WAITING_APPROVAL"
+  | "WAITING_FOR_USAGE_CAPACITY"
+  | "BLOCKED_INSUFFICIENT_USAGE"
   | "COMPLETED"
   | "FAILED"
   | "SKIPPED"

@@ -1,4 +1,11 @@
-import type { AiProvider, NormalizedUsage, ProviderChatRequest, ProviderChatResult, ProviderStreamEvent } from "./types.js";
+import type {
+  AiProvider,
+  NormalizedUsage,
+  ProviderChatRequest,
+  ProviderChatResult,
+  ProviderStreamEvent,
+  ProviderToolCall,
+} from "./types.js";
 import { ProviderCallError } from "./types.js";
 import { isOperatorPlannerPrompt, mockOperatorPlannerResponse } from "./mock-operator-plan.js";
 
@@ -8,12 +15,15 @@ export type MockProviderScenario =
   | "expensive"
   | "reject"
   | "balance"
-  | "ambiguous";
+  | "ambiguous"
+  | "usage-then-ambiguous";
 
 export class MockAiProvider implements AiProvider {
   readonly id = "mock";
   callCount = 0;
   lastRequest: ProviderChatRequest | null = null;
+  requests: ProviderChatRequest[] = [];
+  toolCallQueue: ProviderToolCall[][] = [];
   scenario: MockProviderScenario = "success";
   usage: NormalizedUsage = {
     inputTokens: 18n,
@@ -29,14 +39,13 @@ export class MockAiProvider implements AiProvider {
   async streamChat(request: ProviderChatRequest): Promise<ProviderChatResult> {
     this.callCount += 1;
     this.lastRequest = request;
+    this.requests.push(request);
     const replyText =
       isOperatorPlannerPrompt(request.messages) && this.scenario === "success"
         ? mockOperatorPlannerResponse(request.messages)
         : this.text;
     if (this.delayMs > 0) {
-      await new Promise((resolve) => {
-        setTimeout(resolve, this.delayMs);
-      });
+      await abortableDelay(this.delayMs, request.abortSignal);
     }
 
     if (this.scenario === "reject") {
@@ -60,12 +69,31 @@ export class MockAiProvider implements AiProvider {
     const includeUsage = this.scenario !== "missing-usage";
     const text = replyText;
     const split = this.splitDeltas;
+    const toolCalls = this.toolCallQueue.shift() ?? [];
 
     return {
-      providerRequestId: "mock-provider-request",
-      events: emitMockEvents(text, usage, includeUsage, split),
+      providerRequestId: `mock-provider-request-${this.callCount}`,
+      events:
+        this.scenario === "usage-then-ambiguous"
+          ? emitUsageThenAmbiguous(text, usage)
+          : emitMockEvents(text, usage, includeUsage, split, toolCalls),
     };
   }
+}
+
+async function* emitUsageThenAmbiguous(
+  text: string,
+  usage: NormalizedUsage,
+): AsyncIterable<ProviderStreamEvent> {
+  if (text.length > 0) {
+    yield { type: "delta", text };
+  }
+  yield { type: "usage", usage };
+  throw new ProviderCallError(
+    "ambiguous",
+    "Mock provider interrupted after durable usage",
+    504,
+  );
 }
 
 async function* emitMockEvents(
@@ -73,8 +101,19 @@ async function* emitMockEvents(
   usage: NormalizedUsage,
   includeUsage: boolean,
   split: boolean,
+  toolCalls: readonly ProviderToolCall[],
 ): AsyncIterable<ProviderStreamEvent> {
-  if (split && text.length > 1) {
+  if (toolCalls.length > 0) {
+    for (const [index, call] of toolCalls.entries()) {
+      yield {
+        type: "tool_call_delta",
+        index,
+        id: call.id,
+        name: call.name,
+        argumentsDelta: JSON.stringify(call.arguments),
+      };
+    }
+  } else if (split && text.length > 1) {
     const mid = Math.ceil(text.length / 2);
     yield { type: "delta", text: text.slice(0, mid) };
     yield { type: "delta", text: text.slice(mid) };
@@ -87,4 +126,26 @@ async function* emitMockEvents(
   }
 
   yield { type: "done" };
+}
+
+
+async function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
+  if (!signal) {
+    await new Promise((resolve) => setTimeout(resolve, ms));
+    return;
+  }
+  if (signal.aborted) {
+    throw new DOMException("Provider call aborted", "AbortError");
+  }
+  await new Promise<void>((resolve, reject) => {
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new DOMException("Provider call aborted", "AbortError"));
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
 }

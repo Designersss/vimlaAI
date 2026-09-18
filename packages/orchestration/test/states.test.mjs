@@ -31,6 +31,8 @@ test("keeps invocation readiness, approval and terminal states distinct", () => 
     "READY",
     "RUNNING",
     "WAITING_APPROVAL",
+    "WAITING_FOR_USAGE_CAPACITY",
+    "BLOCKED_INSUFFICIENT_USAGE",
     "COMPLETED",
     "FAILED",
     "SKIPPED",
@@ -40,6 +42,8 @@ test("keeps invocation readiness, approval and terminal states distinct", () => 
   assert.equal(isTerminalInvocationStatus("READY"), false);
   assert.equal(isTerminalInvocationStatus("RUNNING"), false);
   assert.equal(isTerminalInvocationStatus("WAITING_APPROVAL"), false);
+  assert.equal(isTerminalInvocationStatus("WAITING_FOR_USAGE_CAPACITY"), false);
+  assert.equal(isTerminalInvocationStatus("BLOCKED_INSUFFICIENT_USAGE"), false);
   assert.equal(isTerminalInvocationStatus("COMPLETED"), true);
   assert.equal(isTerminalInvocationStatus("FAILED"), true);
   assert.equal(isTerminalInvocationStatus("SKIPPED"), true);

@@ -73,8 +73,18 @@ export function estimateReservationMicroRub(input: {
   price: PriceVersionQuote;
   safetyBps: bigint;
 }): MicroRub {
+  const cacheReadPrice = input.price.cacheReadMicroRubPerMillion ?? 0n;
+  const cacheWritePrice = input.price.cacheWriteMicroRubPerMillion ?? 0n;
+  const baseInputPrice =
+    input.price.inputMicroRubPerMillion > cacheReadPrice
+      ? input.price.inputMicroRubPerMillion
+      : cacheReadPrice;
+
+  // Cache-write accounting can be additive to ordinary/cached input accounting.
+  // Reserve the conservative upper bound for every estimated input token.
+  const worstCaseInputPrice = baseInputPrice + cacheWritePrice;
   const raw =
-    tokenCostMicroRub(input.estimatedInputTokens, input.price.inputMicroRubPerMillion) +
+    tokenCostMicroRub(input.estimatedInputTokens, worstCaseInputPrice) +
     tokenCostMicroRub(input.maxOutputTokens, input.price.outputMicroRubPerMillion);
   const reserved = applySafetyMargin(raw, input.safetyBps);
   return reserved < 1n ? 1n : reserved;

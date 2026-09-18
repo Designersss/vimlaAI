@@ -137,6 +137,7 @@ export class BillingEngine {
 
           this.logger.info(
             {
+              event: "ai_reservation_created",
               operation: "reserveUsage",
               userId: input.userId,
               reservationId: reservation.id,
@@ -265,6 +266,7 @@ export class BillingEngine {
               anomaly = true;
               this.logger.error(
                 {
+                  event: "ai_cost_anomaly",
                   operation: "settleUsage",
                   userId: input.userId,
                   reservationId: reservation.id,
@@ -346,9 +348,11 @@ export class BillingEngine {
 
           this.logger.info(
             {
+              event: "ai_usage_settled",
               operation: "settleUsage",
               userId: input.userId,
               reservationId: reservation.id,
+              estimatedMicroRub: microRubToJson(reservation.estimatedMicroRub),
               amountMicroRub: microRubToJson(actual),
               result: nextStatus.toLowerCase(),
             },
@@ -439,6 +443,7 @@ export class BillingEngine {
 
           this.logger.info(
             {
+              event: "ai_reservation_released",
               operation: "releaseUsage",
               userId: input.userId,
               reservationId: reservation.id,
@@ -895,6 +900,45 @@ export class BillingEngine {
       monthly: summarizeBuckets(buckets.filter((bucket) => bucket.type === "MONTHLY")),
       topup: summarizeBuckets(buckets.filter((bucket) => bucket.type === "TOPUP")),
     };
+  }
+
+  async getSpendableUsageState(userId: string): Promise<{
+    availableMicroRub: MicroRub;
+    activeReservedMicroRub: MicroRub;
+  }> {
+    const now = new Date();
+    const buckets = await this.prisma.usageBucket.findMany({
+      where: {
+        userId,
+        OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+      },
+      select: {
+        totalMicroRub: true,
+        spentMicroRub: true,
+        reservedMicroRub: true,
+      },
+    });
+
+    return {
+      availableMicroRub: buckets.reduce(
+        (sum, bucket) =>
+          sum +
+          availableMicroRub(
+            bucket.totalMicroRub,
+            bucket.spentMicroRub,
+            bucket.reservedMicroRub,
+          ),
+        0n,
+      ),
+      activeReservedMicroRub: buckets.reduce(
+        (sum, bucket) => sum + bucket.reservedMicroRub,
+        0n,
+      ),
+    };
+  }
+
+  async getSpendableUsageMicroRub(userId: string): Promise<MicroRub> {
+    return (await this.getSpendableUsageState(userId)).availableMicroRub;
   }
 
   async getActiveSubscription(userId: string): Promise<ActiveSubscriptionView | null> {
@@ -1562,14 +1606,13 @@ function summarizeBuckets(
   const spent = buckets.reduce((sum, bucket) => sum + bucket.spentMicroRub, 0n);
   const reserved = buckets.reduce((sum, bucket) => sum + bucket.reservedMicroRub, 0n);
   const remaining = availableMicroRub(total, spent, reserved);
-  const committed = spent + reserved;
 
   return {
     totalMicroRub: total,
     spentMicroRub: spent,
     reservedMicroRub: reserved,
     remainingMicroRub: remaining,
-    usedPercent: usedPercentFloor(committed, total),
+    usedPercent: usedPercentFloor(spent, total),
   };
 }
 

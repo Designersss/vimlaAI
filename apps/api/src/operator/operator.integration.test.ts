@@ -93,6 +93,22 @@ describe("operator API", () => {
     expect(JSON.stringify(body)).not.toMatch(/inputJson|plannerOutput|userId/);
     expect(JSON.stringify(body)).not.toMatch(/VIMLA_OPERATOR_PLANNER/);
 
+    const prisma = createPrismaClient(testDatabaseUrl);
+    expect(
+      await prisma.aiRequest.count({ where: { userId: user.id } }),
+    ).toBe(0);
+    const operatorRun = await prisma.operatorRun.findUniqueOrThrow({
+      where: { id: body.id },
+      select: { plannerAiRequestId: true },
+    });
+    expect(operatorRun.plannerAiRequestId).toBeNull();
+    const usage = await prisma.usageBucket.aggregate({
+      where: { userId: user.id },
+      _sum: { spentMicroRub: true },
+    });
+    expect(usage._sum.spentMicroRub ?? 0n).toBe(0n);
+    await prisma.$disconnect();
+
     const listed = await app.inject({
       method: "GET",
       url: "/v1/conversations",

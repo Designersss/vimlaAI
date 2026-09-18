@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { MICRORUB_PER_RUB } from "@vimla/billing";
-import { applySafetyMargin, providerCostFromUsage, tokenCostMicroRub } from "./cost.js";
+import {
+  applySafetyMargin,
+  estimateReservationMicroRub,
+  providerCostFromUsage,
+  tokenCostMicroRub,
+} from "./cost.js";
 import { normalizeProviderUsage } from "./usage.js";
 
 describe("tokenCostMicroRub", () => {
@@ -39,6 +44,34 @@ describe("providerCostFromUsage", () => {
       tokenCostMicroRub(40n, price.cacheReadMicroRubPerMillion ?? 0n) +
       tokenCostMicroRub(5n, price.cacheWriteMicroRubPerMillion ?? 0n);
     expect(cost).toBe(expected);
+  });
+});
+
+describe("estimateReservationMicroRub", () => {
+  it("covers worst-case cache-aware input accounting", () => {
+    const price = {
+      inputMicroRubPerMillion: 60n * MICRORUB_PER_RUB,
+      outputMicroRubPerMillion: 360n * MICRORUB_PER_RUB,
+      cacheReadMicroRubPerMillion: 6n * MICRORUB_PER_RUB,
+      cacheWriteMicroRubPerMillion: 75n * MICRORUB_PER_RUB,
+    };
+    const estimate = estimateReservationMicroRub({
+      estimatedInputTokens: 100n,
+      maxOutputTokens: 50n,
+      price,
+      safetyBps: 0n,
+    });
+    const actual = providerCostFromUsage(
+      normalizeProviderUsage({
+        inputTokens: 100n,
+        outputTokens: 50n,
+        cacheReadTokens: 0n,
+        cacheWriteTokens: 100n,
+      }),
+      price,
+    );
+
+    expect(estimate).toBeGreaterThanOrEqual(actual);
   });
 });
 

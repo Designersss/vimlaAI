@@ -65,7 +65,7 @@ export async function seedVimlaAiModels(prisma: PrismaClient): Promise<void> {
         outputMicroRubPerMillion: entry.outputMicroRubPerMillion,
         cacheReadMicroRubPerMillion: entry.cacheReadMicroRubPerMillion,
         cacheWriteMicroRubPerMillion: entry.cacheWriteMicroRubPerMillion,
-        effectiveFrom: entry.verifiedAt,
+        effectiveFrom: current ? now : entry.verifiedAt,
         effectiveTo: null,
         verifiedAt: entry.verifiedAt,
         source: entry.source,

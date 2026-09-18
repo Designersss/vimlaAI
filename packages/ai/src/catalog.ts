@@ -1,5 +1,7 @@
 import { MICRORUB_PER_RUB, type MicroRub } from "@vimla/billing";
 
+export type ProviderBillingBoundedness = "HARD_BOUNDED" | "SOFT_BOUNDED";
+
 export interface CuratedModelSeed {
   slug: string;
   displayName: string;
@@ -12,12 +14,15 @@ export interface CuratedModelSeed {
   outputMicroRubPerMillion: MicroRub;
   cacheReadMicroRubPerMillion: MicroRub | null;
   cacheWriteMicroRubPerMillion: MicroRub | null;
+  billingBoundedness: ProviderBillingBoundedness;
+  supportsToolUse: boolean;
+  autoPriority: number;
   verifiedAt: Date;
   source: string;
 }
 
-const PRICE_VERIFIED_AT = new Date("2026-09-07T00:00:00.000Z");
-const PRICE_SOURCE = "proxyapi-manual-2026-09-07";
+const PRICE_VERIFIED_AT = new Date("2026-09-18T00:00:00.000Z");
+const PRICE_SOURCE = "proxyapi-docs-2026-09-18";
 
 function price(rubPerMillion: bigint): MicroRub {
   return rubPerMillion * MICRORUB_PER_RUB;
@@ -36,6 +41,9 @@ export const VIMLA_AI_MODEL_CATALOG: readonly CuratedModelSeed[] = [
     outputMicroRubPerMillion: price(360n),
     cacheReadMicroRubPerMillion: price(6n),
     cacheWriteMicroRubPerMillion: price(75n),
+    billingBoundedness: "HARD_BOUNDED",
+    supportsToolUse: true,
+    autoPriority: 20,
     verifiedAt: PRICE_VERIFIED_AT,
     source: PRICE_SOURCE,
   },
@@ -51,6 +59,9 @@ export const VIMLA_AI_MODEL_CATALOG: readonly CuratedModelSeed[] = [
     outputMicroRubPerMillion: price(1474n),
     cacheReadMicroRubPerMillion: price(30n),
     cacheWriteMicroRubPerMillion: price(369n),
+    billingBoundedness: "HARD_BOUNDED",
+    supportsToolUse: true,
+    autoPriority: 10,
     verifiedAt: PRICE_VERIFIED_AT,
     source: PRICE_SOURCE,
   },
@@ -64,8 +75,11 @@ export const VIMLA_AI_MODEL_CATALOG: readonly CuratedModelSeed[] = [
     maxOutputTokens: 16_384,
     inputMicroRubPerMillion: price(91n),
     outputMicroRubPerMillion: price(758n),
-    cacheReadMicroRubPerMillion: null,
+    cacheReadMicroRubPerMillion: price(9n),
     cacheWriteMicroRubPerMillion: null,
+    billingBoundedness: "HARD_BOUNDED",
+    supportsToolUse: false,
+    autoPriority: 30,
     verifiedAt: PRICE_VERIFIED_AT,
     source: PRICE_SOURCE,
   },

@@ -1,7 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { NestFastifyApplication } from "@nestjs/platform-fastify";
-import { seedVimlaAiModels, type MockAiProvider } from "@vimla/ai";
+import {
+  estimateProviderRequestInputTokens,
+  estimateReservationMicroRub,
+  seedVimlaAiModels,
+  type MockAiProvider,
+} from "@vimla/ai";
 import { seedVimlaPlans } from "@vimla/billing";
 import { loadApiConfig } from "@vimla/config/server";
 import { createPrismaClient } from "@vimla/database";
@@ -122,6 +127,94 @@ describe("AI chat integration", () => {
     expect(provider.callCount).toBe(0);
   });
 
+  it("shrinks the provider output cap to the remaining funded allowance", async () => {
+    const user = await registerUser(app, "shrink");
+    const conversation = await createConversation(app, user.cookies);
+    const prisma = createPrismaClient(testDatabaseUrl);
+    const model = await prisma.aiModel.findUniqueOrThrow({
+      where: { slug: "gpt-5-6-luna" },
+      include: {
+        priceVersions: {
+          where: { effectiveTo: null },
+          orderBy: { effectiveFrom: "desc" },
+          take: 1,
+        },
+      },
+    });
+    const price = model.priceVersions[0];
+    if (!price) throw new Error("Expected an active Luna price version");
+
+    const estimatedInputTokens = estimateProviderRequestInputTokens([
+      { role: "user", content: "Hello" },
+    ]);
+    const quote = {
+      inputMicroRubPerMillion: price.inputMicroRubPerMillion,
+      outputMicroRubPerMillion: price.outputMicroRubPerMillion,
+      cacheReadMicroRubPerMillion: price.cacheReadMicroRubPerMillion,
+      cacheWriteMicroRubPerMillion: price.cacheWriteMicroRubPerMillion,
+    };
+    const minimumCost = estimateReservationMicroRub({
+      estimatedInputTokens: BigInt(estimatedInputTokens),
+      maxOutputTokens: 768n,
+      price: quote,
+      safetyBps: 2_000n,
+    });
+    const preferredCost = estimateReservationMicroRub({
+      estimatedInputTokens: BigInt(estimatedInputTokens),
+      maxOutputTokens: 2_048n,
+      price: quote,
+      safetyBps: 2_000n,
+    });
+    const fundedAllowance =
+      minimumCost + (preferredCost - minimumCost) / 2n;
+    expect(fundedAllowance).toBeGreaterThanOrEqual(minimumCost);
+    expect(fundedAllowance).toBeLessThan(preferredCost);
+
+    await prisma.usageBucket.create({
+      data: {
+        userId: user.id,
+        type: "TOPUP",
+        totalMicroRub: fundedAllowance,
+        spentMicroRub: 0n,
+        reservedMicroRub: 0n,
+        expiresAt: null,
+        sourceType: "TEST",
+        sourceId: `chat-shrink:${randomUUID()}`,
+      },
+    });
+    await prisma.$disconnect();
+    const modelId = model.id;
+
+    provider.scenario = "success";
+    provider.callCount = 0;
+    await chat.streamMessage({
+      userId: user.id,
+      conversationId: conversation.id,
+      body: { clientRequestId: randomUUID(), modelId, content: "Hello" },
+      correlationId: randomUUID(),
+      sink: collectingSink([]),
+    });
+
+    const check = createPrismaClient(testDatabaseUrl);
+    const request = await check.aiRequest.findFirstOrThrow({
+      where: { userId: user.id },
+      orderBy: { createdAt: "desc" },
+      include: { reservation: true },
+    });
+    expect(request.maxOutputTokens).toBeGreaterThanOrEqual(768);
+    expect(request.maxOutputTokens).toBeLessThan(2_048);
+    expect(request.estimatedCostMicroRub).toBeLessThanOrEqual(
+      fundedAllowance,
+    );
+    expect(request.reservation?.estimatedMicroRub).toBe(
+      request.estimatedCostMicroRub,
+    );
+    expect(provider.lastRequest?.maxOutputTokens).toBe(
+      request.maxOutputTokens,
+    );
+    await check.$disconnect();
+  });
+
   it("reserves, streams, settles, and persists the assistant message", async () => {
     const user = await registerUser(app, "ok");
     await purchasePro(app, user.cookies);
@@ -234,6 +327,41 @@ describe("AI chat integration", () => {
     provider.scenario = "success";
   });
 
+  it("settles known usage after an interrupted provider stream without succeeding semantically", async () => {
+    const user = await registerUser(app, "usage-interrupt");
+    await purchasePro(app, user.cookies);
+    const conversation = await createConversation(app, user.cookies);
+    const modelId = await firstModelId(app, user.cookies);
+    provider.scenario = "usage-then-ambiguous";
+
+    await expect(
+      chat.streamMessage({
+        userId: user.id,
+        conversationId: conversation.id,
+        body: { clientRequestId: randomUUID(), modelId, content: "Hello" },
+        correlationId: randomUUID(),
+        sink: collectingSink([]),
+      }),
+    ).rejects.toMatchObject({ code: "PROVIDER_AMBIGUOUS_FAILURE" });
+
+    const prisma = createPrismaClient(testDatabaseUrl);
+    const request = await prisma.aiRequest.findFirstOrThrow({
+      where: { userId: user.id },
+      orderBy: { createdAt: "desc" },
+      include: { reservation: true },
+    });
+    expect(request.status).toBe("FAILED");
+    expect(request.financialStatus).toBe("SETTLED");
+    expect(request.providerActualCostMicroRub).not.toBeNull();
+    expect(request.userSettledUsageMicroRub).toBe(
+      request.providerActualCostMicroRub,
+    );
+    expect(request.reservation?.status).toBe("SETTLED");
+    expect(request.outputText).toBeNull();
+    await prisma.$disconnect();
+    provider.scenario = "success";
+  });
+
   it("continues settlement after the client disconnects", async () => {
     const user = await registerUser(app, "disc");
     await purchasePro(app, user.cookies);
@@ -264,34 +392,46 @@ describe("AI chat integration", () => {
     await prisma.$disconnect();
   });
 
-  it("keeps full provider COGS when actual exceeds the reservation", async () => {
+  it("holds a provider boundedness violation instead of topping up after the call", async () => {
     const user = await registerUser(app, "anom");
     await purchasePro(app, user.cookies);
     const conversation = await createConversation(app, user.cookies);
     const modelId = await firstModelId(app, user.cookies);
     provider.scenario = "expensive";
-    await chat.streamMessage({
-      userId: user.id,
-      conversationId: conversation.id,
-      body: { clientRequestId: randomUUID(), modelId, content: "Hello" },
-      correlationId: randomUUID(),
-      sink: collectingSink([]),
-    });
+
+    await expect(
+      chat.streamMessage({
+        userId: user.id,
+        conversationId: conversation.id,
+        body: { clientRequestId: randomUUID(), modelId, content: "Hello" },
+        correlationId: randomUUID(),
+        sink: collectingSink([]),
+      }),
+    ).rejects.toMatchObject({ code: "AI_RECONCILIATION_REQUIRED" });
+
     const prisma = createPrismaClient(testDatabaseUrl);
     const request = await prisma.aiRequest.findFirstOrThrow({
       where: { userId: user.id },
       orderBy: { createdAt: "desc" },
+      include: { reservation: true },
     });
+    expect(request.status).toBe("RECONCILIATION_REQUIRED");
+    expect(request.financialStatus).toBe("RECONCILIATION_HOLD");
     expect(request.providerActualCostMicroRub).not.toBeNull();
-    expect(request.userSettledUsageMicroRub).not.toBeNull();
     expect(request.providerActualCostMicroRub ?? 0n).toBeGreaterThan(
-      request.userSettledUsageMicroRub ?? 0n,
+      request.estimatedCostMicroRub,
     );
-    expect(request.financialStatus).toBe("ANOMALY");
-    const buckets = await prisma.usageBucket.findMany({ where: { userId: user.id } });
+    expect(request.userSettledUsageMicroRub).toBeNull();
+    expect(request.reservation?.status).toBe("ACTIVE");
+
+    const buckets = await prisma.usageBucket.findMany({
+      where: { userId: user.id },
+    });
     for (const bucket of buckets) {
-      expect(bucket.spentMicroRub + bucket.reservedMicroRub <= bucket.totalMicroRub).toBe(true);
-      expect(bucket.spentMicroRub >= 0n).toBe(true);
+      expect(bucket.spentMicroRub).toBe(0n);
+      expect(
+        bucket.spentMicroRub + bucket.reservedMicroRub,
+      ).toBeLessThanOrEqual(bucket.totalMicroRub);
     }
     await prisma.$disconnect();
     provider.scenario = "success";

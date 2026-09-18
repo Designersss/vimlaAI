@@ -1,15 +1,31 @@
 import type { MicroRub } from "@vimla/billing";
 
-export type ProviderChatRole = "user" | "assistant";
+export type ProviderChatRole = "user" | "assistant" | "tool";
+
+export interface ProviderToolCall {
+  id: string;
+  name: string;
+  arguments: Record<string, unknown>;
+}
+
+export interface ProviderToolDefinition {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+}
 
 export interface ProviderChatMessage {
   role: ProviderChatRole;
   content: string;
+  toolCallId?: string;
+  toolName?: string;
+  toolCalls?: readonly ProviderToolCall[];
 }
 
 export interface ProviderChatRequest {
   providerModelId: string;
   messages: readonly ProviderChatMessage[];
+  tools?: readonly ProviderToolDefinition[];
   maxOutputTokens: number;
   correlationId: string;
   abortSignal?: AbortSignal;
@@ -25,6 +41,13 @@ export interface NormalizedUsage {
 
 export type ProviderStreamEvent =
   | { type: "delta"; text: string }
+  | {
+      type: "tool_call_delta";
+      index: number;
+      id?: string;
+      name?: string;
+      argumentsDelta: string;
+    }
   | { type: "usage"; usage: NormalizedUsage }
   | { type: "done" };
 

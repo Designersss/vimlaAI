@@ -34,6 +34,14 @@ export function normalizeProviderUsage(input: {
     );
   }
 
+  if (usage.cacheWriteTokens > usage.inputTokens) {
+    throw new AiError(
+      "PROVIDER_USAGE_INVALID",
+      "cacheWriteTokens cannot exceed inputTokens",
+      500,
+    );
+  }
+
   if (usage.reasoningTokens > usage.outputTokens) {
     throw new AiError(
       "PROVIDER_USAGE_INVALID",

@@ -1,4 +1,6 @@
-import type { PrismaClient } from "@vimla/database";
+import { type Prisma, type PrismaClient } from "@vimla/database";
+
+type SeedFinanceClient = PrismaClient | Prisma.TransactionClient;
 import { encodeEntitlement, type EntitlementValue, type PlanEntitlementRecord } from "./entitlements.js";
 import { FREE_PLAN_CODE } from "./effective-plan.js";
 import { rubToMicroRub } from "./money.js";
@@ -57,7 +59,7 @@ const TARGET_TIER_DRAFTS: DraftTier[] = [
 ];
 
 export async function seedFinanceFoundation(
-  prisma: PrismaClient,
+  prisma: SeedFinanceClient,
   now = new Date(),
 ): Promise<void> {
   await seedFreePlan(prisma, now);
@@ -65,7 +67,7 @@ export async function seedFinanceFoundation(
   await seedTopupPolicy(prisma, now);
 }
 
-async function seedFreePlan(prisma: PrismaClient, now: Date): Promise<void> {
+async function seedFreePlan(prisma: SeedFinanceClient, now: Date): Promise<void> {
   const plan = await prisma.plan.upsert({
     where: { code: FREE_PLAN_CODE },
     update: { name: "Free", active: true },
@@ -125,7 +127,7 @@ async function seedFreePlan(prisma: PrismaClient, now: Date): Promise<void> {
   });
 }
 
-async function seedDraftTiers(prisma: PrismaClient, now: Date): Promise<void> {
+async function seedDraftTiers(prisma: SeedFinanceClient, now: Date): Promise<void> {
   for (const tier of TARGET_TIER_DRAFTS) {
     const plan = await prisma.plan.upsert({
       where: { code: tier.code },
@@ -169,7 +171,7 @@ async function seedDraftTiers(prisma: PrismaClient, now: Date): Promise<void> {
   }
 }
 
-async function seedTopupPolicy(prisma: PrismaClient, now: Date): Promise<void> {
+async function seedTopupPolicy(prisma: SeedFinanceClient, now: Date): Promise<void> {
   const published = await prisma.topupPolicyVersion.findFirst({
     where: { status: "PUBLISHED" },
     orderBy: { effectiveFrom: "desc" },
@@ -183,7 +185,7 @@ async function seedTopupPolicy(prisma: PrismaClient, now: Date): Promise<void> {
 }
 
 export async function republishBootstrapTopupPolicy(
-  prisma: PrismaClient,
+  prisma: SeedFinanceClient,
   now = new Date(),
 ): Promise<void> {
   await prisma.topupPolicyVersion.updateMany({
@@ -208,21 +210,38 @@ function bootstrapTopupPolicyData(now: Date) {
 }
 
 async function replaceEntitlements(
-  prisma: PrismaClient,
+  prisma: SeedFinanceClient,
   planVersionId: string,
   entitlements: PlanEntitlementRecord[],
 ): Promise<void> {
-  await prisma.planEntitlement.deleteMany({ where: { planVersionId } });
+  const keys = entitlements.map((entitlement) => entitlement.key);
+  await prisma.planEntitlement.deleteMany({
+    where: {
+      planVersionId,
+      key: { notIn: keys },
+    },
+  });
+
   for (const entitlement of entitlements) {
     const encoded = encodeEntitlement(entitlement.value);
-    await prisma.planEntitlement.create({
-      data: {
+    const values = {
+      valueKind: encoded.valueKind,
+      unlimited: encoded.unlimited,
+      intValue: encoded.intValue,
+      boolValue: encoded.boolValue,
+    };
+    await prisma.planEntitlement.upsert({
+      where: {
+        planVersionId_key: {
+          planVersionId,
+          key: entitlement.key,
+        },
+      },
+      update: values,
+      create: {
         planVersionId,
         key: entitlement.key,
-        valueKind: encoded.valueKind,
-        unlimited: encoded.unlimited,
-        intValue: encoded.intValue,
-        boolValue: encoded.boolValue,
+        ...values,
       },
     });
   }

@@ -76,6 +76,7 @@ function eventsFromPayload(payload: unknown): ProviderStreamEvent[] {
   if (text.length > 0) {
     events.push({ type: "delta", text });
   }
+  events.push(...readToolCallDeltas(payload));
 
   try {
     const usage = readOpenAiUsage(payload);
@@ -116,6 +117,49 @@ function readDeltaText(payload: unknown): string {
   }
 
   return "";
+}
+
+function readToolCallDeltas(payload: unknown): ProviderStreamEvent[] {
+  if (typeof payload !== "object" || payload === null || !("choices" in payload)) {
+    return [];
+  }
+  const choices = payload.choices;
+  if (!Array.isArray(choices) || choices.length === 0) return [];
+  const first = choices[0];
+  if (typeof first !== "object" || first === null) return [];
+  const delta = (first as Record<string, unknown>).delta;
+  if (typeof delta !== "object" || delta === null) return [];
+  const toolCalls = (delta as Record<string, unknown>).tool_calls;
+  if (!Array.isArray(toolCalls)) return [];
+
+  const events: ProviderStreamEvent[] = [];
+  for (const item of toolCalls) {
+    if (typeof item !== "object" || item === null) {
+      throw new SyntaxError("Malformed provider tool-call payload");
+    }
+    const record = item as Record<string, unknown>;
+    const index = record.index;
+    if (typeof index !== "number" || !Number.isInteger(index) || index < 0) {
+      throw new SyntaxError("Malformed provider tool-call index");
+    }
+    const fn = record.function;
+    const fnRecord =
+      typeof fn === "object" && fn !== null
+        ? (fn as Record<string, unknown>)
+        : {};
+    const id = typeof record.id === "string" ? record.id : undefined;
+    const name = typeof fnRecord.name === "string" ? fnRecord.name : undefined;
+    const argumentsDelta =
+      typeof fnRecord.arguments === "string" ? fnRecord.arguments : "";
+    events.push({
+      type: "tool_call_delta",
+      index,
+      ...(id ? { id } : {}),
+      ...(name ? { name } : {}),
+      argumentsDelta,
+    });
+  }
+  return events;
 }
 
 function asText(value: unknown): string {

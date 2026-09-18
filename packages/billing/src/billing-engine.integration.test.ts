@@ -33,6 +33,32 @@ describe("billing engine integration", () => {
     await prisma.$disconnect();
   });
 
+  it("seeds plans safely under concurrent integration bootstrap", async () => {
+    await Promise.all(
+      Array.from({ length: 8 }, () => seedVimlaPlans(prisma)),
+    );
+
+    const draftPlans = await prisma.planVersion.findMany({
+      where: {
+        plan: { code: { in: ["T199", "T499", "T999"] } },
+        status: "DRAFT",
+      },
+      select: {
+        id: true,
+        entitlements: {
+          select: { key: true },
+        },
+      },
+    });
+
+    expect(draftPlans).toHaveLength(3);
+    for (const version of draftPlans) {
+      const keys = version.entitlements.map((entitlement) => entitlement.key);
+      expect(new Set(keys).size).toBe(keys.length);
+      expect(keys).toContain("projects.ownedActiveMax");
+    }
+  });
+
   it("grants Pro monthly usage from a succeeded payment once", async () => {
     const userId = await createUser(prisma, "pro");
     const payment = await purchaseSubscription(engine, userId, "PRO");
@@ -79,6 +105,10 @@ describe("billing engine integration", () => {
     });
     expect(reserved.status).toBe("ACTIVE");
     await expectSnapshot(prisma, userId, { spent: 0n, reserved: 30n, remaining: 70n });
+    const reservedSnapshot = await engine.getUsageSnapshot(userId);
+    expect(reservedSnapshot.monthly.usedPercent).toBe(0);
+    expect(reservedSnapshot.monthly.reservedMicroRub).toBe(rubToMicroRub(30n));
+    expect(reservedSnapshot.monthly.remainingMicroRub).toBe(rubToMicroRub(70n));
 
     await engine.settleUsage({
       userId,
@@ -86,6 +116,8 @@ describe("billing engine integration", () => {
       actualMicroRub: rubToMicroRub(10n),
     });
     await expectSnapshot(prisma, userId, { spent: 10n, reserved: 0n, remaining: 90n });
+    const settledSnapshot = await engine.getUsageSnapshot(userId);
+    expect(settledSnapshot.monthly.usedPercent).toBe(10);
   });
 
   it("releases unused reservation after a simulated provider failure", async () => {
@@ -115,6 +147,30 @@ describe("billing engine integration", () => {
     });
     expect(settled.status).toBe("SETTLED");
     await expectSnapshot(prisma, userId, { spent: 10n, reserved: 0n, remaining: 90n });
+  });
+
+  it("settles exactly at the funded reservation without anomaly or extra allocation", async () => {
+    const userId = await createUser(prisma, "exact");
+    await grantBucket(prisma, userId, "MONTHLY", rubToMicroRub(100n), future());
+
+    const reserved = await engine.reserveUsage({
+      userId,
+      requestId: randomUUID(),
+      estimatedProviderCostMicroRub: rubToMicroRub(30n),
+    });
+    const settled = await engine.settleUsage({
+      userId,
+      reservationId: reserved.id,
+      actualMicroRub: rubToMicroRub(30n),
+    });
+
+    expect(settled.status).toBe("SETTLED");
+    expect(settled.settledMicroRub).toBe(rubToMicroRub(30n));
+    await expectSnapshot(prisma, userId, {
+      spent: 30n,
+      reserved: 0n,
+      remaining: 70n,
+    });
   });
 
   it("can release a reservation after the monthly bucket expires", async () => {
@@ -206,6 +262,40 @@ describe("billing engine integration", () => {
     expect(reserved.allocations).toHaveLength(1);
   });
 
+  it("reports only currently spendable usage for AI admission control", async () => {
+    const userId = await createUser(prisma, "spendable");
+    await grantBucket(
+      prisma,
+      userId,
+      "MONTHLY",
+      rubToMicroRub(50n),
+      new Date("2020-01-01"),
+    );
+    const active = await grantBucket(
+      prisma,
+      userId,
+      "MONTHLY",
+      rubToMicroRub(100n),
+      future(),
+    );
+    await grantBucket(prisma, userId, "TOPUP", rubToMicroRub(10n), null);
+    await prisma.usageBucket.update({
+      where: { id: active.id },
+      data: {
+        spentMicroRub: rubToMicroRub(20n),
+        reservedMicroRub: rubToMicroRub(30n),
+      },
+    });
+
+    expect(await engine.getSpendableUsageMicroRub(userId)).toBe(
+      rubToMicroRub(60n),
+    );
+    await expect(engine.getSpendableUsageState(userId)).resolves.toEqual({
+      availableMicroRub: rubToMicroRub(60n),
+      activeReservedMicroRub: rubToMicroRub(30n),
+    });
+  });
+
   it("does not double-settle or double-release", async () => {
     const userId = await createUser(prisma, "idem");
     await grantBucket(prisma, userId, "MONTHLY", rubToMicroRub(40n), future());
@@ -246,6 +336,39 @@ describe("billing engine integration", () => {
     const releasedAgain = await engine.releaseUsage({ userId, reservationId: other.id });
     expect(releasedAgain.status).toBe("RELEASED");
     await expectSnapshot(prisma, userId, { spent: 4n, reserved: 0n, remaining: 36n });
+  });
+
+  it("keeps settle-vs-release races financially single-winner", async () => {
+    const userId = await createUser(prisma, "settle-release-race");
+    await grantBucket(prisma, userId, "MONTHLY", rubToMicroRub(100n), future());
+    const reserved = await engine.reserveUsage({
+      userId,
+      requestId: randomUUID(),
+      estimatedProviderCostMicroRub: rubToMicroRub(30n),
+    });
+
+    const results = await Promise.allSettled([
+      engine.settleUsage({
+        userId,
+        reservationId: reserved.id,
+        actualMicroRub: rubToMicroRub(20n),
+      }),
+      engine.releaseUsage({
+        userId,
+        reservationId: reserved.id,
+      }),
+    ]);
+
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    const final = await prisma.usageReservation.findUniqueOrThrow({
+      where: { id: reserved.id },
+    });
+    expect(["SETTLED", "RELEASED"]).toContain(final.status);
+    const snapshot = await engine.getUsageSnapshot(userId);
+    expect(snapshot.monthly.reservedMicroRub).toBe(0n);
+    expect(snapshot.monthly.spentMicroRub).toBe(
+      final.status === "SETTLED" ? rubToMicroRub(20n) : 0n,
+    );
   });
 
   it("rejects concurrent overspend", async () => {

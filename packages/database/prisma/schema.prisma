@@ -442,6 +442,7 @@ model AiRequest {
   finishedAt                 DateTime?
   messages                   Message[]
   aiExecution                AIExecution?
+  providerTurn               AIProviderTurn?
 
   @@unique([userId, clientRequestId])
   @@index([conversationId, createdAt])
@@ -1355,14 +1356,37 @@ model Evaluation {
 }
 
 model AIExecution {
-  id              String        @id @default(uuid())
-  invocationRunId String        @unique
-  invocationRun   InvocationRun @relation(fields: [invocationRunId], references: [id], onDelete: Restrict)
-  aiRequestId     String        @unique
-  aiRequest       AiRequest     @relation(fields: [aiRequestId], references: [id], onDelete: Restrict)
-  createdAt       DateTime      @default(now())
+  id              String           @id @default(uuid())
+  invocationRunId String           @unique
+  invocationRun   InvocationRun    @relation(fields: [invocationRunId], references: [id], onDelete: Restrict)
+  aiRequestId     String           @unique
+  aiRequest       AiRequest        @relation(fields: [aiRequestId], references: [id], onDelete: Restrict)
+  providerTurns   AIProviderTurn[]
+  createdAt       DateTime         @default(now())
 
   @@map("ai_execution")
+}
+
+model AIProviderTurn {
+  id             String      @id @default(uuid())
+  aiExecutionId  String
+  aiExecution    AIExecution @relation(fields: [aiExecutionId], references: [id], onDelete: Restrict)
+  turnIndex      Int
+  aiRequestId    String      @unique
+  aiRequest      AiRequest   @relation(fields: [aiRequestId], references: [id], onDelete: Restrict)
+  idempotencyKey String      @unique
+  status          String
+  toolCallsJson   Json?
+  toolResultsJson      Json?
+  toolCallError        Boolean     @default(false)
+  providerInterrupted  Boolean     @default(false)
+  createdAt            DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  @@unique([aiExecutionId, turnIndex])
+  @@index([aiExecutionId, status])
+  @@index([status, updatedAt])
+  @@map("ai_provider_turn")
 }
 
 model ToolExecution {

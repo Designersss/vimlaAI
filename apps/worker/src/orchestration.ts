@@ -12,6 +12,8 @@ const ACTIVE_INVOCATION_STATUSES = [
   "READY",
   "RUNNING",
   "WAITING_APPROVAL",
+  "WAITING_FOR_USAGE_CAPACITY",
+  "BLOCKED_INSUFFICIENT_USAGE",
 ] as const;
 const TERMINAL_INVOCATION_STATUSES = new Set<InvocationStatus>([
   "COMPLETED",
@@ -25,6 +27,8 @@ export type InvocationStatus =
   | "READY"
   | "RUNNING"
   | "WAITING_APPROVAL"
+  | "WAITING_FOR_USAGE_CAPACITY"
+  | "BLOCKED_INSUFFICIENT_USAGE"
   | "COMPLETED"
   | "FAILED"
   | "SKIPPED"
@@ -88,6 +92,8 @@ export interface InvocationExecutionInput {
 
 export type InvocationExecutionResult =
   | { status: "COMPLETED"; outcome?: string }
+  | { status: "WAITING_FOR_USAGE_CAPACITY"; errorCode: "BILLING_INSUFFICIENT_USAGE" }
+  | { status: "BLOCKED_INSUFFICIENT_USAGE"; errorCode: "BILLING_INSUFFICIENT_USAGE" }
   | { status: "FAILED"; errorCode: string; retryable: boolean };
 
 export interface InvocationExecutorRegistry {
@@ -106,6 +112,8 @@ export interface OrchestrationRuntimeOptions {
   maxAttempts?: number;
   staleAfterMs?: number;
   reconcileBatchSize?: number;
+  usageRecheckBaseMs?: number;
+  usageRecheckMaxMs?: number;
   executorRegistry?: InvocationExecutorRegistry;
 }
 
@@ -130,6 +138,8 @@ export class OrchestrationRuntime {
   private readonly maxAttempts: number;
   private readonly staleAfterMs: number;
   private readonly reconcileBatchSize: number;
+  private readonly usageRecheckBaseMs: number;
+  private readonly usageRecheckMaxMs: number;
   private readonly executorRegistry: InvocationExecutorRegistry;
 
   constructor(
@@ -142,6 +152,11 @@ export class OrchestrationRuntime {
     this.maxAttempts = positiveInteger(options.maxAttempts, 3);
     this.staleAfterMs = positiveInteger(options.staleAfterMs, 60_000);
     this.reconcileBatchSize = positiveInteger(options.reconcileBatchSize, 100);
+    this.usageRecheckBaseMs = positiveInteger(options.usageRecheckBaseMs, 15_000);
+    this.usageRecheckMaxMs = positiveInteger(options.usageRecheckMaxMs, 60_000);
+    if (this.usageRecheckMaxMs < this.usageRecheckBaseMs) {
+      throw new Error("usageRecheckMaxMs must be >= usageRecheckBaseMs");
+    }
     this.executorRegistry = options.executorRegistry ?? new MockInvocationExecutorRegistry();
   }
 
@@ -176,6 +191,42 @@ export class OrchestrationRuntime {
       const dependencies = toRuntimeDependencies(plan);
       const stateById = new Map(invocations.map((invocation) => [invocation.id, invocation.status]));
       const outcomeById = new Map(invocations.map((invocation) => [invocation.id, invocation.latestOutcome]));
+
+      for (const invocation of plan.invocations) {
+        const status = parseInvocationStatus(invocation.status);
+        if (
+          status !== "WAITING_FOR_USAGE_CAPACITY" &&
+          status !== "BLOCKED_INSUFFICIENT_USAGE"
+        ) {
+          continue;
+        }
+        const latestRun = invocation.runs[0];
+        if (!latestRun?.finishedAt) continue;
+        const retryAfterMs = usageBackoffMs(
+          latestRun.attempt,
+          this.usageRecheckBaseMs,
+          this.usageRecheckMaxMs,
+        );
+        const waitDurationMs = Date.now() - latestRun.finishedAt.getTime();
+        if (waitDurationMs < retryAfterMs) continue;
+        const resumed = await tx.invocation.updateMany({
+          where: { id: invocation.id, planId, status },
+          data: { status: "READY" },
+        });
+        if (resumed.count === 1) {
+          stateById.set(invocation.id, "READY");
+          this.logger.info(
+            {
+              event: "ai_usage_capacity_recheck",
+              planId,
+              invocationId: invocation.id,
+              previousStatus: status,
+              waitDurationMs,
+            },
+            "orchestration usage-capacity invocation rechecked",
+          );
+        }
+      }
 
       for (let pass = 0; pass <= invocations.length; pass += 1) {
         let changed = false;
@@ -343,6 +394,25 @@ export class OrchestrationRuntime {
       }
 
       const now = new Date();
+      if (
+        result.status === "WAITING_FOR_USAGE_CAPACITY" ||
+        result.status === "BLOCKED_INSUFFICIENT_USAGE"
+      ) {
+        await tx.invocationRun.update({
+          where: { id: claim.runId },
+          data: {
+            status: result.status,
+            errorCode: result.errorCode,
+            finishedAt: now,
+          },
+        });
+        await tx.invocation.updateMany({
+          where: { id: claim.invocationId, planId: claim.planId, status: "RUNNING" },
+          data: { status: result.status },
+        });
+        return;
+      }
+
       if (result.status === "COMPLETED") {
         await tx.invocationRun.update({
           where: { id: claim.runId },
@@ -622,6 +692,8 @@ function parseInvocationStatus(value: string): InvocationStatus {
     case "READY":
     case "RUNNING":
     case "WAITING_APPROVAL":
+    case "WAITING_FOR_USAGE_CAPACITY":
+    case "BLOCKED_INSUFFICIENT_USAGE":
     case "COMPLETED":
     case "FAILED":
     case "SKIPPED":
@@ -696,6 +768,11 @@ function nonEmptyString(value: unknown, field: string): string {
     throw new Error(`Invalid orchestration queue payload field ${field}`);
   }
   return value;
+}
+
+function usageBackoffMs(attempt: number, baseMs: number, maxMs: number): number {
+  const exponent = Math.max(0, Math.min(attempt - 1, 8));
+  return Math.min(maxMs, baseMs * 2 ** exponent);
 }
 
 function positiveInteger(value: number | undefined, fallback: number): number {

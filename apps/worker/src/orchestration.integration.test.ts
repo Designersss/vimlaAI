@@ -279,6 +279,86 @@ describe("orchestration runtime", () => {
     expect(executor.calls).toHaveLength(1);
   });
 
+  it("keeps usage backpressure non-terminal and only rechecks after bounded backoff", async () => {
+    const seeded = await seedPlan(prisma, [{ key: "paid", status: "READY" }], [], 1);
+    const dispatchQueue = new MemoryQueue();
+    const executionQueue = new MemoryQueue();
+    const executor = new ScriptedExecutor((_input, callNumber) =>
+      callNumber === 1
+        ? {
+            status: "WAITING_FOR_USAGE_CAPACITY",
+            errorCode: "BILLING_INSUFFICIENT_USAGE",
+          }
+        : { status: "COMPLETED" },
+    );
+    const runtime = new OrchestrationRuntime(prisma, dispatchQueue, executionQueue, logger, {
+      executorRegistry: executor,
+      usageRecheckBaseMs: 1,
+      usageRecheckMaxMs: 1,
+    });
+
+    await runtime.dispatchPlan(seeded.planId);
+    const firstJob = executionQueue.take(INVOCATION_EXECUTE_JOB_NAME);
+    await runtime.processInvocation(firstJob.data.planId ?? "", firstJob.data.invocationId ?? "");
+
+    const paused = await prisma.invocation.findUniqueOrThrow({
+      where: { id: seeded.invocationIds.paid },
+      select: { status: true },
+    });
+    const planWhilePaused = await prisma.executionPlan.findUniqueOrThrow({
+      where: { id: seeded.planId },
+      select: { status: true },
+    });
+    expect(paused.status).toBe("WAITING_FOR_USAGE_CAPACITY");
+    expect(planWhilePaused.status).toBe("RUNNING");
+
+    await new Promise((resolve) => setTimeout(resolve, 2));
+    await runtime.reconcile();
+    await runtime.dispatchPlan(seeded.planId);
+    const secondJob = executionQueue.take(INVOCATION_EXECUTE_JOB_NAME);
+    await runtime.processInvocation(secondJob.data.planId ?? "", secondJob.data.invocationId ?? "");
+    await runtime.dispatchPlan(seeded.planId);
+
+    const completed = await prisma.invocation.findUniqueOrThrow({
+      where: { id: seeded.invocationIds.paid },
+      select: { status: true },
+    });
+    expect(completed.status).toBe("COMPLETED");
+    expect(executor.calls).toHaveLength(2);
+  });
+
+  it("keeps hard insufficient usage blocked instead of failing the plan", async () => {
+    const seeded = await seedPlan(prisma, [{ key: "paid", status: "READY" }], [], 1);
+    const dispatchQueue = new MemoryQueue();
+    const executionQueue = new MemoryQueue();
+    const executor = new ScriptedExecutor(() => ({
+      status: "BLOCKED_INSUFFICIENT_USAGE",
+      errorCode: "BILLING_INSUFFICIENT_USAGE",
+    }));
+    const runtime = new OrchestrationRuntime(prisma, dispatchQueue, executionQueue, logger, {
+      executorRegistry: executor,
+      usageRecheckBaseMs: 60_000,
+      usageRecheckMaxMs: 60_000,
+    });
+
+    await runtime.dispatchPlan(seeded.planId);
+    const job = executionQueue.take(INVOCATION_EXECUTE_JOB_NAME);
+    await runtime.processInvocation(job.data.planId ?? "", job.data.invocationId ?? "");
+    await runtime.dispatchPlan(seeded.planId);
+
+    const invocation = await prisma.invocation.findUniqueOrThrow({
+      where: { id: seeded.invocationIds.paid },
+      select: { status: true },
+    });
+    const plan = await prisma.executionPlan.findUniqueOrThrow({
+      where: { id: seeded.planId },
+      select: { status: true },
+    });
+    expect(invocation.status).toBe("BLOCKED_INSUFFICIENT_USAGE");
+    expect(plan.status).toBe("RUNNING");
+    expect(executionQueue.count(INVOCATION_EXECUTE_JOB_NAME)).toBe(0);
+  });
+
   it("retries a retryable mock failure with a new durable InvocationRun attempt", async () => {
     const seeded = await seedPlan(prisma, [{ key: "retry", status: "READY" }], [], 1);
     const dispatchQueue = new MemoryQueue();
@@ -311,6 +391,71 @@ describe("orchestration runtime", () => {
       [2, "COMPLETED"],
     ]);
     expect(new Set(runs.map((run) => run.idempotencyKey)).size).toBe(2);
+  });
+
+  it("stops retrying after the configured hard attempt ceiling", async () => {
+    const seeded = await seedPlan(
+      prisma,
+      [{ key: "retry-cap", status: "READY" }],
+      [],
+      1,
+    );
+    const dispatchQueue = new MemoryQueue();
+    const executionQueue = new MemoryQueue();
+    const executor = new ScriptedExecutor(() => ({
+      status: "FAILED",
+      errorCode: "MOCK_RETRY",
+      retryable: true,
+    }));
+    const runtime = new OrchestrationRuntime(
+      prisma,
+      dispatchQueue,
+      executionQueue,
+      logger,
+      {
+        executorRegistry: executor,
+        maxAttempts: 2,
+      },
+    );
+
+    await runtime.dispatchPlan(seeded.planId);
+    const firstJob = executionQueue.take(INVOCATION_EXECUTE_JOB_NAME);
+    await runtime.processInvocation(
+      firstJob.data.planId ?? "",
+      firstJob.data.invocationId ?? "",
+    );
+
+    await runtime.dispatchPlan(seeded.planId);
+    const secondJob = executionQueue.take(INVOCATION_EXECUTE_JOB_NAME);
+    await runtime.processInvocation(
+      secondJob.data.planId ?? "",
+      secondJob.data.invocationId ?? "",
+    );
+    await runtime.dispatchPlan(seeded.planId);
+
+    const invocationId = seeded.invocationIds["retry-cap"];
+    if (!invocationId) throw new Error("Missing retry-cap invocation");
+    const runs = await prisma.invocationRun.findMany({
+      where: { invocationId },
+      orderBy: { attempt: "asc" },
+      select: { attempt: true, status: true, errorCode: true },
+    });
+    const invocation = await prisma.invocation.findUniqueOrThrow({
+      where: { id: invocationId },
+      select: { status: true },
+    });
+    const plan = await prisma.executionPlan.findUniqueOrThrow({
+      where: { id: seeded.planId },
+      select: { status: true },
+    });
+
+    expect(runs).toEqual([
+      { attempt: 1, status: "FAILED", errorCode: "MOCK_RETRY" },
+      { attempt: 2, status: "FAILED", errorCode: "MOCK_RETRY" },
+    ]);
+    expect(invocation.status).toBe("FAILED");
+    expect(plan.status).toBe("FAILED");
+    expect(executionQueue.count(INVOCATION_EXECUTE_JOB_NAME)).toBe(0);
   });
 
   it("rebuilds dispatch delivery from PostgreSQL after queue loss", async () => {
