@@ -639,6 +639,73 @@ describe("ExternalAiInvocationExecutor", () => {
     ).toBe(0);
   });
 
+  it("serializes parallel plan-spend admission so pending turns cannot exceed the committed ceiling", async () => {
+    const seeded = await seedInvocation(prisma, {
+      targetKind: "AI_MODEL",
+      targetModelSlug: "gpt-5-6-luna",
+      purpose: "Parallel paid invocation A",
+      fund: true,
+      fundMicroRub: 20_000_000n,
+    });
+    const sibling = await seedSiblingInvocation(prisma, seeded);
+    const provider = new MockAiProvider();
+    const delayedBilling = new DelayedFirstReservationBillingEngine(
+      prisma,
+      billingPolicy,
+    );
+    const executor = createExecutor(
+      prisma,
+      provider,
+      undefined,
+      {
+        maxSettledCostMicroRubPerPlan: 2_000_000n,
+        maxCommittedCostMicroRubPerPlan: 2_000_000n,
+      },
+      delayedBilling,
+    );
+
+    const [left, right] = await Promise.all([
+      executor.execute(
+        executionInput(seeded, {
+          kind: "AI_MODEL",
+          modelSlug: "gpt-5-6-luna",
+          agentId: null,
+        }),
+      ),
+      executor.execute(
+        executionInput(sibling, {
+          kind: "AI_MODEL",
+          modelSlug: "gpt-5-6-luna",
+          agentId: null,
+        }),
+      ),
+    ]);
+
+    const results = [left, right];
+    expect(
+      results.filter((result) => result.status === "COMPLETED"),
+    ).toHaveLength(1);
+    expect(
+      results.filter(
+        (result) =>
+          result.status === "FAILED" &&
+          result.errorCode === "PLAN_SPEND_LIMIT_REACHED",
+      ),
+    ).toHaveLength(1);
+    expect(provider.callCount).toBe(1);
+
+    const turns = await prisma.aIProviderTurn.findMany({
+      where: {
+        aiExecution: {
+          invocationRun: {
+            invocation: { planId: seeded.planId },
+          },
+        },
+      },
+    });
+    expect(turns).toHaveLength(1);
+  });
+
   it("releases a funded reservation when Stop wins before the provider boundary", async () => {
     const seeded = await seedInvocation(prisma, {
       targetKind: "AI_MODEL",
@@ -983,10 +1050,11 @@ function createExecutor(
   provider: AiProvider,
   toolBroker?: ExternalAiToolBroker,
   overrides: Partial<ExternalAiExecutorConfig> = {},
+  billingOverride?: BillingEngine,
 ): ExternalAiInvocationExecutor {
   return new ExternalAiInvocationExecutor(
     prisma,
-    new BillingEngine(prisma, billingPolicy),
+    billingOverride ?? new BillingEngine(prisma, billingPolicy),
     new VimlaAiGateway(provider),
     {
       budgetProfiles: {
@@ -1309,5 +1377,20 @@ class TestToolBroker implements ExternalAiToolBroker {
       path: String(input.call.arguments.path ?? ""),
       content: this.fileContent,
     };
+  }
+}
+
+
+class DelayedFirstReservationBillingEngine extends BillingEngine {
+  private reserveCalls = 0;
+
+  override async reserveUsage(
+    input: Parameters<BillingEngine["reserveUsage"]>[0],
+  ) {
+    this.reserveCalls += 1;
+    if (this.reserveCalls === 1) {
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    }
+    return super.reserveUsage(input);
   }
 }
