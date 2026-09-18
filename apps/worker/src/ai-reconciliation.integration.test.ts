@@ -347,6 +347,36 @@ describe("AiRequestReconciler", () => {
     expect(await spentForUser(prisma, seeded.userId)).toBe(0n);
   });
 
+  it("settles interrupted known usage but keeps recovery artifact-free", async () => {
+    const seeded = await seedTurn(prisma, billing, {
+      turnStatus: "USAGE_DURABLE",
+      actualMicroRub: 225_000n,
+      outputText: "partial interrupted output",
+      providerInterrupted: true,
+    });
+
+    await reconcileAll(reconciler);
+
+    const request = await prisma.aiRequest.findUniqueOrThrow({
+      where: { id: seeded.aiRequestId },
+      include: { reservation: true, providerTurn: true },
+    });
+    expect(request.status).toBe("FAILED");
+    expect(request.financialStatus).toBe("SETTLED");
+    expect(request.userSettledUsageMicroRub).toBe(225_000n);
+    expect(request.reservation?.status).toBe("SETTLED");
+    expect(request.providerTurn?.status).toBe("SUCCEEDED");
+    expect(request.providerTurn?.providerInterrupted).toBe(true);
+    expect(await spentForUser(prisma, seeded.userId)).toBe(225_000n);
+
+    await artifactRecovery.recover(100);
+    expect(
+      await prisma.artifact.count({
+        where: { creatorInvocationId: seeded.invocationId },
+      }),
+    ).toBe(0);
+  });
+
   it("settles an invalid tool-call turn but keeps semantic execution failed and artifact-free", async () => {
     const seeded = await seedTurn(prisma, billing, {
       turnStatus: "USAGE_DURABLE",
@@ -414,6 +444,7 @@ async function seedTurn(
     actualMicroRub: bigint | null;
     outputText: string | null;
     toolCallError?: boolean;
+    providerInterrupted?: boolean;
     withReservation?: boolean;
   },
 ) {
@@ -582,6 +613,7 @@ async function seedTurn(
       idempotencyKey: `reconcile:${suffix}:turn:0`,
       status: input.turnStatus,
       toolCallError: input.toolCallError ?? false,
+      providerInterrupted: input.providerInterrupted ?? false,
     },
   });
 
