@@ -79,6 +79,10 @@ describe("billing engine integration", () => {
     });
     expect(reserved.status).toBe("ACTIVE");
     await expectSnapshot(prisma, userId, { spent: 0n, reserved: 30n, remaining: 70n });
+    const reservedSnapshot = await engine.getUsageSnapshot(userId);
+    expect(reservedSnapshot.monthly.usedPercent).toBe(0);
+    expect(reservedSnapshot.monthly.reservedMicroRub).toBe(rubToMicroRub(30n));
+    expect(reservedSnapshot.monthly.remainingMicroRub).toBe(rubToMicroRub(70n));
 
     await engine.settleUsage({
       userId,
@@ -86,6 +90,8 @@ describe("billing engine integration", () => {
       actualMicroRub: rubToMicroRub(10n),
     });
     await expectSnapshot(prisma, userId, { spent: 10n, reserved: 0n, remaining: 90n });
+    const settledSnapshot = await engine.getUsageSnapshot(userId);
+    expect(settledSnapshot.monthly.usedPercent).toBe(10);
   });
 
   it("releases unused reservation after a simulated provider failure", async () => {
@@ -234,6 +240,10 @@ describe("billing engine integration", () => {
     expect(await engine.getSpendableUsageMicroRub(userId)).toBe(
       rubToMicroRub(60n),
     );
+    await expect(engine.getSpendableUsageState(userId)).resolves.toEqual({
+      availableMicroRub: rubToMicroRub(60n),
+      activeReservedMicroRub: rubToMicroRub(30n),
+    });
   });
 
   it("does not double-settle or double-release", async () => {
