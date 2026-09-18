@@ -11,6 +11,7 @@ import {
   ExternalAiInvocationExecutor,
   orchestrationAiClientRequestId,
   orchestrationAiProviderTurnIdempotencyKey,
+  type ExternalAiExecutorConfig,
 } from "./external-ai-invocation-executor.js";
 import type { ExternalAiToolBroker } from "./external-ai-tool-broker.js";
 import type { InvocationExecutionInput } from "./orchestration.js";
@@ -547,6 +548,7 @@ function createExecutor(
   prisma: PrismaClient,
   provider: MockAiProvider,
   toolBroker?: ExternalAiToolBroker,
+  overrides: Partial<ExternalAiExecutorConfig> = {},
 ): ExternalAiInvocationExecutor {
   return new ExternalAiInvocationExecutor(
     prisma,
@@ -569,6 +571,7 @@ function createExecutor(
       },
       reservationSafetyBps: 2_000n,
       maxReservationMicroRub: 10_000_000n,
+      ...overrides,
     },
     toolBroker,
   );
@@ -689,6 +692,47 @@ async function seedInvocation(
   return {
     userId,
     planId,
+    invocationId,
+    runId: run.id,
+    runIdempotencyKey: run.idempotencyKey,
+  };
+}
+
+async function seedSiblingInvocation(
+  prisma: PrismaClient,
+  seeded: SeededInvocation,
+  sequence = 1,
+): Promise<SeededInvocation> {
+  const invocationId = randomUUID();
+  await prisma.invocation.create({
+    data: {
+      id: invocationId,
+      planId: seeded.planId,
+      sequence,
+      purpose: "Second paid invocation in the same plan",
+      targetKind: "AI_MODEL",
+      targetModelSlug: "gpt-5-6-luna",
+      targetAgentId: null,
+      outputDeclarations: [{ name: "result", artifactType: "TEXT" }],
+      acceptanceCriteria: [],
+      riskClass: "READ_ONLY",
+      approvalPolicy: "AUTO",
+      failurePolicy: "FAIL_PLAN",
+      joinPolicy: "ALL_REQUIRED",
+      status: "RUNNING",
+    },
+  });
+  const run = await prisma.invocationRun.create({
+    data: {
+      invocationId,
+      attempt: 1,
+      idempotencyKey: `${invocationId}:attempt:1`,
+      status: "RUNNING",
+      startedAt: new Date(),
+    },
+  });
+  return {
+    ...seeded,
     invocationId,
     runId: run.id,
     runIdempotencyKey: run.idempotencyKey,
