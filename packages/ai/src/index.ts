@@ -23,6 +23,7 @@ export {
 } from "./estimate.js";
 export { seedVimlaAiModels } from "./seed-models.js";
 export { AI_PRICE_VERIFIED_AT, VIMLA_AI_MODEL_CATALOG } from "./catalog.js";
+export type { ProviderBillingBoundedness } from "./catalog.js";
 export { AiError, AI_ERROR_CODES, isAiError, type AiErrorCode } from "./errors.js";
 export { ProviderCallError } from "./types.js";
 export type {
