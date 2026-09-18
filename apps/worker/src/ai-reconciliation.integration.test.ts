@@ -257,6 +257,75 @@ describe("AiRequestReconciler", () => {
     expect(await spentForUser(prisma, seeded.userId)).toBe(0n);
   });
 
+  it("finalizes durable usage after settlement committed before request finalization", async () => {
+    const seeded = await seedTurn(prisma, billing, {
+      turnStatus: "USAGE_DURABLE",
+      actualMicroRub: 300_000n,
+      outputText: "settled before finalization",
+    });
+    const before = await prisma.aiRequest.findUniqueOrThrow({
+      where: { id: seeded.aiRequestId },
+      include: { reservation: true },
+    });
+    if (!before.reservation) throw new Error("Reservation missing");
+
+    await billing.settleUsage({
+      userId: seeded.userId,
+      reservationId: before.reservation.id,
+      actualMicroRub: 300_000n,
+    });
+    await reconcileAll(reconciler);
+
+    const after = await prisma.aiRequest.findUniqueOrThrow({
+      where: { id: seeded.aiRequestId },
+      include: { reservation: true, providerTurn: true },
+    });
+    expect(after.status).toBe("SUCCEEDED");
+    expect(after.financialStatus).toBe("SETTLED");
+    expect(after.reservation?.status).toBe("SETTLED");
+    expect(after.providerTurn?.status).toBe("SUCCEEDED");
+    expect(await spentForUser(prisma, seeded.userId)).toBe(300_000n);
+  });
+
+  it("settles durable usage once when two reconcilers race", async () => {
+    const seeded = await seedTurn(prisma, billing, {
+      turnStatus: "USAGE_DURABLE",
+      actualMicroRub: 275_000n,
+      outputText: "parallel settle",
+    });
+
+    await Promise.all([reconcileAll(reconciler), reconcileAll(reconciler)]);
+
+    const after = await prisma.aiRequest.findUniqueOrThrow({
+      where: { id: seeded.aiRequestId },
+      include: { reservation: true },
+    });
+    expect(after.status).toBe("SUCCEEDED");
+    expect(after.reservation?.status).toBe("SETTLED");
+    expect(after.reservation?.settledMicroRub).toBe(275_000n);
+    expect(await spentForUser(prisma, seeded.userId)).toBe(275_000n);
+  });
+
+  it("releases a stale pre-provider reservation once when two reconcilers race", async () => {
+    const seeded = await seedTurn(prisma, billing, {
+      turnStatus: "RESERVED",
+      actualMicroRub: null,
+      outputText: null,
+    });
+
+    await Promise.all([reconcileAll(reconciler), reconcileAll(reconciler)]);
+
+    const after = await prisma.aiRequest.findUniqueOrThrow({
+      where: { id: seeded.aiRequestId },
+      include: { reservation: true, providerTurn: true },
+    });
+    expect(after.status).toBe("FAILED");
+    expect(after.financialStatus).toBe("RELEASED");
+    expect(after.reservation?.status).toBe("RELEASED");
+    expect(after.providerTurn?.status).toBe("FAILED_PRE_PROVIDER");
+    expect(await spentForUser(prisma, seeded.userId)).toBe(0n);
+  });
+
   it("never tops up a reservation when durable actual cost exceeds the funded cap", async () => {
     const seeded = await seedTurn(prisma, billing, {
       turnStatus: "USAGE_DURABLE",
