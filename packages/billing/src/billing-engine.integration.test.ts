@@ -206,6 +206,36 @@ describe("billing engine integration", () => {
     expect(reserved.allocations).toHaveLength(1);
   });
 
+  it("reports only currently spendable usage for AI admission control", async () => {
+    const userId = await createUser(prisma, "spendable");
+    await grantBucket(
+      prisma,
+      userId,
+      "MONTHLY",
+      rubToMicroRub(50n),
+      new Date("2020-01-01"),
+    );
+    const active = await grantBucket(
+      prisma,
+      userId,
+      "MONTHLY",
+      rubToMicroRub(100n),
+      future(),
+    );
+    await grantBucket(prisma, userId, "TOPUP", rubToMicroRub(10n), null);
+    await prisma.usageBucket.update({
+      where: { id: active.id },
+      data: {
+        spentMicroRub: rubToMicroRub(20n),
+        reservedMicroRub: rubToMicroRub(30n),
+      },
+    });
+
+    expect(await engine.getSpendableUsageMicroRub(userId)).toBe(
+      rubToMicroRub(60n),
+    );
+  });
+
   it("does not double-settle or double-release", async () => {
     const userId = await createUser(prisma, "idem");
     await grantBucket(prisma, userId, "MONTHLY", rubToMicroRub(40n), future());
