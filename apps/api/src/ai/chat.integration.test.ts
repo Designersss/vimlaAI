@@ -1,7 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { NestFastifyApplication } from "@nestjs/platform-fastify";
-import { seedVimlaAiModels, type MockAiProvider } from "@vimla/ai";
+import {
+  estimateProviderRequestInputTokens,
+  estimateReservationMicroRub,
+  seedVimlaAiModels,
+  type MockAiProvider,
+} from "@vimla/ai";
 import { seedVimlaPlans } from "@vimla/billing";
 import { loadApiConfig } from "@vimla/config/server";
 import { createPrismaClient } from "@vimla/database";
@@ -125,13 +130,51 @@ describe("AI chat integration", () => {
   it("shrinks the provider output cap to the remaining funded allowance", async () => {
     const user = await registerUser(app, "shrink");
     const conversation = await createConversation(app, user.cookies);
-    const modelId = await firstModelId(app, user.cookies);
     const prisma = createPrismaClient(testDatabaseUrl);
+    const model = await prisma.aiModel.findUniqueOrThrow({
+      where: { slug: "gpt-5-6-luna" },
+      include: {
+        priceVersions: {
+          where: { effectiveTo: null },
+          orderBy: { effectiveFrom: "desc" },
+          take: 1,
+        },
+      },
+    });
+    const price = model.priceVersions[0];
+    if (!price) throw new Error("Expected an active Luna price version");
+
+    const estimatedInputTokens = estimateProviderRequestInputTokens([
+      { role: "user", content: "Hello" },
+    ]);
+    const quote = {
+      inputMicroRubPerMillion: price.inputMicroRubPerMillion,
+      outputMicroRubPerMillion: price.outputMicroRubPerMillion,
+      cacheReadMicroRubPerMillion: price.cacheReadMicroRubPerMillion,
+      cacheWriteMicroRubPerMillion: price.cacheWriteMicroRubPerMillion,
+    };
+    const minimumCost = estimateReservationMicroRub({
+      estimatedInputTokens: BigInt(estimatedInputTokens),
+      maxOutputTokens: 768n,
+      price: quote,
+      safetyBps: 2_000n,
+    });
+    const preferredCost = estimateReservationMicroRub({
+      estimatedInputTokens: BigInt(estimatedInputTokens),
+      maxOutputTokens: 2_048n,
+      price: quote,
+      safetyBps: 2_000n,
+    });
+    const fundedAllowance =
+      minimumCost + (preferredCost - minimumCost) / 2n;
+    expect(fundedAllowance).toBeGreaterThanOrEqual(minimumCost);
+    expect(fundedAllowance).toBeLessThan(preferredCost);
+
     await prisma.usageBucket.create({
       data: {
         userId: user.id,
         type: "TOPUP",
-        totalMicroRub: 4_000_000n,
+        totalMicroRub: fundedAllowance,
         spentMicroRub: 0n,
         reservedMicroRub: 0n,
         expiresAt: null,
@@ -140,6 +183,7 @@ describe("AI chat integration", () => {
       },
     });
     await prisma.$disconnect();
+    const modelId = model.id;
 
     provider.scenario = "success";
     provider.callCount = 0;
@@ -159,7 +203,9 @@ describe("AI chat integration", () => {
     });
     expect(request.maxOutputTokens).toBeGreaterThanOrEqual(768);
     expect(request.maxOutputTokens).toBeLessThan(2_048);
-    expect(request.estimatedCostMicroRub).toBeLessThanOrEqual(4_000_000n);
+    expect(request.estimatedCostMicroRub).toBeLessThanOrEqual(
+      fundedAllowance,
+    );
     expect(request.reservation?.estimatedMicroRub).toBe(
       request.estimatedCostMicroRub,
     );
