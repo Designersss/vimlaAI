@@ -1,5 +1,7 @@
 import { MICRORUB_PER_RUB, type MicroRub } from "@vimla/billing";
 
+export type ProviderBillingBoundedness = "HARD_BOUNDED" | "SOFT_BOUNDED";
+
 export interface CuratedModelSeed {
   slug: string;
   displayName: string;
@@ -12,6 +14,7 @@ export interface CuratedModelSeed {
   outputMicroRubPerMillion: MicroRub;
   cacheReadMicroRubPerMillion: MicroRub | null;
   cacheWriteMicroRubPerMillion: MicroRub | null;
+  billingBoundedness: ProviderBillingBoundedness;
   verifiedAt: Date;
   source: string;
 }
@@ -36,6 +39,7 @@ export const VIMLA_AI_MODEL_CATALOG: readonly CuratedModelSeed[] = [
     outputMicroRubPerMillion: price(360n),
     cacheReadMicroRubPerMillion: price(6n),
     cacheWriteMicroRubPerMillion: price(75n),
+    billingBoundedness: "HARD_BOUNDED",
     verifiedAt: PRICE_VERIFIED_AT,
     source: PRICE_SOURCE,
   },
@@ -51,6 +55,7 @@ export const VIMLA_AI_MODEL_CATALOG: readonly CuratedModelSeed[] = [
     outputMicroRubPerMillion: price(1474n),
     cacheReadMicroRubPerMillion: price(30n),
     cacheWriteMicroRubPerMillion: price(369n),
+    billingBoundedness: "HARD_BOUNDED",
     verifiedAt: PRICE_VERIFIED_AT,
     source: PRICE_SOURCE,
   },
@@ -66,6 +71,7 @@ export const VIMLA_AI_MODEL_CATALOG: readonly CuratedModelSeed[] = [
     outputMicroRubPerMillion: price(758n),
     cacheReadMicroRubPerMillion: null,
     cacheWriteMicroRubPerMillion: null,
+    billingBoundedness: "HARD_BOUNDED",
     verifiedAt: PRICE_VERIFIED_AT,
     source: PRICE_SOURCE,
   },
