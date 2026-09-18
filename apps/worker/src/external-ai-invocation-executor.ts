@@ -10,8 +10,10 @@ import {
   estimateReservationMicroRub,
   providerCostFromUsage,
   ProviderCallError,
+  VIMLA_AI_MODEL_CATALOG,
   type NormalizedUsage,
   type PriceVersionQuote,
+  type ProviderBillingBoundedness,
   type ProviderChatMessage,
   type VimlaAiGateway,
 } from "@vimla/ai";
@@ -60,6 +62,7 @@ type ResolvedModel = {
   providerModelId: string;
   maxOutputTokens: number;
   priceVersionId: string;
+  billingBoundedness: ProviderBillingBoundedness;
   price: PriceVersionQuote;
 };
 
@@ -373,6 +376,12 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
     const candidates = models.flatMap((model): ResolvedModel[] => {
       const priceVersion = model.priceVersions[0];
       if (!priceVersion) return [];
+      const curated = VIMLA_AI_MODEL_CATALOG.find(
+        (entry) =>
+          entry.slug === model.slug &&
+          entry.provider === model.provider &&
+          entry.providerModelId === model.providerModelId,
+      );
       return [{
         id: model.id,
         slug: model.slug,
@@ -380,6 +389,7 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
         providerModelId: model.providerModelId,
         maxOutputTokens: model.maxOutputTokens,
         priceVersionId: priceVersion.id,
+        billingBoundedness: curated?.billingBoundedness ?? "SOFT_BOUNDED",
         price: {
           inputMicroRubPerMillion: priceVersion.inputMicroRubPerMillion,
           outputMicroRubPerMillion: priceVersion.outputMicroRubPerMillion,
@@ -406,17 +416,27 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
       );
     }
     if (input.target.kind === "AI_MODEL") {
+      if (firstCandidate.billingBoundedness !== "HARD_BOUNDED") {
+        throw new ExternalAiTerminalError("AI_MODEL_BILLING_UNBOUNDED");
+      }
       return firstCandidate;
     }
 
+    const boundedCandidates = candidates.filter(
+      (candidate) => candidate.billingBoundedness === "HARD_BOUNDED",
+    );
+    if (boundedCandidates.length === 0) {
+      throw new ExternalAiTerminalError("AI_AUTO_NO_BOUNDED_MODEL");
+    }
+
     const estimatedInputTokens = estimateInputTokens(messages);
-    const ranked = [...candidates].sort((left, right) => {
+    const ranked = [...boundedCandidates].sort((left, right) => {
       const leftCost = this.estimatedCost(left, estimatedInputTokens);
       const rightCost = this.estimatedCost(right, estimatedInputTokens);
       if (leftCost === rightCost) return left.slug.localeCompare(right.slug);
       return leftCost < rightCost ? -1 : 1;
     });
-    return ranked[0] ?? firstCandidate;
+    return ranked[0] ?? boundedCandidates[0] ?? firstCandidate;
   }
 
   private estimatedCost(model: ResolvedModel, estimatedInputTokens: number): bigint {
