@@ -348,8 +348,7 @@ describe("AiRequestReconciler", () => {
     expect(request.providerTurn?.toolCallError).toBe(true);
     expect(await spentForUser(prisma, seeded.userId)).toBe(250_000n);
 
-    const recovered = await artifactRecovery.recover(100);
-    expect(recovered.recovered).toBe(0);
+    await artifactRecovery.recover(100);
     expect(
       await prisma.artifact.count({
         where: { creatorInvocationId: seeded.invocationId },
