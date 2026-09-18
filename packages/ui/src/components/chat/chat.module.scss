@@ -9,26 +9,6 @@
   backdrop-filter: blur(18px);
 }
 
-.chipRow {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--vimla-space-2);
-}
-
-.mentionChip {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--vimla-space-1);
-  padding: 0.25rem 0.65rem;
-  border: 1px solid color-mix(in srgb, var(--vimla-accent) 24%, transparent);
-  border-radius: var(--vimla-radius-round);
-  background: var(--vimla-accent-soft);
-  color: var(--vimla-accent);
-  font-size: var(--vimla-type-caption-size);
-  line-height: var(--vimla-type-caption-line);
-  font-weight: var(--vimla-type-medium-weight);
-}
-
 .composerFieldWrap {
   position: relative;
   min-width: 0;
