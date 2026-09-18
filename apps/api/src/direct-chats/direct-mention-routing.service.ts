@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
 import {
   DIRECT_CHAT_LIMITS,
+  type DirectMessageKind,
   type MessageMentionInput,
   type MessageMentionView,
 } from "@vimla/contracts";
@@ -10,6 +11,22 @@ import { PrismaService } from "../persistence/prisma.service.js";
 @Injectable()
 export class DirectMentionRoutingService {
   constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+
+  assertMessageKind(kind: DirectMessageKind, mentions: MessageMentionView[]): void {
+    const hasVimlaInvocation = mentions.some(
+      (mention) =>
+        mention.kind === "SYSTEM_AGENT" &&
+        mention.targetId === "VIMLA" &&
+        mention.canonicalHandle === "vimla",
+    );
+
+    if (kind === "OPERATOR_INVOKE" && !hasVimlaInvocation) {
+      throw invalidMention("Direct Chat operator invocation requires a structured @vimla mention");
+    }
+    if (kind === "HUMAN" && hasVimlaInvocation) {
+      throw invalidMention("Structured @vimla mention must use the operator invocation route");
+    }
+  }
 
   async resolve(input: {
     userId: string;
