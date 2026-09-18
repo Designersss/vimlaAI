@@ -1036,7 +1036,40 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
           include: { aiRequest: { include: { priceVersion: true } } },
         });
         if (existingTurn) {
-          return existingProviderTurnOutcome(existingTurn);
+          const outcome = existingProviderTurnOutcome(existingTurn);
+          if (outcome.kind !== "new") {
+            return outcome;
+          }
+
+          const planSpend = await this.getPlanSpendState(
+            input.planId,
+            input.invocationId,
+            tx,
+          );
+          const ownPendingAdmission =
+            existingTurn.status === "CREATED" &&
+            existingTurn.aiRequest.status === "CREATED" &&
+            existingTurn.aiRequest.financialStatus === "NONE"
+              ? existingTurn.aiRequest.estimatedCostMicroRub
+              : 0n;
+          const otherCommittedMicroRub =
+            planSpend.settledMicroRub +
+            planSpend.activeReservedMicroRub +
+            planSpend.pendingAdmissionMicroRub -
+            ownPendingAdmission;
+
+          if (
+            planSpend.settledMicroRub + outcome.estimatedCostMicroRub >
+              this.maxSettledCostMicroRubPerPlan ||
+            otherCommittedMicroRub + outcome.estimatedCostMicroRub >
+              this.maxCommittedCostMicroRubPerPlan
+          ) {
+            return {
+              kind: "terminal_failure" as const,
+              errorCode: "PLAN_SPEND_LIMIT_REACHED",
+            };
+          }
+          return outcome;
         }
 
         const planSpend = await this.getPlanSpendState(
