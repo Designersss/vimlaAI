@@ -72,13 +72,20 @@ export class TextChatService {
     });
 
     return models
-      .filter((model) =>
-        model.priceVersions.some(
+      .filter((model) => {
+        const hasActivePrice = model.priceVersions.some(
           (version) =>
             version.effectiveFrom <= now &&
             (version.effectiveTo === null || version.effectiveTo > now),
-        ),
-      )
+        );
+        const policy = VIMLA_AI_MODEL_CATALOG.find(
+          (entry) =>
+            entry.slug === model.slug &&
+            entry.provider === model.provider &&
+            entry.providerModelId === model.providerModelId,
+        );
+        return hasActivePrice && policy?.billingBoundedness === "HARD_BOUNDED";
+      })
       .map((model) => ({
         id: model.id,
         slug: model.slug,
