@@ -463,10 +463,14 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
             estimatedCostMicroRub,
           },
         });
-        await tx.aIExecution.create({
+        await tx.invocationRun.update({
+          where: { id: input.runId },
           data: {
-            invocationRunId: input.runId,
-            aiRequestId: aiRequest.id,
+            aiExecution: {
+              create: {
+                aiRequestId: aiRequest.id,
+              },
+            },
           },
         });
         return aiRequest;
