@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   MockAiProvider,
+  ProviderCallError,
   VimlaAiGateway,
   seedVimlaAiModels,
   type AiProvider,
@@ -1334,6 +1335,45 @@ describe("ExternalAiInvocationExecutor", () => {
     ).toBe(true);
   });
 
+  it("holds a mid-stream disconnect after partial provider output when usage is unknown", async () => {
+    const seeded = await seedInvocation(prisma, {
+      targetKind: "AI_MODEL",
+      targetModelSlug: "gpt-5-6-luna",
+      purpose: "Handle a partial stream disconnect safely",
+      fund: true,
+    });
+    const provider = new MidstreamDisconnectProvider();
+    const executor = createExecutor(prisma, provider);
+
+    const result = await executor.execute(
+      executionInput(seeded, {
+        kind: "AI_MODEL",
+        modelSlug: "gpt-5-6-luna",
+        agentId: null,
+      }),
+    );
+
+    expect(result).toEqual({
+      status: "FAILED",
+      errorCode: "AI_RECONCILIATION_REQUIRED",
+      retryable: false,
+    });
+    const request = await prisma.aiRequest.findUniqueOrThrow({
+      where: {
+        userId_clientRequestId: {
+          userId: seeded.userId,
+          clientRequestId: orchestrationAiClientRequestId(seeded.invocationId),
+        },
+      },
+      include: { reservation: true, providerTurn: true },
+    });
+    expect(request.outputText).toBe("partial");
+    expect(request.financialStatus).toBe("RECONCILIATION_HOLD");
+    expect(request.reservation?.status).toBe("ACTIVE");
+    expect(request.providerTurn?.status).toBe("RECONCILIATION_REQUIRED");
+    expect(await spentForUser(prisma, seeded.userId)).toBe(0n);
+  });
+
   it("keeps an ambiguous provider outcome in reconciliation hold instead of releasing or retrying it", async () => {
     const seeded = await seedInvocation(prisma, {
       targetKind: "AI_MODEL",
@@ -1624,6 +1664,24 @@ function executionInput(
   };
 }
 
+
+class MidstreamDisconnectProvider implements AiProvider {
+  readonly id = "mock";
+
+  async streamChat(_request: ProviderChatRequest): Promise<ProviderChatResult> {
+    return {
+      providerRequestId: "midstream-disconnect",
+      events: (async function* (): AsyncIterable<ProviderStreamEvent> {
+        yield { type: "delta", text: "partial" };
+        throw new ProviderCallError(
+          "ambiguous",
+          "Mock stream disconnected after partial output",
+          null,
+        );
+      })(),
+    };
+  }
+}
 
 class InvalidToolCallProvider implements AiProvider {
   readonly id = "mock";
