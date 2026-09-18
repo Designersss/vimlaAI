@@ -825,7 +825,7 @@ describe("ExternalAiInvocationExecutor", () => {
       targetModelSlug: "gpt-5-6-luna",
       purpose: "Read the repository file and summarize it",
       fund: true,
-      fundMicroRub: 1_000_000n,
+      fundMicroRub: 500_000n,
     });
     const provider = new MockAiProvider();
     provider.text = "Final repository summary";
@@ -836,7 +836,10 @@ describe("ExternalAiInvocationExecutor", () => {
         arguments: { path: "README.md" },
       },
     ]);
-    const tools = new TestToolBroker("x".repeat(5_000));
+    // Keep the second turn below the per-request hard cap while making its
+    // minimum funded budget exceed the allowance left after turn 0. This
+    // isolates usage backpressure/top-up resume from request-cost-limit logic.
+    const tools = new TestToolBroker("x".repeat(1_000));
     const executor = createExecutor(prisma, provider, tools);
 
     const first = await executor.execute(executionInput(seeded, {
