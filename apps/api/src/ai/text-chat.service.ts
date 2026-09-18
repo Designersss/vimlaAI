@@ -522,12 +522,6 @@ export class TextChatService {
         data: {
           status: "RECONCILIATION_REQUIRED",
           financialStatus: "RECONCILIATION_HOLD",
-          providerActualCostMicroRub,
-          actualInputTokens: numberTokens(usageEvent.inputTokens),
-          actualOutputTokens: numberTokens(usageEvent.outputTokens),
-          reasoningTokens: numberTokens(usageEvent.reasoningTokens),
-          cacheReadTokens: numberTokens(usageEvent.cacheReadTokens),
-          cacheWriteTokens: numberTokens(usageEvent.cacheWriteTokens),
           finishedAt: new Date(),
         },
       });
@@ -589,14 +583,7 @@ export class TextChatService {
       data: {
         status: "SUCCEEDED",
         financialStatus: settled.status === "ANOMALY" ? "ANOMALY" : "SETTLED",
-        actualInputTokens: numberTokens(usageEvent.inputTokens),
-        actualOutputTokens: numberTokens(usageEvent.outputTokens),
-        reasoningTokens: numberTokens(usageEvent.reasoningTokens),
-        cacheReadTokens: numberTokens(usageEvent.cacheReadTokens),
-        cacheWriteTokens: numberTokens(usageEvent.cacheWriteTokens),
-        providerActualCostMicroRub,
         userSettledUsageMicroRub: settled.settledMicroRub,
-        outputText: assistantText,
         finishedAt: new Date(),
       },
     });
