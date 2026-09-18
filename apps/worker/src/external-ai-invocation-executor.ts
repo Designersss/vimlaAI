@@ -142,6 +142,12 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
       if (request.kind === "terminal_failure") {
         return terminal(request.errorCode);
       }
+      if (request.kind === "capacity_wait") {
+        return usageCapacityWait();
+      }
+      if (request.kind === "usage_blocked") {
+        return usageBlocked();
+      }
 
       let reservationId: string;
       try {
@@ -153,6 +159,12 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
         });
         reservationId = reservation.id;
       } catch (error: unknown) {
+        if (isBillingError(error) && error.code === "INSUFFICIENT_USAGE") {
+          const capacity = await this.billing.getSpendableUsageState(invocation.plan.userId);
+          return capacity.activeReservedMicroRub > 0n
+            ? usageCapacityWait()
+            : usageBlocked();
+        }
         await this.prisma.$transaction([
           this.prisma.aiRequest.update({
             where: { id: request.aiRequestId },
@@ -529,6 +541,8 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
       }
     | { kind: "replay"; aiRequestId: string; text: string }
     | { kind: "in_progress" }
+    | { kind: "capacity_wait" }
+    | { kind: "usage_blocked" }
     | { kind: "terminal_failure"; errorCode: string }
   > {
     const clientRequestId = orchestrationAiClientRequestId(input.invocationId);
@@ -539,15 +553,30 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
           clientRequestId,
         },
       },
+      include: { providerTurn: true },
     });
     if (existing) {
+      if (
+        existing.status === "CREATED" &&
+        existing.financialStatus === "NONE" &&
+        existing.providerTurn
+      ) {
+        return {
+          kind: "new",
+          aiRequestId: existing.id,
+          providerTurnId: existing.providerTurn.id,
+          providerTurnIdempotencyKey: existing.providerTurn.idempotencyKey,
+          estimatedCostMicroRub: existing.estimatedCostMicroRub,
+          estimatedInputTokens: existing.estimatedInputTokens,
+          maxOutputTokens: existing.maxOutputTokens,
+        };
+      }
       return existingAiRequestOutcome(existing);
     }
 
     const estimatedInputTokens = estimateInputTokens(messages);
-    const availableMicroRub = await this.billing.getSpendableUsageMicroRub(
-      invocation.plan.userId,
-    );
+    const capacity = await this.billing.getSpendableUsageState(invocation.plan.userId);
+    const availableMicroRub = capacity.availableMicroRub;
     const budgetResult = resolveAiExecutionBudget({
       profile: "STANDARD",
       profiles: this.config.budgetProfiles,
@@ -559,10 +588,9 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
       safetyBps: this.config.reservationSafetyBps,
     });
     if (budgetResult.kind === "INSUFFICIENT_USAGE") {
-      return {
-        kind: "terminal_failure",
-        errorCode: "BILLING_INSUFFICIENT_USAGE",
-      };
+      return capacity.activeReservedMicroRub > 0n
+        ? { kind: "capacity_wait" }
+        : { kind: "usage_blocked" };
     }
     if (budgetResult.kind === "REQUEST_COST_LIMIT") {
       return {
@@ -950,6 +978,20 @@ function stringifyArtifactValue(value: Prisma.InputJsonValue): string {
     return (value as { text: string }).text;
   }
   return JSON.stringify(value);
+}
+
+function usageCapacityWait(): InvocationExecutionResult {
+  return {
+    status: "WAITING_FOR_USAGE_CAPACITY",
+    errorCode: "BILLING_INSUFFICIENT_USAGE",
+  };
+}
+
+function usageBlocked(): InvocationExecutionResult {
+  return {
+    status: "BLOCKED_INSUFFICIENT_USAGE",
+    errorCode: "BILLING_INSUFFICIENT_USAGE",
+  };
 }
 
 function terminal(errorCode: string): InvocationExecutionResult {
