@@ -63,7 +63,6 @@ import {
   Textarea,
   Tooltip,
   UsageMeter,
-  VimlaMentionChip,
   useAppearance,
   useToast,
 } from "@vimla/ui";
@@ -374,7 +373,6 @@ export function UiCatalog(): ReactElement {
           Brand / Composer / Model picker (DEMO)
         </Heading>
         <BrandLockup label="Vimla" />
-        <VimlaMentionChip label="◆ @Vimla" />
         <ModelModeControl
           mode={mode}
           autoLevel="medium"
@@ -398,7 +396,6 @@ export function UiCatalog(): ReactElement {
           onSubmit={() => undefined}
           placeholder="Message Vimla"
           sendLabel="Send"
-          mentionControl={<Button variant="ghost" size="sm">◆ @Vimla</Button>}
         />
         <OperatorActionCard title="Buy tickets" detail="Tomorrow" statusLabel="Created" tone="success" />
         <OperatorActionCard
