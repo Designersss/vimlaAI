@@ -206,6 +206,13 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
             return terminal("AI_TOOL_CALL_INVALID");
           }
           if (
+            turn.providerInterrupted &&
+            (turn.aiRequest.financialStatus === "SETTLED" ||
+              turn.aiRequest.financialStatus === "ANOMALY")
+          ) {
+            return terminal("AI_PROVIDER_INTERRUPTED");
+          }
+          if (
             turn.aiRequest.status === "CREATED" &&
             turn.aiRequest.financialStatus === "NONE"
           ) {
@@ -544,6 +551,7 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
               status: "USAGE_DURABLE",
               toolCallsJson,
               toolCallError: provider.toolCallError,
+              providerInterrupted: provider.interrupted,
             },
           }),
         ]);
@@ -579,7 +587,10 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
           this.prisma.aiRequest.update({
             where: { id: request.aiRequestId },
             data: {
-              status: provider.toolCallError ? "FAILED" : "SUCCEEDED",
+              status:
+                provider.toolCallError || provider.interrupted
+                  ? "FAILED"
+                  : "SUCCEEDED",
               financialStatus:
                 settledStatus === "ANOMALY" ? "ANOMALY" : "SETTLED",
               userSettledUsageMicroRub: settledMicroRub,
@@ -594,6 +605,14 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
 
         if (provider.toolCallError) {
           return terminal("AI_TOOL_CALL_INVALID");
+        }
+        if (provider.interrupted) {
+          return (await this.isInvocationRunning(
+            input.planId,
+            input.invocationId,
+          ))
+            ? terminal("AI_PROVIDER_INTERRUPTED")
+            : terminal("AI_EXECUTION_CANCELED");
         }
         if (!(await this.isInvocationRunning(input.planId, input.invocationId))) {
           return terminal("AI_EXECUTION_CANCELED");
@@ -1388,6 +1407,7 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
         usage: NormalizedUsage;
         toolCalls: ProviderToolCall[];
         toolCallError: boolean;
+        interrupted: boolean;
       }
     | { kind: "failed"; result: InvocationExecutionResult }
   > {
@@ -1490,6 +1510,7 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
           usage,
           toolCalls: parsed.calls,
           toolCallError: parsed.invalid,
+          interrupted: true,
         };
       }
 
@@ -1565,6 +1586,7 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
       usage,
       toolCalls: parsed.calls,
       toolCallError: parsed.invalid,
+      interrupted: false,
     };
   }
 
@@ -1694,6 +1716,7 @@ function existingProviderTurnOutcome(existing: {
   toolCallsJson: Prisma.JsonValue | null;
   toolResultsJson: Prisma.JsonValue | null;
   toolCallError: boolean;
+  providerInterrupted: boolean;
   aiRequest: {
     id: string;
     status: string;
@@ -1779,6 +1802,16 @@ function existingProviderTurnOutcome(existing: {
     return {
       kind: "terminal_failure",
       errorCode: "AI_TOOL_CALL_INVALID",
+    };
+  }
+  if (
+    existing.providerInterrupted &&
+    (request.financialStatus === "SETTLED" ||
+      request.financialStatus === "ANOMALY")
+  ) {
+    return {
+      kind: "terminal_failure",
+      errorCode: "AI_PROVIDER_INTERRUPTED",
     };
   }
   if (IN_PROGRESS_AI_STATUSES.has(request.status)) {
