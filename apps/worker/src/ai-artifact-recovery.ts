@@ -33,19 +33,41 @@ export class AiArtifactRecovery {
   async recover(batchSize: number): Promise<AiArtifactRecoveryCounters> {
     const executions = await this.prisma.aIExecution.findMany({
       where: {
-        aiRequest: {
-          status: "SUCCEEDED",
-          outputText: { not: null },
-        },
         invocationRun: {
           invocation: {
             artifacts: { none: {} },
           },
         },
+        OR: [
+          {
+            aiRequest: {
+              status: "SUCCEEDED",
+              outputText: { not: null },
+            },
+          },
+          {
+            providerTurns: {
+              some: {
+                aiRequest: {
+                  status: "SUCCEEDED",
+                  outputText: { not: null },
+                },
+              },
+            },
+          },
+        ],
       },
       include: {
         aiRequest: {
           include: { model: true },
+        },
+        providerTurns: {
+          include: {
+            aiRequest: {
+              include: { model: true },
+            },
+          },
+          orderBy: { turnIndex: "desc" },
         },
         invocationRun: {
           include: {
@@ -69,8 +91,8 @@ export class AiArtifactRecovery {
 
     for (const execution of executions) {
       const invocation = execution.invocationRun.invocation;
-      const request = execution.aiRequest;
-      if (request.outputText === null) {
+      const request = selectRecoveryRequest(execution);
+      if (!request) {
         continue;
       }
 
@@ -111,6 +133,66 @@ export class AiArtifactRecovery {
 
     return counters;
   }
+}
+
+function selectRecoveryRequest(execution: {
+  aiRequest: {
+    id: string;
+    status: string;
+    outputText: string | null;
+    provider: string;
+    model: { slug: string };
+  };
+  providerTurns: Array<{
+    turnIndex: number;
+    toolCallsJson: Prisma.JsonValue | null;
+    aiRequest: {
+      id: string;
+      status: string;
+      outputText: string | null;
+      provider: string;
+      model: { slug: string };
+    };
+  }>;
+}): {
+  id: string;
+  outputText: string;
+  provider: string;
+  model: { slug: string };
+} | null {
+  if (execution.providerTurns.length > 0) {
+    for (const turn of execution.providerTurns) {
+      if (
+        turn.aiRequest.status === "SUCCEEDED" &&
+        turn.aiRequest.outputText !== null &&
+        hasNoToolCalls(turn.toolCallsJson)
+      ) {
+        return {
+          ...turn.aiRequest,
+          outputText: turn.aiRequest.outputText,
+        };
+      }
+    }
+    // Provider-turn persistence is authoritative once it exists. Never fall
+    // back to the legacy primary pointer for a multi-turn execution because it
+    // may point at an intermediate tool-request turn.
+    return null;
+  }
+
+  if (
+    execution.aiRequest.status === "SUCCEEDED" &&
+    execution.aiRequest.outputText !== null
+  ) {
+    return {
+      ...execution.aiRequest,
+      outputText: execution.aiRequest.outputText,
+    };
+  }
+  return null;
+}
+
+function hasNoToolCalls(value: Prisma.JsonValue | null): boolean {
+  return value === null || (Array.isArray(value) && value.length === 0);
 }
 
 function parseSingleTextOutput(
