@@ -205,6 +205,7 @@ export class AiRequestReconciler {
       status: string;
       aiRequestId: string;
       toolCallError: boolean;
+      providerInterrupted: boolean;
       aiRequest: {
         id: string;
         userId: string;
@@ -228,6 +229,7 @@ export class AiRequestReconciler {
         request,
         turn.id,
         turn.toolCallError,
+        turn.providerInterrupted,
         reservation,
         counters,
       );
@@ -264,6 +266,7 @@ export class AiRequestReconciler {
         request,
         null,
         false,
+        false,
         reservation,
         counters,
       );
@@ -293,6 +296,7 @@ export class AiRequestReconciler {
     },
     providerTurnId: string | null,
     toolCallError: boolean,
+    providerInterrupted: boolean,
     reservation: {
       id: string;
       estimatedMicroRub: bigint;
@@ -366,7 +370,9 @@ export class AiRequestReconciler {
     }
 
     const finalRequestStatus =
-      request.outputText === null || toolCallError ? "FAILED" : "SUCCEEDED";
+      request.outputText === null || toolCallError || providerInterrupted
+        ? "FAILED"
+        : "SUCCEEDED";
     await this.prisma.$transaction(async (tx) => {
       await tx.aiRequest.update({
         where: { id: request.id },
