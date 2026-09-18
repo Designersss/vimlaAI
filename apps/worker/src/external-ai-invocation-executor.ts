@@ -375,6 +375,19 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
           return usageBlocked();
         }
 
+        await this.prisma.aIProviderTurn.updateMany({
+          where: {
+            id: request.providerTurnId,
+            status: {
+              in: [
+                "WAITING_FOR_USAGE_CAPACITY",
+                "BLOCKED_INSUFFICIENT_USAGE",
+              ],
+            },
+          },
+          data: { status: "CREATED" },
+        });
+
         let reservationId: string;
         try {
           const reservation = await this.billing.reserveUsage({
@@ -390,6 +403,14 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
               invocation.plan.userId,
             );
             const waiting = capacity.activeReservedMicroRub > 0n;
+            await this.prisma.aIProviderTurn.update({
+              where: { id: request.providerTurnId },
+              data: {
+                status: waiting
+                  ? "WAITING_FOR_USAGE_CAPACITY"
+                  : "BLOCKED_INSUFFICIENT_USAGE",
+              },
+            });
             this.logger.info(
               {
                 event: waiting
