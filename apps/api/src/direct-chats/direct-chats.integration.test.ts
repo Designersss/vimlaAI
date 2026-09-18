@@ -240,7 +240,7 @@ describe("direct chats API", () => {
       alice,
       aliceDevice,
       chat.id,
-      "HUMAN",
+      "OPERATOR_INVOKE",
       "@vimla ping",
       [vimlaMention],
     );
@@ -277,7 +277,7 @@ describe("direct chats API", () => {
           aliceDevice,
           device,
           chat.id,
-          "HUMAN",
+          "OPERATOR_INVOKE",
           "@vimla signed",
           [vimlaMention],
         ),
@@ -291,7 +291,7 @@ describe("direct chats API", () => {
       payload: {
         clientMessageId: randomUUID(),
         senderDeviceId: aliceDevice.deviceId,
-        kind: "HUMAN",
+        kind: "OPERATOR_INVOKE",
         envelopes: signedEnvelopes,
         mentions: [{ ...vimlaMention, endOffset: 7 }],
       },
