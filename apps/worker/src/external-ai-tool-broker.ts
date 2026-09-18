@@ -10,6 +10,7 @@ export interface ExternalAiToolBroker {
   listTools(context: ExternalAiToolContext): Promise<readonly ProviderToolDefinition[]>;
   execute(input: ExternalAiToolContext & {
     call: ProviderToolCall;
+    idempotencyKey: string;
     abortSignal?: AbortSignal;
   }): Promise<unknown>;
 }
@@ -19,7 +20,9 @@ export class NoopExternalAiToolBroker implements ExternalAiToolBroker {
     return [];
   }
 
-  async execute(input: ExternalAiToolContext & { call: ProviderToolCall }): Promise<unknown> {
+  async execute(
+    input: ExternalAiToolContext & { call: ProviderToolCall; idempotencyKey: string },
+  ): Promise<unknown> {
     throw new Error(`External AI tool is not authorized: ${input.call.name}`);
   }
 }
