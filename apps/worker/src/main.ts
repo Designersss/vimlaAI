@@ -338,6 +338,8 @@ async function startOrchestrationRuntime(
         maxCommittedCostMicroRubPerPlan: BigInt(config.aiMaxPlanCommittedMicroRub),
         cancellationPollMs: config.aiCancellationPollMs,
       },
+      undefined,
+      runtimeLogger,
     ),
     new VimlaAwareInvocationExecutorRegistry(
       new VimlaInvocationExecutor(
