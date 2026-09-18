@@ -170,8 +170,11 @@ describe("ExternalAiInvocationExecutor", () => {
       agentId: null,
     }));
 
-    expect(result.status).toBe("FAILED");
-    expect(result.errorCode).toBe("BILLING_INSUFFICIENT_USAGE");
+    expect(result).toEqual({
+      status: "FAILED",
+      errorCode: "BILLING_INSUFFICIENT_USAGE",
+      retryable: false,
+    });
     expect(provider.callCount).toBe(0);
     expect(
       await prisma.artifact.count({
