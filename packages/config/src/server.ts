@@ -221,6 +221,12 @@ export function loadWorkerConfig(
     aiOutputLongMinTokens: parsed.AI_OUTPUT_LONG_MIN_TOKENS,
     aiReservationSafetyBps: parsed.AI_RESERVATION_SAFETY_BPS,
     aiMaxReservationMicroRub: parsed.AI_MAX_RESERVATION_MICRORUB,
+    aiReconciliationIntervalSeconds: parsed.AI_RECONCILIATION_INTERVAL_SECONDS,
+    aiReconciliationBatch: parsed.AI_RECONCILIATION_BATCH,
+    aiReconciliationPreProviderStaleSeconds:
+      parsed.AI_RECONCILIATION_PRE_PROVIDER_STALE_SECONDS,
+    aiReconciliationProviderStaleSeconds:
+      parsed.AI_RECONCILIATION_PROVIDER_STALE_SECONDS,
     tbankEnv: parsed.TBANK_ENV,
     tbankTerminalKey: parsed.TBANK_TERMINAL_KEY ?? "MockTerminalKey",
     tbankPassword: parsed.TBANK_PASSWORD ?? "local-dev-only-tbank-password",
