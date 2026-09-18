@@ -37,6 +37,7 @@ import type {
   InvocationExecutionInput,
   InvocationExecutionResult,
   InvocationExecutorRegistry,
+  RuntimeLogger,
 } from "./orchestration.js";
 
 const SUPPORTED_TEXT_OUTPUT_TYPES = new Set<ArtifactType>([
@@ -54,6 +55,12 @@ const IN_PROGRESS_AI_STATUSES = new Set([
   "PROVIDER_STARTED",
   "STREAMING",
 ]);
+
+const silentRuntimeLogger: RuntimeLogger = {
+  info: () => undefined,
+  warn: () => undefined,
+  error: () => undefined,
+};
 
 export interface ExternalAiExecutorConfig {
   budgetProfiles: AiExecutionBudgetProfiles;
@@ -125,6 +132,7 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
     private readonly gateway: VimlaAiGateway,
     private readonly config: ExternalAiExecutorConfig,
     private readonly toolBroker: ExternalAiToolBroker = new NoopExternalAiToolBroker(),
+    private readonly logger: RuntimeLogger = silentRuntimeLogger,
   ) {
     validateAiExecutionBudgetProfiles(config.budgetProfiles);
     if (config.maxReservationMicroRub <= 0n) {
@@ -227,6 +235,15 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
               provider: turn.aiRequest.provider,
             },
           });
+          this.logger.info(
+            {
+              event: "ai_replay_suppressed",
+              planId: input.planId,
+              invocationId: input.invocationId,
+              providerTurnId: turn.id,
+            },
+            "AI paid provider turn replay suppressed",
+          );
           return { status: "COMPLETED", outcome: "REPLAYED" };
         }
 
@@ -295,12 +312,41 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
           };
         }
         if (request.kind === "terminal_failure") {
+          if (request.errorCode === "PLAN_SPEND_LIMIT_REACHED") {
+            this.logger.warn(
+              {
+                event: "ai_plan_spend_limit_reached",
+                planId: input.planId,
+                invocationId: input.invocationId,
+                turnIndex,
+              },
+              "AI plan spend limit reached",
+            );
+          }
           return terminal(request.errorCode);
         }
         if (request.kind === "capacity_wait") {
+          this.logger.info(
+            {
+              event: "ai_usage_capacity_wait",
+              planId: input.planId,
+              invocationId: input.invocationId,
+              turnIndex,
+            },
+            "AI invocation waiting for usage capacity",
+          );
           return usageCapacityWait();
         }
         if (request.kind === "usage_blocked") {
+          this.logger.info(
+            {
+              event: "ai_usage_blocked",
+              planId: input.planId,
+              invocationId: input.invocationId,
+              turnIndex,
+            },
+            "AI invocation blocked on usage allowance",
+          );
           return usageBlocked();
         }
 
@@ -315,10 +361,24 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
           reservationId = reservation.id;
         } catch (error: unknown) {
           if (isBillingError(error) && error.code === "INSUFFICIENT_USAGE") {
-            const capacity = await this.billing.getSpendableUsageState(invocation.plan.userId);
-            return capacity.activeReservedMicroRub > 0n
-              ? usageCapacityWait()
-              : usageBlocked();
+            const capacity = await this.billing.getSpendableUsageState(
+              invocation.plan.userId,
+            );
+            const waiting = capacity.activeReservedMicroRub > 0n;
+            this.logger.info(
+              {
+                event: waiting
+                  ? "ai_usage_capacity_wait"
+                  : "ai_usage_blocked",
+                planId: input.planId,
+                invocationId: input.invocationId,
+                turnIndex,
+              },
+              waiting
+                ? "AI reservation lost a capacity race and will wait"
+                : "AI reservation blocked on exhausted usage",
+            );
+            return waiting ? usageCapacityWait() : usageBlocked();
           }
           await this.markPreProviderFailure(
             request.aiRequestId,
@@ -382,6 +442,16 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
           provider.usage.inputTokens > BigInt(request.estimatedInputTokens) ||
           provider.usage.outputTokens > BigInt(request.maxOutputTokens)
         ) {
+          this.logger.error(
+            {
+              event: "ai_provider_boundedness_violation",
+              planId: input.planId,
+              invocationId: input.invocationId,
+              providerTurnId: request.providerTurnId,
+              turnIndex,
+            },
+            "Provider usage exceeded funded token caps",
+          );
           await this.markReconciliation(
             request.aiRequestId,
             request.providerTurnId,
@@ -407,6 +477,16 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
         }
 
         if (actualCost > request.estimatedCostMicroRub) {
+          this.logger.error(
+            {
+              event: "ai_provider_boundedness_violation",
+              planId: input.planId,
+              invocationId: input.invocationId,
+              providerTurnId: request.providerTurnId,
+              turnIndex,
+            },
+            "Provider actual cost exceeded funded reservation",
+          );
           await this.markReconciliation(
             request.aiRequestId,
             request.providerTurnId,
@@ -1223,6 +1303,16 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
         data: { status: "PROVIDER_STARTING" },
       }),
     ]);
+    this.logger.info(
+      {
+        event: "ai_provider_turn_started",
+        planId: input.planId,
+        invocationId: input.invocationId,
+        providerTurnId: input.providerTurnId,
+        modelSlug: input.model.slug,
+      },
+      "AI provider turn started",
+    );
 
     const abortController = new AbortController();
     let cancellationPollInFlight = false;
@@ -1294,6 +1384,15 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
         abortController.signal.aborted ||
         (error instanceof ProviderCallError && error.kind === "ambiguous")
       ) {
+        this.logger.warn(
+          {
+            event: "ai_provider_turn_ambiguous",
+            planId: input.planId,
+            invocationId: input.invocationId,
+            providerTurnId: input.providerTurnId,
+          },
+          "AI provider turn outcome is ambiguous",
+        );
         await this.markReconciliation(
           input.aiRequestId,
           input.providerTurnId,
