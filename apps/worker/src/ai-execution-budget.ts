@@ -25,7 +25,8 @@ export type FundedAiExecutionBudget = {
 
 export type AiExecutionBudgetResult =
   | { kind: "FUNDED"; budget: FundedAiExecutionBudget }
-  | { kind: "INSUFFICIENT_USAGE" };
+  | { kind: "INSUFFICIENT_USAGE" }
+  | { kind: "REQUEST_COST_LIMIT" };
 
 export function resolveAiExecutionBudget(input: {
   profile: AiExecutionBudgetProfileName;
@@ -40,7 +41,10 @@ export function resolveAiExecutionBudget(input: {
   assertPositiveInteger(input.modelMaxOutputTokens, "modelMaxOutputTokens");
   assertNonNegativeInteger(input.estimatedInputTokens, "estimatedInputTokens");
 
-  if (input.availableMicroRub <= 0n || input.maxReservationMicroRub <= 0n) {
+  if (input.maxReservationMicroRub <= 0n) {
+    return { kind: "REQUEST_COST_LIMIT" };
+  }
+  if (input.availableMicroRub <= 0n) {
     return { kind: "INSUFFICIENT_USAGE" };
   }
 
@@ -55,20 +59,23 @@ export function resolveAiExecutionBudget(input: {
     configured.minimumOutputTokens,
     preferredOutputTokens,
   );
-  const spendCeiling =
-    input.availableMicroRub < input.maxReservationMicroRub
-      ? input.availableMicroRub
-      : input.maxReservationMicroRub;
-
   const minimumCost = reservationCost({
     estimatedInputTokens: input.estimatedInputTokens,
     maxOutputTokens: minimumOutputTokens,
     price: input.price,
     safetyBps: input.safetyBps,
   });
-  if (minimumCost > spendCeiling) {
+  if (minimumCost > input.maxReservationMicroRub) {
+    return { kind: "REQUEST_COST_LIMIT" };
+  }
+  if (minimumCost > input.availableMicroRub) {
     return { kind: "INSUFFICIENT_USAGE" };
   }
+
+  const spendCeiling =
+    input.availableMicroRub < input.maxReservationMicroRub
+      ? input.availableMicroRub
+      : input.maxReservationMicroRub;
 
   const preferredCost = reservationCost({
     estimatedInputTokens: input.estimatedInputTokens,
