@@ -796,13 +796,20 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
       );
     }
     const estimatedInputTokens = estimateProviderRequestInputTokens(messages, tools);
-    const minimumOutputTokens = this.config.budgetProfiles.STANDARD.minimumOutputTokens;
-    const capable = (candidate: ResolvedModel): boolean =>
-      candidate.billingBoundedness === "HARD_BOUNDED" &&
-      (!requiresToolUse || candidate.supportsToolUse) &&
-      estimatedInputTokens +
-          Math.min(minimumOutputTokens, candidate.maxOutputTokens) <=
-        candidate.contextWindowTokens;
+    const minimumOutputTokens =
+      this.config.budgetProfiles.STANDARD.minimumOutputTokens;
+    const capable = (candidate: ResolvedModel): boolean => {
+      const minimumUsefulOutputTokens = Math.min(
+        minimumOutputTokens,
+        candidate.maxOutputTokens,
+      );
+      return (
+        candidate.billingBoundedness === "HARD_BOUNDED" &&
+        (!requiresToolUse || candidate.supportsToolUse) &&
+        contextAvailableOutputTokens(candidate, estimatedInputTokens) >=
+          minimumUsefulOutputTokens
+      );
+    };
 
     if (input.target.kind === "AI_MODEL" || forcedModelSlug !== null) {
       if (firstCandidate.billingBoundedness !== "HARD_BOUNDED") {
@@ -852,7 +859,10 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
       const budget = resolveAiExecutionBudget({
         profile: "STANDARD",
         profiles: this.config.budgetProfiles,
-        modelMaxOutputTokens: candidate.maxOutputTokens,
+        modelMaxOutputTokens: Math.min(
+          candidate.maxOutputTokens,
+          contextAvailableOutputTokens(candidate, estimatedInputTokens),
+        ),
         estimatedInputTokens,
         availableMicroRub,
         maxReservationMicroRub: this.config.maxReservationMicroRub,
@@ -883,6 +893,7 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
     const maxOutputTokens = Math.min(
       this.config.budgetProfiles.STANDARD.preferredOutputTokens,
       model.maxOutputTokens,
+      contextAvailableOutputTokens(model, estimatedInputTokens),
     );
     return estimateReservationMicroRub({
       estimatedInputTokens: BigInt(estimatedInputTokens),
@@ -930,6 +941,20 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
       messages,
       tools,
     );
+    const contextMaxOutputTokens = Math.min(
+      model.maxOutputTokens,
+      contextAvailableOutputTokens(model, estimatedInputTokens),
+    );
+    const minimumUsefulOutputTokens = Math.min(
+      this.config.budgetProfiles.STANDARD.minimumOutputTokens,
+      model.maxOutputTokens,
+    );
+    if (contextMaxOutputTokens < minimumUsefulOutputTokens) {
+      return {
+        kind: "terminal_failure",
+        errorCode: "AI_MODEL_CAPABILITY_UNAVAILABLE",
+      };
+    }
     // This snapshot is advisory only. BillingEngine.reserveUsage remains the
     // cross-worker authority for user allowance. The plan row lock below is
     // the authority for plan-level spend admission.
@@ -1005,7 +1030,7 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
         const budgetResult = resolveAiExecutionBudget({
           profile: "STANDARD",
           profiles: this.config.budgetProfiles,
-          modelMaxOutputTokens: model.maxOutputTokens,
+          modelMaxOutputTokens: contextMaxOutputTokens,
           estimatedInputTokens,
           availableMicroRub,
           maxReservationMicroRub: this.config.maxReservationMicroRub,
@@ -1017,7 +1042,7 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
             const userOnlyBudget = resolveAiExecutionBudget({
               profile: "STANDARD",
               profiles: this.config.budgetProfiles,
-              modelMaxOutputTokens: model.maxOutputTokens,
+              modelMaxOutputTokens: contextMaxOutputTokens,
               estimatedInputTokens,
               availableMicroRub: capacity.availableMicroRub,
               maxReservationMicroRub: this.config.maxReservationMicroRub,
@@ -1873,6 +1898,13 @@ function stringifyArtifactValue(value: Prisma.InputJsonValue): string {
     return (value as { text: string }).text;
   }
   return JSON.stringify(value);
+}
+
+function contextAvailableOutputTokens(
+  model: Pick<ResolvedModel, "contextWindowTokens">,
+  estimatedInputTokens: number,
+): number {
+  return Math.max(0, model.contextWindowTokens - estimatedInputTokens);
 }
 
 function positiveInteger(value: number | undefined, fallback: number): number {
