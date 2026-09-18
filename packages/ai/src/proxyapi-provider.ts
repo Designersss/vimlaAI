@@ -36,10 +36,19 @@ export class ProxyApiProvider implements AiProvider {
         },
         body: JSON.stringify({
           model: request.providerModelId,
-          messages: request.messages.map((message) => ({
-            role: message.role,
-            content: message.content,
-          })),
+          messages: request.messages.map(serializeProviderMessage),
+          ...(request.tools && request.tools.length > 0
+            ? {
+                tools: request.tools.map((tool) => ({
+                  type: "function",
+                  function: {
+                    name: tool.name,
+                    description: tool.description,
+                    parameters: tool.inputSchema,
+                  },
+                })),
+              }
+            : {}),
           stream: true,
           stream_options: { include_usage: true },
           max_completion_tokens: request.maxOutputTokens,
@@ -66,6 +75,39 @@ export class ProxyApiProvider implements AiProvider {
       events: readProxyApiStream(body),
     };
   }
+}
+
+function serializeProviderMessage(message: ProviderChatRequest["messages"][number]): Record<string, unknown> {
+  if (message.role === "tool") {
+    if (!message.toolCallId) {
+      throw new ProviderCallError("rejected", "Tool result message is missing toolCallId", null);
+    }
+    return {
+      role: "tool",
+      tool_call_id: message.toolCallId,
+      content: message.content,
+    };
+  }
+
+  if (message.role === "assistant" && message.toolCalls && message.toolCalls.length > 0) {
+    return {
+      role: "assistant",
+      content: message.content || null,
+      tool_calls: message.toolCalls.map((call) => ({
+        id: call.id,
+        type: "function",
+        function: {
+          name: call.name,
+          arguments: JSON.stringify(call.arguments),
+        },
+      })),
+    };
+  }
+
+  return {
+    role: message.role,
+    content: message.content,
+  };
 }
 
 async function* readProxyApiStream(body: ReadableStream<Uint8Array>): AsyncIterable<ProviderStreamEvent> {
