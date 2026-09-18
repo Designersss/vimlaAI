@@ -123,6 +123,30 @@ describe("billing engine integration", () => {
     await expectSnapshot(prisma, userId, { spent: 10n, reserved: 0n, remaining: 90n });
   });
 
+  it("settles exactly at the funded reservation without anomaly or extra allocation", async () => {
+    const userId = await createUser(prisma, "exact");
+    await grantBucket(prisma, userId, "MONTHLY", rubToMicroRub(100n), future());
+
+    const reserved = await engine.reserveUsage({
+      userId,
+      requestId: randomUUID(),
+      estimatedProviderCostMicroRub: rubToMicroRub(30n),
+    });
+    const settled = await engine.settleUsage({
+      userId,
+      reservationId: reserved.id,
+      actualMicroRub: rubToMicroRub(30n),
+    });
+
+    expect(settled.status).toBe("SETTLED");
+    expect(settled.settledMicroRub).toBe(rubToMicroRub(30n));
+    await expectSnapshot(prisma, userId, {
+      spent: 30n,
+      reserved: 0n,
+      remaining: 70n,
+    });
+  });
+
   it("can release a reservation after the monthly bucket expires", async () => {
     const userId = await createUser(prisma, "late");
     const bucket = await grantBucket(prisma, userId, "MONTHLY", rubToMicroRub(100n), future());
