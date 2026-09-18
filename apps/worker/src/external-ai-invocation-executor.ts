@@ -827,7 +827,7 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
           price: model.price,
           safetyBps: this.config.reservationSafetyBps,
         });
-        if (userOnlyBudget.kind === "BUDGET") {
+        if (userOnlyBudget.kind === "FUNDED") {
           return {
             kind: "terminal_failure",
             errorCode: "PLAN_SPEND_LIMIT_REACHED",
