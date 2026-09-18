@@ -451,6 +451,167 @@ describe("ExternalAiInvocationExecutor", () => {
     expect(bucket.spentMicroRub).toBe(0n);
   });
 
+  it("releases a reservation after a proven safe provider rejection", async () => {
+    const seeded = await seedInvocation(prisma, {
+      targetKind: "AI_MODEL",
+      targetModelSlug: "gpt-5-6-luna",
+      purpose: "Safe provider rejection",
+      fund: true,
+    });
+    const provider = new MockAiProvider();
+    provider.scenario = "reject";
+    const executor = createExecutor(prisma, provider);
+
+    const result = await executor.execute(
+      executionInput(seeded, {
+        kind: "AI_MODEL",
+        modelSlug: "gpt-5-6-luna",
+        agentId: null,
+      }),
+    );
+
+    expect(result).toEqual({
+      status: "FAILED",
+      errorCode: "AI_PROVIDER_REJECTED",
+      retryable: false,
+    });
+    const request = await prisma.aiRequest.findUniqueOrThrow({
+      where: {
+        userId_clientRequestId: {
+          userId: seeded.userId,
+          clientRequestId: orchestrationAiClientRequestId(seeded.invocationId),
+        },
+      },
+      include: { reservation: true, providerTurn: true },
+    });
+    expect(request.financialStatus).toBe("RELEASED");
+    expect(request.reservation?.status).toBe("RELEASED");
+    expect(request.providerTurn?.status).toBe("FAILED_SAFE_PROVIDER");
+    expect(await spentForUser(prisma, seeded.userId)).toBe(0n);
+  });
+
+  it("releases a reservation after a proven provider balance rejection", async () => {
+    const seeded = await seedInvocation(prisma, {
+      targetKind: "AI_MODEL",
+      targetModelSlug: "gpt-5-6-luna",
+      purpose: "Provider balance rejection",
+      fund: true,
+    });
+    const provider = new MockAiProvider();
+    provider.scenario = "balance";
+    const executor = createExecutor(prisma, provider);
+
+    const result = await executor.execute(
+      executionInput(seeded, {
+        kind: "AI_MODEL",
+        modelSlug: "gpt-5-6-luna",
+        agentId: null,
+      }),
+    );
+
+    expect(result).toEqual({
+      status: "FAILED",
+      errorCode: "AI_PROVIDER_BALANCE",
+      retryable: false,
+    });
+    const request = await prisma.aiRequest.findUniqueOrThrow({
+      where: {
+        userId_clientRequestId: {
+          userId: seeded.userId,
+          clientRequestId: orchestrationAiClientRequestId(seeded.invocationId),
+        },
+      },
+      include: { reservation: true },
+    });
+    expect(request.financialStatus).toBe("RELEASED");
+    expect(request.reservation?.status).toBe("RELEASED");
+    expect(await spentForUser(prisma, seeded.userId)).toBe(0n);
+  });
+
+  it("holds a stream with missing terminal usage instead of releasing or retrying it", async () => {
+    const seeded = await seedInvocation(prisma, {
+      targetKind: "AI_MODEL",
+      targetModelSlug: "gpt-5-6-luna",
+      purpose: "Missing terminal usage",
+      fund: true,
+    });
+    const provider = new MockAiProvider();
+    provider.scenario = "missing-usage";
+    const executor = createExecutor(prisma, provider);
+
+    const result = await executor.execute(
+      executionInput(seeded, {
+        kind: "AI_MODEL",
+        modelSlug: "gpt-5-6-luna",
+        agentId: null,
+      }),
+    );
+
+    expect(result).toEqual({
+      status: "FAILED",
+      errorCode: "AI_RECONCILIATION_REQUIRED",
+      retryable: false,
+    });
+    const request = await prisma.aiRequest.findUniqueOrThrow({
+      where: {
+        userId_clientRequestId: {
+          userId: seeded.userId,
+          clientRequestId: orchestrationAiClientRequestId(seeded.invocationId),
+        },
+      },
+      include: { reservation: true, providerTurn: true },
+    });
+    expect(request.financialStatus).toBe("RECONCILIATION_HOLD");
+    expect(request.reservation?.status).toBe("ACTIVE");
+    expect(request.providerTurn?.status).toBe("RECONCILIATION_REQUIRED");
+    expect(await spentForUser(prisma, seeded.userId)).toBe(0n);
+  });
+
+  it("holds impossible provider usage instead of silently settling it", async () => {
+    const seeded = await seedInvocation(prisma, {
+      targetKind: "AI_MODEL",
+      targetModelSlug: "gpt-5-6-luna",
+      purpose: "Invalid provider usage",
+      fund: true,
+    });
+    const provider = new MockAiProvider();
+    provider.usage = {
+      inputTokens: 10n,
+      outputTokens: 1n,
+      reasoningTokens: 0n,
+      cacheReadTokens: 11n,
+      cacheWriteTokens: 0n,
+    };
+    const executor = createExecutor(prisma, provider);
+
+    const result = await executor.execute(
+      executionInput(seeded, {
+        kind: "AI_MODEL",
+        modelSlug: "gpt-5-6-luna",
+        agentId: null,
+      }),
+    );
+
+    expect(result).toEqual({
+      status: "FAILED",
+      errorCode: "AI_RECONCILIATION_REQUIRED",
+      retryable: false,
+    });
+    const request = await prisma.aiRequest.findUniqueOrThrow({
+      where: {
+        userId_clientRequestId: {
+          userId: seeded.userId,
+          clientRequestId: orchestrationAiClientRequestId(seeded.invocationId),
+        },
+      },
+      include: { reservation: true, providerTurn: true },
+    });
+    expect(request.financialStatus).toBe("RECONCILIATION_HOLD");
+    expect(request.reservation?.status).toBe("ACTIVE");
+    expect(request.providerTurn?.status).toBe("RECONCILIATION_REQUIRED");
+    expect(await spentForUser(prisma, seeded.userId)).toBe(0n);
+  });
+
   it("funds tool definitions as part of the provider input before any call", async () => {
     const seeded = await seedInvocation(prisma, {
       targetKind: "AI_MODEL",
@@ -1305,6 +1466,14 @@ async function seedSiblingInvocation(
     runId: run.id,
     runIdempotencyKey: run.idempotencyKey,
   };
+}
+
+async function spentForUser(
+  prisma: PrismaClient,
+  userId: string,
+): Promise<bigint> {
+  const buckets = await prisma.usageBucket.findMany({ where: { userId } });
+  return buckets.reduce((sum, bucket) => sum + bucket.spentMicroRub, 0n);
 }
 
 async function seedUnboundedModel(
