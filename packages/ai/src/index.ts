@@ -18,6 +18,7 @@ export { normalizeProviderUsage, readOpenAiUsage } from "./usage.js";
 export {
   assertMessageSize,
   estimateInputTokens,
+  estimateProviderRequestInputTokens,
   selectContextMessages,
   utf8ByteLength,
 } from "./estimate.js";
