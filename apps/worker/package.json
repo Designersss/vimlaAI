@@ -13,18 +13,18 @@
     "test:integration": "vitest run --config vitest.integration.config.ts"
   },
   "dependencies": {
+    "@vimla/ai": "workspace:*",
     "@vimla/billing": "workspace:*",
     "@vimla/config": "workspace:*",
     "@vimla/contracts": "workspace:*",
     "@vimla/database": "workspace:*",
     "@vimla/notifications": "workspace:*",
+    "@vimla/operator": "workspace:*",
     "@vimla/shared": "workspace:*",
+    "@vimla/workspace": "workspace:*",
     "bullmq": "^5.58.5",
     "ioredis": "^5.7.0",
-    "pino": "^9.9.0",
-    "@vimla/ai": "workspace:*",
-    "@vimla/operator": "workspace:*",
-    "@vimla/workspace": "workspace:*"
+    "pino": "^9.9.0"
   },
   "devDependencies": {
     "@types/node": "^24.3.1",
