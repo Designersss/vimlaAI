@@ -1046,6 +1046,18 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
             input.invocationId,
             tx,
           );
+          if (
+            planSpend.providerTurnsForInvocation >
+              this.maxProviderTurnsPerInvocation ||
+            planSpend.paidInvocationIds.size >
+              this.maxPaidInvocationsPerPlan
+          ) {
+            return {
+              kind: "terminal_failure" as const,
+              errorCode: "PLAN_SPEND_LIMIT_REACHED",
+            };
+          }
+
           const ownPendingAdmission =
             existingTurn.status === "CREATED" &&
             existingTurn.aiRequest.status === "CREATED" &&
