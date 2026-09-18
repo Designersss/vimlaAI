@@ -6,7 +6,7 @@ import {
   type ArtifactType,
 } from "@vimla/artifacts";
 import {
-  estimateInputTokens,
+  estimateProviderRequestInputTokens,
   estimateReservationMicroRub,
   providerCostFromUsage,
   ProviderCallError,
@@ -683,7 +683,7 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
           : "AI_AUTO_NO_APPROVED_MODEL",
       );
     }
-    const estimatedInputTokens = estimateInputTokens(messages);
+    const estimatedInputTokens = estimateProviderRequestInputTokens(messages, tools);
     const minimumOutputTokens = this.config.budgetProfiles.STANDARD.minimumOutputTokens;
     const capable = (candidate: ResolvedModel): boolean =>
       candidate.billingBoundedness === "HARD_BOUNDED" &&
@@ -797,7 +797,7 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
       return { kind: "terminal_failure", errorCode: "PLAN_SPEND_LIMIT_REACHED" };
     }
 
-    const estimatedInputTokens = estimateInputTokens(messages);
+    const estimatedInputTokens = estimateProviderRequestInputTokens(messages, tools);
     const capacity = await this.billing.getSpendableUsageState(invocation.plan.userId);
     const planAvailable =
       settledRemaining < committedRemaining ? settledRemaining : committedRemaining;
