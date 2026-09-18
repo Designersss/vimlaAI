@@ -312,6 +312,39 @@ describe("billing engine integration", () => {
     await expectSnapshot(prisma, userId, { spent: 4n, reserved: 0n, remaining: 36n });
   });
 
+  it("keeps settle-vs-release races financially single-winner", async () => {
+    const userId = await createUser(prisma, "settle-release-race");
+    await grantBucket(prisma, userId, "MONTHLY", rubToMicroRub(100n), future());
+    const reserved = await engine.reserveUsage({
+      userId,
+      requestId: randomUUID(),
+      estimatedProviderCostMicroRub: rubToMicroRub(30n),
+    });
+
+    const results = await Promise.allSettled([
+      engine.settleUsage({
+        userId,
+        reservationId: reserved.id,
+        actualMicroRub: rubToMicroRub(20n),
+      }),
+      engine.releaseUsage({
+        userId,
+        reservationId: reserved.id,
+      }),
+    ]);
+
+    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
+    const final = await prisma.usageReservation.findUniqueOrThrow({
+      where: { id: reserved.id },
+    });
+    expect(["SETTLED", "RELEASED"]).toContain(final.status);
+    const snapshot = await engine.getUsageSnapshot(userId);
+    expect(snapshot.monthly.reservedMicroRub).toBe(0n);
+    expect(snapshot.monthly.spentMicroRub).toBe(
+      final.status === "SETTLED" ? rubToMicroRub(20n) : 0n,
+    );
+  });
+
   it("rejects concurrent overspend", async () => {
     const userId = await createUser(prisma, "race");
     await grantBucket(prisma, userId, "MONTHLY", rubToMicroRub(5n), future());
