@@ -21,8 +21,8 @@ export interface CuratedModelSeed {
   source: string;
 }
 
-const PRICE_VERIFIED_AT = new Date("2026-09-07T00:00:00.000Z");
-const PRICE_SOURCE = "proxyapi-manual-2026-09-07";
+const PRICE_VERIFIED_AT = new Date("2026-09-18T00:00:00.000Z");
+const PRICE_SOURCE = "proxyapi-docs-2026-09-18";
 
 function price(rubPerMillion: bigint): MicroRub {
   return rubPerMillion * MICRORUB_PER_RUB;
@@ -75,7 +75,7 @@ export const VIMLA_AI_MODEL_CATALOG: readonly CuratedModelSeed[] = [
     maxOutputTokens: 16_384,
     inputMicroRubPerMillion: price(91n),
     outputMicroRubPerMillion: price(758n),
-    cacheReadMicroRubPerMillion: null,
+    cacheReadMicroRubPerMillion: price(9n),
     cacheWriteMicroRubPerMillion: null,
     billingBoundedness: "HARD_BOUNDED",
     supportsToolUse: false,
