@@ -264,7 +264,20 @@ async function startOrchestrationRuntime(
       billingEngine,
       new VimlaAiGateway(new MockAiProvider()),
       {
-        defaultMaxOutputTokens: config.aiDefaultMaxOutputTokens,
+        budgetProfiles: {
+          SHORT: {
+            preferredOutputTokens: config.aiOutputShortPreferredTokens,
+            minimumOutputTokens: config.aiOutputShortMinTokens,
+          },
+          STANDARD: {
+            preferredOutputTokens: config.aiOutputStandardPreferredTokens,
+            minimumOutputTokens: config.aiOutputStandardMinTokens,
+          },
+          LONG: {
+            preferredOutputTokens: config.aiOutputLongPreferredTokens,
+            minimumOutputTokens: config.aiOutputLongMinTokens,
+          },
+        },
         reservationSafetyBps: BigInt(config.aiReservationSafetyBps),
         maxReservationMicroRub: BigInt(config.aiMaxReservationMicroRub),
       },
