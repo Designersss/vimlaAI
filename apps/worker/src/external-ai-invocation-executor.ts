@@ -949,16 +949,25 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
   }
 
   private async callProvider(input: {
+    planId: string;
+    invocationId: string;
     aiRequestId: string;
     providerTurnId: string;
     reservationId: string;
     userId: string;
     model: ResolvedModel;
     messages: readonly ProviderChatMessage[];
+    tools: readonly ProviderToolDefinition[];
     maxOutputTokens: number;
     correlationId: string;
   }): Promise<
-    | { kind: "ok"; text: string; usage: NormalizedUsage }
+    | {
+        kind: "ok";
+        text: string;
+        usage: NormalizedUsage;
+        toolCalls: ProviderToolCall[];
+        toolCallError: boolean;
+      }
     | { kind: "failed"; result: InvocationExecutionResult }
   > {
     if (
@@ -987,14 +996,34 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
       }),
     ]);
 
+    const abortController = new AbortController();
+    let cancellationPollInFlight = false;
+    const cancellationTimer = setInterval(() => {
+      if (cancellationPollInFlight || abortController.signal.aborted) return;
+      cancellationPollInFlight = true;
+      void this.isInvocationRunning(input.planId, input.invocationId)
+        .then((running) => {
+          if (!running) abortController.abort();
+        })
+        .finally(() => {
+          cancellationPollInFlight = false;
+        });
+    }, this.cancellationPollMs);
+
     let text = "";
     let usage: NormalizedUsage | null = null;
+    const toolDrafts = new Map<
+      number,
+      { id?: string; name?: string; argumentsText: string }
+    >();
     try {
       const session = await this.gateway.streamChat({
         providerModelId: input.model.providerModelId,
         messages: input.messages,
+        ...(input.tools.length > 0 ? { tools: input.tools } : {}),
         maxOutputTokens: input.maxOutputTokens,
         correlationId: input.correlationId,
+        abortSignal: abortController.signal,
       });
       await this.prisma.$transaction([
         this.prisma.aiRequest.update({
@@ -1013,18 +1042,42 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
       for await (const event of session.events) {
         if (event.type === "delta") text += event.text;
         if (event.type === "usage") usage = event.usage;
+        if (event.type === "tool_call_delta") {
+          const existing = toolDrafts.get(event.index) ?? { argumentsText: "" };
+          if (event.id) existing.id = event.id;
+          if (event.name) existing.name = event.name;
+          existing.argumentsText += event.argumentsDelta;
+          toolDrafts.set(event.index, existing);
+        }
       }
     } catch (error: unknown) {
+      if (usage) {
+        const parsed = finalizeToolCalls(toolDrafts);
+        return {
+          kind: "ok",
+          text,
+          usage,
+          toolCalls: parsed.calls,
+          toolCallError: parsed.invalid,
+        };
+      }
+
+      if (
+        abortController.signal.aborted ||
+        (error instanceof ProviderCallError && error.kind === "ambiguous")
+      ) {
+        await this.markReconciliation(
+          input.aiRequestId,
+          input.providerTurnId,
+          text,
+          abortController.signal.aborted
+            ? "orchestration_stop_ambiguous_provider_abort"
+            : "ambiguous_provider_failure",
+        );
+        return { kind: "failed", result: terminal("AI_RECONCILIATION_REQUIRED") };
+      }
+
       if (error instanceof ProviderCallError) {
-        if (error.kind === "ambiguous") {
-          await this.markReconciliation(
-            input.aiRequestId,
-            input.providerTurnId,
-            text,
-            "ambiguous_provider_failure",
-          );
-          return { kind: "failed", result: terminal("AI_RECONCILIATION_REQUIRED") };
-        }
         const released = await this.releaseReservationAfterSafeFailure(
           input.aiRequestId,
           input.providerTurnId,
@@ -1051,6 +1104,8 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
         "unknown_provider_failure",
       );
       return { kind: "failed", result: terminal("AI_RECONCILIATION_REQUIRED") };
+    } finally {
+      clearInterval(cancellationTimer);
     }
 
     if (!usage) {
@@ -1063,7 +1118,14 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
       return { kind: "failed", result: terminal("AI_RECONCILIATION_REQUIRED") };
     }
 
-    return { kind: "ok", text, usage };
+    const parsed = finalizeToolCalls(toolDrafts);
+    return {
+      kind: "ok",
+      text,
+      usage,
+      toolCalls: parsed.calls,
+      toolCallError: parsed.invalid,
+    };
   }
 
   private async releaseReservationAfterSafeFailure(
