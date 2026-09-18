@@ -248,6 +248,8 @@ describe("ExternalAiInvocationExecutor", () => {
   });
 
   it("selects AI_AUTO server-side and persists the concrete selected model", async () => {
+    const unboundedSlug = `unbounded-auto-${randomUUID()}`;
+    await seedUnboundedModel(prisma, unboundedSlug);
     const seeded = await seedInvocation(prisma, {
       targetKind: "AI_AUTO",
       targetModelSlug: null,
@@ -275,7 +277,77 @@ describe("ExternalAiInvocationExecutor", () => {
     });
     expect(request.model.active).toBe(true);
     expect(request.model.visible).toBe(true);
+    expect(request.model.slug).not.toBe(unboundedSlug);
     expect(provider.lastRequest?.providerModelId).toBe(request.model.providerModelId);
+  });
+
+  it("fails closed for an exact model without a hard-bounded billing policy", async () => {
+    const unboundedSlug = `unbounded-exact-${randomUUID()}`;
+    await seedUnboundedModel(prisma, unboundedSlug);
+    const seeded = await seedInvocation(prisma, {
+      targetKind: "AI_MODEL",
+      targetModelSlug: unboundedSlug,
+      purpose: "Do not run an unverified billing model",
+      fund: true,
+    });
+    const provider = new MockAiProvider();
+    const executor = createExecutor(prisma, provider);
+
+    const result = await executor.execute(executionInput(seeded, {
+      kind: "AI_MODEL",
+      modelSlug: unboundedSlug,
+      agentId: null,
+    }));
+
+    expect(result).toEqual({
+      status: "FAILED",
+      errorCode: "AI_MODEL_BILLING_UNBOUNDED",
+      retryable: false,
+    });
+    expect(provider.callCount).toBe(0);
+    expect(
+      await prisma.aiRequest.count({ where: { userId: seeded.userId } }),
+    ).toBe(0);
+  });
+
+  it("holds instead of charging beyond the funded provider token cap", async () => {
+    const seeded = await seedInvocation(prisma, {
+      targetKind: "AI_MODEL",
+      targetModelSlug: "gpt-5-6-luna",
+      purpose: "Provider must stay inside the funded cap",
+      fund: true,
+    });
+    const provider = new MockAiProvider();
+    provider.scenario = "expensive";
+    const executor = createExecutor(prisma, provider);
+
+    const result = await executor.execute(executionInput(seeded, {
+      kind: "AI_MODEL",
+      modelSlug: "gpt-5-6-luna",
+      agentId: null,
+    }));
+
+    expect(result).toEqual({
+      status: "FAILED",
+      errorCode: "AI_PROVIDER_BOUNDEDNESS_VIOLATION",
+      retryable: false,
+    });
+    const request = await prisma.aiRequest.findUniqueOrThrow({
+      where: {
+        userId_clientRequestId: {
+          userId: seeded.userId,
+          clientRequestId: orchestrationAiClientRequestId(seeded.invocationId),
+        },
+      },
+      include: { reservation: true },
+    });
+    expect(request.status).toBe("RECONCILIATION_REQUIRED");
+    expect(request.financialStatus).toBe("RECONCILIATION_HOLD");
+    expect(request.reservation?.status).toBe("ACTIVE");
+    const bucket = await prisma.usageBucket.findFirstOrThrow({
+      where: { userId: seeded.userId },
+    });
+    expect(bucket.spentMicroRub).toBe(0n);
   });
 
   it("does not silently fall back when the exact requested model is unavailable", async () => {
@@ -493,6 +565,39 @@ async function seedInvocation(
     runId: run.id,
     runIdempotencyKey: run.idempotencyKey,
   };
+}
+
+async function seedUnboundedModel(
+  prisma: PrismaClient,
+  slug: string,
+): Promise<void> {
+  const model = await prisma.aiModel.create({
+    data: {
+      slug,
+      displayName: "Unbounded Test Model",
+      vendor: "test",
+      provider: "proxyapi",
+      providerModelId: `test/${slug}`,
+      active: true,
+      visible: true,
+      supportsStreaming: true,
+      contextWindowTokens: 128_000,
+      maxOutputTokens: 16_384,
+    },
+  });
+  await prisma.aiModelPriceVersion.create({
+    data: {
+      modelId: model.id,
+      inputMicroRubPerMillion: 1n,
+      outputMicroRubPerMillion: 1n,
+      cacheReadMicroRubPerMillion: null,
+      cacheWriteMicroRubPerMillion: null,
+      effectiveFrom: new Date("2026-01-01T00:00:00.000Z"),
+      effectiveTo: null,
+      verifiedAt: new Date("2026-01-01T00:00:00.000Z"),
+      source: "test-unbounded-model",
+    },
+  });
 }
 
 function executionInput(
