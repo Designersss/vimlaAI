@@ -23,7 +23,7 @@ import {
   isBillingError,
   type BillingEngine,
 } from "@vimla/billing";
-import { type Prisma, type PrismaClient } from "@vimla/database";
+import { Prisma, type PrismaClient } from "@vimla/database";
 import {
   resolveAiExecutionBudget,
   validateAiExecutionBudgetProfiles,
