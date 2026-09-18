@@ -418,9 +418,7 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
         }
 
         const toolCallsJson =
-          provider.toolCalls.length > 0
-            ? (provider.toolCalls as unknown as Prisma.InputJsonValue)
-            : Prisma.JsonNull;
+          provider.toolCalls as unknown as Prisma.InputJsonValue;
         await this.prisma.$transaction([
           this.prisma.aiRequest.update({
             where: { id: request.aiRequestId },
@@ -1376,7 +1374,7 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
     output: { name: string; type: ArtifactType };
     text: string;
     aiRequestId: string;
-    model: ResolvedModel;
+    model: Pick<ResolvedModel, "slug" | "provider">;
   }): Promise<void> {
     await this.artifacts.createArtifact({
       actorUserId: input.userId,
@@ -1412,25 +1410,72 @@ export function orchestrationAiProviderTurnIdempotencyKey(
   return `${orchestrationAiClientRequestId(invocationId)}:turn:${turnIndex}`;
 }
 
-function existingAiRequestOutcome(existing: {
+function existingProviderTurnOutcome(existing: {
   id: string;
+  idempotencyKey: string;
   status: string;
-  outputText: string | null;
+  toolCallsJson: Prisma.JsonValue | null;
+  toolResultsJson: Prisma.JsonValue | null;
+  aiRequest: {
+    id: string;
+    status: string;
+    financialStatus: string;
+    outputText: string | null;
+    estimatedCostMicroRub: bigint;
+    estimatedInputTokens: number;
+    maxOutputTokens: number;
+  };
 }):
-  | { kind: "replay"; aiRequestId: string; text: string }
+  | {
+      kind: "new";
+      aiRequestId: string;
+      providerTurnId: string;
+      providerTurnIdempotencyKey: string;
+      estimatedCostMicroRub: bigint;
+      estimatedInputTokens: number;
+      maxOutputTokens: number;
+    }
+  | {
+      kind: "replay";
+      aiRequestId: string;
+      providerTurnId: string;
+      providerTurnIdempotencyKey: string;
+      text: string;
+      toolCalls: ProviderToolCall[];
+      toolResults: DurableToolResult[];
+    }
   | { kind: "in_progress" }
   | { kind: "terminal_failure"; errorCode: string } {
-  if (existing.status === "SUCCEEDED" && existing.outputText !== null) {
+  const request = existing.aiRequest;
+  if (request.status === "CREATED" && request.financialStatus === "NONE") {
     return {
-      kind: "replay",
-      aiRequestId: existing.id,
-      text: existing.outputText,
+      kind: "new",
+      aiRequestId: request.id,
+      providerTurnId: existing.id,
+      providerTurnIdempotencyKey: existing.idempotencyKey,
+      estimatedCostMicroRub: request.estimatedCostMicroRub,
+      estimatedInputTokens: request.estimatedInputTokens,
+      maxOutputTokens: request.maxOutputTokens,
     };
   }
-  if (IN_PROGRESS_AI_STATUSES.has(existing.status)) {
+  if (request.status === "SUCCEEDED" && request.outputText !== null) {
+    return {
+      kind: "replay",
+      aiRequestId: request.id,
+      providerTurnId: existing.id,
+      providerTurnIdempotencyKey: existing.idempotencyKey,
+      text: request.outputText,
+      toolCalls: parseToolCallsJson(existing.toolCallsJson),
+      toolResults: parseToolResultsJson(existing.toolResultsJson),
+    };
+  }
+  if (IN_PROGRESS_AI_STATUSES.has(request.status)) {
     return { kind: "in_progress" };
   }
-  if (existing.status === "RECONCILIATION_REQUIRED") {
+  if (
+    request.status === "RECONCILIATION_REQUIRED" ||
+    existing.status === "RECONCILIATION_REQUIRED"
+  ) {
     return {
       kind: "terminal_failure",
       errorCode: "AI_RECONCILIATION_REQUIRED",
@@ -1440,6 +1485,110 @@ function existingAiRequestOutcome(existing: {
     kind: "terminal_failure",
     errorCode: "AI_REQUEST_PREVIOUSLY_FAILED",
   };
+}
+
+function parseToolCallsJson(value: Prisma.JsonValue | null): ProviderToolCall[] {
+  if (value === null) return [];
+  if (!Array.isArray(value)) {
+    throw new ArtifactValidationError("AI provider turn tool calls are invalid");
+  }
+  return value.map((item) => {
+    if (typeof item !== "object" || item === null || Array.isArray(item)) {
+      throw new ArtifactValidationError("AI provider turn tool call is invalid");
+    }
+    const record = item as Record<string, Prisma.JsonValue>;
+    if (
+      typeof record.id !== "string" ||
+      typeof record.name !== "string" ||
+      typeof record.arguments !== "object" ||
+      record.arguments === null ||
+      Array.isArray(record.arguments)
+    ) {
+      throw new ArtifactValidationError("AI provider turn tool call is invalid");
+    }
+    return {
+      id: record.id,
+      name: record.name,
+      arguments: record.arguments as Record<string, unknown>,
+    };
+  });
+}
+
+function parseToolResultsJson(value: Prisma.JsonValue | null): DurableToolResult[] {
+  if (value === null) return [];
+  if (!Array.isArray(value)) {
+    throw new ArtifactValidationError("AI provider turn tool results are invalid");
+  }
+  return value.map((item) => {
+    if (typeof item !== "object" || item === null || Array.isArray(item)) {
+      throw new ArtifactValidationError("AI provider turn tool result is invalid");
+    }
+    const record = item as Record<string, Prisma.JsonValue>;
+    if (
+      typeof record.toolCallId !== "string" ||
+      typeof record.name !== "string" ||
+      !("result" in record)
+    ) {
+      throw new ArtifactValidationError("AI provider turn tool result is invalid");
+    }
+    return {
+      toolCallId: record.toolCallId,
+      name: record.name,
+      result: record.result ?? null,
+    };
+  });
+}
+
+function appendToolResults(
+  messages: ProviderChatMessage[],
+  results: readonly DurableToolResult[],
+): void {
+  for (const result of results) {
+    messages.push({
+      role: "tool",
+      toolCallId: result.toolCallId,
+      toolName: result.name,
+      content: JSON.stringify(result.result),
+    });
+  }
+}
+
+function finalizeToolCalls(
+  drafts: ReadonlyMap<
+    number,
+    { id?: string; name?: string; argumentsText: string }
+  >,
+): { calls: ProviderToolCall[]; invalid: boolean } {
+  const calls: ProviderToolCall[] = [];
+  for (const [, draft] of [...drafts.entries()].sort(([a], [b]) => a - b)) {
+    if (!draft.id || !draft.name) {
+      return { calls: [], invalid: true };
+    }
+    let parsed: unknown;
+    try {
+      parsed = draft.argumentsText.length > 0
+        ? JSON.parse(draft.argumentsText)
+        : {};
+    } catch {
+      return { calls: [], invalid: true };
+    }
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      return { calls: [], invalid: true };
+    }
+    calls.push({
+      id: draft.id,
+      name: draft.name,
+      arguments: parsed as Record<string, unknown>,
+    });
+  }
+  return { calls, invalid: false };
+}
+
+function toPrismaJsonValue(value: unknown): Prisma.JsonValue {
+  if (value === undefined) return null;
+  const serialized = JSON.stringify(value);
+  if (serialized === undefined) return null;
+  return JSON.parse(serialized) as Prisma.JsonValue;
 }
 
 function parseSingleTextOutput(
@@ -1476,6 +1625,14 @@ function stringifyArtifactValue(value: Prisma.InputJsonValue): string {
     return (value as { text: string }).text;
   }
   return JSON.stringify(value);
+}
+
+function positiveInteger(value: number | undefined, fallback: number): number {
+  const resolved = value ?? fallback;
+  if (!Number.isInteger(resolved) || resolved <= 0) {
+    throw new Error("Expected a positive integer");
+  }
+  return resolved;
 }
 
 function usageCapacityWait(): InvocationExecutionResult {
