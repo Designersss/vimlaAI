@@ -156,219 +156,364 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
     try {
       const invocation = await this.loadInvocation(input);
       const output = parseSingleTextOutput(invocation.outputDeclarations);
-      const messages = await this.buildMessages(invocation.plan.userId, input.invocationId, invocation.purpose);
-      const model = await this.resolveModel(input, messages);
-      const request = await this.beginOrReuseRequest(input, invocation, model, messages);
+      const toolContext = {
+        userId: invocation.plan.userId,
+        conversationId: invocation.plan.conversationId,
+        invocationId: input.invocationId,
+      };
+      const tools = await this.toolBroker.listTools(toolContext);
+      const messages = await this.buildMessages(
+        invocation.plan.userId,
+        input.invocationId,
+        invocation.purpose,
+      );
+      const history = await this.loadTurnHistory(input.invocationId);
 
-      if (request.kind === "replay") {
-        await this.emitArtifact({
-          invocationId: input.invocationId,
-          userId: invocation.plan.userId,
-          output,
-          text: request.text,
-          aiRequestId: request.aiRequestId,
-          model,
-        });
-        return { status: "COMPLETED", outcome: "REPLAYED" };
-      }
-      if (request.kind === "in_progress") {
-        return {
-          status: "FAILED",
-          errorCode: "AI_REQUEST_IN_PROGRESS",
-          retryable: true,
-        };
-      }
-      if (request.kind === "terminal_failure") {
-        return terminal(request.errorCode);
-      }
-      if (request.kind === "capacity_wait") {
-        return usageCapacityWait();
-      }
-      if (request.kind === "usage_blocked") {
-        return usageBlocked();
-      }
+      let turnIndex = 0;
+      let selectedModelSlug: string | null = null;
+      for (const turn of history) {
+        selectedModelSlug ??= turn.aiRequest.model.slug;
 
-      let reservationId: string;
-      try {
-        const reservation = await this.billing.reserveUsage({
-          userId: invocation.plan.userId,
-          requestId: request.aiRequestId,
-          estimatedProviderCostMicroRub: request.estimatedCostMicroRub,
-          correlationId: input.idempotencyKey,
-        });
-        reservationId = reservation.id;
-      } catch (error: unknown) {
-        if (isBillingError(error) && error.code === "INSUFFICIENT_USAGE") {
-          const capacity = await this.billing.getSpendableUsageState(invocation.plan.userId);
-          return capacity.activeReservedMicroRub > 0n
-            ? usageCapacityWait()
-            : usageBlocked();
+        if (
+          turn.aiRequest.status === "RECONCILIATION_REQUIRED" ||
+          turn.status === "RECONCILIATION_REQUIRED"
+        ) {
+          return terminal("AI_RECONCILIATION_REQUIRED");
         }
+
+        if (turn.aiRequest.status !== "SUCCEEDED") {
+          if (
+            turn.aiRequest.status === "CREATED" &&
+            turn.aiRequest.financialStatus === "NONE"
+          ) {
+            turnIndex = turn.turnIndex;
+            break;
+          }
+          if (IN_PROGRESS_AI_STATUSES.has(turn.aiRequest.status)) {
+            return {
+              status: "FAILED",
+              errorCode: "AI_REQUEST_IN_PROGRESS",
+              retryable: true,
+            };
+          }
+          return terminal("AI_REQUEST_PREVIOUSLY_FAILED");
+        }
+
+        const text = turn.aiRequest.outputText ?? "";
+        const toolCalls = parseToolCallsJson(turn.toolCallsJson);
+        messages.push({
+          role: "assistant",
+          content: text,
+          ...(toolCalls.length > 0 ? { toolCalls } : {}),
+        });
+
+        if (toolCalls.length === 0) {
+          await this.emitArtifact({
+            invocationId: input.invocationId,
+            userId: invocation.plan.userId,
+            output,
+            text,
+            aiRequestId: turn.aiRequestId,
+            model: {
+              slug: turn.aiRequest.model.slug,
+              provider: turn.aiRequest.provider,
+            },
+          });
+          return { status: "COMPLETED", outcome: "REPLAYED" };
+        }
+
+        const toolResults = await this.ensureToolResults({
+          providerTurnId: turn.id,
+          providerTurnIdempotencyKey: turn.idempotencyKey,
+          calls: toolCalls,
+          existingResults: parseToolResultsJson(turn.toolResultsJson),
+          context: toolContext,
+        });
+        appendToolResults(messages, toolResults);
+        turnIndex = turn.turnIndex + 1;
+      }
+
+      const model = await this.resolveModel(
+        input,
+        messages,
+        tools.length > 0,
+        selectedModelSlug,
+      );
+
+      while (turnIndex < this.maxProviderTurnsPerInvocation) {
+        const request = await this.beginOrReuseTurn({
+          input,
+          invocation,
+          model,
+          messages,
+          turnIndex,
+        });
+
+        if (request.kind === "replay") {
+          const toolCalls = request.toolCalls;
+          messages.push({
+            role: "assistant",
+            content: request.text,
+            ...(toolCalls.length > 0 ? { toolCalls } : {}),
+          });
+          if (toolCalls.length === 0) {
+            await this.emitArtifact({
+              invocationId: input.invocationId,
+              userId: invocation.plan.userId,
+              output,
+              text: request.text,
+              aiRequestId: request.aiRequestId,
+              model,
+            });
+            return { status: "COMPLETED", outcome: "REPLAYED" };
+          }
+          const toolResults = await this.ensureToolResults({
+            providerTurnId: request.providerTurnId,
+            providerTurnIdempotencyKey: request.providerTurnIdempotencyKey,
+            calls: toolCalls,
+            existingResults: request.toolResults,
+            context: toolContext,
+          });
+          appendToolResults(messages, toolResults);
+          turnIndex += 1;
+          continue;
+        }
+        if (request.kind === "in_progress") {
+          return {
+            status: "FAILED",
+            errorCode: "AI_REQUEST_IN_PROGRESS",
+            retryable: true,
+          };
+        }
+        if (request.kind === "terminal_failure") {
+          return terminal(request.errorCode);
+        }
+        if (request.kind === "capacity_wait") {
+          return usageCapacityWait();
+        }
+        if (request.kind === "usage_blocked") {
+          return usageBlocked();
+        }
+
+        let reservationId: string;
+        try {
+          const reservation = await this.billing.reserveUsage({
+            userId: invocation.plan.userId,
+            requestId: request.aiRequestId,
+            estimatedProviderCostMicroRub: request.estimatedCostMicroRub,
+            correlationId: request.providerTurnIdempotencyKey,
+          });
+          reservationId = reservation.id;
+        } catch (error: unknown) {
+          if (isBillingError(error) && error.code === "INSUFFICIENT_USAGE") {
+            const capacity = await this.billing.getSpendableUsageState(invocation.plan.userId);
+            return capacity.activeReservedMicroRub > 0n
+              ? usageCapacityWait()
+              : usageBlocked();
+          }
+          await this.markPreProviderFailure(
+            request.aiRequestId,
+            request.providerTurnId,
+          );
+          if (isBillingError(error)) {
+            return terminal(`BILLING_${error.code}`);
+          }
+          return {
+            status: "FAILED",
+            errorCode: "BILLING_RESERVATION_FAILED",
+            retryable: true,
+          };
+        }
+
         await this.prisma.$transaction([
           this.prisma.aiRequest.update({
             where: { id: request.aiRequestId },
             data: {
-              status: "FAILED",
-              financialStatus: "NONE",
+              reservationId,
+              status: "RESERVED",
+              financialStatus: "RESERVED",
+            },
+          }),
+          this.prisma.aIProviderTurn.update({
+            where: { id: request.providerTurnId },
+            data: { status: "RESERVED" },
+          }),
+        ]);
+
+        if (!(await this.isInvocationRunning(input.planId, input.invocationId))) {
+          await this.releaseReservationAfterSafeFailure(
+            request.aiRequestId,
+            request.providerTurnId,
+            invocation.plan.userId,
+            reservationId,
+            request.providerTurnIdempotencyKey,
+            "orchestration_stop_before_provider",
+          );
+          return terminal("AI_EXECUTION_CANCELED");
+        }
+
+        const provider = await this.callProvider({
+          planId: input.planId,
+          invocationId: input.invocationId,
+          aiRequestId: request.aiRequestId,
+          providerTurnId: request.providerTurnId,
+          reservationId,
+          userId: invocation.plan.userId,
+          model,
+          messages,
+          tools,
+          maxOutputTokens: request.maxOutputTokens,
+          correlationId: request.providerTurnIdempotencyKey,
+        });
+        if (provider.kind === "failed") {
+          return provider.result;
+        }
+
+        if (
+          provider.usage.inputTokens > BigInt(request.estimatedInputTokens) ||
+          provider.usage.outputTokens > BigInt(request.maxOutputTokens)
+        ) {
+          await this.markReconciliation(
+            request.aiRequestId,
+            request.providerTurnId,
+            provider.text,
+            "provider_usage_exceeded_funded_token_caps",
+            provider.usage,
+          );
+          return terminal("AI_PROVIDER_BOUNDEDNESS_VIOLATION");
+        }
+
+        let actualCost: bigint;
+        try {
+          actualCost = providerCostFromUsage(provider.usage, model.price);
+        } catch {
+          await this.markReconciliation(
+            request.aiRequestId,
+            request.providerTurnId,
+            provider.text,
+            "invalid_provider_usage",
+            provider.usage,
+          );
+          return terminal("AI_RECONCILIATION_REQUIRED");
+        }
+
+        if (actualCost > request.estimatedCostMicroRub) {
+          await this.markReconciliation(
+            request.aiRequestId,
+            request.providerTurnId,
+            provider.text,
+            "provider_cost_exceeded_funded_reservation",
+            provider.usage,
+            actualCost,
+          );
+          return terminal("AI_PROVIDER_BOUNDEDNESS_VIOLATION");
+        }
+
+        const toolCallsJson =
+          provider.toolCalls.length > 0
+            ? (provider.toolCalls as unknown as Prisma.InputJsonValue)
+            : Prisma.JsonNull;
+        await this.prisma.$transaction([
+          this.prisma.aiRequest.update({
+            where: { id: request.aiRequestId },
+            data: {
+              actualInputTokens: safeNumber(provider.usage.inputTokens),
+              actualOutputTokens: safeNumber(provider.usage.outputTokens),
+              reasoningTokens: safeNumber(provider.usage.reasoningTokens),
+              cacheReadTokens: safeNumber(provider.usage.cacheReadTokens),
+              cacheWriteTokens: safeNumber(provider.usage.cacheWriteTokens),
+              providerActualCostMicroRub: actualCost,
+              outputText: provider.text,
+            },
+          }),
+          this.prisma.aIProviderTurn.update({
+            where: { id: request.providerTurnId },
+            data: {
+              status: "USAGE_DURABLE",
+              toolCallsJson,
+            },
+          }),
+        ]);
+        await this.prisma.aIProviderTurn.update({
+          where: { id: request.providerTurnId },
+          data: { status: "SETTLING" },
+        });
+
+        let settledStatus: string;
+        let settledMicroRub: bigint;
+        try {
+          const settled = await this.billing.settleUsage({
+            userId: invocation.plan.userId,
+            reservationId,
+            actualMicroRub: actualCost,
+            correlationId: request.providerTurnIdempotencyKey,
+          });
+          settledStatus = settled.status;
+          settledMicroRub = settled.settledMicroRub;
+        } catch {
+          await this.markReconciliation(
+            request.aiRequestId,
+            request.providerTurnId,
+            provider.text,
+            "settlement_failed_after_usage_durable",
+            provider.usage,
+            actualCost,
+          );
+          return terminal("AI_RECONCILIATION_REQUIRED");
+        }
+
+        await this.prisma.$transaction([
+          this.prisma.aiRequest.update({
+            where: { id: request.aiRequestId },
+            data: {
+              status: "SUCCEEDED",
+              financialStatus: settledStatus === "ANOMALY" ? "ANOMALY" : "SETTLED",
+              userSettledUsageMicroRub: settledMicroRub,
               finishedAt: new Date(),
             },
           }),
           this.prisma.aIProviderTurn.update({
             where: { id: request.providerTurnId },
-            data: { status: "FAILED_PRE_PROVIDER" },
+            data: { status: "SUCCEEDED" },
           }),
         ]);
-        if (isBillingError(error)) {
-          return terminal(`BILLING_${error.code}`);
+
+        if (provider.toolCallError) {
+          return terminal("AI_TOOL_CALL_INVALID");
         }
-        return {
-          status: "FAILED",
-          errorCode: "BILLING_RESERVATION_FAILED",
-          retryable: true,
-        };
-      }
+        if (!(await this.isInvocationRunning(input.planId, input.invocationId))) {
+          return terminal("AI_EXECUTION_CANCELED");
+        }
 
-      await this.prisma.$transaction([
-        this.prisma.aiRequest.update({
-          where: { id: request.aiRequestId },
-          data: {
-            reservationId,
-            status: "RESERVED",
-            financialStatus: "RESERVED",
-          },
-        }),
-        this.prisma.aIProviderTurn.update({
-          where: { id: request.providerTurnId },
-          data: { status: "RESERVED" },
-        }),
-      ]);
+        if (provider.toolCalls.length === 0) {
+          await this.emitArtifact({
+            invocationId: input.invocationId,
+            userId: invocation.plan.userId,
+            output,
+            text: provider.text,
+            aiRequestId: request.aiRequestId,
+            model,
+          });
+          return { status: "COMPLETED", outcome: "PASS" };
+        }
 
-      const provider = await this.callProvider({
-        aiRequestId: request.aiRequestId,
-        providerTurnId: request.providerTurnId,
-        reservationId,
-        userId: invocation.plan.userId,
-        model,
-        messages,
-        maxOutputTokens: request.maxOutputTokens,
-        correlationId: input.idempotencyKey,
-      });
-      if (provider.kind === "failed") {
-        return provider.result;
-      }
-
-      if (
-        provider.usage.inputTokens > BigInt(request.estimatedInputTokens) ||
-        provider.usage.outputTokens > BigInt(request.maxOutputTokens)
-      ) {
-        await this.markReconciliation(
-          request.aiRequestId,
-          request.providerTurnId,
-          provider.text,
-          "provider_usage_exceeded_funded_token_caps",
-          provider.usage,
-        );
-        return terminal("AI_PROVIDER_BOUNDEDNESS_VIOLATION");
-      }
-
-      let actualCost: bigint;
-      try {
-        actualCost = providerCostFromUsage(provider.usage, model.price);
-      } catch {
-        await this.markReconciliation(
-          request.aiRequestId,
-          request.providerTurnId,
-          provider.text,
-          "invalid_provider_usage",
-          provider.usage,
-        );
-        return terminal("AI_RECONCILIATION_REQUIRED");
-      }
-
-      if (actualCost > request.estimatedCostMicroRub) {
-        await this.markReconciliation(
-          request.aiRequestId,
-          request.providerTurnId,
-          provider.text,
-          "provider_cost_exceeded_funded_reservation",
-          provider.usage,
-          actualCost,
-        );
-        return terminal("AI_PROVIDER_BOUNDEDNESS_VIOLATION");
-      }
-
-      await this.prisma.$transaction([
-        this.prisma.aiRequest.update({
-          where: { id: request.aiRequestId },
-          data: {
-            actualInputTokens: safeNumber(provider.usage.inputTokens),
-            actualOutputTokens: safeNumber(provider.usage.outputTokens),
-            reasoningTokens: safeNumber(provider.usage.reasoningTokens),
-            cacheReadTokens: safeNumber(provider.usage.cacheReadTokens),
-            cacheWriteTokens: safeNumber(provider.usage.cacheWriteTokens),
-            providerActualCostMicroRub: actualCost,
-            outputText: provider.text,
-          },
-        }),
-        this.prisma.aIProviderTurn.update({
-          where: { id: request.providerTurnId },
-          data: { status: "USAGE_DURABLE" },
-        }),
-      ]);
-      await this.prisma.aIProviderTurn.update({
-        where: { id: request.providerTurnId },
-        data: { status: "SETTLING" },
-      });
-
-      let settledStatus: string;
-      let settledMicroRub: bigint;
-      try {
-        const settled = await this.billing.settleUsage({
-          userId: invocation.plan.userId,
-          reservationId,
-          actualMicroRub: actualCost,
-          correlationId: input.idempotencyKey,
+        messages.push({
+          role: "assistant",
+          content: provider.text,
+          toolCalls: provider.toolCalls,
         });
-        settledStatus = settled.status;
-        settledMicroRub = settled.settledMicroRub;
-      } catch {
-        await this.markReconciliation(
-          request.aiRequestId,
-          request.providerTurnId,
-          provider.text,
-          "settlement_failed_after_usage_durable",
-          provider.usage,
-          actualCost,
-        );
-        return terminal("AI_RECONCILIATION_REQUIRED");
+        const toolResults = await this.ensureToolResults({
+          providerTurnId: request.providerTurnId,
+          providerTurnIdempotencyKey: request.providerTurnIdempotencyKey,
+          calls: provider.toolCalls,
+          existingResults: [],
+          context: toolContext,
+        });
+        appendToolResults(messages, toolResults);
+        turnIndex += 1;
       }
 
-      await this.prisma.$transaction([
-        this.prisma.aiRequest.update({
-          where: { id: request.aiRequestId },
-          data: {
-            status: "SUCCEEDED",
-            financialStatus: settledStatus === "ANOMALY" ? "ANOMALY" : "SETTLED",
-            userSettledUsageMicroRub: settledMicroRub,
-            finishedAt: new Date(),
-          },
-        }),
-        this.prisma.aIProviderTurn.update({
-          where: { id: request.providerTurnId },
-          data: { status: "SUCCEEDED" },
-        }),
-      ]);
-
-      await this.emitArtifact({
-        invocationId: input.invocationId,
-        userId: invocation.plan.userId,
-        output,
-        text: provider.text,
-        aiRequestId: request.aiRequestId,
-        model,
-      });
-
-      return { status: "COMPLETED", outcome: "PASS" };
+      return terminal("PLAN_SPEND_LIMIT_REACHED");
     } catch (error: unknown) {
       if (error instanceof ExternalAiTerminalError) {
         return terminal(error.code);
