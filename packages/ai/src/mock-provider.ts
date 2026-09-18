@@ -15,7 +15,8 @@ export type MockProviderScenario =
   | "expensive"
   | "reject"
   | "balance"
-  | "ambiguous";
+  | "ambiguous"
+  | "usage-then-ambiguous";
 
 export class MockAiProvider implements AiProvider {
   readonly id = "mock";
@@ -72,9 +73,27 @@ export class MockAiProvider implements AiProvider {
 
     return {
       providerRequestId: `mock-provider-request-${this.callCount}`,
-      events: emitMockEvents(text, usage, includeUsage, split, toolCalls),
+      events:
+        this.scenario === "usage-then-ambiguous"
+          ? emitUsageThenAmbiguous(text, usage)
+          : emitMockEvents(text, usage, includeUsage, split, toolCalls),
     };
   }
+}
+
+async function* emitUsageThenAmbiguous(
+  text: string,
+  usage: NormalizedUsage,
+): AsyncIterable<ProviderStreamEvent> {
+  if (text.length > 0) {
+    yield { type: "delta", text };
+  }
+  yield { type: "usage", usage };
+  throw new ProviderCallError(
+    "ambiguous",
+    "Mock provider interrupted after durable usage",
+    504,
+  );
 }
 
 async function* emitMockEvents(
