@@ -41,4 +41,6 @@ export type {
   ProviderChatResult,
   ProviderFailureKind,
   ProviderStreamEvent,
+  ProviderToolCall,
+  ProviderToolDefinition,
 } from "./types.js";
