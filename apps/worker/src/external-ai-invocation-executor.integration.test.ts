@@ -612,6 +612,51 @@ describe("ExternalAiInvocationExecutor", () => {
     expect(await spentForUser(prisma, seeded.userId)).toBe(0n);
   });
 
+  it("settles malformed streamed tool-call usage but fails the semantic turn", async () => {
+    const seeded = await seedInvocation(prisma, {
+      targetKind: "AI_MODEL",
+      targetModelSlug: "gpt-5-6-luna",
+      purpose: "Malformed streamed tool call",
+      fund: true,
+    });
+    const provider = new InvalidToolCallProvider();
+    const executor = createExecutor(prisma, provider);
+
+    const result = await executor.execute(
+      executionInput(seeded, {
+        kind: "AI_MODEL",
+        modelSlug: "gpt-5-6-luna",
+        agentId: null,
+      }),
+    );
+
+    expect(result).toEqual({
+      status: "FAILED",
+      errorCode: "AI_TOOL_CALL_INVALID",
+      retryable: false,
+    });
+    const request = await prisma.aiRequest.findUniqueOrThrow({
+      where: {
+        userId_clientRequestId: {
+          userId: seeded.userId,
+          clientRequestId: orchestrationAiClientRequestId(seeded.invocationId),
+        },
+      },
+      include: { reservation: true, providerTurn: true },
+    });
+    expect(request.status).toBe("FAILED");
+    expect(request.financialStatus).toBe("SETTLED");
+    expect(request.reservation?.status).toBe("SETTLED");
+    expect(request.providerTurn?.status).toBe("SUCCEEDED");
+    expect(request.providerTurn?.toolCallError).toBe(true);
+    expect(request.userSettledUsageMicroRub).toBeGreaterThan(0n);
+    expect(
+      await prisma.artifact.count({
+        where: { creatorInvocationId: seeded.invocationId },
+      }),
+    ).toBe(0);
+  });
+
   it("funds tool definitions as part of the provider input before any call", async () => {
     const seeded = await seedInvocation(prisma, {
       targetKind: "AI_MODEL",
@@ -1525,6 +1570,35 @@ function executionInput(
   };
 }
 
+
+class InvalidToolCallProvider implements AiProvider {
+  readonly id = "mock";
+
+  async streamChat(_request: ProviderChatRequest): Promise<ProviderChatResult> {
+    return {
+      providerRequestId: "invalid-tool-call",
+      events: (async function* (): AsyncIterable<ProviderStreamEvent> {
+        yield {
+          type: "tool_call_delta",
+          index: 0,
+          id: "call-invalid",
+          argumentsDelta: "{}",
+        };
+        yield {
+          type: "usage",
+          usage: {
+            inputTokens: 32n,
+            outputTokens: 4n,
+            reasoningTokens: 0n,
+            cacheReadTokens: 0n,
+            cacheWriteTokens: 0n,
+          },
+        };
+        yield { type: "done" };
+      })(),
+    };
+  }
+}
 
 class KnownUsageAbortProvider implements AiProvider {
   readonly id = "mock";
