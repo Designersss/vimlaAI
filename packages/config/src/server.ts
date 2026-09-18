@@ -221,6 +221,11 @@ export function loadWorkerConfig(
     aiOutputLongMinTokens: parsed.AI_OUTPUT_LONG_MIN_TOKENS,
     aiReservationSafetyBps: parsed.AI_RESERVATION_SAFETY_BPS,
     aiMaxReservationMicroRub: parsed.AI_MAX_RESERVATION_MICRORUB,
+    aiMaxProviderTurnsPerInvocation: parsed.AI_MAX_PROVIDER_TURNS_PER_INVOCATION,
+    aiMaxPaidInvocationsPerPlan: parsed.AI_MAX_PAID_INVOCATIONS_PER_PLAN,
+    aiMaxPlanSettledMicroRub: parsed.AI_MAX_PLAN_SETTLED_MICRORUB,
+    aiMaxPlanCommittedMicroRub: parsed.AI_MAX_PLAN_COMMITTED_MICRORUB,
+    aiCancellationPollMs: parsed.AI_CANCELLATION_POLL_MS,
     aiReconciliationIntervalSeconds: parsed.AI_RECONCILIATION_INTERVAL_SECONDS,
     aiReconciliationBatch: parsed.AI_RECONCILIATION_BATCH,
     aiReconciliationPreProviderStaleSeconds:
