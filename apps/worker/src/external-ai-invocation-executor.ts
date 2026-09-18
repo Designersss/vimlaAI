@@ -382,17 +382,26 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
       );
     }
 
+    const firstCandidate = candidates[0];
+    if (!firstCandidate) {
+      throw new ExternalAiTerminalError(
+        input.target.kind === "AI_MODEL"
+          ? "AI_MODEL_UNAVAILABLE"
+          : "AI_AUTO_NO_APPROVED_MODEL",
+      );
+    }
     if (input.target.kind === "AI_MODEL") {
-      return candidates[0]!;
+      return firstCandidate;
     }
 
     const estimatedInputTokens = estimateInputTokens(messages);
-    return [...candidates].sort((left, right) => {
+    const ranked = [...candidates].sort((left, right) => {
       const leftCost = this.estimatedCost(left, estimatedInputTokens);
       const rightCost = this.estimatedCost(right, estimatedInputTokens);
       if (leftCost === rightCost) return left.slug.localeCompare(right.slug);
       return leftCost < rightCost ? -1 : 1;
-    })[0]!;
+    });
+    return ranked[0] ?? firstCandidate;
   }
 
   private estimatedCost(model: ResolvedModel, estimatedInputTokens: number): bigint {
