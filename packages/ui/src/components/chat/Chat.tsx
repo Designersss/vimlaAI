@@ -1,5 +1,5 @@
 import type { FormEvent, ReactElement, ReactNode, UIEvent } from "react";
-import { ChevronRightIcon, SendIcon, VimlaMark, XIcon } from "../../icons";
+import { ChevronRightIcon, SendIcon } from "../../icons";
 import { IconButton, Button } from "../../primitives/Button/Button";
 import { Textarea } from "../../primitives/forms/Input";
 import { Segment, SegmentedControl } from "../../primitives/controls/Tabs";
@@ -11,28 +11,6 @@ import { SidebarItem } from "../../patterns/AppShell";
 import { Text } from "../../primitives/typography/Typography";
 import { cx } from "../../utils/cx";
 import styles from "./chat.module.scss";
-
-export function VimlaMentionChip({
-  label,
-  onRemove,
-  removeLabel,
-}: {
-  label: string;
-  onRemove?: () => void;
-  removeLabel?: string;
-}): ReactElement {
-  return (
-    <span className={styles.mentionChip}>
-      <VimlaMark size={12} />
-      {label}
-      {onRemove && removeLabel ? (
-        <IconButton label={removeLabel} size="sm" onClick={onRemove}>
-          <XIcon size={12} />
-        </IconButton>
-      ) : null}
-    </span>
-  );
-}
 
 export interface ComposerTextHighlight {
   startOffset: number;
@@ -48,9 +26,7 @@ export function ChatComposer({
   disabled,
   sending,
   extra,
-  mentionControl,
   modelControl,
-  chips,
   highlights = [],
   variant = "ai",
 }: {
@@ -62,9 +38,7 @@ export function ChatComposer({
   disabled?: boolean;
   sending?: boolean;
   extra?: ReactNode;
-  mentionControl?: ReactNode;
   modelControl?: ReactNode;
-  chips?: ReactNode;
   highlights?: ComposerTextHighlight[];
   variant?: "ai" | "direct" | "operator";
 }): ReactElement {
@@ -85,7 +59,6 @@ export function ChatComposer({
 
   return (
     <form className={styles.composer} onSubmit={handleSubmit} data-composer-variant={variant}>
-      {chips ? <div className={styles.chipRow}>{chips}</div> : null}
       <div className={styles.composerFieldWrap}>
         {hasHighlights ? (
           <div className={styles.composerMirror} aria-hidden="true">
@@ -103,7 +76,6 @@ export function ChatComposer({
         />
       </div>
       <div className={styles.composerActions}>
-        {mentionControl}
         {variant === "operator" ? null : modelControl}
         {extra}
         <span className={styles.composerGrow} />
