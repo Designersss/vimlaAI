@@ -277,6 +277,16 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
         });
 
         if (request.kind === "replay") {
+          this.logger.info(
+            {
+              event: "ai_replay_suppressed",
+              planId: input.planId,
+              invocationId: input.invocationId,
+              providerTurnId: request.providerTurnId,
+              turnIndex,
+            },
+            "AI paid provider turn replay suppressed",
+          );
           const toolCalls = request.toolCalls;
           messages.push({
             role: "assistant",
@@ -601,6 +611,15 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
         turnIndex += 1;
       }
 
+      this.logger.warn(
+        {
+          event: "ai_plan_spend_limit_reached",
+          planId: input.planId,
+          invocationId: input.invocationId,
+          turnIndex,
+        },
+        "AI provider turn ceiling reached",
+      );
       return terminal("PLAN_SPEND_LIMIT_REACHED");
     } catch (error: unknown) {
       if (error instanceof ExternalAiTerminalError) {
