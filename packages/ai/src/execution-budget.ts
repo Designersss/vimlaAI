@@ -13,6 +13,21 @@ export type AiExecutionBudgetProfiles = Record<
   AiExecutionBudgetProfile
 >;
 
+export const DEFAULT_AI_EXECUTION_BUDGET_PROFILES: AiExecutionBudgetProfiles = {
+  SHORT: {
+    preferredOutputTokens: 512,
+    minimumOutputTokens: 128,
+  },
+  STANDARD: {
+    preferredOutputTokens: 2_048,
+    minimumOutputTokens: 768,
+  },
+  LONG: {
+    preferredOutputTokens: 4_096,
+    minimumOutputTokens: 2_048,
+  },
+};
+
 export type FundedAiExecutionBudget = {
   profile: AiExecutionBudgetProfileName;
   preferredOutputTokens: number;
