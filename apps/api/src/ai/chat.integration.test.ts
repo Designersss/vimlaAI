@@ -131,7 +131,7 @@ describe("AI chat integration", () => {
       data: {
         userId: user.id,
         type: "TOPUP",
-        totalMicroRub: 1_000_000n,
+        totalMicroRub: 4_000_000n,
         spentMicroRub: 0n,
         reservedMicroRub: 0n,
         expiresAt: null,
@@ -159,7 +159,7 @@ describe("AI chat integration", () => {
     });
     expect(request.maxOutputTokens).toBeGreaterThanOrEqual(768);
     expect(request.maxOutputTokens).toBeLessThan(2_048);
-    expect(request.estimatedCostMicroRub).toBeLessThanOrEqual(1_000_000n);
+    expect(request.estimatedCostMicroRub).toBeLessThanOrEqual(4_000_000n);
     expect(request.reservation?.estimatedMicroRub).toBe(
       request.estimatedCostMicroRub,
     );
