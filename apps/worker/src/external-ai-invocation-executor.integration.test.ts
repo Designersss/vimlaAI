@@ -1317,11 +1317,12 @@ describe("ExternalAiInvocationExecutor", () => {
           clientRequestId: orchestrationAiClientRequestId(seeded.invocationId),
         },
       },
-      include: { reservation: true },
+      include: { reservation: true, providerTurn: true },
     });
-    expect(request.status).toBe("SUCCEEDED");
+    expect(request.status).toBe("FAILED");
     expect(request.financialStatus).toBe("SETTLED");
     expect(request.reservation?.status).toBe("SETTLED");
+    expect(request.providerTurn?.providerInterrupted).toBe(true);
     expect(request.userSettledUsageMicroRub).toBeGreaterThan(0n);
     expect(
       await prisma.artifact.count({
