@@ -4,6 +4,10 @@ import {
   MockAiProvider,
   VimlaAiGateway,
   seedVimlaAiModels,
+  type AiProvider,
+  type ProviderChatRequest,
+  type ProviderChatResult,
+  type ProviderStreamEvent,
 } from "@vimla/ai";
 import { BillingEngine, type BillingPolicy } from "@vimla/billing";
 import { createPrismaClient, type PrismaClient } from "@vimla/database";
@@ -793,7 +797,7 @@ describe("ExternalAiInvocationExecutor", () => {
 
 function createExecutor(
   prisma: PrismaClient,
-  provider: MockAiProvider,
+  provider: AiProvider,
   toolBroker?: ExternalAiToolBroker,
   overrides: Partial<ExternalAiExecutorConfig> = {},
 ): ExternalAiInvocationExecutor {
