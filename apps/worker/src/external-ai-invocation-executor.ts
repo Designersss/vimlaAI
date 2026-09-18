@@ -1,4 +1,5 @@
 import {
+  ArtifactError,
   ArtifactBindingError,
   ArtifactService,
   ArtifactValidationError,
@@ -246,7 +247,11 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
       if (error instanceof ExternalAiTerminalError) {
         return terminal(error.code);
       }
-      if (error instanceof ArtifactBindingError || error instanceof ArtifactValidationError) {
+      if (
+        error instanceof ArtifactError ||
+        error instanceof ArtifactBindingError ||
+        error instanceof ArtifactValidationError
+      ) {
         return terminal("AI_ARTIFACT_CONTRACT_INVALID");
       }
       return {
