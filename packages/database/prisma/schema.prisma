@@ -1375,10 +1375,11 @@ model AIProviderTurn {
   aiRequestId    String      @unique
   aiRequest      AiRequest   @relation(fields: [aiRequestId], references: [id], onDelete: Restrict)
   idempotencyKey String      @unique
-  status         String
-  toolCallsJson  Json?
+  status          String
+  toolCallsJson   Json?
   toolResultsJson Json?
-  createdAt      DateTime    @default(now())
+  toolCallError   Boolean     @default(false)
+  createdAt       DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 
   @@unique([aiExecutionId, turnIndex])
