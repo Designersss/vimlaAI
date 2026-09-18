@@ -153,14 +153,20 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
         });
         reservationId = reservation.id;
       } catch (error: unknown) {
-        await this.prisma.aiRequest.update({
-          where: { id: request.aiRequestId },
-          data: {
-            status: "FAILED",
-            financialStatus: "NONE",
-            finishedAt: new Date(),
-          },
-        });
+        await this.prisma.$transaction([
+          this.prisma.aiRequest.update({
+            where: { id: request.aiRequestId },
+            data: {
+              status: "FAILED",
+              financialStatus: "NONE",
+              finishedAt: new Date(),
+            },
+          }),
+          this.prisma.aIProviderTurn.update({
+            where: { id: request.providerTurnId },
+            data: { status: "FAILED_PRE_PROVIDER" },
+          }),
+        ]);
         if (isBillingError(error)) {
           return terminal(`BILLING_${error.code}`);
         }
@@ -171,17 +177,24 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
         };
       }
 
-      await this.prisma.aiRequest.update({
-        where: { id: request.aiRequestId },
-        data: {
-          reservationId,
-          status: "RESERVED",
-          financialStatus: "RESERVED",
-        },
-      });
+      await this.prisma.$transaction([
+        this.prisma.aiRequest.update({
+          where: { id: request.aiRequestId },
+          data: {
+            reservationId,
+            status: "RESERVED",
+            financialStatus: "RESERVED",
+          },
+        }),
+        this.prisma.aIProviderTurn.update({
+          where: { id: request.providerTurnId },
+          data: { status: "RESERVED" },
+        }),
+      ]);
 
       const provider = await this.callProvider({
         aiRequestId: request.aiRequestId,
+        providerTurnId: request.providerTurnId,
         reservationId,
         userId: invocation.plan.userId,
         model,
@@ -199,6 +212,7 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
       ) {
         await this.markReconciliation(
           request.aiRequestId,
+          request.providerTurnId,
           provider.text,
           "provider_usage_exceeded_funded_token_caps",
           provider.usage,
@@ -212,6 +226,7 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
       } catch {
         await this.markReconciliation(
           request.aiRequestId,
+          request.providerTurnId,
           provider.text,
           "invalid_provider_usage",
           provider.usage,
@@ -222,6 +237,7 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
       if (actualCost > request.estimatedCostMicroRub) {
         await this.markReconciliation(
           request.aiRequestId,
+          request.providerTurnId,
           provider.text,
           "provider_cost_exceeded_funded_reservation",
           provider.usage,
@@ -229,6 +245,29 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
         );
         return terminal("AI_PROVIDER_BOUNDEDNESS_VIOLATION");
       }
+
+      await this.prisma.$transaction([
+        this.prisma.aiRequest.update({
+          where: { id: request.aiRequestId },
+          data: {
+            actualInputTokens: safeNumber(provider.usage.inputTokens),
+            actualOutputTokens: safeNumber(provider.usage.outputTokens),
+            reasoningTokens: safeNumber(provider.usage.reasoningTokens),
+            cacheReadTokens: safeNumber(provider.usage.cacheReadTokens),
+            cacheWriteTokens: safeNumber(provider.usage.cacheWriteTokens),
+            providerActualCostMicroRub: actualCost,
+            outputText: provider.text,
+          },
+        }),
+        this.prisma.aIProviderTurn.update({
+          where: { id: request.providerTurnId },
+          data: { status: "USAGE_DURABLE" },
+        }),
+      ]);
+      await this.prisma.aIProviderTurn.update({
+        where: { id: request.providerTurnId },
+        data: { status: "SETTLING" },
+      });
 
       let settledStatus: string;
       let settledMicroRub: bigint;
@@ -242,40 +281,32 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
         settledStatus = settled.status;
         settledMicroRub = settled.settledMicroRub;
       } catch {
-        await this.prisma.aiRequest.update({
-          where: { id: request.aiRequestId },
-          data: {
-            status: "RECONCILIATION_REQUIRED",
-            financialStatus: "RECONCILIATION_HOLD",
-            providerActualCostMicroRub: actualCost,
-            actualInputTokens: safeNumber(provider.usage.inputTokens),
-            actualOutputTokens: safeNumber(provider.usage.outputTokens),
-            reasoningTokens: safeNumber(provider.usage.reasoningTokens),
-            cacheReadTokens: safeNumber(provider.usage.cacheReadTokens),
-            cacheWriteTokens: safeNumber(provider.usage.cacheWriteTokens),
-            outputText: provider.text,
-            finishedAt: new Date(),
-          },
-        });
+        await this.markReconciliation(
+          request.aiRequestId,
+          request.providerTurnId,
+          provider.text,
+          "settlement_failed_after_usage_durable",
+          provider.usage,
+          actualCost,
+        );
         return terminal("AI_RECONCILIATION_REQUIRED");
       }
 
-      await this.prisma.aiRequest.update({
-        where: { id: request.aiRequestId },
-        data: {
-          status: "SUCCEEDED",
-          financialStatus: settledStatus === "ANOMALY" ? "ANOMALY" : "SETTLED",
-          actualInputTokens: safeNumber(provider.usage.inputTokens),
-          actualOutputTokens: safeNumber(provider.usage.outputTokens),
-          reasoningTokens: safeNumber(provider.usage.reasoningTokens),
-          cacheReadTokens: safeNumber(provider.usage.cacheReadTokens),
-          cacheWriteTokens: safeNumber(provider.usage.cacheWriteTokens),
-          providerActualCostMicroRub: actualCost,
-          userSettledUsageMicroRub: settledMicroRub,
-          outputText: provider.text,
-          finishedAt: new Date(),
-        },
-      });
+      await this.prisma.$transaction([
+        this.prisma.aiRequest.update({
+          where: { id: request.aiRequestId },
+          data: {
+            status: "SUCCEEDED",
+            financialStatus: settledStatus === "ANOMALY" ? "ANOMALY" : "SETTLED",
+            userSettledUsageMicroRub: settledMicroRub,
+            finishedAt: new Date(),
+          },
+        }),
+        this.prisma.aIProviderTurn.update({
+          where: { id: request.providerTurnId },
+          data: { status: "SUCCEEDED" },
+        }),
+      ]);
 
       await this.emitArtifact({
         invocationId: input.invocationId,
@@ -490,6 +521,8 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
     | {
         kind: "new";
         aiRequestId: string;
+        providerTurnId: string;
+        providerTurnIdempotencyKey: string;
         estimatedCostMicroRub: bigint;
         estimatedInputTokens: number;
         maxOutputTokens: number;
