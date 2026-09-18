@@ -6,6 +6,7 @@ import {
 } from "@vimla/ai";
 import { BillingEngine, type BillingPolicy } from "@vimla/billing";
 import { createPrismaClient, type PrismaClient } from "@vimla/database";
+import { AiArtifactRecovery } from "./ai-artifact-recovery.js";
 
 const testDatabaseUrl = process.env.TEST_DATABASE_URL;
 if (!testDatabaseUrl) {
@@ -29,11 +30,13 @@ describe("AiRequestReconciler", () => {
   let prisma: PrismaClient;
   let billing: BillingEngine;
   let reconciler: AiRequestReconciler;
+  let artifactRecovery: AiArtifactRecovery;
 
   beforeAll(async () => {
     prisma = createPrismaClient(testDatabaseUrl);
     billing = new BillingEngine(prisma, policy, logger);
     reconciler = new AiRequestReconciler(prisma, billing, logger);
+    artifactRecovery = new AiArtifactRecovery(prisma, logger);
     await seedVimlaAiModels(prisma);
   });
 
@@ -101,6 +104,27 @@ describe("AiRequestReconciler", () => {
     expect(request.userSettledUsageMicroRub).toBe(300_000n);
     expect(request.reservation?.status).toBe("SETTLED");
     expect(request.providerTurn?.status).toBe("SUCCEEDED");
+    expect(await spentForUser(prisma, seeded.userId)).toBe(300_000n);
+    expect(
+      await prisma.artifact.count({
+        where: { creatorInvocationId: seeded.invocationId },
+      }),
+    ).toBe(0);
+
+    const recovered = await artifactRecovery.recover(100);
+    expect(recovered.recovered).toBeGreaterThanOrEqual(1);
+    const artifact = await prisma.artifact.findUniqueOrThrow({
+      where: {
+        creatorInvocationId_outputName: {
+          creatorInvocationId: seeded.invocationId,
+          outputName: "result",
+        },
+      },
+      include: { versions: true },
+    });
+    expect(artifact.versions[0]?.contentJson).toEqual({
+      text: "durable result",
+    });
     expect(await spentForUser(prisma, seeded.userId)).toBe(300_000n);
   });
 
