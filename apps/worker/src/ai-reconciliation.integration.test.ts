@@ -44,6 +44,27 @@ describe("AiRequestReconciler", () => {
     await prisma.$disconnect();
   });
 
+  it("fails a stale created provider turn that never acquired a reservation", async () => {
+    const seeded = await seedTurn(prisma, billing, {
+      turnStatus: "CREATED",
+      actualMicroRub: null,
+      outputText: null,
+      withReservation: false,
+    });
+
+    await reconcileAll(reconciler);
+
+    const request = await prisma.aiRequest.findUniqueOrThrow({
+      where: { id: seeded.aiRequestId },
+      include: { reservation: true, providerTurn: true },
+    });
+    expect(request.status).toBe("FAILED");
+    expect(request.financialStatus).toBe("NONE");
+    expect(request.reservation).toBeNull();
+    expect(request.providerTurn?.status).toBe("FAILED_PRE_PROVIDER");
+    expect(await spentForUser(prisma, seeded.userId)).toBe(0n);
+  });
+
   it("releases a stale pre-provider reservation and fails the turn safely", async () => {
     const seeded = await seedTurn(prisma, billing, {
       turnStatus: "RESERVED",
@@ -393,6 +414,7 @@ async function seedTurn(
     actualMicroRub: bigint | null;
     outputText: string | null;
     toolCallError?: boolean;
+    withReservation?: boolean;
   },
 ) {
   const suffix = randomUUID();
@@ -498,6 +520,7 @@ async function seedTurn(
   const price = model.priceVersions[0];
   if (!price) throw new Error("Seeded model has no price version");
 
+  const withReservation = input.withReservation ?? true;
   const aiRequest = await prisma.aiRequest.create({
     data: {
       userId,
@@ -507,13 +530,14 @@ async function seedTurn(
       clientRequestId: `reconcile:${suffix}`,
       provider: model.provider,
       providerModelId: model.providerModelId,
-      status:
-        input.turnStatus === "RESERVED"
+      status: !withReservation
+        ? "CREATED"
+        : input.turnStatus === "RESERVED"
           ? "RESERVED"
           : input.turnStatus === "PROVIDER_IN_FLIGHT"
             ? "STREAMING"
             : "STREAMING",
-      financialStatus: "RESERVED",
+      financialStatus: withReservation ? "RESERVED" : "NONE",
       estimatedInputTokens: 100,
       maxOutputTokens: 1_000,
       estimatedCostMicroRub: 1_000_000n,
@@ -524,21 +548,26 @@ async function seedTurn(
       cacheReadTokens: input.actualMicroRub === null ? null : 0,
       cacheWriteTokens: input.actualMicroRub === null ? null : 0,
       outputText: input.outputText,
-      startedAt: input.turnStatus === "RESERVED" ? null : new Date(),
+      startedAt:
+        !withReservation || input.turnStatus === "RESERVED"
+          ? null
+          : new Date(),
     },
   });
-  const reservation = await billing.reserveUsage({
-    userId,
-    requestId: aiRequest.id,
-    estimatedProviderCostMicroRub: 1_000_000n,
-  });
-  await prisma.aiRequest.update({
-    where: { id: aiRequest.id },
-    data: {
-      reservationId: reservation.id,
-      financialStatus: "RESERVED",
-    },
-  });
+  if (withReservation) {
+    const reservation = await billing.reserveUsage({
+      userId,
+      requestId: aiRequest.id,
+      estimatedProviderCostMicroRub: 1_000_000n,
+    });
+    await prisma.aiRequest.update({
+      where: { id: aiRequest.id },
+      data: {
+        reservationId: reservation.id,
+        financialStatus: "RESERVED",
+      },
+    });
+  }
   const execution = await prisma.aIExecution.create({
     data: {
       invocationRunId: runId,
