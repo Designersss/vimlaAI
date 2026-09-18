@@ -368,7 +368,7 @@ export class TextChatService {
 
         await this.persistDurableUsage({
           aiRequestId: input.aiRequestId,
-          assistantText,
+          outputText: null,
           usage: usageEvent,
           providerActualCostMicroRub: interruptedActualCost,
         });
@@ -481,7 +481,7 @@ export class TextChatService {
 
     await this.persistDurableUsage({
       aiRequestId: input.aiRequestId,
-      assistantText,
+      outputText: assistantText,
       usage: usageEvent,
       providerActualCostMicroRub,
     });
@@ -749,7 +749,7 @@ export class TextChatService {
 
   private async persistDurableUsage(input: {
     aiRequestId: string;
-    assistantText: string;
+    outputText: string | null;
     usage: Extract<ProviderStreamEvent, { type: "usage" }>["usage"];
     providerActualCostMicroRub: bigint;
   }): Promise<void> {
@@ -762,7 +762,7 @@ export class TextChatService {
         reasoningTokens: numberTokens(input.usage.reasoningTokens),
         cacheReadTokens: numberTokens(input.usage.cacheReadTokens),
         cacheWriteTokens: numberTokens(input.usage.cacheWriteTokens),
-        outputText: input.assistantText,
+        outputText: input.outputText,
       },
     });
   }
