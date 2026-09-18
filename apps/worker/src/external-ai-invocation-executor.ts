@@ -1008,7 +1008,6 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
       await this.prisma.aIProviderTurn.update({
         where: { id: input.providerTurnId },
         data: {
-          status: "TOOL_RESULTS_DURABLE",
           toolResultsJson: results as unknown as Prisma.InputJsonValue,
         },
       });
