@@ -11,7 +11,11 @@ import {
   type ProviderChatResult,
   type ProviderStreamEvent,
 } from "@vimla/ai";
-import { BillingEngine, type BillingPolicy } from "@vimla/billing";
+import {
+  BillingEngine,
+  BillingError,
+  type BillingPolicy,
+} from "@vimla/billing";
 import { createPrismaClient, type PrismaClient } from "@vimla/database";
 import {
   ExternalAiInvocationExecutor,
@@ -934,6 +938,72 @@ describe("ExternalAiInvocationExecutor", () => {
         where: { userId: seeded.userId },
       }),
     ).toBe(0);
+  });
+
+  it("persists a reservation-race usage pause and resumes the same provider turn", async () => {
+    const seeded = await seedInvocation(prisma, {
+      targetKind: "AI_MODEL",
+      targetModelSlug: "gpt-5-6-luna",
+      purpose: "Resume after losing the reservation race",
+      fund: true,
+    });
+    const provider = new MockAiProvider();
+    const raceBilling = new FailFirstReservationBillingEngine(
+      prisma,
+      billingPolicy,
+    );
+    const executor = createExecutor(
+      prisma,
+      provider,
+      undefined,
+      {},
+      raceBilling,
+    );
+
+    const first = await executor.execute(
+      executionInput(seeded, {
+        kind: "AI_MODEL",
+        modelSlug: "gpt-5-6-luna",
+        agentId: null,
+      }),
+    );
+    expect(first).toEqual({
+      status: "BLOCKED_INSUFFICIENT_USAGE",
+      errorCode: "BILLING_INSUFFICIENT_USAGE",
+    });
+    expect(provider.callCount).toBe(0);
+
+    const pausedTurn = await prisma.aIProviderTurn.findUniqueOrThrow({
+      where: {
+        idempotencyKey: orchestrationAiProviderTurnIdempotencyKey(
+          seeded.invocationId,
+          0,
+        ),
+      },
+      include: { aiRequest: true },
+    });
+    expect(pausedTurn.status).toBe("BLOCKED_INSUFFICIENT_USAGE");
+    expect(pausedTurn.aiRequest.status).toBe("CREATED");
+    expect(pausedTurn.aiRequest.financialStatus).toBe("NONE");
+
+    const resumed = await executor.execute(
+      executionInput(seeded, {
+        kind: "AI_MODEL",
+        modelSlug: "gpt-5-6-luna",
+        agentId: null,
+      }),
+    );
+    expect(resumed).toEqual({ status: "COMPLETED", outcome: "PASS" });
+    expect(provider.callCount).toBe(1);
+    expect(
+      await prisma.aIProviderTurn.count({
+        where: {
+          aiExecution: {
+            invocationRun: { invocationId: seeded.invocationId },
+          },
+        },
+      }),
+    ).toBe(1);
   });
 
   it("waits when allowance is temporarily held by another reservation and resumes after release", async () => {
@@ -1966,6 +2036,23 @@ class TestToolBroker implements ExternalAiToolBroker {
   }
 }
 
+
+class FailFirstReservationBillingEngine extends BillingEngine {
+  private failed = false;
+
+  override async reserveUsage(
+    input: Parameters<BillingEngine["reserveUsage"]>[0],
+  ) {
+    if (!this.failed) {
+      this.failed = true;
+      throw new BillingError(
+        "INSUFFICIENT_USAGE",
+        "Simulated reservation race loss",
+      );
+    }
+    return super.reserveUsage(input);
+  }
+}
 
 class DelayedFirstReservationBillingEngine extends BillingEngine {
   private reserveCalls = 0;
