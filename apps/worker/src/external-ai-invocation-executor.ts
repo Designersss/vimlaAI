@@ -335,13 +335,16 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
     messages: readonly ProviderChatMessage[],
   ): Promise<ResolvedModel> {
     const now = new Date();
+    const exactModelSlug =
+      input.target.kind === "AI_MODEL" ? input.target.modelSlug : null;
+    if (input.target.kind === "AI_MODEL" && !exactModelSlug) {
+      throw new ExternalAiTerminalError("AI_MODEL_UNAVAILABLE");
+    }
     const models = await this.prisma.aiModel.findMany({
       where: {
         active: true,
         visible: true,
-        ...(input.target.kind === "AI_MODEL"
-          ? { slug: input.target.modelSlug }
-          : {}),
+        ...(exactModelSlug ? { slug: exactModelSlug } : {}),
       },
       include: {
         priceVersions: {
@@ -749,7 +752,7 @@ function parseSingleTextOutput(
   };
 }
 
-function stringifyArtifactValue(value: Prisma.JsonValue): string {
+function stringifyArtifactValue(value: Prisma.InputJsonValue): string {
   if (
     typeof value === "object" &&
     value !== null &&
