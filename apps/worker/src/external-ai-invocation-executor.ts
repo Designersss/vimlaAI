@@ -262,7 +262,7 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
         input,
         invocation.plan.userId,
         messages,
-        tools.length > 0,
+        tools,
         selectedModelSlug,
       );
 
@@ -693,9 +693,10 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
     input: InvocationExecutionInput,
     userId: string,
     messages: readonly ProviderChatMessage[],
-    requiresToolUse: boolean,
+    tools: readonly ProviderToolDefinition[],
     forcedModelSlug: string | null = null,
   ): Promise<ResolvedModel> {
+    const requiresToolUse = tools.length > 0;
     const now = new Date();
     const exactModelSlug =
       forcedModelSlug ??
