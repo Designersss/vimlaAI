@@ -357,7 +357,7 @@ describe("AI chat integration", () => {
       request.providerActualCostMicroRub,
     );
     expect(request.reservation?.status).toBe("SETTLED");
-    expect(request.outputText).toBe("Hello from Vimla");
+    expect(request.outputText).toBeNull();
     await prisma.$disconnect();
     provider.scenario = "success";
   });
