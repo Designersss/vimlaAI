@@ -388,6 +388,197 @@ describe("ExternalAiInvocationExecutor", () => {
     ).toBe(0);
   });
 
+  it("waits when allowance is temporarily held by another reservation and resumes after release", async () => {
+    const seeded = await seedInvocation(prisma, {
+      targetKind: "AI_MODEL",
+      targetModelSlug: "gpt-5-6-luna",
+      purpose: "Wait for temporary usage capacity",
+      fund: true,
+      fundMicroRub: 1_000_000n,
+    });
+    const billing = new BillingEngine(prisma, billingPolicy);
+    const competing = await billing.reserveUsage({
+      userId: seeded.userId,
+      requestId: randomUUID(),
+      estimatedProviderCostMicroRub: 800_000n,
+    });
+    const provider = new MockAiProvider();
+    const executor = createExecutor(prisma, provider);
+
+    const waiting = await executor.execute(executionInput(seeded, {
+      kind: "AI_MODEL",
+      modelSlug: "gpt-5-6-luna",
+      agentId: null,
+    }));
+    expect(waiting).toEqual({
+      status: "WAITING_FOR_USAGE_CAPACITY",
+      errorCode: "BILLING_INSUFFICIENT_USAGE",
+    });
+    expect(provider.callCount).toBe(0);
+
+    await billing.releaseUsage({
+      userId: seeded.userId,
+      reservationId: competing.id,
+    });
+    const resumed = await executor.execute(executionInput(seeded, {
+      kind: "AI_MODEL",
+      modelSlug: "gpt-5-6-luna",
+      agentId: null,
+    }));
+    expect(resumed).toEqual({ status: "COMPLETED", outcome: "PASS" });
+    expect(provider.callCount).toBe(1);
+  });
+
+  it("turns a capacity wait into a hard usage block when competing work settles the allowance", async () => {
+    const seeded = await seedInvocation(prisma, {
+      targetKind: "AI_MODEL",
+      targetModelSlug: "gpt-5-6-luna",
+      purpose: "Become blocked after competing work settles",
+      fund: true,
+      fundMicroRub: 1_000_000n,
+    });
+    const billing = new BillingEngine(prisma, billingPolicy);
+    const competing = await billing.reserveUsage({
+      userId: seeded.userId,
+      requestId: randomUUID(),
+      estimatedProviderCostMicroRub: 800_000n,
+    });
+    const provider = new MockAiProvider();
+    const executor = createExecutor(prisma, provider);
+
+    const waiting = await executor.execute(executionInput(seeded, {
+      kind: "AI_MODEL",
+      modelSlug: "gpt-5-6-luna",
+      agentId: null,
+    }));
+    expect(waiting.status).toBe("WAITING_FOR_USAGE_CAPACITY");
+
+    await billing.settleUsage({
+      userId: seeded.userId,
+      reservationId: competing.id,
+      actualMicroRub: 800_000n,
+    });
+    const blocked = await executor.execute(executionInput(seeded, {
+      kind: "AI_MODEL",
+      modelSlug: "gpt-5-6-luna",
+      agentId: null,
+    }));
+    expect(blocked).toEqual({
+      status: "BLOCKED_INSUFFICIENT_USAGE",
+      errorCode: "BILLING_INSUFFICIENT_USAGE",
+    });
+    expect(provider.callCount).toBe(0);
+  });
+
+  it("stops before another paid provider turn when the per-invocation turn ceiling is reached", async () => {
+    const seeded = await seedInvocation(prisma, {
+      targetKind: "AI_MODEL",
+      targetModelSlug: "gpt-5-6-luna",
+      purpose: "Use one provider turn only",
+      fund: true,
+    });
+    const provider = new MockAiProvider();
+    provider.toolCallQueue.push([
+      {
+        id: "call-once",
+        name: "github.readFile",
+        arguments: { path: "README.md" },
+      },
+    ]);
+    const tools = new TestToolBroker("small tool result");
+    const executor = createExecutor(prisma, provider, tools, {
+      maxProviderTurnsPerInvocation: 1,
+    });
+
+    const result = await executor.execute(executionInput(seeded, {
+      kind: "AI_MODEL",
+      modelSlug: "gpt-5-6-luna",
+      agentId: null,
+    }));
+
+    expect(result).toEqual({
+      status: "FAILED",
+      errorCode: "PLAN_SPEND_LIMIT_REACHED",
+      retryable: false,
+    });
+    expect(provider.callCount).toBe(1);
+    expect(tools.calls).toHaveLength(1);
+    const turns = await prisma.aIProviderTurn.findMany({
+      where: {
+        aiExecution: {
+          invocationRun: { invocationId: seeded.invocationId },
+        },
+      },
+      include: { aiRequest: { include: { reservation: true } } },
+    });
+    expect(turns).toHaveLength(1);
+    expect(turns[0]?.aiRequest.reservation?.status).toBe("SETTLED");
+  });
+
+  it("enforces the max paid invocations ceiling across a plan", async () => {
+    const seeded = await seedInvocation(prisma, {
+      targetKind: "AI_MODEL",
+      targetModelSlug: "gpt-5-6-luna",
+      purpose: "First paid invocation",
+      fund: true,
+    });
+    const provider = new MockAiProvider();
+    const executor = createExecutor(prisma, provider, undefined, {
+      maxPaidInvocationsPerPlan: 1,
+    });
+
+    const first = await executor.execute(executionInput(seeded, {
+      kind: "AI_MODEL",
+      modelSlug: "gpt-5-6-luna",
+      agentId: null,
+    }));
+    expect(first.status).toBe("COMPLETED");
+
+    const sibling = await seedSiblingInvocation(prisma, seeded);
+    const second = await executor.execute(executionInput(sibling, {
+      kind: "AI_MODEL",
+      modelSlug: "gpt-5-6-luna",
+      agentId: null,
+    }));
+    expect(second).toEqual({
+      status: "FAILED",
+      errorCode: "PLAN_SPEND_LIMIT_REACHED",
+      retryable: false,
+    });
+    expect(provider.callCount).toBe(1);
+  });
+
+  it("enforces the cumulative plan spend ceiling before any uncovered provider call", async () => {
+    const seeded = await seedInvocation(prisma, {
+      targetKind: "AI_MODEL",
+      targetModelSlug: "gpt-5-6-luna",
+      purpose: "This user can afford the request but the plan ceiling cannot",
+      fund: true,
+      fundMicroRub: 10_000_000n,
+    });
+    const provider = new MockAiProvider();
+    const executor = createExecutor(prisma, provider, undefined, {
+      maxSettledCostMicroRubPerPlan: 300_000n,
+      maxCommittedCostMicroRubPerPlan: 300_000n,
+    });
+
+    const result = await executor.execute(executionInput(seeded, {
+      kind: "AI_MODEL",
+      modelSlug: "gpt-5-6-luna",
+      agentId: null,
+    }));
+
+    expect(result).toEqual({
+      status: "FAILED",
+      errorCode: "PLAN_SPEND_LIMIT_REACHED",
+      retryable: false,
+    });
+    expect(provider.callCount).toBe(0);
+    expect(
+      await prisma.usageReservation.count({ where: { userId: seeded.userId } }),
+    ).toBe(0);
+  });
+
   it("funds each tool-loop turn independently and resumes after top-up without replaying paid work", async () => {
     const seeded = await seedInvocation(prisma, {
       targetKind: "AI_MODEL",
