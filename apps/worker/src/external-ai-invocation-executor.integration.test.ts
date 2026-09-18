@@ -229,6 +229,60 @@ describe("ExternalAiInvocationExecutor", () => {
     expect(provider.lastRequest?.maxOutputTokens).toBe(request.maxOutputTokens);
   });
 
+  it("shrinks the funded provider cap to the remaining model context window", async () => {
+    const model = await prisma.aiModel.findUniqueOrThrow({
+      where: { slug: "gpt-5-6-luna" },
+      select: { id: true, contextWindowTokens: true },
+    });
+    const contextWindowTokens = 6_200;
+    await prisma.aiModel.update({
+      where: { id: model.id },
+      data: { contextWindowTokens },
+    });
+
+    try {
+      const seeded = await seedInvocation(prisma, {
+        targetKind: "AI_MODEL",
+        targetModelSlug: "gpt-5-6-luna",
+        purpose: "Fit this answer inside the remaining context window",
+        fund: true,
+      });
+      const provider = new MockAiProvider();
+      const executor = createExecutor(prisma, provider);
+
+      const result = await executor.execute(
+        executionInput(seeded, {
+          kind: "AI_MODEL",
+          modelSlug: "gpt-5-6-luna",
+          agentId: null,
+        }),
+      );
+
+      expect(result).toEqual({ status: "COMPLETED", outcome: "PASS" });
+      const request = await prisma.aiRequest.findUniqueOrThrow({
+        where: {
+          userId_clientRequestId: {
+            userId: seeded.userId,
+            clientRequestId: orchestrationAiClientRequestId(seeded.invocationId),
+          },
+        },
+      });
+      expect(request.maxOutputTokens).toBeLessThan(2_048);
+      expect(request.maxOutputTokens).toBeGreaterThanOrEqual(768);
+      expect(
+        request.estimatedInputTokens + request.maxOutputTokens,
+      ).toBeLessThanOrEqual(contextWindowTokens);
+      expect(provider.lastRequest?.maxOutputTokens).toBe(
+        request.maxOutputTokens,
+      );
+    } finally {
+      await prisma.aiModel.update({
+        where: { id: model.id },
+        data: { contextWindowTokens: model.contextWindowTokens },
+      });
+    }
+  });
+
   it("does not spend the final allowance when it cannot fund the minimum useful output", async () => {
     const seeded = await seedInvocation(prisma, {
       targetKind: "AI_MODEL",
