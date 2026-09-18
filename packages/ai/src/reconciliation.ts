@@ -86,6 +86,7 @@ export class AiRequestReconciler {
         counters.errors += 1;
         this.logger.error(
           {
+            event: "ai_reconciliation_error",
             operation: "ai_reconcile_turn",
             aiRequestId: turn.aiRequestId,
             providerTurnId: turn.id,
@@ -99,6 +100,14 @@ export class AiRequestReconciler {
 
     const remaining = Math.max(0, take - turns.length);
     if (remaining === 0) {
+      this.logger.info(
+        {
+          event: "ai_reconciliation_scanned",
+          scannedTurns: counters.scannedTurns,
+          scannedLegacyRequests: counters.scannedLegacyRequests,
+        },
+        "AI reconciliation scan completed",
+      );
       return counters;
     }
 
@@ -131,6 +140,7 @@ export class AiRequestReconciler {
         counters.errors += 1;
         this.logger.error(
           {
+            event: "ai_reconciliation_error",
             operation: "ai_reconcile_legacy",
             aiRequestId: request.id,
             result: "retry_required",
@@ -141,6 +151,14 @@ export class AiRequestReconciler {
       }
     }
 
+    this.logger.info(
+      {
+        event: "ai_reconciliation_scanned",
+        scannedTurns: counters.scannedTurns,
+        scannedLegacyRequests: counters.scannedLegacyRequests,
+      },
+      "AI reconciliation scan completed",
+    );
     return counters;
   }
 
@@ -247,6 +265,7 @@ export class AiRequestReconciler {
       await this.holdAmbiguous(request, providerTurnId, reservation.id, counters);
       this.logger.error(
         {
+          event: "ai_cost_anomaly",
           operation: "ai_reconcile",
           aiRequestId: request.id,
           providerTurnId,
@@ -283,6 +302,15 @@ export class AiRequestReconciler {
       settledMicroRub = settled.settledMicroRub;
       settledStatus = settled.status;
       counters.settled += 1;
+      this.logger.info(
+        {
+          event: "ai_reconciliation_settled",
+          aiRequestId: request.id,
+          providerTurnId,
+          reservationId: reservation.id,
+        },
+        "AI reconciliation settled durable usage",
+      );
     } else if (
       reservation.status !== "SETTLED" &&
       reservation.status !== "ANOMALY"
@@ -335,6 +363,15 @@ export class AiRequestReconciler {
         correlationId: `ai-reconcile:${request.id}`,
       });
       counters.released += 1;
+      this.logger.info(
+        {
+          event: "ai_reconciliation_released",
+          aiRequestId: request.id,
+          providerTurnId,
+          reservationId: reservation.id,
+        },
+        "AI reconciliation released pre-provider reservation",
+      );
       financialStatus = "RELEASED";
     } else if (reservation?.status === "RELEASED") {
       financialStatus = "RELEASED";
@@ -391,6 +428,15 @@ export class AiRequestReconciler {
       }
     });
     counters.held += 1;
+    this.logger.warn(
+      {
+        event: "ai_reconciliation_held",
+        aiRequestId: request.id,
+        providerTurnId,
+        reservationId,
+      },
+      "AI reconciliation retained ambiguous work on hold",
+    );
   }
 
   private async findReservation(request: {
