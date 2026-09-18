@@ -281,6 +281,41 @@ describe("AI chat integration", () => {
     provider.scenario = "success";
   });
 
+  it("settles known usage after an interrupted provider stream without succeeding semantically", async () => {
+    const user = await registerUser(app, "usage-interrupt");
+    await purchasePro(app, user.cookies);
+    const conversation = await createConversation(app, user.cookies);
+    const modelId = await firstModelId(app, user.cookies);
+    provider.scenario = "usage-then-ambiguous";
+
+    await expect(
+      chat.streamMessage({
+        userId: user.id,
+        conversationId: conversation.id,
+        body: { clientRequestId: randomUUID(), modelId, content: "Hello" },
+        correlationId: randomUUID(),
+        sink: collectingSink([]),
+      }),
+    ).rejects.toMatchObject({ code: "PROVIDER_AMBIGUOUS_FAILURE" });
+
+    const prisma = createPrismaClient(testDatabaseUrl);
+    const request = await prisma.aiRequest.findFirstOrThrow({
+      where: { userId: user.id },
+      orderBy: { createdAt: "desc" },
+      include: { reservation: true },
+    });
+    expect(request.status).toBe("FAILED");
+    expect(request.financialStatus).toBe("SETTLED");
+    expect(request.providerActualCostMicroRub).not.toBeNull();
+    expect(request.userSettledUsageMicroRub).toBe(
+      request.providerActualCostMicroRub,
+    );
+    expect(request.reservation?.status).toBe("SETTLED");
+    expect(request.outputText).toBe("Hello from Vimla");
+    await prisma.$disconnect();
+    provider.scenario = "success";
+  });
+
   it("continues settlement after the client disconnects", async () => {
     const user = await registerUser(app, "disc");
     await purchasePro(app, user.cookies);
