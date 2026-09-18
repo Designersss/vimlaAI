@@ -193,12 +193,41 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
         return provider.result;
       }
 
+      if (
+        provider.usage.inputTokens > BigInt(request.estimatedInputTokens) ||
+        provider.usage.outputTokens > BigInt(request.maxOutputTokens)
+      ) {
+        await this.markReconciliation(
+          request.aiRequestId,
+          provider.text,
+          "provider_usage_exceeded_funded_token_caps",
+          provider.usage,
+        );
+        return terminal("AI_PROVIDER_BOUNDEDNESS_VIOLATION");
+      }
+
       let actualCost: bigint;
       try {
         actualCost = providerCostFromUsage(provider.usage, model.price);
       } catch {
-        await this.markReconciliation(request.aiRequestId, provider.text, "invalid_provider_usage");
+        await this.markReconciliation(
+          request.aiRequestId,
+          provider.text,
+          "invalid_provider_usage",
+          provider.usage,
+        );
         return terminal("AI_RECONCILIATION_REQUIRED");
+      }
+
+      if (actualCost > request.estimatedCostMicroRub) {
+        await this.markReconciliation(
+          request.aiRequestId,
+          provider.text,
+          "provider_cost_exceeded_funded_reservation",
+          provider.usage,
+          actualCost,
+        );
+        return terminal("AI_PROVIDER_BOUNDEDNESS_VIOLATION");
       }
 
       let settledStatus: string;
@@ -462,6 +491,7 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
         kind: "new";
         aiRequestId: string;
         estimatedCostMicroRub: bigint;
+        estimatedInputTokens: number;
         maxOutputTokens: number;
       }
     | { kind: "replay"; aiRequestId: string; text: string }
@@ -545,6 +575,7 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
         kind: "new",
         aiRequestId: created.id,
         estimatedCostMicroRub,
+        estimatedInputTokens,
         maxOutputTokens,
       };
     } catch (error: unknown) {
@@ -704,6 +735,8 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
     aiRequestId: string,
     text: string,
     _reason: string,
+    usage?: NormalizedUsage,
+    actualCostMicroRub?: bigint,
   ): Promise<void> {
     await this.prisma.aiRequest.update({
       where: { id: aiRequestId },
@@ -711,6 +744,18 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
         status: "RECONCILIATION_REQUIRED",
         financialStatus: "RECONCILIATION_HOLD",
         outputText: text,
+        ...(usage
+          ? {
+              actualInputTokens: safeNumber(usage.inputTokens),
+              actualOutputTokens: safeNumber(usage.outputTokens),
+              reasoningTokens: safeNumber(usage.reasoningTokens),
+              cacheReadTokens: safeNumber(usage.cacheReadTokens),
+              cacheWriteTokens: safeNumber(usage.cacheWriteTokens),
+            }
+          : {}),
+        ...(actualCostMicroRub !== undefined
+          ? { providerActualCostMicroRub: actualCostMicroRub }
+          : {}),
         finishedAt: new Date(),
       },
     });
