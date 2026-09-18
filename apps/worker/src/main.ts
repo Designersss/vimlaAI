@@ -6,7 +6,7 @@ import {
   RECONCILE_JOB_NAME,
   RECONCILE_SCHEDULER_ID,
 } from "@vimla/notifications";
-import { createCorrelationId } from "@vimla/shared";
+import { createCorrelationId, type VimlaLocale } from "@vimla/shared";
 import { Queue, Worker } from "bullmq";
 import { Redis } from "ioredis";
 import pino from "pino";
@@ -20,6 +20,11 @@ import {
   type QueuePublisher,
   type RuntimeLogger,
 } from "./orchestration.js";
+import {
+  DeterministicVimlaToolPlanner,
+  VimlaAwareInvocationExecutorRegistry,
+  VimlaInvocationExecutor,
+} from "./vimla-invocation-executor.js";
 import { createWorkerPaymentService } from "./payment-reconciliation.js";
 import {
   INVOCATION_EXECUTE_JOB_NAME,
@@ -159,6 +164,7 @@ async function bootstrap(): Promise<void> {
           queueConnection,
           redisOptions.url,
           billingLogger,
+          config.authDefaultLocale,
         )
       : undefined;
 
@@ -233,17 +239,26 @@ async function startOrchestrationRuntime(
   queueConnection: Redis,
   redisUrl: string,
   runtimeLogger: RuntimeLogger,
+  defaultLocale: VimlaLocale,
 ): Promise<OrchestrationResources> {
   const dispatchConnection = new Redis(redisUrl, { maxRetriesPerRequest: null });
   const executionConnection = new Redis(redisUrl, { maxRetriesPerRequest: null });
   const dispatchQueue = new Queue(ORCHESTRATION_DISPATCH_QUEUE_NAME, { connection: queueConnection });
   const executionQueue = new Queue(INVOCATION_EXECUTE_QUEUE_NAME, { connection: queueConnection });
+  const executorRegistry = new VimlaAwareInvocationExecutorRegistry(
+    new VimlaInvocationExecutor(
+      prisma,
+      new DeterministicVimlaToolPlanner(),
+      defaultLocale,
+    ),
+    new MockInvocationExecutorRegistry(),
+  );
   const runtime = new OrchestrationRuntime(
     prisma,
     queuePublisher(dispatchQueue),
     queuePublisher(executionQueue),
     runtimeLogger,
-    { executorRegistry: new MockInvocationExecutorRegistry() },
+    { executorRegistry },
   );
 
   const dispatchWorker = new Worker(
