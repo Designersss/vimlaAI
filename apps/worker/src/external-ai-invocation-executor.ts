@@ -439,6 +439,13 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
           return terminal("AI_EXECUTION_CANCELED");
         }
 
+        const turnModel: ResolvedModel = {
+          ...model,
+          provider: request.provider,
+          providerModelId: request.providerModelId,
+          priceVersionId: request.priceVersionId,
+          price: request.price,
+        };
         const provider = await this.callProvider({
           planId: input.planId,
           invocationId: input.invocationId,
@@ -446,7 +453,7 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
           providerTurnId: request.providerTurnId,
           reservationId,
           userId: invocation.plan.userId,
-          model,
+          model: turnModel,
           messages,
           tools,
           maxOutputTokens: request.maxOutputTokens,
@@ -482,7 +489,7 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
 
         let actualCost: bigint;
         try {
-          actualCost = providerCostFromUsage(provider.usage, model.price);
+          actualCost = providerCostFromUsage(provider.usage, turnModel.price);
         } catch {
           await this.markReconciliation(
             request.aiRequestId,
@@ -599,7 +606,7 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
             output,
             text: provider.text,
             aiRequestId: request.aiRequestId,
-            model,
+            model: turnModel,
           });
           return { status: "COMPLETED", outcome: "PASS" };
         }
@@ -919,6 +926,10 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
         estimatedCostMicroRub: bigint;
         estimatedInputTokens: number;
         maxOutputTokens: number;
+        provider: string;
+        providerModelId: string;
+        priceVersionId: string;
+        price: PriceVersionQuote;
       }
     | {
         kind: "replay";
@@ -982,7 +993,7 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
         // consume a second plan-spend admission slot.
         const existingTurn = await tx.aIProviderTurn.findUnique({
           where: { idempotencyKey: providerTurnIdempotencyKey },
-          include: { aiRequest: true },
+          include: { aiRequest: { include: { priceVersion: true } } },
         });
         if (existingTurn) {
           return existingProviderTurnOutcome(existingTurn);
@@ -1157,13 +1168,17 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
           estimatedCostMicroRub,
           estimatedInputTokens,
           maxOutputTokens,
+          provider: aiRequest.provider,
+          providerModelId: aiRequest.providerModelId,
+          priceVersionId: aiRequest.priceVersionId,
+          price: model.price,
         };
       });
     } catch (error: unknown) {
       if (!isUniqueConstraint(error)) throw error;
       const replay = await this.prisma.aIProviderTurn.findUnique({
         where: { idempotencyKey: providerTurnIdempotencyKey },
-        include: { aiRequest: true },
+        include: { aiRequest: { include: { priceVersion: true } } },
       });
       if (!replay) {
         return { kind: "in_progress" };
@@ -1687,6 +1702,15 @@ function existingProviderTurnOutcome(existing: {
     estimatedCostMicroRub: bigint;
     estimatedInputTokens: number;
     maxOutputTokens: number;
+    provider: string;
+    providerModelId: string;
+    priceVersionId: string;
+    priceVersion: {
+      inputMicroRubPerMillion: bigint;
+      outputMicroRubPerMillion: bigint;
+      cacheReadMicroRubPerMillion: bigint | null;
+      cacheWriteMicroRubPerMillion: bigint | null;
+    };
   };
 }):
   | {
@@ -1697,6 +1721,10 @@ function existingProviderTurnOutcome(existing: {
       estimatedCostMicroRub: bigint;
       estimatedInputTokens: number;
       maxOutputTokens: number;
+      provider: string;
+      providerModelId: string;
+      priceVersionId: string;
+      price: PriceVersionQuote;
     }
   | {
       kind: "replay";
@@ -1719,6 +1747,17 @@ function existingProviderTurnOutcome(existing: {
       estimatedCostMicroRub: request.estimatedCostMicroRub,
       estimatedInputTokens: request.estimatedInputTokens,
       maxOutputTokens: request.maxOutputTokens,
+      provider: request.provider,
+      providerModelId: request.providerModelId,
+      priceVersionId: request.priceVersionId,
+      price: {
+        inputMicroRubPerMillion: request.priceVersion.inputMicroRubPerMillion,
+        outputMicroRubPerMillion: request.priceVersion.outputMicroRubPerMillion,
+        cacheReadMicroRubPerMillion:
+          request.priceVersion.cacheReadMicroRubPerMillion,
+        cacheWriteMicroRubPerMillion:
+          request.priceVersion.cacheWriteMicroRubPerMillion,
+      },
     };
   }
   if (request.status === "SUCCEEDED" && request.outputText !== null) {
