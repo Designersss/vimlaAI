@@ -199,6 +199,13 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
 
         if (turn.aiRequest.status !== "SUCCEEDED") {
           if (
+            turn.toolCallError &&
+            (turn.aiRequest.financialStatus === "SETTLED" ||
+              turn.aiRequest.financialStatus === "ANOMALY")
+          ) {
+            return terminal("AI_TOOL_CALL_INVALID");
+          }
+          if (
             turn.aiRequest.status === "CREATED" &&
             turn.aiRequest.financialStatus === "NONE"
           ) {
@@ -1646,6 +1653,7 @@ function existingProviderTurnOutcome(existing: {
   status: string;
   toolCallsJson: Prisma.JsonValue | null;
   toolResultsJson: Prisma.JsonValue | null;
+  toolCallError: boolean;
   aiRequest: {
     id: string;
     status: string;
@@ -1697,6 +1705,16 @@ function existingProviderTurnOutcome(existing: {
       text: request.outputText,
       toolCalls: parseToolCallsJson(existing.toolCallsJson),
       toolResults: parseToolResultsJson(existing.toolResultsJson),
+    };
+  }
+  if (
+    existing.toolCallError &&
+    (request.financialStatus === "SETTLED" ||
+      request.financialStatus === "ANOMALY")
+  ) {
+    return {
+      kind: "terminal_failure",
+      errorCode: "AI_TOOL_CALL_INVALID",
     };
   }
   if (IN_PROGRESS_AI_STATUSES.has(request.status)) {
