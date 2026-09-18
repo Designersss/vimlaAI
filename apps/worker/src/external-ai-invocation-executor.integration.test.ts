@@ -183,6 +183,70 @@ describe("ExternalAiInvocationExecutor", () => {
     ).toBe(0);
   });
 
+  it("shrinks the provider output cap to a fully funded budget when allowance is low", async () => {
+    const seeded = await seedInvocation(prisma, {
+      targetKind: "AI_MODEL",
+      targetModelSlug: "gpt-5-6-luna",
+      purpose: "Use only the remaining funded allowance",
+      fund: true,
+      fundMicroRub: 500_000n,
+    });
+    const provider = new MockAiProvider();
+    const executor = createExecutor(prisma, provider);
+
+    const result = await executor.execute(executionInput(seeded, {
+      kind: "AI_MODEL",
+      modelSlug: "gpt-5-6-luna",
+      agentId: null,
+    }));
+
+    expect(result).toEqual({ status: "COMPLETED", outcome: "PASS" });
+    const request = await prisma.aiRequest.findUniqueOrThrow({
+      where: {
+        userId_clientRequestId: {
+          userId: seeded.userId,
+          clientRequestId: orchestrationAiClientRequestId(seeded.invocationId),
+        },
+      },
+      include: { reservation: true },
+    });
+    expect(request.maxOutputTokens).toBeGreaterThanOrEqual(768);
+    expect(request.maxOutputTokens).toBeLessThan(2_048);
+    expect(request.estimatedCostMicroRub).toBeLessThanOrEqual(500_000n);
+    expect(request.reservation?.estimatedMicroRub).toBe(request.estimatedCostMicroRub);
+    expect(provider.lastRequest?.maxOutputTokens).toBe(request.maxOutputTokens);
+  });
+
+  it("does not spend the final allowance when it cannot fund the minimum useful output", async () => {
+    const seeded = await seedInvocation(prisma, {
+      targetKind: "AI_MODEL",
+      targetModelSlug: "gpt-5-6-luna",
+      purpose: "Do not start if the result would be predictably truncated",
+      fund: true,
+      fundMicroRub: 300_000n,
+    });
+    const provider = new MockAiProvider();
+    const executor = createExecutor(prisma, provider);
+
+    const result = await executor.execute(executionInput(seeded, {
+      kind: "AI_MODEL",
+      modelSlug: "gpt-5-6-luna",
+      agentId: null,
+    }));
+
+    expect(result).toEqual({
+      status: "FAILED",
+      errorCode: "BILLING_INSUFFICIENT_USAGE",
+      retryable: false,
+    });
+    expect(provider.callCount).toBe(0);
+    expect(
+      await prisma.aiRequest.count({
+        where: { userId: seeded.userId },
+      }),
+    ).toBe(0);
+  });
+
   it("selects AI_AUTO server-side and persists the concrete selected model", async () => {
     const seeded = await seedInvocation(prisma, {
       targetKind: "AI_AUTO",
@@ -290,7 +354,20 @@ function createExecutor(
     new BillingEngine(prisma, billingPolicy),
     new VimlaAiGateway(provider),
     {
-      defaultMaxOutputTokens: 512,
+      budgetProfiles: {
+        SHORT: {
+          preferredOutputTokens: 512,
+          minimumOutputTokens: 128,
+        },
+        STANDARD: {
+          preferredOutputTokens: 2_048,
+          minimumOutputTokens: 768,
+        },
+        LONG: {
+          preferredOutputTokens: 4_096,
+          minimumOutputTokens: 2_048,
+        },
+      },
       reservationSafetyBps: 2_000n,
       maxReservationMicroRub: 10_000_000n,
     },
@@ -312,6 +389,7 @@ async function seedInvocation(
     targetModelSlug: string | null;
     purpose: string;
     fund: boolean;
+    fundMicroRub?: bigint;
   },
 ): Promise<SeededInvocation> {
   const suffix = randomUUID();
@@ -334,7 +412,7 @@ async function seedInvocation(
       data: {
         userId,
         type: "TOPUP",
-        totalMicroRub: 100_000_000n,
+        totalMicroRub: input.fundMicroRub ?? 100_000_000n,
         spentMicroRub: 0n,
         reservedMicroRub: 0n,
         expiresAt: null,
