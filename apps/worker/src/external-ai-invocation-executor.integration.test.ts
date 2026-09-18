@@ -201,7 +201,7 @@ describe("ExternalAiInvocationExecutor", () => {
       targetModelSlug: "gpt-5-6-luna",
       purpose: "Use only the remaining funded allowance",
       fund: true,
-      fundMicroRub: 500_000n,
+      fundMicroRub: 1_400_000n,
     });
     const provider = new MockAiProvider();
     const executor = createExecutor(prisma, provider);
@@ -224,7 +224,7 @@ describe("ExternalAiInvocationExecutor", () => {
     });
     expect(request.maxOutputTokens).toBeGreaterThanOrEqual(768);
     expect(request.maxOutputTokens).toBeLessThan(2_048);
-    expect(request.estimatedCostMicroRub).toBeLessThanOrEqual(500_000n);
+    expect(request.estimatedCostMicroRub).toBeLessThanOrEqual(1_400_000n);
     expect(request.reservation?.estimatedMicroRub).toBe(request.estimatedCostMicroRub);
     expect(provider.lastRequest?.maxOutputTokens).toBe(request.maxOutputTokens);
   });
@@ -451,6 +451,39 @@ describe("ExternalAiInvocationExecutor", () => {
     expect(bucket.spentMicroRub).toBe(0n);
   });
 
+  it("funds tool definitions as part of the provider input before any call", async () => {
+    const seeded = await seedInvocation(prisma, {
+      targetKind: "AI_MODEL",
+      targetModelSlug: "gpt-5-6-luna",
+      purpose: "Use the authorized repository tool",
+      fund: true,
+      fundMicroRub: 2_000_000n,
+    });
+    const provider = new MockAiProvider();
+    const tools = new TestToolBroker(
+      "small result",
+      "x".repeat(20_000),
+    );
+    const executor = createExecutor(prisma, provider, tools);
+
+    const result = await executor.execute(
+      executionInput(seeded, {
+        kind: "AI_MODEL",
+        modelSlug: "gpt-5-6-luna",
+        agentId: null,
+      }),
+    );
+
+    expect(result).toEqual({
+      status: "BLOCKED_INSUFFICIENT_USAGE",
+      errorCode: "BILLING_INSUFFICIENT_USAGE",
+    });
+    expect(provider.callCount).toBe(0);
+    expect(
+      await prisma.aiRequest.count({ where: { userId: seeded.userId } }),
+    ).toBe(0);
+  });
+
   it("does not silently fall back when the exact requested model is unavailable", async () => {
     const unavailableSlug = `unavailable-test-model-${randomUUID()}`;
     const seeded = await seedInvocation(prisma, {
@@ -487,13 +520,13 @@ describe("ExternalAiInvocationExecutor", () => {
       targetModelSlug: "gpt-5-6-luna",
       purpose: "Wait for temporary usage capacity",
       fund: true,
-      fundMicroRub: 1_000_000n,
+      fundMicroRub: 2_000_000n,
     });
     const billing = new BillingEngine(prisma, billingPolicy);
     const competing = await billing.reserveUsage({
       userId: seeded.userId,
       requestId: randomUUID(),
-      estimatedProviderCostMicroRub: 800_000n,
+      estimatedProviderCostMicroRub: 1_000_000n,
     });
     const provider = new MockAiProvider();
     const executor = createExecutor(prisma, provider);
@@ -528,13 +561,13 @@ describe("ExternalAiInvocationExecutor", () => {
       targetModelSlug: "gpt-5-6-luna",
       purpose: "Become blocked after competing work settles",
       fund: true,
-      fundMicroRub: 1_000_000n,
+      fundMicroRub: 2_000_000n,
     });
     const billing = new BillingEngine(prisma, billingPolicy);
     const competing = await billing.reserveUsage({
       userId: seeded.userId,
       requestId: randomUUID(),
-      estimatedProviderCostMicroRub: 800_000n,
+      estimatedProviderCostMicroRub: 1_000_000n,
     });
     const provider = new MockAiProvider();
     const executor = createExecutor(prisma, provider);
@@ -549,7 +582,7 @@ describe("ExternalAiInvocationExecutor", () => {
     await billing.settleUsage({
       userId: seeded.userId,
       reservationId: competing.id,
-      actualMicroRub: 800_000n,
+      actualMicroRub: 1_000_000n,
     });
     const blocked = await executor.execute(executionInput(seeded, {
       kind: "AI_MODEL",
@@ -925,7 +958,7 @@ describe("ExternalAiInvocationExecutor", () => {
       targetModelSlug: "gpt-5-6-luna",
       purpose: "Read the repository file and summarize it",
       fund: true,
-      fundMicroRub: 500_000n,
+      fundMicroRub: 1_500_000n,
     });
     const provider = new MockAiProvider();
     provider.text = "Final repository summary";
@@ -1382,13 +1415,16 @@ async function waitForAiRequestStatus(
 class TestToolBroker implements ExternalAiToolBroker {
   readonly calls: Array<{ name: string; idempotencyKey: string }> = [];
 
-  constructor(private readonly fileContent: string) {}
+  constructor(
+    private readonly fileContent: string,
+    private readonly description = "Read an authorized repository file",
+  ) {}
 
   async listTools() {
     return [
       {
         name: "github.readFile",
-        description: "Read an authorized repository file",
+        description: this.description,
         inputSchema: {
           type: "object",
           properties: {
