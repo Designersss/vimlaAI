@@ -1800,6 +1800,7 @@ function createExecutor(
 
 type SeededInvocation = {
   userId: string;
+  conversationId: string;
   planId: string;
   invocationId: string;
   runId: string;
@@ -1912,6 +1913,7 @@ async function seedInvocation(
   });
   return {
     userId,
+    conversationId,
     planId,
     invocationId,
     runId: run.id,
