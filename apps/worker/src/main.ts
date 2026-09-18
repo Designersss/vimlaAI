@@ -332,6 +332,11 @@ async function startOrchestrationRuntime(
         },
         reservationSafetyBps: BigInt(config.aiReservationSafetyBps),
         maxReservationMicroRub: BigInt(config.aiMaxReservationMicroRub),
+        maxProviderTurnsPerInvocation: config.aiMaxProviderTurnsPerInvocation,
+        maxPaidInvocationsPerPlan: config.aiMaxPaidInvocationsPerPlan,
+        maxSettledCostMicroRubPerPlan: BigInt(config.aiMaxPlanSettledMicroRub),
+        maxCommittedCostMicroRubPerPlan: BigInt(config.aiMaxPlanCommittedMicroRub),
+        cancellationPollMs: config.aiCancellationPollMs,
       },
     ),
     new VimlaAwareInvocationExecutorRegistry(
