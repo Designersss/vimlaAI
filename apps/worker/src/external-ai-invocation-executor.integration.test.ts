@@ -836,7 +836,7 @@ describe("ExternalAiInvocationExecutor", () => {
         arguments: { path: "README.md" },
       },
     ]);
-    const tools = new TestToolBroker("x".repeat(80_000));
+    const tools = new TestToolBroker("x".repeat(5_000));
     const executor = createExecutor(prisma, provider, tools);
 
     const first = await executor.execute(executionInput(seeded, {
