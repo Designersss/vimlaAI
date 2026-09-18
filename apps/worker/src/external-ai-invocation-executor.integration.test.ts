@@ -446,15 +446,17 @@ describe("ExternalAiInvocationExecutor", () => {
     });
     const price = gemini.priceVersions[0];
     if (!price) throw new Error("Gemini price version missing");
-    const original = {
-      inputMicroRubPerMillion: price.inputMicroRubPerMillion,
-      outputMicroRubPerMillion: price.outputMicroRubPerMillion,
-    };
-    await prisma.aiModelPriceVersion.update({
-      where: { id: price.id },
+    const cheapPrice = await prisma.aiModelPriceVersion.create({
       data: {
+        modelId: gemini.id,
         inputMicroRubPerMillion: 1n,
         outputMicroRubPerMillion: 1n,
+        cacheReadMicroRubPerMillion: price.cacheReadMicroRubPerMillion,
+        cacheWriteMicroRubPerMillion: price.cacheWriteMicroRubPerMillion,
+        effectiveFrom: new Date(),
+        effectiveTo: null,
+        verifiedAt: new Date(),
+        source: "test-cheap-incapable-model",
       },
     });
 
@@ -488,9 +490,8 @@ describe("ExternalAiInvocationExecutor", () => {
       expect(request.model.slug).not.toBe("gemini-3-5-flash-lite");
       expect(provider.callCount).toBe(1);
     } finally {
-      await prisma.aiModelPriceVersion.update({
-        where: { id: price.id },
-        data: original,
+      await prisma.aiModelPriceVersion.delete({
+        where: { id: cheapPrice.id },
       });
     }
   });
