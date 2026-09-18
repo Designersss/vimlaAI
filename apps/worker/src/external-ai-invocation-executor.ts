@@ -91,6 +91,13 @@ type InvocationRecord = {
   };
 };
 
+type DurableToolResult = {
+  toolCallId: string;
+  name: string;
+  result: Prisma.JsonValue;
+};
+
+
 export class ExternalAiAwareInvocationExecutorRegistry implements InvocationExecutorRegistry {
   constructor(
     private readonly ai: ExternalAiInvocationExecutor,
