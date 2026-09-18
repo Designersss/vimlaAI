@@ -49,6 +49,7 @@ export class AiArtifactRecovery {
             providerTurns: {
               some: {
                 toolCallError: false,
+                providerInterrupted: false,
                 aiRequest: {
                   status: "SUCCEEDED",
                   outputText: { not: null },
@@ -148,6 +149,7 @@ function selectRecoveryRequest(execution: {
     turnIndex: number;
     toolCallsJson: Prisma.JsonValue | null;
     toolCallError: boolean;
+    providerInterrupted: boolean;
     aiRequest: {
       id: string;
       status: string;
@@ -166,6 +168,7 @@ function selectRecoveryRequest(execution: {
     for (const turn of execution.providerTurns) {
       if (
         !turn.toolCallError &&
+        !turn.providerInterrupted &&
         turn.aiRequest.status === "SUCCEEDED" &&
         turn.aiRequest.outputText !== null &&
         hasNoToolCalls(turn.toolCallsJson)
