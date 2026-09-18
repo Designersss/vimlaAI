@@ -12,6 +12,7 @@ import {
   orchestrationAiClientRequestId,
   orchestrationAiProviderTurnIdempotencyKey,
 } from "./external-ai-invocation-executor.js";
+import type { ExternalAiToolBroker } from "./external-ai-tool-broker.js";
 import type { InvocationExecutionInput } from "./orchestration.js";
 
 const testDatabaseUrl = process.env.TEST_DATABASE_URL;
@@ -386,6 +387,125 @@ describe("ExternalAiInvocationExecutor", () => {
     ).toBe(0);
   });
 
+  it("funds each tool-loop turn independently and resumes after top-up without replaying paid work", async () => {
+    const seeded = await seedInvocation(prisma, {
+      targetKind: "AI_MODEL",
+      targetModelSlug: "gpt-5-6-luna",
+      purpose: "Read the repository file and summarize it",
+      fund: true,
+      fundMicroRub: 1_000_000n,
+    });
+    const provider = new MockAiProvider();
+    provider.text = "Final repository summary";
+    provider.toolCallQueue.push([
+      {
+        id: "call-readme",
+        name: "github.readFile",
+        arguments: { path: "README.md" },
+      },
+    ]);
+    const tools = new TestToolBroker("x".repeat(80_000));
+    const executor = createExecutor(prisma, provider, tools);
+
+    const first = await executor.execute(executionInput(seeded, {
+      kind: "AI_MODEL",
+      modelSlug: "gpt-5-6-luna",
+      agentId: null,
+    }));
+
+    expect(first).toEqual({
+      status: "BLOCKED_INSUFFICIENT_USAGE",
+      errorCode: "BILLING_INSUFFICIENT_USAGE",
+    });
+    expect(provider.callCount).toBe(1);
+    expect(tools.calls).toHaveLength(1);
+
+    const firstTurn = await prisma.aIProviderTurn.findUniqueOrThrow({
+      where: {
+        idempotencyKey: orchestrationAiProviderTurnIdempotencyKey(
+          seeded.invocationId,
+          0,
+        ),
+      },
+      include: { aiRequest: { include: { reservation: true } } },
+    });
+    expect(firstTurn.status).toBe("SUCCEEDED");
+    expect(firstTurn.aiRequest.status).toBe("SUCCEEDED");
+    expect(firstTurn.aiRequest.reservation?.status).toBe("SETTLED");
+    expect(firstTurn.toolCallsJson).toEqual([
+      {
+        id: "call-readme",
+        name: "github.readFile",
+        arguments: { path: "README.md" },
+      },
+    ]);
+    expect(firstTurn.toolResultsJson).not.toBeNull();
+
+    await prisma.usageBucket.create({
+      data: {
+        userId: seeded.userId,
+        type: "TOPUP",
+        totalMicroRub: 10_000_000n,
+        spentMicroRub: 0n,
+        reservedMicroRub: 0n,
+        expiresAt: null,
+        sourceType: "TEST",
+        sourceId: `tool-loop-topup:${randomUUID()}`,
+      },
+    });
+    const resumeRun = await prisma.invocationRun.create({
+      data: {
+        invocationId: seeded.invocationId,
+        attempt: 2,
+        idempotencyKey: `${seeded.invocationId}:attempt:2`,
+        status: "RUNNING",
+        startedAt: new Date(),
+      },
+    });
+
+    const resumed = await executor.execute({
+      ...executionInput(seeded, {
+        kind: "AI_MODEL",
+        modelSlug: "gpt-5-6-luna",
+        agentId: null,
+      }),
+      attempt: 2,
+      runId: resumeRun.id,
+      idempotencyKey: resumeRun.idempotencyKey,
+    });
+
+    expect(resumed).toEqual({ status: "COMPLETED", outcome: "PASS" });
+    expect(provider.callCount).toBe(2);
+    expect(tools.calls).toHaveLength(1);
+    expect(
+      provider.requests[1]?.messages.some((message) => message.role === "tool"),
+    ).toBe(true);
+
+    const turns = await prisma.aIProviderTurn.findMany({
+      where: {
+        aiExecution: {
+          invocationRun: {
+            invocationId: seeded.invocationId,
+          },
+        },
+      },
+      orderBy: { turnIndex: "asc" },
+      include: { aiRequest: { include: { reservation: true } } },
+    });
+    expect(turns).toHaveLength(2);
+    expect(turns.map((turn) => turn.turnIndex)).toEqual([0, 1]);
+    expect(turns.map((turn) => turn.idempotencyKey)).toEqual([
+      orchestrationAiProviderTurnIdempotencyKey(seeded.invocationId, 0),
+      orchestrationAiProviderTurnIdempotencyKey(seeded.invocationId, 1),
+    ]);
+    expect(turns[1]?.aiRequest.estimatedInputTokens).toBeGreaterThan(
+      turns[0]?.aiRequest.estimatedInputTokens ?? 0,
+    );
+    expect(
+      turns.every((turn) => turn.aiRequest.reservation?.status === "SETTLED"),
+    ).toBe(true);
+  });
+
   it("keeps an ambiguous provider outcome in reconciliation hold instead of releasing or retrying it", async () => {
     const seeded = await seedInvocation(prisma, {
       targetKind: "AI_MODEL",
@@ -426,6 +546,7 @@ describe("ExternalAiInvocationExecutor", () => {
 function createExecutor(
   prisma: PrismaClient,
   provider: MockAiProvider,
+  toolBroker?: ExternalAiToolBroker,
 ): ExternalAiInvocationExecutor {
   return new ExternalAiInvocationExecutor(
     prisma,
@@ -449,6 +570,7 @@ function createExecutor(
       reservationSafetyBps: 2_000n,
       maxReservationMicroRub: 10_000_000n,
     },
+    toolBroker,
   );
 }
 
@@ -620,4 +742,39 @@ function executionInput(
     idempotencyKey: seeded.runIdempotencyKey,
     target,
   };
+}
+
+
+class TestToolBroker implements ExternalAiToolBroker {
+  readonly calls: Array<{ name: string; idempotencyKey: string }> = [];
+
+  constructor(private readonly fileContent: string) {}
+
+  async listTools() {
+    return [
+      {
+        name: "github.readFile",
+        description: "Read an authorized repository file",
+        inputSchema: {
+          type: "object",
+          properties: {
+            path: { type: "string" },
+          },
+          required: ["path"],
+          additionalProperties: false,
+        },
+      },
+    ] as const;
+  }
+
+  async execute(input: Parameters<ExternalAiToolBroker["execute"]>[0]) {
+    this.calls.push({
+      name: input.call.name,
+      idempotencyKey: input.idempotencyKey,
+    });
+    return {
+      path: String(input.call.arguments.path ?? ""),
+      content: this.fileContent,
+    };
+  }
 }
