@@ -254,6 +254,7 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
           invocation,
           model,
           messages,
+          tools,
           turnIndex,
         });
 
@@ -743,6 +744,7 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
     invocation: InvocationRecord;
     model: ResolvedModel;
     messages: readonly ProviderChatMessage[];
+    tools: readonly ProviderToolDefinition[];
     turnIndex: number;
   }): Promise<
     | {
@@ -768,112 +770,153 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
     | { kind: "usage_blocked" }
     | { kind: "terminal_failure"; errorCode: string }
   > {
-    const { input, invocation, model, messages, turnIndex } = args;
+    const { input, invocation, model, messages, tools, turnIndex } = args;
     const providerTurnIdempotencyKey =
       orchestrationAiProviderTurnIdempotencyKey(input.invocationId, turnIndex);
-    const existingTurn = await this.prisma.aIProviderTurn.findUnique({
-      where: { idempotencyKey: providerTurnIdempotencyKey },
-      include: { aiRequest: true },
-    });
-    if (existingTurn) {
-      return existingProviderTurnOutcome(existingTurn);
-    }
-
-    const planSpend = await this.getPlanSpendState(input.planId, input.invocationId);
-    if (
-      planSpend.providerTurnsForInvocation >= this.maxProviderTurnsPerInvocation ||
-      (!planSpend.paidInvocationIds.has(input.invocationId) &&
-        planSpend.paidInvocationIds.size >= this.maxPaidInvocationsPerPlan)
-    ) {
-      return { kind: "terminal_failure", errorCode: "PLAN_SPEND_LIMIT_REACHED" };
-    }
-
-    const settledRemaining =
-      this.maxSettledCostMicroRubPerPlan - planSpend.settledMicroRub;
-    const committedRemaining =
-      this.maxCommittedCostMicroRubPerPlan -
-      (planSpend.settledMicroRub + planSpend.activeReservedMicroRub);
-    if (settledRemaining <= 0n || committedRemaining <= 0n) {
-      return { kind: "terminal_failure", errorCode: "PLAN_SPEND_LIMIT_REACHED" };
-    }
-
-    const estimatedInputTokens = estimateProviderRequestInputTokens(messages, tools);
-    const capacity = await this.billing.getSpendableUsageState(invocation.plan.userId);
-    const planAvailable =
-      settledRemaining < committedRemaining ? settledRemaining : committedRemaining;
-    const availableMicroRub =
-      capacity.availableMicroRub < planAvailable
-        ? capacity.availableMicroRub
-        : planAvailable;
-    const budgetResult = resolveAiExecutionBudget({
-      profile: "STANDARD",
-      profiles: this.config.budgetProfiles,
-      modelMaxOutputTokens: model.maxOutputTokens,
-      estimatedInputTokens,
-      availableMicroRub,
-      maxReservationMicroRub: this.config.maxReservationMicroRub,
-      price: model.price,
-      safetyBps: this.config.reservationSafetyBps,
-    });
-    if (budgetResult.kind === "INSUFFICIENT_USAGE") {
-      if (availableMicroRub < capacity.availableMicroRub) {
-        const userOnlyBudget = resolveAiExecutionBudget({
-          profile: "STANDARD",
-          profiles: this.config.budgetProfiles,
-          modelMaxOutputTokens: model.maxOutputTokens,
-          estimatedInputTokens,
-          availableMicroRub: capacity.availableMicroRub,
-          maxReservationMicroRub: this.config.maxReservationMicroRub,
-          price: model.price,
-          safetyBps: this.config.reservationSafetyBps,
-        });
-        if (userOnlyBudget.kind === "FUNDED") {
-          return {
-            kind: "terminal_failure",
-            errorCode: "PLAN_SPEND_LIMIT_REACHED",
-          };
-        }
-      }
-      return capacity.activeReservedMicroRub > 0n
-        ? { kind: "capacity_wait" }
-        : { kind: "usage_blocked" };
-    }
-    if (budgetResult.kind === "REQUEST_COST_LIMIT") {
-      return {
-        kind: "terminal_failure",
-        errorCode: "AI_REQUEST_COST_LIMIT",
-      };
-    }
-
-    const maxOutputTokens = budgetResult.budget.selectedOutputTokens;
-    const estimatedCostMicroRub = budgetResult.budget.estimatedCostMicroRub;
-    if (
-      planSpend.settledMicroRub + estimatedCostMicroRub >
-        this.maxSettledCostMicroRubPerPlan ||
-      planSpend.settledMicroRub +
-          planSpend.activeReservedMicroRub +
-          estimatedCostMicroRub >
-        this.maxCommittedCostMicroRubPerPlan
-    ) {
-      return { kind: "terminal_failure", errorCode: "PLAN_SPEND_LIMIT_REACHED" };
-    }
-
+    const estimatedInputTokens = estimateProviderRequestInputTokens(
+      messages,
+      tools,
+    );
+    // This snapshot is advisory only. BillingEngine.reserveUsage remains the
+    // cross-worker authority for user allowance. The plan row lock below is
+    // the authority for plan-level spend admission.
+    const capacity = await this.billing.getSpendableUsageState(
+      invocation.plan.userId,
+    );
     const clientRequestId =
       turnIndex === 0
         ? orchestrationAiClientRequestId(input.invocationId)
         : providerTurnIdempotencyKey;
-    const existingExecution = await this.prisma.aIExecution.findFirst({
-      where: {
-        invocationRun: {
-          invocationId: input.invocationId,
-        },
-      },
-      select: { id: true },
-      orderBy: { createdAt: "asc" },
-    });
 
     try {
-      const created = await this.prisma.$transaction(async (tx) => {
+      return await this.prisma.$transaction(async (tx) => {
+        const planRows = await tx.$queryRaw<Array<{ id: string }>>(
+          Prisma.sql`SELECT "id" FROM "execution_plan" WHERE "id" = ${input.planId} FOR UPDATE`,
+        );
+        if (planRows.length !== 1) {
+          return {
+            kind: "terminal_failure" as const,
+            errorCode: "PLAN_SPEND_LIMIT_REACHED",
+          };
+        }
+
+        // Recheck after acquiring the plan lock so duplicate deliveries do not
+        // consume a second plan-spend admission slot.
+        const existingTurn = await tx.aIProviderTurn.findUnique({
+          where: { idempotencyKey: providerTurnIdempotencyKey },
+          include: { aiRequest: true },
+        });
+        if (existingTurn) {
+          return existingProviderTurnOutcome(existingTurn);
+        }
+
+        const planSpend = await this.getPlanSpendState(
+          input.planId,
+          input.invocationId,
+          tx,
+        );
+        if (
+          planSpend.providerTurnsForInvocation >=
+            this.maxProviderTurnsPerInvocation ||
+          (!planSpend.paidInvocationIds.has(input.invocationId) &&
+            planSpend.paidInvocationIds.size >= this.maxPaidInvocationsPerPlan)
+        ) {
+          return {
+            kind: "terminal_failure" as const,
+            errorCode: "PLAN_SPEND_LIMIT_REACHED",
+          };
+        }
+
+        const settledRemaining =
+          this.maxSettledCostMicroRubPerPlan - planSpend.settledMicroRub;
+        const committedRemaining =
+          this.maxCommittedCostMicroRubPerPlan -
+          (planSpend.settledMicroRub +
+            planSpend.activeReservedMicroRub +
+            planSpend.pendingAdmissionMicroRub);
+        if (settledRemaining <= 0n || committedRemaining <= 0n) {
+          return {
+            kind: "terminal_failure" as const,
+            errorCode: "PLAN_SPEND_LIMIT_REACHED",
+          };
+        }
+
+        const planAvailable =
+          settledRemaining < committedRemaining
+            ? settledRemaining
+            : committedRemaining;
+        const availableMicroRub =
+          capacity.availableMicroRub < planAvailable
+            ? capacity.availableMicroRub
+            : planAvailable;
+        const budgetResult = resolveAiExecutionBudget({
+          profile: "STANDARD",
+          profiles: this.config.budgetProfiles,
+          modelMaxOutputTokens: model.maxOutputTokens,
+          estimatedInputTokens,
+          availableMicroRub,
+          maxReservationMicroRub: this.config.maxReservationMicroRub,
+          price: model.price,
+          safetyBps: this.config.reservationSafetyBps,
+        });
+        if (budgetResult.kind === "INSUFFICIENT_USAGE") {
+          if (availableMicroRub < capacity.availableMicroRub) {
+            const userOnlyBudget = resolveAiExecutionBudget({
+              profile: "STANDARD",
+              profiles: this.config.budgetProfiles,
+              modelMaxOutputTokens: model.maxOutputTokens,
+              estimatedInputTokens,
+              availableMicroRub: capacity.availableMicroRub,
+              maxReservationMicroRub: this.config.maxReservationMicroRub,
+              price: model.price,
+              safetyBps: this.config.reservationSafetyBps,
+            });
+            if (userOnlyBudget.kind === "FUNDED") {
+              return {
+                kind: "terminal_failure" as const,
+                errorCode: "PLAN_SPEND_LIMIT_REACHED",
+              };
+            }
+          }
+          return capacity.activeReservedMicroRub > 0n
+            ? ({ kind: "capacity_wait" } as const)
+            : ({ kind: "usage_blocked" } as const);
+        }
+        if (budgetResult.kind === "REQUEST_COST_LIMIT") {
+          return {
+            kind: "terminal_failure" as const,
+            errorCode: "AI_REQUEST_COST_LIMIT",
+          };
+        }
+
+        const maxOutputTokens = budgetResult.budget.selectedOutputTokens;
+        const estimatedCostMicroRub =
+          budgetResult.budget.estimatedCostMicroRub;
+        if (
+          planSpend.settledMicroRub + estimatedCostMicroRub >
+            this.maxSettledCostMicroRubPerPlan ||
+          planSpend.settledMicroRub +
+              planSpend.activeReservedMicroRub +
+              planSpend.pendingAdmissionMicroRub +
+              estimatedCostMicroRub >
+            this.maxCommittedCostMicroRubPerPlan
+        ) {
+          return {
+            kind: "terminal_failure" as const,
+            errorCode: "PLAN_SPEND_LIMIT_REACHED",
+          };
+        }
+
+        const existingExecution = await tx.aIExecution.findFirst({
+          where: {
+            invocationRun: {
+              invocationId: input.invocationId,
+            },
+          },
+          select: { id: true },
+          orderBy: { createdAt: "asc" },
+        });
+
         const aiRequest = await tx.aiRequest.create({
           data: {
             userId: invocation.plan.userId,
@@ -894,7 +937,9 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
         let aiExecutionId = existingExecution?.id ?? null;
         if (!aiExecutionId) {
           if (turnIndex !== 0) {
-            throw new Error("AI execution is missing before a continuation turn");
+            throw new Error(
+              "AI execution is missing before a continuation turn",
+            );
           }
           const run = await tx.invocationRun.update({
             where: { id: input.runId },
@@ -926,17 +971,16 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
             status: "CREATED",
           },
         });
-        return { aiRequest, providerTurn };
+        return {
+          kind: "new" as const,
+          aiRequestId: aiRequest.id,
+          providerTurnId: providerTurn.id,
+          providerTurnIdempotencyKey: providerTurn.idempotencyKey,
+          estimatedCostMicroRub,
+          estimatedInputTokens,
+          maxOutputTokens,
+        };
       });
-      return {
-        kind: "new",
-        aiRequestId: created.aiRequest.id,
-        providerTurnId: created.providerTurn.id,
-        providerTurnIdempotencyKey: created.providerTurn.idempotencyKey,
-        estimatedCostMicroRub,
-        estimatedInputTokens,
-        maxOutputTokens,
-      };
     } catch (error: unknown) {
       if (!isUniqueConstraint(error)) throw error;
       const replay = await this.prisma.aIProviderTurn.findUnique({
@@ -1015,13 +1059,18 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
     return results;
   }
 
-  private async getPlanSpendState(planId: string, invocationId: string): Promise<{
+  private async getPlanSpendState(
+    planId: string,
+    invocationId: string,
+    db: PrismaClient | Prisma.TransactionClient = this.prisma,
+  ): Promise<{
     paidInvocationIds: Set<string>;
     providerTurnsForInvocation: number;
     settledMicroRub: bigint;
     activeReservedMicroRub: bigint;
+    pendingAdmissionMicroRub: bigint;
   }> {
-    const turns = await this.prisma.aIProviderTurn.findMany({
+    const turns = await db.aIProviderTurn.findMany({
       where: {
         aiExecution: {
           invocationRun: {
@@ -1051,10 +1100,13 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
     let providerTurnsForInvocation = 0;
     let settledMicroRub = 0n;
     let activeReservedMicroRub = 0n;
+    let pendingAdmissionMicroRub = 0n;
     for (const turn of turns) {
       const turnInvocationId = turn.aiExecution.invocationRun.invocationId;
       paidInvocationIds.add(turnInvocationId);
-      if (turnInvocationId === invocationId) providerTurnsForInvocation += 1;
+      if (turnInvocationId === invocationId) {
+        providerTurnsForInvocation += 1;
+      }
 
       const reservation = turn.aiRequest.reservation;
       if (reservation?.status === "ACTIVE") {
@@ -1066,6 +1118,16 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
         settledMicroRub += reservation.settledMicroRub;
       } else if (turn.aiRequest.userSettledUsageMicroRub !== null) {
         settledMicroRub += turn.aiRequest.userSettledUsageMicroRub;
+      } else if (
+        turn.status === "CREATED" &&
+        turn.aiRequest.status === "CREATED" &&
+        turn.aiRequest.financialStatus === "NONE"
+      ) {
+        // A provider turn that won plan-level admission but has not yet linked
+        // its user reservation still consumes the plan admission envelope.
+        // This closes the cross-worker race between plan-cap checking and the
+        // authoritative BillingEngine reservation.
+        pendingAdmissionMicroRub += turn.aiRequest.estimatedCostMicroRub;
       }
     }
 
@@ -1074,6 +1136,7 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
       providerTurnsForInvocation,
       settledMicroRub,
       activeReservedMicroRub,
+      pendingAdmissionMicroRub,
     };
   }
 
