@@ -14,6 +14,7 @@ import { Queue, Worker } from "bullmq";
 import { Redis } from "ioredis";
 import pino from "pino";
 import { closeHttpServer, listenWorkerHealth } from "./health.js";
+import { AiArtifactRecovery } from "./ai-artifact-recovery.js";
 import { createAiReconciler } from "./ai-reconciliation.js";
 import { aiReconciliationCutoffs } from "./ai-reconciliation-timing.js";
 import { createNotificationRuntime, parseDeliveryJobPayload } from "./notifications.js";
@@ -109,6 +110,7 @@ async function bootstrap(): Promise<void> {
   const billingEngine = createWorkerBillingEngine(prisma, config, billingLogger);
   const payments = createWorkerPaymentService(prisma, config, billingLogger, billingEngine);
   const aiReconciler = createAiReconciler(prisma, billingEngine, billingLogger);
+  const aiArtifactRecovery = new AiArtifactRecovery(prisma, billingLogger);
   const reconcileAfterMs = config.paymentReconcileAfterSeconds * 1000;
   const aiReconciliationIntervalMs = config.aiReconciliationIntervalSeconds * 1000;
   const aiReconciliationPreProviderStaleMs =
@@ -133,7 +135,7 @@ async function bootstrap(): Promise<void> {
         return { ok: true as const, fulfilled };
       }
       if (job.name === "reconcile-ai-requests") {
-        const counters = await aiReconciler.reconcile(
+        const financial = await aiReconciler.reconcile(
           aiReconciliationCutoffs({
             now: new Date(),
             preProviderStaleMs: aiReconciliationPreProviderStaleMs,
@@ -141,7 +143,10 @@ async function bootstrap(): Promise<void> {
           }),
           config.aiReconciliationBatch,
         );
-        return { ok: true as const, counters };
+        const artifacts = await aiArtifactRecovery.recover(
+          config.aiReconciliationBatch,
+        );
+        return { ok: true as const, financial, artifacts };
       }
       logger.info({ jobId: job.id, name: job.name }, "maintenance job started");
       return { ok: true as const };
@@ -210,8 +215,8 @@ async function bootstrap(): Promise<void> {
       });
   }, Math.max(reconcileAfterMs, 60_000));
 
-  const runAiReconciliation = () =>
-    aiReconciler.reconcile(
+  const runAiReconciliation = async () => {
+    const financial = await aiReconciler.reconcile(
       aiReconciliationCutoffs({
         now: new Date(),
         preProviderStaleMs: aiReconciliationPreProviderStaleMs,
@@ -219,6 +224,11 @@ async function bootstrap(): Promise<void> {
       }),
       config.aiReconciliationBatch,
     );
+    const artifacts = await aiArtifactRecovery.recover(
+      config.aiReconciliationBatch,
+    );
+    return { financial, artifacts };
+  };
   const startupAiCounters = await runAiReconciliation();
   logger.info(startupAiCounters, "ai.reconcile.startup");
   const aiReconciliationTimer = setInterval(() => {
