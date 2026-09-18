@@ -207,7 +207,8 @@ export class OrchestrationRuntime {
           this.usageRecheckBaseMs,
           this.usageRecheckMaxMs,
         );
-        if (Date.now() - latestRun.finishedAt.getTime() < retryAfterMs) continue;
+        const waitDurationMs = Date.now() - latestRun.finishedAt.getTime();
+        if (waitDurationMs < retryAfterMs) continue;
         const resumed = await tx.invocation.updateMany({
           where: { id: invocation.id, planId, status },
           data: { status: "READY" },
@@ -215,7 +216,13 @@ export class OrchestrationRuntime {
         if (resumed.count === 1) {
           stateById.set(invocation.id, "READY");
           this.logger.info(
-            { planId, invocationId: invocation.id, previousStatus: status },
+            {
+              event: "ai_usage_capacity_recheck",
+              planId,
+              invocationId: invocation.id,
+              previousStatus: status,
+              waitDurationMs,
+            },
             "orchestration usage-capacity invocation rechecked",
           );
         }
