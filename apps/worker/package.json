@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@vimla/ai": "workspace:*",
+    "@vimla/artifacts": "workspace:*",
     "@vimla/billing": "workspace:*",
     "@vimla/config": "workspace:*",
     "@vimla/contracts": "workspace:*",

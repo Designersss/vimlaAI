@@ -278,6 +278,9 @@ importers:
       '@vimla/ai':
         specifier: workspace:*
         version: link:../../packages/ai
+      '@vimla/artifacts':
+        specifier: workspace:*
+        version: link:../../packages/artifacts
       '@vimla/billing':
         specifier: workspace:*
         version: link:../../packages/billing

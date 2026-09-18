@@ -1,3 +1,6 @@
+import { MockAiProvider, VimlaAiGateway } from "@vimla/ai";
+import type { BillingEngine } from "@vimla/billing";
+import type { WorkerConfig } from "@vimla/config";
 import { loadWorkerConfig } from "@vimla/config/server";
 import { createPrismaClient, pingDatabase } from "@vimla/database";
 import {
@@ -6,7 +9,7 @@ import {
   RECONCILE_JOB_NAME,
   RECONCILE_SCHEDULER_ID,
 } from "@vimla/notifications";
-import { createCorrelationId, type VimlaLocale } from "@vimla/shared";
+import { createCorrelationId } from "@vimla/shared";
 import { Queue, Worker } from "bullmq";
 import { Redis } from "ioredis";
 import pino from "pino";
@@ -25,7 +28,14 @@ import {
   VimlaAwareInvocationExecutorRegistry,
   VimlaInvocationExecutor,
 } from "./vimla-invocation-executor.js";
-import { createWorkerPaymentService } from "./payment-reconciliation.js";
+import {
+  createWorkerBillingEngine,
+  createWorkerPaymentService,
+} from "./payment-reconciliation.js";
+import {
+  ExternalAiAwareInvocationExecutorRegistry,
+  ExternalAiInvocationExecutor,
+} from "./external-ai-invocation-executor.js";
 import {
   INVOCATION_EXECUTE_JOB_NAME,
   INVOCATION_EXECUTE_QUEUE_NAME,
@@ -94,7 +104,8 @@ async function bootstrap(): Promise<void> {
       logger.error(fields, message);
     },
   };
-  const payments = createWorkerPaymentService(prisma, config, billingLogger);
+  const billingEngine = createWorkerBillingEngine(prisma, config, billingLogger);
+  const payments = createWorkerPaymentService(prisma, config, billingLogger, billingEngine);
   const reconcileAfterMs = config.paymentReconcileAfterSeconds * 1000;
   const notificationQueue = new Queue(NOTIFICATIONS_QUEUE_NAME, { connection: queueConnection });
   const notifications = createNotificationRuntime(
@@ -164,7 +175,8 @@ async function bootstrap(): Promise<void> {
           queueConnection,
           redisOptions.url,
           billingLogger,
-          config.authDefaultLocale,
+          config,
+          billingEngine,
         )
       : undefined;
 
@@ -239,19 +251,32 @@ async function startOrchestrationRuntime(
   queueConnection: Redis,
   redisUrl: string,
   runtimeLogger: RuntimeLogger,
-  defaultLocale: VimlaLocale,
+  config: WorkerConfig,
+  billingEngine: BillingEngine,
 ): Promise<OrchestrationResources> {
   const dispatchConnection = new Redis(redisUrl, { maxRetriesPerRequest: null });
   const executionConnection = new Redis(redisUrl, { maxRetriesPerRequest: null });
   const dispatchQueue = new Queue(ORCHESTRATION_DISPATCH_QUEUE_NAME, { connection: queueConnection });
   const executionQueue = new Queue(INVOCATION_EXECUTE_QUEUE_NAME, { connection: queueConnection });
-  const executorRegistry = new VimlaAwareInvocationExecutorRegistry(
-    new VimlaInvocationExecutor(
+  const executorRegistry = new ExternalAiAwareInvocationExecutorRegistry(
+    new ExternalAiInvocationExecutor(
       prisma,
-      new DeterministicVimlaToolPlanner(),
-      defaultLocale,
+      billingEngine,
+      new VimlaAiGateway(new MockAiProvider()),
+      {
+        defaultMaxOutputTokens: config.aiDefaultMaxOutputTokens,
+        reservationSafetyBps: BigInt(config.aiReservationSafetyBps),
+        maxReservationMicroRub: BigInt(config.aiMaxReservationMicroRub),
+      },
     ),
-    new MockInvocationExecutorRegistry(),
+    new VimlaAwareInvocationExecutorRegistry(
+      new VimlaInvocationExecutor(
+        prisma,
+        new DeterministicVimlaToolPlanner(),
+        config.authDefaultLocale,
+      ),
+      new MockInvocationExecutorRegistry(),
+    ),
   );
   const runtime = new OrchestrationRuntime(
     prisma,
