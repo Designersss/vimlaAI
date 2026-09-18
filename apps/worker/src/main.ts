@@ -14,6 +14,8 @@ import { Queue, Worker } from "bullmq";
 import { Redis } from "ioredis";
 import pino from "pino";
 import { closeHttpServer, listenWorkerHealth } from "./health.js";
+import { createAiReconciler } from "./ai-reconciliation.js";
+import { aiReconciliationCutoffs } from "./ai-reconciliation-timing.js";
 import { createNotificationRuntime, parseDeliveryJobPayload } from "./notifications.js";
 import {
   MockInvocationExecutorRegistry,
@@ -106,7 +108,13 @@ async function bootstrap(): Promise<void> {
   };
   const billingEngine = createWorkerBillingEngine(prisma, config, billingLogger);
   const payments = createWorkerPaymentService(prisma, config, billingLogger, billingEngine);
+  const aiReconciler = createAiReconciler(prisma, billingEngine, billingLogger);
   const reconcileAfterMs = config.paymentReconcileAfterSeconds * 1000;
+  const aiReconciliationIntervalMs = config.aiReconciliationIntervalSeconds * 1000;
+  const aiReconciliationPreProviderStaleMs =
+    config.aiReconciliationPreProviderStaleSeconds * 1000;
+  const aiReconciliationProviderStaleMs =
+    config.aiReconciliationProviderStaleSeconds * 1000;
   const notificationQueue = new Queue(NOTIFICATIONS_QUEUE_NAME, { connection: queueConnection });
   const notifications = createNotificationRuntime(
     prisma,
@@ -123,6 +131,17 @@ async function bootstrap(): Promise<void> {
         const olderThan = new Date(Date.now() - reconcileAfterMs);
         const fulfilled = await payments.reconcilePending(olderThan, 25);
         return { ok: true as const, fulfilled };
+      }
+      if (job.name === "reconcile-ai-requests") {
+        const counters = await aiReconciler.reconcile(
+          aiReconciliationCutoffs({
+            now: new Date(),
+            preProviderStaleMs: aiReconciliationPreProviderStaleMs,
+            providerStaleMs: aiReconciliationProviderStaleMs,
+          }),
+          config.aiReconciliationBatch,
+        );
+        return { ok: true as const, counters };
       }
       logger.info({ jobId: job.id, name: job.name }, "maintenance job started");
       return { ok: true as const };
@@ -191,6 +210,28 @@ async function bootstrap(): Promise<void> {
       });
   }, Math.max(reconcileAfterMs, 60_000));
 
+  const runAiReconciliation = () =>
+    aiReconciler.reconcile(
+      aiReconciliationCutoffs({
+        now: new Date(),
+        preProviderStaleMs: aiReconciliationPreProviderStaleMs,
+        providerStaleMs: aiReconciliationProviderStaleMs,
+      }),
+      config.aiReconciliationBatch,
+    );
+  const startupAiCounters = await runAiReconciliation();
+  logger.info(startupAiCounters, "ai.reconcile.startup");
+  const aiReconciliationTimer = setInterval(() => {
+    void runAiReconciliation().then(
+      (counters) => logger.info(counters, "ai.reconcile.completed"),
+      (error: unknown) =>
+        logger.error(
+          { err: error instanceof Error ? error.message : "unknown" },
+          "ai reconciliation loop failed",
+        ),
+    );
+  }, aiReconciliationIntervalMs);
+
   maintenanceWorker.on("failed", (job, error: Error) => {
     logger.error({ jobId: job?.id, err: error.message }, "maintenance job failed");
   });
@@ -216,6 +257,7 @@ async function bootstrap(): Promise<void> {
   const shutdown = async (signal: string): Promise<void> => {
     logger.info({ signal }, "worker shutting down");
     clearInterval(paymentTimer);
+    clearInterval(aiReconciliationTimer);
     if (orchestrationResources) {
       clearInterval(orchestrationResources.reconcileTimer);
     }
