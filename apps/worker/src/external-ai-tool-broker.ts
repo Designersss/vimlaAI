@@ -3,6 +3,7 @@ import type { ProviderToolCall, ProviderToolDefinition } from "@vimla/ai";
 export interface ExternalAiToolContext {
   userId: string;
   conversationId: string;
+  planId: string;
   invocationId: string;
 }
 
