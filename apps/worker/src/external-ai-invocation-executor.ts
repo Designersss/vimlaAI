@@ -20,6 +20,11 @@ import {
   type BillingEngine,
 } from "@vimla/billing";
 import { type Prisma, type PrismaClient } from "@vimla/database";
+import {
+  resolveAiExecutionBudget,
+  validateAiExecutionBudgetProfiles,
+  type AiExecutionBudgetProfiles,
+} from "./ai-execution-budget.js";
 import type {
   InvocationExecutionInput,
   InvocationExecutionResult,
@@ -43,7 +48,7 @@ const IN_PROGRESS_AI_STATUSES = new Set([
 ]);
 
 export interface ExternalAiExecutorConfig {
-  defaultMaxOutputTokens: number;
+  budgetProfiles: AiExecutionBudgetProfiles;
   reservationSafetyBps: bigint;
   maxReservationMicroRub: bigint;
 }
@@ -91,6 +96,13 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
     private readonly gateway: VimlaAiGateway,
     private readonly config: ExternalAiExecutorConfig,
   ) {
+    validateAiExecutionBudgetProfiles(config.budgetProfiles);
+    if (config.maxReservationMicroRub <= 0n) {
+      throw new Error("maxReservationMicroRub must be positive");
+    }
+    if (config.reservationSafetyBps < 0n) {
+      throw new Error("reservationSafetyBps must be non-negative");
+    }
     this.artifacts = new ArtifactService(prisma);
   }
 
@@ -409,7 +421,7 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
 
   private estimatedCost(model: ResolvedModel, estimatedInputTokens: number): bigint {
     const maxOutputTokens = Math.min(
-      this.config.defaultMaxOutputTokens,
+      this.config.budgetProfiles.STANDARD.preferredOutputTokens,
       model.maxOutputTokens,
     );
     return estimateReservationMicroRub({
@@ -450,17 +462,34 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
     }
 
     const estimatedInputTokens = estimateInputTokens(messages);
-    const maxOutputTokens = Math.min(
-      this.config.defaultMaxOutputTokens,
-      model.maxOutputTokens,
+    const availableMicroRub = await this.billing.getSpendableUsageMicroRub(
+      invocation.plan.userId,
     );
-    const estimatedCostMicroRub = this.estimatedCost(model, estimatedInputTokens);
-    if (estimatedCostMicroRub > this.config.maxReservationMicroRub) {
+    const budgetResult = resolveAiExecutionBudget({
+      profile: "STANDARD",
+      profiles: this.config.budgetProfiles,
+      modelMaxOutputTokens: model.maxOutputTokens,
+      estimatedInputTokens,
+      availableMicroRub,
+      maxReservationMicroRub: this.config.maxReservationMicroRub,
+      price: model.price,
+      safetyBps: this.config.reservationSafetyBps,
+    });
+    if (budgetResult.kind === "INSUFFICIENT_USAGE") {
+      return {
+        kind: "terminal_failure",
+        errorCode: "BILLING_INSUFFICIENT_USAGE",
+      };
+    }
+    if (budgetResult.kind === "REQUEST_COST_LIMIT") {
       return {
         kind: "terminal_failure",
         errorCode: "AI_REQUEST_COST_LIMIT",
       };
     }
+
+    const maxOutputTokens = budgetResult.budget.selectedOutputTokens;
+    const estimatedCostMicroRub = budgetResult.budget.estimatedCostMicroRub;
 
     try {
       const created = await this.prisma.$transaction(async (tx) => {
