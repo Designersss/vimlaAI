@@ -326,6 +326,37 @@ describe("AiRequestReconciler", () => {
     expect(await spentForUser(prisma, seeded.userId)).toBe(0n);
   });
 
+  it("settles an invalid tool-call turn but keeps semantic execution failed and artifact-free", async () => {
+    const seeded = await seedTurn(prisma, billing, {
+      turnStatus: "USAGE_DURABLE",
+      actualMicroRub: 250_000n,
+      outputText: "malformed tool request",
+      toolCallError: true,
+    });
+
+    await reconcileAll(reconciler);
+
+    const request = await prisma.aiRequest.findUniqueOrThrow({
+      where: { id: seeded.aiRequestId },
+      include: { reservation: true, providerTurn: true },
+    });
+    expect(request.status).toBe("FAILED");
+    expect(request.financialStatus).toBe("SETTLED");
+    expect(request.userSettledUsageMicroRub).toBe(250_000n);
+    expect(request.reservation?.status).toBe("SETTLED");
+    expect(request.providerTurn?.status).toBe("SUCCEEDED");
+    expect(request.providerTurn?.toolCallError).toBe(true);
+    expect(await spentForUser(prisma, seeded.userId)).toBe(250_000n);
+
+    const recovered = await artifactRecovery.recover(100);
+    expect(recovered.recovered).toBe(0);
+    expect(
+      await prisma.artifact.count({
+        where: { creatorInvocationId: seeded.invocationId },
+      }),
+    ).toBe(0);
+  });
+
   it("never tops up a reservation when durable actual cost exceeds the funded cap", async () => {
     const seeded = await seedTurn(prisma, billing, {
       turnStatus: "USAGE_DURABLE",
@@ -362,6 +393,7 @@ async function seedTurn(
     turnStatus: string;
     actualMicroRub: bigint | null;
     outputText: string | null;
+    toolCallError?: boolean;
   },
 ) {
   const suffix = randomUUID();
@@ -521,6 +553,7 @@ async function seedTurn(
       aiRequestId: aiRequest.id,
       idempotencyKey: `reconcile:${suffix}:turn:0`,
       status: input.turnStatus,
+      toolCallError: input.toolCallError ?? false,
     },
   });
 
