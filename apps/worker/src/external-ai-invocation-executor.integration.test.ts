@@ -1006,6 +1006,127 @@ describe("ExternalAiInvocationExecutor", () => {
     ).toBe(1);
   });
 
+  it("rechecks the plan committed ceiling before resuming a paused provider turn", async () => {
+    const maxCommitted = 5_000_000n;
+    const seeded = await seedInvocation(prisma, {
+      targetKind: "AI_MODEL",
+      targetModelSlug: "gpt-5-6-luna",
+      purpose: "Pause before another branch consumes plan budget",
+      fund: true,
+    });
+    const provider = new MockAiProvider();
+    const raceBilling = new FailFirstReservationBillingEngine(
+      prisma,
+      billingPolicy,
+    );
+    const executor = createExecutor(
+      prisma,
+      provider,
+      undefined,
+      {
+        maxSettledCostMicroRubPerPlan: maxCommitted,
+        maxCommittedCostMicroRubPerPlan: maxCommitted,
+      },
+      raceBilling,
+    );
+
+    const paused = await executor.execute(
+      executionInput(seeded, {
+        kind: "AI_MODEL",
+        modelSlug: "gpt-5-6-luna",
+        agentId: null,
+      }),
+    );
+    expect(paused.status).toBe("BLOCKED_INSUFFICIENT_USAGE");
+
+    const firstTurn = await prisma.aIProviderTurn.findUniqueOrThrow({
+      where: {
+        idempotencyKey: orchestrationAiProviderTurnIdempotencyKey(
+          seeded.invocationId,
+          0,
+        ),
+      },
+      include: { aiRequest: true },
+    });
+    const filler = maxCommitted - firstTurn.aiRequest.estimatedCostMicroRub + 1n;
+    expect(filler).toBeGreaterThan(0n);
+
+    const sibling = await seedSiblingInvocation(prisma, seeded);
+    const model = await prisma.aiModel.findUniqueOrThrow({
+      where: { slug: "gpt-5-6-luna" },
+      include: {
+        priceVersions: {
+          where: { effectiveTo: null },
+          orderBy: { effectiveFrom: "desc" },
+          take: 1,
+        },
+      },
+    });
+    const price = model.priceVersions[0];
+    if (!price) throw new Error("Sibling price version missing");
+    const siblingRequest = await prisma.aiRequest.create({
+      data: {
+        userId: sibling.userId,
+        conversationId: sibling.conversationId,
+        modelId: model.id,
+        priceVersionId: price.id,
+        clientRequestId: `plan-cap-filler:${randomUUID()}`,
+        provider: model.provider,
+        providerModelId: model.providerModelId,
+        status: "CREATED",
+        financialStatus: "NONE",
+        estimatedInputTokens: 1,
+        maxOutputTokens: 1,
+        estimatedCostMicroRub: filler,
+      },
+    });
+    const reservation = await raceBilling.reserveUsage({
+      userId: sibling.userId,
+      requestId: siblingRequest.id,
+      estimatedProviderCostMicroRub: filler,
+    });
+    await prisma.aiRequest.update({
+      where: { id: siblingRequest.id },
+      data: {
+        reservationId: reservation.id,
+        status: "RESERVED",
+        financialStatus: "RESERVED",
+      },
+    });
+    const siblingExecution = await prisma.aIExecution.create({
+      data: {
+        invocationRunId: sibling.runId,
+        aiRequestId: siblingRequest.id,
+      },
+    });
+    await prisma.aIProviderTurn.create({
+      data: {
+        aiExecutionId: siblingExecution.id,
+        turnIndex: 0,
+        aiRequestId: siblingRequest.id,
+        idempotencyKey: orchestrationAiProviderTurnIdempotencyKey(
+          sibling.invocationId,
+          0,
+        ),
+        status: "RESERVED",
+      },
+    });
+
+    const resumed = await executor.execute(
+      executionInput(seeded, {
+        kind: "AI_MODEL",
+        modelSlug: "gpt-5-6-luna",
+        agentId: null,
+      }),
+    );
+    expect(resumed).toEqual({
+      status: "FAILED",
+      errorCode: "PLAN_SPEND_LIMIT_REACHED",
+      retryable: false,
+    });
+    expect(provider.callCount).toBe(0);
+  });
+
   it("waits when allowance is temporarily held by another reservation and resumes after release", async () => {
     const seeded = await seedInvocation(prisma, {
       targetKind: "AI_MODEL",
