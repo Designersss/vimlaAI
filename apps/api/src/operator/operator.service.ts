@@ -274,6 +274,7 @@ export class OperatorService {
         throw new OperatorError("CLARIFICATION_REQUIRED", "This run is not waiting for clarification");
       }
 
+      await tx.operatorRunStep.deleteMany({ where: { runId } });
       const current = await tx.operatorRun.findUniqueOrThrow({ where: { id: runId } });
       if (current.invocationScope !== "DIRECT_CHAT") {
         await tx.message.create({
@@ -345,17 +346,33 @@ export class OperatorService {
       }
 
       const plannerClientRequestId = run.plannerClientRequestId ?? randomUUID();
-      plannerOutput = mockOperatorPlannerResponse([
+      const proposedPlannerOutput = mockOperatorPlannerResponse([
         { content: prompt },
       ]);
-      await this.prisma.operatorRun.update({
-        where: { id: run.id },
+      const published = await this.prisma.operatorRun.updateMany({
+        where: {
+          id: run.id,
+          status: "PLANNING",
+          plannerOutput: null,
+        },
         data: {
-          plannerOutput,
+          plannerOutput: proposedPlannerOutput,
           plannerAiRequestId: null,
           plannerClientRequestId,
         },
       });
+      if (published.count === 1) {
+        plannerOutput = proposedPlannerOutput;
+      } else {
+        const current = await this.prisma.operatorRun.findUniqueOrThrow({
+          where: { id: run.id },
+          select: { plannerOutput: true },
+        });
+        if (!current.plannerOutput) {
+          return this.toView(await this.loadOwnedRun(run.userId, run.id), null);
+        }
+        plannerOutput = current.plannerOutput;
+      }
     }
 
     let plan;
@@ -675,7 +692,6 @@ export class OperatorService {
   }
 
   private async replaceSteps(runId: string, steps: PreparedStep[]): Promise<void> {
-    await this.prisma.operatorRunStep.deleteMany({ where: { runId } });
     if (steps.length === 0) {
       return;
     }
@@ -692,6 +708,7 @@ export class OperatorService {
         publicHrefPath: step.card.hrefPath,
         idempotencyKey: step.idempotencyKey,
       })),
+      skipDuplicates: true,
     });
   }
 
