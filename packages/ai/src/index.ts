@@ -16,6 +16,17 @@ export {
 } from "./cost.js";
 export { normalizeProviderUsage, readOpenAiUsage } from "./usage.js";
 export {
+  resolveAiExecutionBudget,
+  validateAiExecutionBudgetProfiles,
+} from "./execution-budget.js";
+export type {
+  AiExecutionBudgetProfile,
+  AiExecutionBudgetProfileName,
+  AiExecutionBudgetProfiles,
+  AiExecutionBudgetResult,
+  FundedAiExecutionBudget,
+} from "./execution-budget.js";
+export {
   assertMessageSize,
   estimateInputTokens,
   estimateProviderRequestInputTokens,
