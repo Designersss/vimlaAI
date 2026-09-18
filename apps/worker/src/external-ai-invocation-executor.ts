@@ -15,6 +15,8 @@ import {
   type PriceVersionQuote,
   type ProviderBillingBoundedness,
   type ProviderChatMessage,
+  type ProviderToolCall,
+  type ProviderToolDefinition,
   type VimlaAiGateway,
 } from "@vimla/ai";
 import {
@@ -27,6 +29,10 @@ import {
   validateAiExecutionBudgetProfiles,
   type AiExecutionBudgetProfiles,
 } from "./ai-execution-budget.js";
+import {
+  NoopExternalAiToolBroker,
+  type ExternalAiToolBroker,
+} from "./external-ai-tool-broker.js";
 import type {
   InvocationExecutionInput,
   InvocationExecutionResult,
@@ -53,6 +59,11 @@ export interface ExternalAiExecutorConfig {
   budgetProfiles: AiExecutionBudgetProfiles;
   reservationSafetyBps: bigint;
   maxReservationMicroRub: bigint;
+  maxProviderTurnsPerInvocation?: number;
+  maxPaidInvocationsPerPlan?: number;
+  maxSettledCostMicroRubPerPlan?: bigint;
+  maxCommittedCostMicroRubPerPlan?: bigint;
+  cancellationPollMs?: number;
 }
 
 type ResolvedModel = {
@@ -60,9 +71,12 @@ type ResolvedModel = {
   slug: string;
   provider: string;
   providerModelId: string;
+  contextWindowTokens: number;
   maxOutputTokens: number;
   priceVersionId: string;
   billingBoundedness: ProviderBillingBoundedness;
+  supportsToolUse: boolean;
+  autoPriority: number;
   price: PriceVersionQuote;
 };
 
@@ -92,12 +106,18 @@ export class ExternalAiAwareInvocationExecutorRegistry implements InvocationExec
 
 export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry {
   private readonly artifacts: ArtifactService;
+  private readonly maxProviderTurnsPerInvocation: number;
+  private readonly maxPaidInvocationsPerPlan: number;
+  private readonly maxSettledCostMicroRubPerPlan: bigint;
+  private readonly maxCommittedCostMicroRubPerPlan: bigint;
+  private readonly cancellationPollMs: number;
 
   constructor(
     private readonly prisma: PrismaClient,
     private readonly billing: BillingEngine,
     private readonly gateway: VimlaAiGateway,
     private readonly config: ExternalAiExecutorConfig,
+    private readonly toolBroker: ExternalAiToolBroker = new NoopExternalAiToolBroker(),
   ) {
     validateAiExecutionBudgetProfiles(config.budgetProfiles);
     if (config.maxReservationMicroRub <= 0n) {
@@ -106,6 +126,25 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
     if (config.reservationSafetyBps < 0n) {
       throw new Error("reservationSafetyBps must be non-negative");
     }
+    this.maxProviderTurnsPerInvocation = positiveInteger(
+      config.maxProviderTurnsPerInvocation,
+      8,
+    );
+    this.maxPaidInvocationsPerPlan = positiveInteger(
+      config.maxPaidInvocationsPerPlan,
+      16,
+    );
+    this.maxSettledCostMicroRubPerPlan =
+      config.maxSettledCostMicroRubPerPlan ?? config.maxReservationMicroRub * 8n;
+    this.maxCommittedCostMicroRubPerPlan =
+      config.maxCommittedCostMicroRubPerPlan ?? config.maxReservationMicroRub * 8n;
+    if (
+      this.maxSettledCostMicroRubPerPlan <= 0n ||
+      this.maxCommittedCostMicroRubPerPlan <= 0n
+    ) {
+      throw new Error("plan spend ceilings must be positive");
+    }
+    this.cancellationPollMs = positiveInteger(config.cancellationPollMs, 250);
     this.artifacts = new ArtifactService(prisma);
   }
 
