@@ -128,6 +128,90 @@ describe("AiRequestReconciler", () => {
     expect(await spentForUser(prisma, seeded.userId)).toBe(300_000n);
   });
 
+  it("recovers a multi-turn artifact from the final provider turn, not the legacy primary turn", async () => {
+    const seeded = await seedTurn(prisma, billing, {
+      turnStatus: "USAGE_DURABLE",
+      actualMicroRub: 200_000n,
+      outputText: "intermediate tool request",
+    });
+
+    await reconcileAll(reconciler);
+
+    const primary = await prisma.aiRequest.findUniqueOrThrow({
+      where: { id: seeded.aiRequestId },
+      include: {
+        providerTurn: true,
+      },
+    });
+    if (!primary.providerTurn) {
+      throw new Error("Primary provider turn missing");
+    }
+    await prisma.aIProviderTurn.update({
+      where: { id: primary.providerTurn.id },
+      data: {
+        toolCallsJson: [
+          {
+            id: "call-readme",
+            name: "github.readFile",
+            arguments: { path: "README.md" },
+          },
+        ],
+      },
+    });
+
+    const finalRequest = await prisma.aiRequest.create({
+      data: {
+        userId: primary.userId,
+        conversationId: primary.conversationId,
+        modelId: primary.modelId,
+        priceVersionId: primary.priceVersionId,
+        clientRequestId: `recovery-final:${randomUUID()}`,
+        provider: primary.provider,
+        providerModelId: primary.providerModelId,
+        status: "SUCCEEDED",
+        financialStatus: "SETTLED",
+        estimatedInputTokens: 1_000,
+        maxOutputTokens: 1_000,
+        estimatedCostMicroRub: 300_000n,
+        providerActualCostMicroRub: 150_000n,
+        userSettledUsageMicroRub: 150_000n,
+        actualInputTokens: 500,
+        actualOutputTokens: 100,
+        reasoningTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        outputText: "final multi-turn answer",
+        startedAt: new Date(),
+        finishedAt: new Date(),
+      },
+    });
+    await prisma.aIProviderTurn.create({
+      data: {
+        aiExecutionId: primary.providerTurn.aiExecutionId,
+        turnIndex: 1,
+        aiRequestId: finalRequest.id,
+        idempotencyKey: `recovery-final-turn:${randomUUID()}`,
+        status: "SUCCEEDED",
+        toolCallsJson: [],
+      },
+    });
+
+    const recovered = await artifactRecovery.recover(100);
+    expect(recovered.recovered).toBeGreaterThanOrEqual(1);
+    const artifact = await prisma.artifact.findUniqueOrThrow({
+      where: {
+        creatorInvocationId_outputName: {
+          creatorInvocationId: seeded.invocationId,
+          outputName: "result",
+        },
+      },
+      include: { versions: true },
+    });
+    expect(artifact.versions[0]?.contentJson).toEqual({
+      text: "final multi-turn answer",
+    });
+  });
+
   it("never tops up a reservation when durable actual cost exceeds the funded cap", async () => {
     const seeded = await seedTurn(prisma, billing, {
       turnStatus: "USAGE_DURABLE",
