@@ -166,6 +166,7 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
       const toolContext = {
         userId: invocation.plan.userId,
         conversationId: invocation.plan.conversationId,
+        planId: input.planId,
         invocationId: input.invocationId,
       };
       const tools = await this.toolBroker.listTools(toolContext);
