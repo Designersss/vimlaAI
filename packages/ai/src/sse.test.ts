@@ -55,7 +55,7 @@ describe("OpenAiCompatSseParser", () => {
     const parser = new OpenAiCompatSseParser();
     const events = parser.push(
       encoder.encode(
-        \`data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-1","function":{"name":"github.readFile","arguments":"{\\"path\\":\\"README.md\\"}"}}]}}]}\n\n\`,
+        `data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call-1","function":{"name":"github.readFile","arguments":"{\\\"path\\\":\\\"README.md\\\"}"}}]}}]}\n\n`,
       ),
     );
     expect(events).toEqual([
