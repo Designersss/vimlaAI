@@ -254,6 +254,62 @@ describe("ExternalAiInvocationExecutor", () => {
     ).toBe(0);
   });
 
+  it("does not let AI_AUTO choose an incapable model merely because it is cheaper", async () => {
+    const gemini = await prisma.aiModel.findUniqueOrThrow({
+      where: { slug: "gemini-3-5-flash-lite" },
+      include: { priceVersions: { orderBy: { effectiveFrom: "desc" } } },
+    });
+    const price = gemini.priceVersions[0];
+    if (!price) throw new Error("Gemini price version missing");
+    const original = {
+      inputMicroRubPerMillion: price.inputMicroRubPerMillion,
+      outputMicroRubPerMillion: price.outputMicroRubPerMillion,
+    };
+    await prisma.aiModelPriceVersion.update({
+      where: { id: price.id },
+      data: {
+        inputMicroRubPerMillion: 1n,
+        outputMicroRubPerMillion: 1n,
+      },
+    });
+
+    try {
+      const seeded = await seedInvocation(prisma, {
+        targetKind: "AI_AUTO",
+        targetModelSlug: null,
+        purpose: "Use an authorized repository tool if needed",
+        fund: true,
+      });
+      const provider = new MockAiProvider();
+      const tools = new TestToolBroker("repository context");
+      const executor = createExecutor(prisma, provider, tools);
+
+      const result = await executor.execute(executionInput(seeded, {
+        kind: "AI_AUTO",
+        modelSlug: null,
+        agentId: null,
+      }));
+
+      expect(result.status).toBe("COMPLETED");
+      const request = await prisma.aiRequest.findUniqueOrThrow({
+        where: {
+          userId_clientRequestId: {
+            userId: seeded.userId,
+            clientRequestId: orchestrationAiClientRequestId(seeded.invocationId),
+          },
+        },
+        include: { model: true },
+      });
+      expect(request.model.slug).not.toBe("gemini-3-5-flash-lite");
+      expect(provider.callCount).toBe(1);
+    } finally {
+      await prisma.aiModelPriceVersion.update({
+        where: { id: price.id },
+        data: original,
+      });
+    }
+  });
+
   it("selects AI_AUTO server-side and persists the concrete selected model", async () => {
     const unboundedSlug = `unbounded-auto-${randomUUID()}`;
     await seedUnboundedModel(prisma, unboundedSlug);
