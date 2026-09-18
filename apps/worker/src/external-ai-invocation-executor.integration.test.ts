@@ -183,7 +183,7 @@ describe("ExternalAiInvocationExecutor", () => {
     ).toBe(0);
   });
 
-  it("selects AI_AUTO server-side from active visible priced models and persists the selected model", async () => {
+  it("selects AI_AUTO server-side and persists the concrete selected model", async () => {
     const seeded = await seedInvocation(prisma, {
       targetKind: "AI_AUTO",
       targetModelSlug: null,
@@ -209,52 +209,39 @@ describe("ExternalAiInvocationExecutor", () => {
       },
       include: { model: true },
     });
-    expect(request.model.slug).toBe("gpt-5-6-luna");
+    expect(request.model.active).toBe(true);
+    expect(request.model.visible).toBe(true);
     expect(provider.lastRequest?.providerModelId).toBe(request.model.providerModelId);
   });
 
   it("does not silently fall back when the exact requested model is unavailable", async () => {
-    const model = await prisma.aiModel.findUniqueOrThrow({
-      where: { slug: "claude-haiku-4-5" },
+    const unavailableSlug = `unavailable-test-model-${randomUUID()}`;
+    const seeded = await seedInvocation(prisma, {
+      targetKind: "AI_MODEL",
+      targetModelSlug: unavailableSlug,
+      purpose: "Use exactly the unavailable model",
+      fund: true,
     });
-    await prisma.aiModel.update({
-      where: { id: model.id },
-      data: { active: false },
+    const provider = new MockAiProvider();
+    const executor = createExecutor(prisma, provider);
+
+    const result = await executor.execute(executionInput(seeded, {
+      kind: "AI_MODEL",
+      modelSlug: unavailableSlug,
+      agentId: null,
+    }));
+
+    expect(result).toEqual({
+      status: "FAILED",
+      errorCode: "AI_MODEL_UNAVAILABLE",
+      retryable: false,
     });
-
-    try {
-      const seeded = await seedInvocation(prisma, {
-        targetKind: "AI_MODEL",
-        targetModelSlug: "claude-haiku-4-5",
-        purpose: "Use exactly Claude",
-        fund: true,
-      });
-      const provider = new MockAiProvider();
-      const executor = createExecutor(prisma, provider);
-
-      const result = await executor.execute(executionInput(seeded, {
-        kind: "AI_MODEL",
-        modelSlug: "claude-haiku-4-5",
-        agentId: null,
-      }));
-
-      expect(result).toEqual({
-        status: "FAILED",
-        errorCode: "AI_MODEL_UNAVAILABLE",
-        retryable: false,
-      });
-      expect(provider.callCount).toBe(0);
-      expect(
-        await prisma.aiRequest.count({
-          where: { userId: seeded.userId },
-        }),
-      ).toBe(0);
-    } finally {
-      await prisma.aiModel.update({
-        where: { id: model.id },
-        data: { active: true },
-      });
-    }
+    expect(provider.callCount).toBe(0);
+    expect(
+      await prisma.aiRequest.count({
+        where: { userId: seeded.userId },
+      }),
+    ).toBe(0);
   });
 
   it("keeps an ambiguous provider outcome in reconciliation hold instead of releasing or retrying it", async () => {
