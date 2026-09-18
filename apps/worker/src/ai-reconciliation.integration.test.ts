@@ -44,6 +44,37 @@ describe("AiRequestReconciler", () => {
     await prisma.$disconnect();
   });
 
+  it("does not reconcile intentional usage-paused provider turns as stale crashes", async () => {
+    const waiting = await seedTurn(prisma, billing, {
+      turnStatus: "WAITING_FOR_USAGE_CAPACITY",
+      actualMicroRub: null,
+      outputText: null,
+      withReservation: false,
+    });
+    const blocked = await seedTurn(prisma, billing, {
+      turnStatus: "BLOCKED_INSUFFICIENT_USAGE",
+      actualMicroRub: null,
+      outputText: null,
+      withReservation: false,
+    });
+
+    await reconcileAll(reconciler);
+
+    for (const seeded of [waiting, blocked]) {
+      const request = await prisma.aiRequest.findUniqueOrThrow({
+        where: { id: seeded.aiRequestId },
+        include: { providerTurn: true },
+      });
+      expect(request.status).toBe("CREATED");
+      expect(request.financialStatus).toBe("NONE");
+      expect([
+        "WAITING_FOR_USAGE_CAPACITY",
+        "BLOCKED_INSUFFICIENT_USAGE",
+      ]).toContain(request.providerTurn?.status);
+      expect(await spentForUser(prisma, seeded.userId)).toBe(0n);
+    }
+  });
+
   it("fails a stale created provider turn that never acquired a reservation", async () => {
     const seeded = await seedTurn(prisma, billing, {
       turnStatus: "CREATED",
