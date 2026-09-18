@@ -100,14 +100,7 @@ export class AiRequestReconciler {
 
     const remaining = Math.max(0, take - turns.length);
     if (remaining === 0) {
-      this.logger.info(
-        {
-          event: "ai_reconciliation_scanned",
-          scannedTurns: counters.scannedTurns,
-          scannedLegacyRequests: counters.scannedLegacyRequests,
-        },
-        "AI reconciliation scan completed",
-      );
+      await this.logScanMetrics(counters);
       return counters;
     }
 
@@ -151,15 +144,59 @@ export class AiRequestReconciler {
       }
     }
 
+    await this.logScanMetrics(counters);
+    return counters;
+  }
+
+  private async logScanMetrics(
+    counters: AiReconciliationCounters,
+  ): Promise<void> {
+    const now = Date.now();
+    const [
+      activeReservationCount,
+      oldestActiveReservation,
+      reconciliationHoldCount,
+      oldestReconciliationHold,
+    ] = await Promise.all([
+      this.prisma.usageReservation.count({ where: { status: "ACTIVE" } }),
+      this.prisma.usageReservation.findFirst({
+        where: { status: "ACTIVE" },
+        orderBy: { createdAt: "asc" },
+        select: { createdAt: true },
+      }),
+      this.prisma.aiRequest.count({
+        where: { financialStatus: "RECONCILIATION_HOLD" },
+      }),
+      this.prisma.aiRequest.findFirst({
+        where: {
+          financialStatus: "RECONCILIATION_HOLD",
+          finishedAt: { not: null },
+        },
+        orderBy: { finishedAt: "asc" },
+        select: { finishedAt: true },
+      }),
+    ]);
+
     this.logger.info(
       {
         event: "ai_reconciliation_scanned",
         scannedTurns: counters.scannedTurns,
         scannedLegacyRequests: counters.scannedLegacyRequests,
+        activeReservationCount,
+        oldestActiveReservationAgeMs: oldestActiveReservation
+          ? Math.max(0, now - oldestActiveReservation.createdAt.getTime())
+          : 0,
+        reconciliationHoldCount,
+        oldestReconciliationHoldAgeMs: oldestReconciliationHold?.finishedAt
+          ? Math.max(0, now - oldestReconciliationHold.finishedAt.getTime())
+          : 0,
+        settledCount: counters.settled,
+        releasedCount: counters.released,
+        heldCount: counters.held,
+        errorCount: counters.errors,
       },
       "AI reconciliation scan completed",
     );
-    return counters;
   }
 
   private async reconcileProviderTurn(
