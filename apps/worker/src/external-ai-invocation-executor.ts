@@ -243,6 +243,9 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
 
       return { status: "COMPLETED", outcome: "PASS" };
     } catch (error: unknown) {
+      if (error instanceof ExternalAiTerminalError) {
+        return terminal(error.code);
+      }
       if (error instanceof ArtifactBindingError || error instanceof ArtifactValidationError) {
         return terminal("AI_ARTIFACT_CONTRACT_INVALID");
       }
@@ -751,7 +754,7 @@ function terminal(errorCode: string): InvocationExecutionResult {
 
 function safeNumber(value: bigint): number {
   if (value > BigInt(Number.MAX_SAFE_INTEGER)) {
-    throw new Error("Provider usage exceeds safe integer range");
+    return Number.MAX_SAFE_INTEGER;
   }
   return Number(value);
 }
