@@ -314,6 +314,39 @@ describe("ExternalAiInvocationExecutor", () => {
     }
   });
 
+  it("lets AI_AUTO skip a preferred model that cannot fund its minimum turn", async () => {
+    const seeded = await seedInvocation(prisma, {
+      targetKind: "AI_AUTO",
+      targetModelSlug: null,
+      purpose: "Write a concise funded answer",
+      fund: true,
+      fundMicroRub: 2_500_000n,
+    });
+    const provider = new MockAiProvider();
+    const executor = createExecutor(prisma, provider);
+
+    const result = await executor.execute(
+      executionInput(seeded, {
+        kind: "AI_AUTO",
+        modelSlug: null,
+        agentId: null,
+      }),
+    );
+
+    expect(result).toEqual({ status: "COMPLETED", outcome: "PASS" });
+    const request = await prisma.aiRequest.findUniqueOrThrow({
+      where: {
+        userId_clientRequestId: {
+          userId: seeded.userId,
+          clientRequestId: orchestrationAiClientRequestId(seeded.invocationId),
+        },
+      },
+      include: { model: true },
+    });
+    expect(request.model.slug).toBe("gpt-5-6-luna");
+    expect(provider.callCount).toBe(1);
+  });
+
   it("selects AI_AUTO server-side and persists the concrete selected model", async () => {
     const unboundedSlug = `unbounded-auto-${randomUUID()}`;
     await seedUnboundedModel(prisma, unboundedSlug);
