@@ -122,6 +122,53 @@ describe("AI chat integration", () => {
     expect(provider.callCount).toBe(0);
   });
 
+  it("shrinks the provider output cap to the remaining funded allowance", async () => {
+    const user = await registerUser(app, "shrink");
+    const conversation = await createConversation(app, user.cookies);
+    const modelId = await firstModelId(app, user.cookies);
+    const prisma = createPrismaClient(testDatabaseUrl);
+    await prisma.usageBucket.create({
+      data: {
+        userId: user.id,
+        type: "TOPUP",
+        totalMicroRub: 1_000_000n,
+        spentMicroRub: 0n,
+        reservedMicroRub: 0n,
+        expiresAt: null,
+        sourceType: "TEST",
+        sourceId: `chat-shrink:${randomUUID()}`,
+      },
+    });
+    await prisma.$disconnect();
+
+    provider.scenario = "success";
+    provider.callCount = 0;
+    await chat.streamMessage({
+      userId: user.id,
+      conversationId: conversation.id,
+      body: { clientRequestId: randomUUID(), modelId, content: "Hello" },
+      correlationId: randomUUID(),
+      sink: collectingSink([]),
+    });
+
+    const check = createPrismaClient(testDatabaseUrl);
+    const request = await check.aiRequest.findFirstOrThrow({
+      where: { userId: user.id },
+      orderBy: { createdAt: "desc" },
+      include: { reservation: true },
+    });
+    expect(request.maxOutputTokens).toBeGreaterThanOrEqual(768);
+    expect(request.maxOutputTokens).toBeLessThan(2_048);
+    expect(request.estimatedCostMicroRub).toBeLessThanOrEqual(1_000_000n);
+    expect(request.reservation?.estimatedMicroRub).toBe(
+      request.estimatedCostMicroRub,
+    );
+    expect(provider.lastRequest?.maxOutputTokens).toBe(
+      request.maxOutputTokens,
+    );
+    await check.$disconnect();
+  });
+
   it("reserves, streams, settles, and persists the assistant message", async () => {
     const user = await registerUser(app, "ok");
     await purchasePro(app, user.cookies);
@@ -264,34 +311,46 @@ describe("AI chat integration", () => {
     await prisma.$disconnect();
   });
 
-  it("keeps full provider COGS when actual exceeds the reservation", async () => {
+  it("holds a provider boundedness violation instead of topping up after the call", async () => {
     const user = await registerUser(app, "anom");
     await purchasePro(app, user.cookies);
     const conversation = await createConversation(app, user.cookies);
     const modelId = await firstModelId(app, user.cookies);
     provider.scenario = "expensive";
-    await chat.streamMessage({
-      userId: user.id,
-      conversationId: conversation.id,
-      body: { clientRequestId: randomUUID(), modelId, content: "Hello" },
-      correlationId: randomUUID(),
-      sink: collectingSink([]),
-    });
+
+    await expect(
+      chat.streamMessage({
+        userId: user.id,
+        conversationId: conversation.id,
+        body: { clientRequestId: randomUUID(), modelId, content: "Hello" },
+        correlationId: randomUUID(),
+        sink: collectingSink([]),
+      }),
+    ).rejects.toMatchObject({ code: "AI_RECONCILIATION_REQUIRED" });
+
     const prisma = createPrismaClient(testDatabaseUrl);
     const request = await prisma.aiRequest.findFirstOrThrow({
       where: { userId: user.id },
       orderBy: { createdAt: "desc" },
+      include: { reservation: true },
     });
+    expect(request.status).toBe("RECONCILIATION_REQUIRED");
+    expect(request.financialStatus).toBe("RECONCILIATION_HOLD");
     expect(request.providerActualCostMicroRub).not.toBeNull();
-    expect(request.userSettledUsageMicroRub).not.toBeNull();
     expect(request.providerActualCostMicroRub ?? 0n).toBeGreaterThan(
-      request.userSettledUsageMicroRub ?? 0n,
+      request.estimatedCostMicroRub,
     );
-    expect(request.financialStatus).toBe("ANOMALY");
-    const buckets = await prisma.usageBucket.findMany({ where: { userId: user.id } });
+    expect(request.userSettledUsageMicroRub).toBeNull();
+    expect(request.reservation?.status).toBe("ACTIVE");
+
+    const buckets = await prisma.usageBucket.findMany({
+      where: { userId: user.id },
+    });
     for (const bucket of buckets) {
-      expect(bucket.spentMicroRub + bucket.reservedMicroRub <= bucket.totalMicroRub).toBe(true);
-      expect(bucket.spentMicroRub >= 0n).toBe(true);
+      expect(bucket.spentMicroRub).toBe(0n);
+      expect(
+        bucket.spentMicroRub + bucket.reservedMicroRub,
+      ).toBeLessThanOrEqual(bucket.totalMicroRub);
     }
     await prisma.$disconnect();
     provider.scenario = "success";
