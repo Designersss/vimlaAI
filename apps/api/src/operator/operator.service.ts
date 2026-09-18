@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
-import { isAiError } from "@vimla/ai";
+import { mockOperatorPlannerResponse } from "@vimla/ai";
 import type { Prisma } from "@vimla/database";
 import {
   confirmOperatorRunSchema,
@@ -36,7 +36,6 @@ import {
 import { NotificationPlatformError, NotificationPreferenceService } from "@vimla/notifications";
 import { API_CONFIG, type ApiRuntimeConfig } from "../config/api-config.js";
 import { PrismaService } from "../persistence/prisma.service.js";
-import { TextChatService } from "../ai/text-chat.service.js";
 import { DirectChatsFacade } from "../direct-chats/direct-chats.facade.js";
 import { WorkspaceFacade } from "../workspace/workspace.facade.js";
 import { NotificationsFacade } from "../notifications/notifications.facade.js";
@@ -51,7 +50,6 @@ export class OperatorService {
     @Inject(PrismaService) private readonly prismaService: PrismaService,
     @Inject(WorkspaceFacade) private readonly workspace: WorkspaceFacade,
     @Inject(NotificationsFacade) private readonly notifications: NotificationsFacade,
-    @Inject(TextChatService) private readonly chat: TextChatService,
     @Inject(DirectChatsFacade) private readonly directChats: DirectChatsFacade,
     @Inject(API_CONFIG) private readonly config: ApiRuntimeConfig,
   ) {}
@@ -338,18 +336,25 @@ export class OperatorService {
 
     let plannerOutput = run.plannerOutput;
     if (!plannerOutput) {
+      if (this.config.appEnv !== "local" && this.config.appEnv !== "test") {
+        return this.failRun(
+          run.id,
+          "vimla_core_unavailable",
+          "Vimla Core is not enabled for this environment yet.",
+        );
+      }
+
       const plannerClientRequestId = run.plannerClientRequestId ?? randomUUID();
-      const completion = await this.chat.completeInternalPrompt({
-        userId: run.userId,
-        conversationId: run.conversationId,
-        clientRequestId: plannerClientRequestId,
-        messages: [{ role: "user", content: prompt }],
-        correlationId,
-      });
-      plannerOutput = completion.text;
+      plannerOutput = mockOperatorPlannerResponse([
+        { role: "user", content: prompt },
+      ]);
       await this.prisma.operatorRun.update({
         where: { id: run.id },
-        data: { plannerOutput, plannerAiRequestId: completion.aiRequestId, plannerClientRequestId },
+        data: {
+          plannerOutput,
+          plannerAiRequestId: null,
+          plannerClientRequestId,
+        },
       });
     }
 
@@ -929,15 +934,11 @@ export class OperatorService {
 
   private async resumeExisting(run: RunRecord, correlationId: string): Promise<OperatorRunView> {
     if (run.status === "CREATED" || run.status === "PLANNING") {
-      try {
-        return await this.planAndMaybeExecute(run, correlationId, run.clarificationQuestion);
-      } catch (error: unknown) {
-        if (isAiError(error) && error.code === "AI_REQUEST_IN_PROGRESS") {
-          const current = await this.loadOwnedRun(run.userId, run.id);
-          return this.toView(current, null);
-        }
-        throw error;
-      }
+      return this.planAndMaybeExecute(
+        run,
+        correlationId,
+        run.clarificationQuestion,
+      );
     }
     if (run.status === "EXECUTING") {
       const context = await this.toolContext(run);
