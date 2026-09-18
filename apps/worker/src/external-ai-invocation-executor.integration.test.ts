@@ -639,6 +639,186 @@ describe("ExternalAiInvocationExecutor", () => {
     ).toBe(0);
   });
 
+  it("releases a funded reservation when Stop wins before the provider boundary", async () => {
+    const seeded = await seedInvocation(prisma, {
+      targetKind: "AI_MODEL",
+      targetModelSlug: "gpt-5-6-luna",
+      purpose: "Cancel before provider",
+      fund: true,
+    });
+    await prisma.invocation.update({
+      where: { id: seeded.invocationId },
+      data: { status: "CANCELED" },
+    });
+    const provider = new MockAiProvider();
+    const executor = createExecutor(prisma, provider);
+
+    const result = await executor.execute(executionInput(seeded, {
+      kind: "AI_MODEL",
+      modelSlug: "gpt-5-6-luna",
+      agentId: null,
+    }));
+
+    expect(result).toEqual({
+      status: "FAILED",
+      errorCode: "AI_EXECUTION_CANCELED",
+      retryable: false,
+    });
+    expect(provider.callCount).toBe(0);
+    const request = await prisma.aiRequest.findUniqueOrThrow({
+      where: {
+        userId_clientRequestId: {
+          userId: seeded.userId,
+          clientRequestId: orchestrationAiClientRequestId(seeded.invocationId),
+        },
+      },
+      include: { reservation: true },
+    });
+    expect(request.financialStatus).toBe("RELEASED");
+    expect(request.reservation?.status).toBe("RELEASED");
+    const bucket = await prisma.usageBucket.findFirstOrThrow({
+      where: { userId: seeded.userId },
+    });
+    expect(bucket.spentMicroRub).toBe(0n);
+    expect(bucket.reservedMicroRub).toBe(0n);
+  });
+
+  it("holds an in-flight Stop for reconciliation when provider usage is ambiguous", async () => {
+    const seeded = await seedInvocation(prisma, {
+      targetKind: "AI_MODEL",
+      targetModelSlug: "gpt-5-6-luna",
+      purpose: "Cancel an ambiguous in-flight provider request",
+      fund: true,
+    });
+    const provider = new MockAiProvider();
+    provider.delayMs = 5_000;
+    const executor = createExecutor(prisma, provider, undefined, {
+      cancellationPollMs: 10,
+    });
+
+    const execution = executor.execute(executionInput(seeded, {
+      kind: "AI_MODEL",
+      modelSlug: "gpt-5-6-luna",
+      agentId: null,
+    }));
+    await waitForAiRequestStatus(prisma, seeded.userId, "PROVIDER_STARTED");
+    await prisma.invocation.update({
+      where: { id: seeded.invocationId },
+      data: { status: "CANCELED" },
+    });
+    const result = await execution;
+
+    expect(result).toEqual({
+      status: "FAILED",
+      errorCode: "AI_RECONCILIATION_REQUIRED",
+      retryable: false,
+    });
+    const request = await prisma.aiRequest.findUniqueOrThrow({
+      where: {
+        userId_clientRequestId: {
+          userId: seeded.userId,
+          clientRequestId: orchestrationAiClientRequestId(seeded.invocationId),
+        },
+      },
+      include: { reservation: true },
+    });
+    expect(request.financialStatus).toBe("RECONCILIATION_HOLD");
+    expect(request.reservation?.status).toBe("ACTIVE");
+  });
+
+  it("settles known provider usage when Stop arrives in flight and does not emit an artifact", async () => {
+    const seeded = await seedInvocation(prisma, {
+      targetKind: "AI_MODEL",
+      targetModelSlug: "gpt-5-6-luna",
+      purpose: "Settle known usage on Stop",
+      fund: true,
+    });
+    const provider = new KnownUsageAbortProvider();
+    const executor = createExecutor(prisma, provider, undefined, {
+      cancellationPollMs: 10,
+    });
+
+    const execution = executor.execute(executionInput(seeded, {
+      kind: "AI_MODEL",
+      modelSlug: "gpt-5-6-luna",
+      agentId: null,
+    }));
+    await waitForAiRequestStatus(prisma, seeded.userId, "STREAMING");
+    await prisma.invocation.update({
+      where: { id: seeded.invocationId },
+      data: { status: "CANCELED" },
+    });
+    const result = await execution;
+
+    expect(result).toEqual({
+      status: "FAILED",
+      errorCode: "AI_EXECUTION_CANCELED",
+      retryable: false,
+    });
+    const request = await prisma.aiRequest.findUniqueOrThrow({
+      where: {
+        userId_clientRequestId: {
+          userId: seeded.userId,
+          clientRequestId: orchestrationAiClientRequestId(seeded.invocationId),
+        },
+      },
+      include: { reservation: true },
+    });
+    expect(request.status).toBe("SUCCEEDED");
+    expect(request.financialStatus).toBe("SETTLED");
+    expect(request.reservation?.status).toBe("SETTLED");
+    expect(request.userSettledUsageMicroRub).toBeGreaterThan(0n);
+    expect(
+      await prisma.artifact.count({
+        where: { creatorInvocationId: seeded.invocationId },
+      }),
+    ).toBe(0);
+  });
+
+  it("does not mutate settled finance when Stop happens after provider settlement", async () => {
+    const seeded = await seedInvocation(prisma, {
+      targetKind: "AI_MODEL",
+      targetModelSlug: "gpt-5-6-luna",
+      purpose: "Complete before Stop",
+      fund: true,
+    });
+    const provider = new MockAiProvider();
+    const executor = createExecutor(prisma, provider);
+
+    expect(
+      await executor.execute(executionInput(seeded, {
+        kind: "AI_MODEL",
+        modelSlug: "gpt-5-6-luna",
+        agentId: null,
+      })),
+    ).toEqual({ status: "COMPLETED", outcome: "PASS" });
+    const before = await prisma.aiRequest.findUniqueOrThrow({
+      where: {
+        userId_clientRequestId: {
+          userId: seeded.userId,
+          clientRequestId: orchestrationAiClientRequestId(seeded.invocationId),
+        },
+      },
+      include: { reservation: true },
+    });
+
+    await prisma.invocation.update({
+      where: { id: seeded.invocationId },
+      data: { status: "CANCELED" },
+    });
+    const after = await prisma.aiRequest.findUniqueOrThrow({
+      where: { id: before.id },
+      include: { reservation: true },
+    });
+
+    expect(after.financialStatus).toBe("SETTLED");
+    expect(after.userSettledUsageMicroRub).toBe(before.userSettledUsageMicroRub);
+    expect(after.reservation?.status).toBe("SETTLED");
+    expect(after.reservation?.settledMicroRub).toBe(
+      before.reservation?.settledMicroRub,
+    );
+  });
+
   it("funds each tool-loop turn independently and resumes after top-up without replaying paid work", async () => {
     const seeded = await seedInvocation(prisma, {
       targetKind: "AI_MODEL",
@@ -1039,6 +1219,61 @@ function executionInput(
   };
 }
 
+
+class KnownUsageAbortProvider implements AiProvider {
+  readonly id = "mock";
+
+  async streamChat(request: ProviderChatRequest): Promise<ProviderChatResult> {
+    const signal = request.abortSignal;
+    return {
+      providerRequestId: "known-usage-abort",
+      events: (async function* (): AsyncIterable<ProviderStreamEvent> {
+        yield { type: "delta", text: "partial" };
+        yield {
+          type: "usage",
+          usage: {
+            inputTokens: 18n,
+            outputTokens: 8n,
+            reasoningTokens: 0n,
+            cacheReadTokens: 0n,
+            cacheWriteTokens: 0n,
+          },
+        };
+        await waitForAbort(signal);
+        throw new DOMException("Provider stream aborted", "AbortError");
+      })(),
+    };
+  }
+}
+
+async function waitForAbort(signal?: AbortSignal): Promise<void> {
+  if (!signal) {
+    throw new Error("AbortSignal is required for this fixture");
+  }
+  if (signal.aborted) return;
+  await new Promise<void>((resolve) => {
+    signal.addEventListener("abort", () => resolve(), { once: true });
+  });
+}
+
+async function waitForAiRequestStatus(
+  prisma: PrismaClient,
+  userId: string,
+  status: string,
+  timeoutMs = 2_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const request = await prisma.aiRequest.findFirst({
+      where: { userId },
+      select: { status: true },
+      orderBy: { createdAt: "desc" },
+    });
+    if (request?.status === status) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`Timed out waiting for AiRequest status ${status}`);
+}
 
 class TestToolBroker implements ExternalAiToolBroker {
   readonly calls: Array<{ name: string; idempotencyKey: string }> = [];
