@@ -11,7 +11,6 @@ import {
   ErrorState,
   Spinner,
   UserMessage,
-  VimlaMentionChip,
 } from "@vimla/ui";
 import { AuthRequiredError, fetchCurrentUser } from "../../auth/services/current-user";
 import { ConsumerPage } from "../../shell/ConsumerPage";
@@ -239,7 +238,6 @@ export function OperatorWorkspace(): ReactElement {
           sendLabel={t("chat.send")}
           sending={sending}
           variant="operator"
-          chips={<VimlaMentionChip label={t("chat.mentionVimla")} />}
         />
       </section>
     </ConsumerPage>

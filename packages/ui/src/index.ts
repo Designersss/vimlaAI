@@ -120,7 +120,6 @@ export {
   ProjectWorkspaceHeader,
   StreamingIndicator,
   UserMessage,
-  VimlaMentionChip,
   OperatorActionCard,
   type AiInteractionMode,
   type AutoEffortLevel,

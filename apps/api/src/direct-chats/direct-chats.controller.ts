@@ -208,6 +208,7 @@ export class DirectChatsController {
       conversationId: id,
       mentions: input.mentions,
     });
+    this.mentionRouting.assertMessageKind(input.kind, resolvedMentions);
     const created = await this.directChats.chats.send(
       this.directChats.actor(user),
       id,

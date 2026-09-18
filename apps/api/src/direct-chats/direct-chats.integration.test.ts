@@ -240,7 +240,7 @@ describe("direct chats API", () => {
       alice,
       aliceDevice,
       chat.id,
-      "HUMAN",
+      "OPERATOR_INVOKE",
       "@vimla ping",
       [vimlaMention],
     );
@@ -277,7 +277,7 @@ describe("direct chats API", () => {
           aliceDevice,
           device,
           chat.id,
-          "HUMAN",
+          "OPERATOR_INVOKE",
           "@vimla signed",
           [vimlaMention],
         ),
@@ -291,7 +291,7 @@ describe("direct chats API", () => {
       payload: {
         clientMessageId: randomUUID(),
         senderDeviceId: aliceDevice.deviceId,
-        kind: "HUMAN",
+        kind: "OPERATOR_INVOKE",
         envelopes: signedEnvelopes,
         mentions: [{ ...vimlaMention, endOffset: 7 }],
       },
@@ -349,6 +349,63 @@ describe("direct chats API", () => {
       },
     });
     expect(wrongKind.statusCode).toBe(400);
+  });
+
+  it("requires structured @vimla authority for Direct Chat operator routing", async () => {
+    const alice = await readyUser(app, "dc-routing-alice", "Alice");
+    const nikita = await readyUser(app, "dc-routing-nikita", "Nikita");
+    const aliceDevice = await registerHarness(app, alice);
+    await registerHarness(app, nikita);
+    const chat = await createChat(app, alice.cookies, nikita.email);
+
+    const legacyInvoke = await sendPlain(
+      app,
+      alice,
+      aliceDevice,
+      chat.id,
+      "OPERATOR_INVOKE",
+      "legacy operator invoke",
+    );
+    expect(legacyInvoke.statusCode).toBe(400);
+
+    const prisma = app.get(PrismaService).client;
+    const vimlaHandle = await prisma.handle.findUnique({ where: { systemKey: "VIMLA" } });
+    expect(vimlaHandle).toBeTruthy();
+    if (!vimlaHandle) {
+      throw new Error("expected seeded Vimla handle");
+    }
+
+    const vimlaMention: MessageMentionInput = {
+      handleId: vimlaHandle.id,
+      kind: "SYSTEM_AGENT",
+      canonicalHandle: vimlaHandle.normalized,
+      startOffset: 0,
+      endOffset: 6,
+    };
+
+    const mismatchedHuman = await sendPlain(
+      app,
+      alice,
+      aliceDevice,
+      chat.id,
+      "HUMAN",
+      "@vimla hello",
+      [vimlaMention],
+    );
+    expect(mismatchedHuman.statusCode).toBe(400);
+
+    const validInvoke = await sendPlain(
+      app,
+      alice,
+      aliceDevice,
+      chat.id,
+      "OPERATOR_INVOKE",
+      "@vimla hello",
+      [vimlaMention],
+    );
+    expect(validInvoke.statusCode).toBe(201);
+    expect(validInvoke.json().mentions).toHaveLength(1);
+    expect(validInvoke.json().mentions[0]?.targetId).toBe("VIMLA");
   });
 
   it("lets @Vimla answer in-thread, isolates context, and assigns tasks only inside the chat", async () => {
