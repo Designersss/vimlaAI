@@ -56,6 +56,19 @@ export class DeterministicVimlaToolPlanner implements VimlaToolPlanner {
   }
 }
 
+export class VimlaAwareInvocationExecutorRegistry implements InvocationExecutorRegistry {
+  constructor(
+    private readonly vimla: VimlaInvocationExecutor,
+    private readonly fallback: InvocationExecutorRegistry,
+  ) {}
+
+  execute(input: InvocationExecutionInput): Promise<InvocationExecutionResult> {
+    return input.target.kind === "VIMLA"
+      ? this.vimla.execute(input)
+      : this.fallback.execute(input);
+  }
+}
+
 export class VimlaInvocationExecutor implements InvocationExecutorRegistry {
   constructor(
     private readonly prisma: PrismaClient,
