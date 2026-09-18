@@ -12,18 +12,26 @@ import {
 import type { WorkerConfig } from "@vimla/config";
 import type { PrismaClient } from "@vimla/database";
 
-export function createWorkerPaymentService(
+export function createWorkerBillingEngine(
   prisma: PrismaClient,
   config: WorkerConfig,
   logger: BillingLogger,
-): PaymentService {
+): BillingEngine {
   const policy: BillingPolicy = {
     minTopupMicroRub: BigInt(config.billingMinTopupMicroRub),
     maxTopupMicroRub: BigInt(config.billingMaxTopupMicroRub),
     topupProviderCostRatioBps: BigInt(config.billingTopupRatioBps),
     subscriptionPeriodDays: config.billingSubscriptionPeriodDays,
   };
-  const engine = new BillingEngine(prisma, policy, logger);
+  return new BillingEngine(prisma, policy, logger);
+}
+
+export function createWorkerPaymentService(
+  prisma: PrismaClient,
+  config: WorkerConfig,
+  logger: BillingLogger,
+): PaymentService {
+  const engine = createWorkerBillingEngine(prisma, config, logger);
   const provider =
     config.paymentProvider === "tbank"
       ? new TBankPaymentProvider(
