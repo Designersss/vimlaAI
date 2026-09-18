@@ -137,6 +137,7 @@ export class BillingEngine {
 
           this.logger.info(
             {
+              event: "ai_reservation_created",
               operation: "reserveUsage",
               userId: input.userId,
               reservationId: reservation.id,
@@ -265,6 +266,7 @@ export class BillingEngine {
               anomaly = true;
               this.logger.error(
                 {
+                  event: "ai_cost_anomaly",
                   operation: "settleUsage",
                   userId: input.userId,
                   reservationId: reservation.id,
@@ -346,6 +348,7 @@ export class BillingEngine {
 
           this.logger.info(
             {
+              event: "ai_usage_settled",
               operation: "settleUsage",
               userId: input.userId,
               reservationId: reservation.id,
@@ -439,6 +442,7 @@ export class BillingEngine {
 
           this.logger.info(
             {
+              event: "ai_reservation_released",
               operation: "releaseUsage",
               userId: input.userId,
               reservationId: reservation.id,
