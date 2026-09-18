@@ -7,8 +7,8 @@ export async function seedVimlaPlans(prisma: PrismaClient): Promise<void> {
 
   await prisma.$transaction(
     async (tx) => {
-      await tx.$queryRaw(
-        Prisma.sql`SELECT pg_advisory_xact_lock(hashtext('vimla:seed-plans:v1'))`,
+      await tx.$queryRaw<Array<{ locked: number }>>(
+        Prisma.sql`SELECT 1 AS "locked" FROM pg_advisory_xact_lock(hashtext('vimla:seed-plans:v1'))`,
       );
 
       for (const entry of VIMLA_PLAN_CATALOG) {
