@@ -732,12 +732,13 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
     });
   }
 
-  private async beginOrReuseRequest(
-    input: InvocationExecutionInput,
-    invocation: InvocationRecord,
-    model: ResolvedModel,
-    messages: readonly ProviderChatMessage[],
-  ): Promise<
+  private async beginOrReuseTurn(args: {
+    input: InvocationExecutionInput;
+    invocation: InvocationRecord;
+    model: ResolvedModel;
+    messages: readonly ProviderChatMessage[];
+    turnIndex: number;
+  }): Promise<
     | {
         kind: "new";
         aiRequestId: string;
@@ -747,44 +748,57 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
         estimatedInputTokens: number;
         maxOutputTokens: number;
       }
-    | { kind: "replay"; aiRequestId: string; text: string }
+    | {
+        kind: "replay";
+        aiRequestId: string;
+        providerTurnId: string;
+        providerTurnIdempotencyKey: string;
+        text: string;
+        toolCalls: ProviderToolCall[];
+        toolResults: DurableToolResult[];
+      }
     | { kind: "in_progress" }
     | { kind: "capacity_wait" }
     | { kind: "usage_blocked" }
     | { kind: "terminal_failure"; errorCode: string }
   > {
-    const clientRequestId = orchestrationAiClientRequestId(input.invocationId);
-    const existing = await this.prisma.aiRequest.findUnique({
-      where: {
-        userId_clientRequestId: {
-          userId: invocation.plan.userId,
-          clientRequestId,
-        },
-      },
-      include: { providerTurn: true },
+    const { input, invocation, model, messages, turnIndex } = args;
+    const providerTurnIdempotencyKey =
+      orchestrationAiProviderTurnIdempotencyKey(input.invocationId, turnIndex);
+    const existingTurn = await this.prisma.aIProviderTurn.findUnique({
+      where: { idempotencyKey: providerTurnIdempotencyKey },
+      include: { aiRequest: true },
     });
-    if (existing) {
-      if (
-        existing.status === "CREATED" &&
-        existing.financialStatus === "NONE" &&
-        existing.providerTurn
-      ) {
-        return {
-          kind: "new",
-          aiRequestId: existing.id,
-          providerTurnId: existing.providerTurn.id,
-          providerTurnIdempotencyKey: existing.providerTurn.idempotencyKey,
-          estimatedCostMicroRub: existing.estimatedCostMicroRub,
-          estimatedInputTokens: existing.estimatedInputTokens,
-          maxOutputTokens: existing.maxOutputTokens,
-        };
-      }
-      return existingAiRequestOutcome(existing);
+    if (existingTurn) {
+      return existingProviderTurnOutcome(existingTurn);
+    }
+
+    const planSpend = await this.getPlanSpendState(input.planId, input.invocationId);
+    if (
+      planSpend.providerTurnsForInvocation >= this.maxProviderTurnsPerInvocation ||
+      (!planSpend.paidInvocationIds.has(input.invocationId) &&
+        planSpend.paidInvocationIds.size >= this.maxPaidInvocationsPerPlan)
+    ) {
+      return { kind: "terminal_failure", errorCode: "PLAN_SPEND_LIMIT_REACHED" };
+    }
+
+    const settledRemaining =
+      this.maxSettledCostMicroRubPerPlan - planSpend.settledMicroRub;
+    const committedRemaining =
+      this.maxCommittedCostMicroRubPerPlan -
+      (planSpend.settledMicroRub + planSpend.activeReservedMicroRub);
+    if (settledRemaining <= 0n || committedRemaining <= 0n) {
+      return { kind: "terminal_failure", errorCode: "PLAN_SPEND_LIMIT_REACHED" };
     }
 
     const estimatedInputTokens = estimateInputTokens(messages);
     const capacity = await this.billing.getSpendableUsageState(invocation.plan.userId);
-    const availableMicroRub = capacity.availableMicroRub;
+    const planAvailable =
+      settledRemaining < committedRemaining ? settledRemaining : committedRemaining;
+    const availableMicroRub =
+      capacity.availableMicroRub < planAvailable
+        ? capacity.availableMicroRub
+        : planAvailable;
     const budgetResult = resolveAiExecutionBudget({
       profile: "STANDARD",
       profiles: this.config.budgetProfiles,
@@ -796,6 +810,24 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
       safetyBps: this.config.reservationSafetyBps,
     });
     if (budgetResult.kind === "INSUFFICIENT_USAGE") {
+      if (availableMicroRub < capacity.availableMicroRub) {
+        const userOnlyBudget = resolveAiExecutionBudget({
+          profile: "STANDARD",
+          profiles: this.config.budgetProfiles,
+          modelMaxOutputTokens: model.maxOutputTokens,
+          estimatedInputTokens,
+          availableMicroRub: capacity.availableMicroRub,
+          maxReservationMicroRub: this.config.maxReservationMicroRub,
+          price: model.price,
+          safetyBps: this.config.reservationSafetyBps,
+        });
+        if (userOnlyBudget.kind === "BUDGET") {
+          return {
+            kind: "terminal_failure",
+            errorCode: "PLAN_SPEND_LIMIT_REACHED",
+          };
+        }
+      }
       return capacity.activeReservedMicroRub > 0n
         ? { kind: "capacity_wait" }
         : { kind: "usage_blocked" };
@@ -809,6 +841,27 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
 
     const maxOutputTokens = budgetResult.budget.selectedOutputTokens;
     const estimatedCostMicroRub = budgetResult.budget.estimatedCostMicroRub;
+    if (
+      planSpend.settledMicroRub + estimatedCostMicroRub >
+        this.maxSettledCostMicroRubPerPlan ||
+      planSpend.settledMicroRub +
+          planSpend.activeReservedMicroRub +
+          estimatedCostMicroRub >
+        this.maxCommittedCostMicroRubPerPlan
+    ) {
+      return { kind: "terminal_failure", errorCode: "PLAN_SPEND_LIMIT_REACHED" };
+    }
+
+    const clientRequestId = providerTurnIdempotencyKey;
+    const existingExecution = await this.prisma.aIExecution.findFirst({
+      where: {
+        invocationRun: {
+          invocationId: input.invocationId,
+        },
+      },
+      select: { id: true },
+      orderBy: { createdAt: "asc" },
+    });
 
     try {
       const created = await this.prisma.$transaction(async (tx) => {
@@ -828,30 +881,37 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
             estimatedCostMicroRub,
           },
         });
-        const run = await tx.invocationRun.update({
-          where: { id: input.runId },
-          data: {
-            aiExecution: {
-              create: {
-                aiRequestId: aiRequest.id,
+
+        let aiExecutionId = existingExecution?.id ?? null;
+        if (!aiExecutionId) {
+          if (turnIndex !== 0) {
+            throw new Error("AI execution is missing before a continuation turn");
+          }
+          const run = await tx.invocationRun.update({
+            where: { id: input.runId },
+            data: {
+              aiExecution: {
+                create: {
+                  aiRequestId: aiRequest.id,
+                },
               },
             },
-          },
-          select: {
-            aiExecution: {
-              select: { id: true },
+            select: {
+              aiExecution: {
+                select: { id: true },
+              },
             },
-          },
-        });
-        if (!run.aiExecution) {
+          });
+          aiExecutionId = run.aiExecution?.id ?? null;
+        }
+        if (!aiExecutionId) {
           throw new Error("AI execution was not created");
         }
-        const providerTurnIdempotencyKey =
-          orchestrationAiProviderTurnIdempotencyKey(input.invocationId, 0);
+
         const providerTurn = await tx.aIProviderTurn.create({
           data: {
-            aiExecutionId: run.aiExecution.id,
-            turnIndex: 0,
+            aiExecutionId,
+            turnIndex,
             aiRequestId: aiRequest.id,
             idempotencyKey: providerTurnIdempotencyKey,
             status: "CREATED",
@@ -870,18 +930,14 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
       };
     } catch (error: unknown) {
       if (!isUniqueConstraint(error)) throw error;
-      const replay = await this.prisma.aiRequest.findUnique({
-        where: {
-          userId_clientRequestId: {
-            userId: invocation.plan.userId,
-            clientRequestId,
-          },
-        },
+      const replay = await this.prisma.aIProviderTurn.findUnique({
+        where: { idempotencyKey: providerTurnIdempotencyKey },
+        include: { aiRequest: true },
       });
       if (!replay) {
         return { kind: "in_progress" };
       }
-      return existingAiRequestOutcome(replay);
+      return existingProviderTurnOutcome(replay);
     }
   }
 
