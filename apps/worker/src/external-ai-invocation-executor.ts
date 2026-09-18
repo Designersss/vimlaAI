@@ -858,7 +858,10 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
       return { kind: "terminal_failure", errorCode: "PLAN_SPEND_LIMIT_REACHED" };
     }
 
-    const clientRequestId = providerTurnIdempotencyKey;
+    const clientRequestId =
+      turnIndex === 0
+        ? orchestrationAiClientRequestId(input.invocationId)
+        : providerTurnIdempotencyKey;
     const existingExecution = await this.prisma.aIExecution.findFirst({
       where: {
         invocationRun: {
