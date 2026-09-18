@@ -292,8 +292,8 @@ export class AiRequestReconciler {
     }
 
     const finalRequestStatus = request.outputText === null ? "FAILED" : "SUCCEEDED";
-    const operations = [
-      this.prisma.aiRequest.update({
+    await this.prisma.$transaction(async (tx) => {
+      await tx.aiRequest.update({
         where: { id: request.id },
         data: {
           reservationId: reservation.id,
@@ -302,17 +302,14 @@ export class AiRequestReconciler {
           userSettledUsageMicroRub: settledMicroRub,
           finishedAt: request.finishedAt ?? new Date(),
         },
-      }),
-    ];
-    if (providerTurnId) {
-      operations.push(
-        this.prisma.aIProviderTurn.update({
+      });
+      if (providerTurnId) {
+        await tx.aIProviderTurn.update({
           where: { id: providerTurnId },
           data: { status: "SUCCEEDED" },
-        }) as typeof operations[number],
-      );
-    }
-    await this.prisma.$transaction(operations);
+        });
+      }
+    });
     counters.finalized += 1;
   }
 
@@ -348,8 +345,8 @@ export class AiRequestReconciler {
       counters.failedBeforeProvider += 1;
     }
 
-    const operations = [
-      this.prisma.aiRequest.update({
+    await this.prisma.$transaction(async (tx) => {
+      await tx.aiRequest.update({
         where: { id: request.id },
         data: {
           reservationId: reservation?.id ?? null,
@@ -357,17 +354,14 @@ export class AiRequestReconciler {
           financialStatus,
           finishedAt: request.finishedAt ?? new Date(),
         },
-      }),
-    ];
-    if (providerTurnId) {
-      operations.push(
-        this.prisma.aIProviderTurn.update({
+      });
+      if (providerTurnId) {
+        await tx.aIProviderTurn.update({
           where: { id: providerTurnId },
           data: { status: "FAILED_PRE_PROVIDER" },
-        }) as typeof operations[number],
-      );
-    }
-    await this.prisma.$transaction(operations);
+        });
+      }
+    });
   }
 
   private async holdAmbiguous(
@@ -379,8 +373,8 @@ export class AiRequestReconciler {
     reservationId: string | null,
     counters: AiReconciliationCounters,
   ): Promise<void> {
-    const operations = [
-      this.prisma.aiRequest.update({
+    await this.prisma.$transaction(async (tx) => {
+      await tx.aiRequest.update({
         where: { id: request.id },
         data: {
           reservationId,
@@ -388,17 +382,14 @@ export class AiRequestReconciler {
           financialStatus: "RECONCILIATION_HOLD",
           finishedAt: request.finishedAt ?? new Date(),
         },
-      }),
-    ];
-    if (providerTurnId) {
-      operations.push(
-        this.prisma.aIProviderTurn.update({
+      });
+      if (providerTurnId) {
+        await tx.aIProviderTurn.update({
           where: { id: providerTurnId },
           data: { status: "RECONCILIATION_REQUIRED" },
-        }) as typeof operations[number],
-      );
-    }
-    await this.prisma.$transaction(operations);
+        });
+      }
+    });
     counters.held += 1;
   }
 
