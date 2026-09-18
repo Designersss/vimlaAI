@@ -30,8 +30,8 @@ export function createWorkerPaymentService(
   prisma: PrismaClient,
   config: WorkerConfig,
   logger: BillingLogger,
+  engine: BillingEngine = createWorkerBillingEngine(prisma, config, logger),
 ): PaymentService {
-  const engine = createWorkerBillingEngine(prisma, config, logger);
   const provider =
     config.paymentProvider === "tbank"
       ? new TBankPaymentProvider(
