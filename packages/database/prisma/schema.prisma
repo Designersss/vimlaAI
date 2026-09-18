@@ -1377,9 +1377,10 @@ model AIProviderTurn {
   idempotencyKey String      @unique
   status          String
   toolCallsJson   Json?
-  toolResultsJson Json?
-  toolCallError   Boolean     @default(false)
-  createdAt       DateTime    @default(now())
+  toolResultsJson      Json?
+  toolCallError        Boolean     @default(false)
+  providerInterrupted  Boolean     @default(false)
+  createdAt            DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
 
   @@unique([aiExecutionId, turnIndex])
