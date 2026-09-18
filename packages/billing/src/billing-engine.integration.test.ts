@@ -33,6 +33,32 @@ describe("billing engine integration", () => {
     await prisma.$disconnect();
   });
 
+  it("seeds plans safely under concurrent integration bootstrap", async () => {
+    await Promise.all(
+      Array.from({ length: 8 }, () => seedVimlaPlans(prisma)),
+    );
+
+    const draftPlans = await prisma.planVersion.findMany({
+      where: {
+        plan: { code: { in: ["T199", "T499", "T999"] } },
+        status: "DRAFT",
+      },
+      select: {
+        id: true,
+        entitlements: {
+          select: { key: true },
+        },
+      },
+    });
+
+    expect(draftPlans).toHaveLength(3);
+    for (const version of draftPlans) {
+      const keys = version.entitlements.map((entitlement) => entitlement.key);
+      expect(new Set(keys).size).toBe(keys.length);
+      expect(keys).toContain("projects.ownedActiveMax");
+    }
+  });
+
   it("grants Pro monthly usage from a succeeded payment once", async () => {
     const userId = await createUser(prisma, "pro");
     const payment = await purchaseSubscription(engine, userId, "PRO");
