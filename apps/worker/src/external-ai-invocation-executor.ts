@@ -604,10 +604,13 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
   private async resolveModel(
     input: InvocationExecutionInput,
     messages: readonly ProviderChatMessage[],
+    requiresToolUse: boolean,
+    forcedModelSlug: string | null = null,
   ): Promise<ResolvedModel> {
     const now = new Date();
     const exactModelSlug =
-      input.target.kind === "AI_MODEL" ? input.target.modelSlug : null;
+      forcedModelSlug ??
+      (input.target.kind === "AI_MODEL" ? input.target.modelSlug : null);
     if (input.target.kind === "AI_MODEL" && !exactModelSlug) {
       throw new ExternalAiTerminalError("AI_MODEL_UNAVAILABLE");
     }
@@ -643,9 +646,12 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
         slug: model.slug,
         provider: model.provider,
         providerModelId: model.providerModelId,
+        contextWindowTokens: model.contextWindowTokens,
         maxOutputTokens: model.maxOutputTokens,
         priceVersionId: priceVersion.id,
         billingBoundedness: curated?.billingBoundedness ?? "SOFT_BOUNDED",
+        supportsToolUse: curated?.supportsToolUse ?? false,
+        autoPriority: curated?.autoPriority ?? Number.MAX_SAFE_INTEGER,
         price: {
           inputMicroRubPerMillion: priceVersion.inputMicroRubPerMillion,
           outputMicroRubPerMillion: priceVersion.outputMicroRubPerMillion,
@@ -671,9 +677,21 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
           : "AI_AUTO_NO_APPROVED_MODEL",
       );
     }
-    if (input.target.kind === "AI_MODEL") {
+    const estimatedInputTokens = estimateInputTokens(messages);
+    const minimumOutputTokens = this.config.budgetProfiles.STANDARD.minimumOutputTokens;
+    const capable = (candidate: ResolvedModel): boolean =>
+      candidate.billingBoundedness === "HARD_BOUNDED" &&
+      (!requiresToolUse || candidate.supportsToolUse) &&
+      estimatedInputTokens +
+          Math.min(minimumOutputTokens, candidate.maxOutputTokens) <=
+        candidate.contextWindowTokens;
+
+    if (input.target.kind === "AI_MODEL" || forcedModelSlug !== null) {
       if (firstCandidate.billingBoundedness !== "HARD_BOUNDED") {
         throw new ExternalAiTerminalError("AI_MODEL_BILLING_UNBOUNDED");
+      }
+      if (!capable(firstCandidate)) {
+        throw new ExternalAiTerminalError("AI_MODEL_CAPABILITY_UNAVAILABLE");
       }
       return firstCandidate;
     }
@@ -684,15 +702,21 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
     if (boundedCandidates.length === 0) {
       throw new ExternalAiTerminalError("AI_AUTO_NO_BOUNDED_MODEL");
     }
+    const capableCandidates = boundedCandidates.filter(capable);
+    if (capableCandidates.length === 0) {
+      throw new ExternalAiTerminalError("AI_AUTO_NO_CAPABLE_MODEL");
+    }
 
-    const estimatedInputTokens = estimateInputTokens(messages);
-    const ranked = [...boundedCandidates].sort((left, right) => {
+    const ranked = [...capableCandidates].sort((left, right) => {
+      if (left.autoPriority !== right.autoPriority) {
+        return left.autoPriority - right.autoPriority;
+      }
       const leftCost = this.estimatedCost(left, estimatedInputTokens);
       const rightCost = this.estimatedCost(right, estimatedInputTokens);
       if (leftCost === rightCost) return left.slug.localeCompare(right.slug);
       return leftCost < rightCost ? -1 : 1;
     });
-    return ranked[0] ?? boundedCandidates[0] ?? firstCandidate;
+    return ranked[0] ?? capableCandidates[0] ?? firstCandidate;
   }
 
   private estimatedCost(model: ResolvedModel, estimatedInputTokens: number): bigint {
