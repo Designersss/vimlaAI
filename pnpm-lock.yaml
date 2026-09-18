@@ -275,6 +275,9 @@ importers:
 
   apps/worker:
     dependencies:
+      '@vimla/ai':
+        specifier: workspace:*
+        version: link:../../packages/ai
       '@vimla/billing':
         specifier: workspace:*
         version: link:../../packages/billing
@@ -290,9 +293,15 @@ importers:
       '@vimla/notifications':
         specifier: workspace:*
         version: link:../../packages/notifications
+      '@vimla/operator':
+        specifier: workspace:*
+        version: link:../../packages/operator
       '@vimla/shared':
         specifier: workspace:*
         version: link:../../packages/shared
+      '@vimla/workspace':
+        specifier: workspace:*
+        version: link:../../packages/workspace
       bullmq:
         specifier: ^5.58.5
         version: 5.81.4
