@@ -204,6 +204,7 @@ export class AiRequestReconciler {
       id: string;
       status: string;
       aiRequestId: string;
+      toolCallError: boolean;
       aiRequest: {
         id: string;
         userId: string;
@@ -226,6 +227,7 @@ export class AiRequestReconciler {
       await this.reconcileDurableUsage(
         request,
         turn.id,
+        turn.toolCallError,
         reservation,
         counters,
       );
@@ -258,7 +260,13 @@ export class AiRequestReconciler {
     const reservation = await this.findReservation(request);
 
     if (request.providerActualCostMicroRub !== null) {
-      await this.reconcileDurableUsage(request, null, reservation, counters);
+      await this.reconcileDurableUsage(
+        request,
+        null,
+        false,
+        reservation,
+        counters,
+      );
       return;
     }
 
@@ -284,6 +292,7 @@ export class AiRequestReconciler {
       finishedAt: Date | null;
     },
     providerTurnId: string | null,
+    toolCallError: boolean,
     reservation: {
       id: string;
       estimatedMicroRub: bigint;
@@ -356,7 +365,8 @@ export class AiRequestReconciler {
       return;
     }
 
-    const finalRequestStatus = request.outputText === null ? "FAILED" : "SUCCEEDED";
+    const finalRequestStatus =
+      request.outputText === null || toolCallError ? "FAILED" : "SUCCEEDED";
     await this.prisma.$transaction(async (tx) => {
       await tx.aiRequest.update({
         where: { id: request.id },
