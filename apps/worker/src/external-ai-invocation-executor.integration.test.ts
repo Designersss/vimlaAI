@@ -10,6 +10,7 @@ import { createPrismaClient, type PrismaClient } from "@vimla/database";
 import {
   ExternalAiInvocationExecutor,
   orchestrationAiClientRequestId,
+  orchestrationAiProviderTurnIdempotencyKey,
 } from "./external-ai-invocation-executor.js";
 import type { InvocationExecutionInput } from "./orchestration.js";
 
@@ -68,6 +69,7 @@ describe("ExternalAiInvocationExecutor", () => {
       include: {
         reservation: true,
         aiExecution: true,
+        providerTurn: true,
       },
     });
     expect(request.status).toBe("SUCCEEDED");
@@ -75,6 +77,11 @@ describe("ExternalAiInvocationExecutor", () => {
     expect(request.outputText).toBe("Launch note from model");
     expect(request.reservation?.status).toBe("SETTLED");
     expect(request.aiExecution?.invocationRunId).toBe(seeded.runId);
+    expect(request.providerTurn?.turnIndex).toBe(0);
+    expect(request.providerTurn?.status).toBe("SUCCEEDED");
+    expect(request.providerTurn?.idempotencyKey).toBe(
+      orchestrationAiProviderTurnIdempotencyKey(seeded.invocationId, 0),
+    );
 
     const artifact = await prisma.artifact.findUniqueOrThrow({
       where: {
@@ -339,11 +346,12 @@ describe("ExternalAiInvocationExecutor", () => {
           clientRequestId: orchestrationAiClientRequestId(seeded.invocationId),
         },
       },
-      include: { reservation: true },
+      include: { reservation: true, providerTurn: true },
     });
     expect(request.status).toBe("RECONCILIATION_REQUIRED");
     expect(request.financialStatus).toBe("RECONCILIATION_HOLD");
     expect(request.reservation?.status).toBe("ACTIVE");
+    expect(request.providerTurn?.status).toBe("RECONCILIATION_REQUIRED");
     const bucket = await prisma.usageBucket.findFirstOrThrow({
       where: { userId: seeded.userId },
     });
