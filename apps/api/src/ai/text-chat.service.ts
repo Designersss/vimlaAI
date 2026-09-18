@@ -345,6 +345,99 @@ export class TextChatService {
         }
       }
     } catch (error: unknown) {
+      if (usageEvent) {
+        let interruptedActualCost: bigint;
+        try {
+          interruptedActualCost = providerCostFromUsage(
+            usageEvent,
+            input.model.price,
+          );
+        } catch {
+          await this.markReconciliation({
+            aiRequestId: input.aiRequestId,
+            conversationId: input.conversation.id,
+            assistantText,
+            reason: "invalid_provider_usage_after_interruption",
+          });
+          throw new AiError(
+            "AI_RECONCILIATION_REQUIRED",
+            "Interrupted provider usage could not be normalized",
+            503,
+          );
+        }
+
+        await this.persistDurableUsage({
+          aiRequestId: input.aiRequestId,
+          assistantText,
+          usage: usageEvent,
+          providerActualCostMicroRub: interruptedActualCost,
+        });
+
+        if (
+          usageEvent.inputTokens > BigInt(estimatedInputTokens) ||
+          usageEvent.outputTokens > BigInt(maxOutputTokens) ||
+          interruptedActualCost > estimatedCostMicroRub
+        ) {
+          await this.markFundedBoundViolation({
+            aiRequestId: input.aiRequestId,
+            reservationId,
+            assistantText,
+            usage: usageEvent,
+            providerActualCostMicroRub: interruptedActualCost,
+            estimatedInputTokens,
+            maxOutputTokens,
+            estimatedCostMicroRub,
+          });
+          throw new AiError(
+            "AI_RECONCILIATION_REQUIRED",
+            "Interrupted provider usage exceeded the funded request bound",
+            503,
+          );
+        }
+
+        let interruptedSettlement: ReservationView;
+        try {
+          interruptedSettlement = await this.engine.settleUsage({
+            userId: input.userId,
+            reservationId,
+            actualMicroRub: interruptedActualCost,
+            correlationId: input.correlationId,
+          });
+        } catch {
+          await this.prisma.aiRequest.update({
+            where: { id: input.aiRequestId },
+            data: {
+              status: "RECONCILIATION_REQUIRED",
+              financialStatus: "RECONCILIATION_HOLD",
+              finishedAt: new Date(),
+            },
+          });
+          throw new AiError(
+            "AI_RECONCILIATION_REQUIRED",
+            "Interrupted provider usage needs settlement reconciliation",
+            503,
+          );
+        }
+
+        await this.prisma.aiRequest.update({
+          where: { id: input.aiRequestId },
+          data: {
+            status: "FAILED",
+            financialStatus:
+              interruptedSettlement.status === "ANOMALY"
+                ? "ANOMALY"
+                : "SETTLED",
+            userSettledUsageMicroRub: interruptedSettlement.settledMicroRub,
+            finishedAt: new Date(),
+          },
+        });
+        throw new AiError(
+          "PROVIDER_AMBIGUOUS_FAILURE",
+          "Provider stream ended after usage was recorded",
+          502,
+        );
+      }
+
       await this.handleProviderFailure({
         userId: input.userId,
         aiRequestId: input.aiRequestId,
@@ -386,34 +479,27 @@ export class TextChatService {
       );
     }
 
+    await this.persistDurableUsage({
+      aiRequestId: input.aiRequestId,
+      assistantText,
+      usage: usageEvent,
+      providerActualCostMicroRub,
+    });
+
     if (
       usageEvent.inputTokens > BigInt(estimatedInputTokens) ||
       usageEvent.outputTokens > BigInt(maxOutputTokens) ||
       providerActualCostMicroRub > estimatedCostMicroRub
     ) {
-      await this.prisma.aiRequest.update({
-        where: { id: input.aiRequestId },
-        data: {
-          status: "RECONCILIATION_REQUIRED",
-          financialStatus: "RECONCILIATION_HOLD",
-          providerActualCostMicroRub,
-          actualInputTokens: numberTokens(usageEvent.inputTokens),
-          actualOutputTokens: numberTokens(usageEvent.outputTokens),
-          reasoningTokens: numberTokens(usageEvent.reasoningTokens),
-          cacheReadTokens: numberTokens(usageEvent.cacheReadTokens),
-          cacheWriteTokens: numberTokens(usageEvent.cacheWriteTokens),
-          outputText: assistantText,
-          finishedAt: new Date(),
-        },
-      });
-      this.logger.error({
-        event: "ai_provider_boundedness_violation",
+      await this.markFundedBoundViolation({
         aiRequestId: input.aiRequestId,
         reservationId,
+        assistantText,
+        usage: usageEvent,
+        providerActualCostMicroRub,
         estimatedInputTokens,
         maxOutputTokens,
-        estimatedCostMicroRub: estimatedCostMicroRub.toString(10),
-        providerActualCostMicroRub: providerActualCostMicroRub.toString(10),
+        estimatedCostMicroRub,
       });
       throw new AiError(
         "AI_RECONCILIATION_REQUIRED",
@@ -672,6 +758,56 @@ export class TextChatService {
         cacheWriteMicroRubPerMillion: price.cacheWriteMicroRubPerMillion,
       },
     };
+  }
+
+  private async persistDurableUsage(input: {
+    aiRequestId: string;
+    assistantText: string;
+    usage: Extract<ProviderStreamEvent, { type: "usage" }>["usage"];
+    providerActualCostMicroRub: bigint;
+  }): Promise<void> {
+    await this.prisma.aiRequest.update({
+      where: { id: input.aiRequestId },
+      data: {
+        providerActualCostMicroRub: input.providerActualCostMicroRub,
+        actualInputTokens: numberTokens(input.usage.inputTokens),
+        actualOutputTokens: numberTokens(input.usage.outputTokens),
+        reasoningTokens: numberTokens(input.usage.reasoningTokens),
+        cacheReadTokens: numberTokens(input.usage.cacheReadTokens),
+        cacheWriteTokens: numberTokens(input.usage.cacheWriteTokens),
+        outputText: input.assistantText,
+      },
+    });
+  }
+
+  private async markFundedBoundViolation(input: {
+    aiRequestId: string;
+    reservationId: string;
+    assistantText: string;
+    usage: Extract<ProviderStreamEvent, { type: "usage" }>["usage"];
+    providerActualCostMicroRub: bigint;
+    estimatedInputTokens: number;
+    maxOutputTokens: number;
+    estimatedCostMicroRub: bigint;
+  }): Promise<void> {
+    await this.prisma.aiRequest.update({
+      where: { id: input.aiRequestId },
+      data: {
+        status: "RECONCILIATION_REQUIRED",
+        financialStatus: "RECONCILIATION_HOLD",
+        finishedAt: new Date(),
+      },
+    });
+    this.logger.error({
+      event: "ai_provider_boundedness_violation",
+      aiRequestId: input.aiRequestId,
+      reservationId: input.reservationId,
+      estimatedInputTokens: input.estimatedInputTokens,
+      maxOutputTokens: input.maxOutputTokens,
+      estimatedCostMicroRub: input.estimatedCostMicroRub.toString(10),
+      providerActualCostMicroRub:
+        input.providerActualCostMicroRub.toString(10),
+    });
   }
 
   private async handleProviderFailure(input: {
