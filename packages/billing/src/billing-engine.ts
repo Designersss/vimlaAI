@@ -352,6 +352,7 @@ export class BillingEngine {
               operation: "settleUsage",
               userId: input.userId,
               reservationId: reservation.id,
+              estimatedMicroRub: microRubToJson(reservation.estimatedMicroRub),
               amountMicroRub: microRubToJson(actual),
               result: nextStatus.toLowerCase(),
             },
