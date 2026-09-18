@@ -4,6 +4,7 @@ import {
   MockAiProvider,
   ProviderCallError,
   VimlaAiGateway,
+  providerCostFromUsage,
   seedVimlaAiModels,
   type AiProvider,
   type ProviderChatRequest,
@@ -166,6 +167,131 @@ describe("ExternalAiInvocationExecutor", () => {
         where: { creatorInvocationId: seeded.invocationId },
       }),
     ).toBe(1);
+  });
+
+  it("reuses the frozen price version for a created turn after catalog pricing changes", async () => {
+    const seeded = await seedInvocation(prisma, {
+      targetKind: "AI_MODEL",
+      targetModelSlug: "gpt-5-6-luna",
+      purpose: "Resume an admitted turn using its frozen price version",
+      fund: true,
+    });
+    const model = await prisma.aiModel.findUniqueOrThrow({
+      where: { slug: "gpt-5-6-luna" },
+      include: {
+        priceVersions: {
+          where: { effectiveTo: null },
+          orderBy: { effectiveFrom: "desc" },
+          take: 1,
+        },
+      },
+    });
+    const frozenPrice = model.priceVersions[0];
+    if (!frozenPrice) throw new Error("Frozen test price version missing");
+
+    const aiRequest = await prisma.aiRequest.create({
+      data: {
+        userId: seeded.userId,
+        conversationId: seeded.conversationId,
+        modelId: model.id,
+        priceVersionId: frozenPrice.id,
+        clientRequestId: orchestrationAiClientRequestId(seeded.invocationId),
+        provider: model.provider,
+        providerModelId: model.providerModelId,
+        status: "CREATED",
+        financialStatus: "NONE",
+        estimatedInputTokens: 5_000,
+        maxOutputTokens: 768,
+        estimatedCostMicroRub: 10_000_000n,
+      },
+    });
+    const execution = await prisma.aIExecution.create({
+      data: {
+        invocationRunId: seeded.runId,
+        aiRequestId: aiRequest.id,
+      },
+    });
+    await prisma.aIProviderTurn.create({
+      data: {
+        aiExecutionId: execution.id,
+        turnIndex: 0,
+        aiRequestId: aiRequest.id,
+        idempotencyKey: orchestrationAiProviderTurnIdempotencyKey(
+          seeded.invocationId,
+          0,
+        ),
+        status: "CREATED",
+      },
+    });
+
+    const replacementPrice = await prisma.aiModelPriceVersion.create({
+      data: {
+        modelId: model.id,
+        inputMicroRubPerMillion:
+          frozenPrice.inputMicroRubPerMillion * 100n,
+        outputMicroRubPerMillion:
+          frozenPrice.outputMicroRubPerMillion * 100n,
+        cacheReadMicroRubPerMillion:
+          frozenPrice.cacheReadMicroRubPerMillion === null
+            ? null
+            : frozenPrice.cacheReadMicroRubPerMillion * 100n,
+        cacheWriteMicroRubPerMillion:
+          frozenPrice.cacheWriteMicroRubPerMillion === null
+            ? null
+            : frozenPrice.cacheWriteMicroRubPerMillion * 100n,
+        effectiveFrom: new Date(),
+        effectiveTo: null,
+        verifiedAt: new Date(),
+        source: "test-price-version-rollover",
+      },
+    });
+
+    try {
+      const provider = new MockAiProvider();
+      const executor = createExecutor(prisma, provider);
+      const result = await executor.execute(
+        executionInput(seeded, {
+          kind: "AI_MODEL",
+          modelSlug: "gpt-5-6-luna",
+          agentId: null,
+        }),
+      );
+
+      expect(result).toEqual({ status: "COMPLETED", outcome: "PASS" });
+      const after = await prisma.aiRequest.findUniqueOrThrow({
+        where: { id: aiRequest.id },
+      });
+      const frozenQuote = {
+        inputMicroRubPerMillion: frozenPrice.inputMicroRubPerMillion,
+        outputMicroRubPerMillion: frozenPrice.outputMicroRubPerMillion,
+        cacheReadMicroRubPerMillion:
+          frozenPrice.cacheReadMicroRubPerMillion,
+        cacheWriteMicroRubPerMillion:
+          frozenPrice.cacheWriteMicroRubPerMillion,
+      };
+      const replacementQuote = {
+        inputMicroRubPerMillion:
+          replacementPrice.inputMicroRubPerMillion,
+        outputMicroRubPerMillion:
+          replacementPrice.outputMicroRubPerMillion,
+        cacheReadMicroRubPerMillion:
+          replacementPrice.cacheReadMicroRubPerMillion,
+        cacheWriteMicroRubPerMillion:
+          replacementPrice.cacheWriteMicroRubPerMillion,
+      };
+      expect(after.priceVersionId).toBe(frozenPrice.id);
+      expect(after.providerActualCostMicroRub).toBe(
+        providerCostFromUsage(provider.usage, frozenQuote),
+      );
+      expect(after.providerActualCostMicroRub).not.toBe(
+        providerCostFromUsage(provider.usage, replacementQuote),
+      );
+      expect(provider.callCount).toBe(1);
+    } finally {
+      await prisma.aiModelPriceVersion.delete({
+        where: { id: replacementPrice.id },
+      });
+    }
   });
 
   it("blocks an invocation before provider execution when usage budget is insufficient", async () => {
