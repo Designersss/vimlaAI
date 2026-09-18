@@ -42,6 +42,8 @@ const ACTIVE_INVOCATION_STATUSES = [
   "READY",
   "RUNNING",
   "WAITING_APPROVAL",
+  "WAITING_FOR_USAGE_CAPACITY",
+  "BLOCKED_INSUFFICIENT_USAGE",
 ] as const;
 
 @Injectable()
@@ -505,6 +507,8 @@ function parseInvocationStatus(status: string): InvocationStatus {
     case "READY":
     case "RUNNING":
     case "WAITING_APPROVAL":
+    case "WAITING_FOR_USAGE_CAPACITY":
+    case "BLOCKED_INSUFFICIENT_USAGE":
     case "COMPLETED":
     case "FAILED":
     case "SKIPPED":
