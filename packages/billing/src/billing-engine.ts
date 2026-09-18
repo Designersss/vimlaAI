@@ -897,6 +897,32 @@ export class BillingEngine {
     };
   }
 
+  async getSpendableUsageMicroRub(userId: string): Promise<MicroRub> {
+    const now = new Date();
+    const buckets = await this.prisma.usageBucket.findMany({
+      where: {
+        userId,
+        OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+      },
+      select: {
+        totalMicroRub: true,
+        spentMicroRub: true,
+        reservedMicroRub: true,
+      },
+    });
+
+    return buckets.reduce(
+      (sum, bucket) =>
+        sum +
+        availableMicroRub(
+          bucket.totalMicroRub,
+          bucket.spentMicroRub,
+          bucket.reservedMicroRub,
+        ),
+      0n,
+    );
+  }
+
   async getActiveSubscription(userId: string): Promise<ActiveSubscriptionView | null> {
     const now = new Date();
     const subscription = await this.prisma.subscription.findFirst({
