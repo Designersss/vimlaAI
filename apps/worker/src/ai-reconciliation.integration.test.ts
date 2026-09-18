@@ -212,6 +212,51 @@ describe("AiRequestReconciler", () => {
     });
   });
 
+  it("recovers an unlinked pre-provider reservation", async () => {
+    const seeded = await seedTurn(prisma, billing, {
+      turnStatus: "RESERVED",
+      actualMicroRub: null,
+      outputText: null,
+    });
+    const request = await prisma.aiRequest.findUniqueOrThrow({
+      where: { id: seeded.aiRequestId },
+      include: { providerTurn: true, reservation: true },
+    });
+    if (!request.providerTurn || !request.reservation) {
+      throw new Error("Seeded reservation or provider turn missing");
+    }
+
+    await prisma.$transaction([
+      prisma.aiRequest.update({
+        where: { id: request.id },
+        data: {
+          reservationId: null,
+          status: "CREATED",
+          financialStatus: "NONE",
+        },
+      }),
+      prisma.aIProviderTurn.update({
+        where: { id: request.providerTurn.id },
+        data: { status: "CREATED" },
+      }),
+    ]);
+
+    await reconcileAll(reconciler);
+
+    const recovered = await prisma.aiRequest.findUniqueOrThrow({
+      where: { id: request.id },
+      include: { providerTurn: true },
+    });
+    const reservation = await prisma.usageReservation.findUniqueOrThrow({
+      where: { id: request.reservation.id },
+    });
+    expect(recovered.status).toBe("FAILED");
+    expect(recovered.financialStatus).toBe("RELEASED");
+    expect(recovered.providerTurn?.status).toBe("FAILED_PRE_PROVIDER");
+    expect(reservation.status).toBe("RELEASED");
+    expect(await spentForUser(prisma, seeded.userId)).toBe(0n);
+  });
+
   it("never tops up a reservation when durable actual cost exceeds the funded cap", async () => {
     const seeded = await seedTurn(prisma, billing, {
       turnStatus: "USAGE_DURABLE",
