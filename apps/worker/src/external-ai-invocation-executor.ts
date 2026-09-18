@@ -949,6 +949,170 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
     }
   }
 
+  private async loadTurnHistory(invocationId: string) {
+    return this.prisma.aIProviderTurn.findMany({
+      where: {
+        aiExecution: {
+          invocationRun: {
+            invocationId,
+          },
+        },
+      },
+      include: {
+        aiRequest: {
+          include: {
+            model: true,
+          },
+        },
+      },
+      orderBy: { turnIndex: "asc" },
+    });
+  }
+
+  private async ensureToolResults(input: {
+    providerTurnId: string;
+    providerTurnIdempotencyKey: string;
+    calls: readonly ProviderToolCall[];
+    existingResults: DurableToolResult[];
+    context: {
+      userId: string;
+      conversationId: string;
+      planId: string;
+      invocationId: string;
+    };
+  }): Promise<DurableToolResult[]> {
+    const results = [...input.existingResults];
+    for (const call of input.calls) {
+      if (results.some((result) => result.toolCallId === call.id)) {
+        continue;
+      }
+      if (
+        !(await this.isInvocationRunning(
+          input.context.planId,
+          input.context.invocationId,
+        ))
+      ) {
+        throw new ExternalAiTerminalError("AI_EXECUTION_CANCELED");
+      }
+      const result = await this.toolBroker.execute({
+        ...input.context,
+        call,
+        idempotencyKey: `${input.providerTurnIdempotencyKey}:tool:${encodeURIComponent(call.id)}`,
+      });
+      results.push({
+        toolCallId: call.id,
+        name: call.name,
+        result: toPrismaJsonValue(result),
+      });
+      await this.prisma.aIProviderTurn.update({
+        where: { id: input.providerTurnId },
+        data: {
+          status: "TOOL_RESULTS_DURABLE",
+          toolResultsJson: results as unknown as Prisma.InputJsonValue,
+        },
+      });
+    }
+    return results;
+  }
+
+  private async getPlanSpendState(planId: string, invocationId: string): Promise<{
+    paidInvocationIds: Set<string>;
+    providerTurnsForInvocation: number;
+    settledMicroRub: bigint;
+    activeReservedMicroRub: bigint;
+  }> {
+    const turns = await this.prisma.aIProviderTurn.findMany({
+      where: {
+        aiExecution: {
+          invocationRun: {
+            invocation: {
+              planId,
+            },
+          },
+        },
+      },
+      include: {
+        aiExecution: {
+          include: {
+            invocationRun: {
+              select: { invocationId: true },
+            },
+          },
+        },
+        aiRequest: {
+          include: {
+            reservation: true,
+          },
+        },
+      },
+    });
+
+    const paidInvocationIds = new Set<string>();
+    let providerTurnsForInvocation = 0;
+    let settledMicroRub = 0n;
+    let activeReservedMicroRub = 0n;
+    for (const turn of turns) {
+      const turnInvocationId = turn.aiExecution.invocationRun.invocationId;
+      paidInvocationIds.add(turnInvocationId);
+      if (turnInvocationId === invocationId) providerTurnsForInvocation += 1;
+
+      const reservation = turn.aiRequest.reservation;
+      if (reservation?.status === "ACTIVE") {
+        activeReservedMicroRub += reservation.estimatedMicroRub;
+      } else if (
+        reservation?.status === "SETTLED" ||
+        reservation?.status === "ANOMALY"
+      ) {
+        settledMicroRub += reservation.settledMicroRub;
+      } else if (turn.aiRequest.userSettledUsageMicroRub !== null) {
+        settledMicroRub += turn.aiRequest.userSettledUsageMicroRub;
+      }
+    }
+
+    return {
+      paidInvocationIds,
+      providerTurnsForInvocation,
+      settledMicroRub,
+      activeReservedMicroRub,
+    };
+  }
+
+  private async markPreProviderFailure(
+    aiRequestId: string,
+    providerTurnId: string,
+  ): Promise<void> {
+    await this.prisma.$transaction([
+      this.prisma.aiRequest.update({
+        where: { id: aiRequestId },
+        data: {
+          status: "FAILED",
+          financialStatus: "NONE",
+          finishedAt: new Date(),
+        },
+      }),
+      this.prisma.aIProviderTurn.update({
+        where: { id: providerTurnId },
+        data: { status: "FAILED_PRE_PROVIDER" },
+      }),
+    ]);
+  }
+
+  private async isInvocationRunning(
+    planId: string,
+    invocationId: string,
+  ): Promise<boolean> {
+    const invocation = await this.prisma.invocation.findFirst({
+      where: { id: invocationId, planId },
+      select: {
+        status: true,
+        plan: {
+          select: { status: true },
+        },
+      },
+    });
+    return invocation?.status === "RUNNING" && invocation.plan.status === "RUNNING";
+  }
+
   private async callProvider(input: {
     planId: string;
     invocationId: string;
