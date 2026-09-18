@@ -260,6 +260,7 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
 
       const model = await this.resolveModel(
         input,
+        invocation.plan.userId,
         messages,
         tools.length > 0,
         selectedModelSlug,
@@ -690,6 +691,7 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
 
   private async resolveModel(
     input: InvocationExecutionInput,
+    userId: string,
     messages: readonly ProviderChatMessage[],
     requiresToolUse: boolean,
     forcedModelSlug: string | null = null,
@@ -794,7 +796,49 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
       throw new ExternalAiTerminalError("AI_AUTO_NO_CAPABLE_MODEL");
     }
 
-    const ranked = [...capableCandidates].sort((left, right) => {
+    const capacity = await this.billing.getSpendableUsageState(userId);
+    const planSpend = await this.getPlanSpendState(
+      input.planId,
+      input.invocationId,
+    );
+    const settledRemaining =
+      this.maxSettledCostMicroRubPerPlan - planSpend.settledMicroRub;
+    const committedRemaining =
+      this.maxCommittedCostMicroRubPerPlan -
+      (planSpend.settledMicroRub +
+        planSpend.activeReservedMicroRub +
+        planSpend.pendingAdmissionMicroRub);
+    const planAvailable =
+      settledRemaining > 0n && committedRemaining > 0n
+        ? settledRemaining < committedRemaining
+          ? settledRemaining
+          : committedRemaining
+        : 0n;
+    const availableMicroRub =
+      capacity.availableMicroRub < planAvailable
+        ? capacity.availableMicroRub
+        : planAvailable;
+
+    const fundedCandidates = capableCandidates.filter((candidate) => {
+      const budget = resolveAiExecutionBudget({
+        profile: "STANDARD",
+        profiles: this.config.budgetProfiles,
+        modelMaxOutputTokens: candidate.maxOutputTokens,
+        estimatedInputTokens,
+        availableMicroRub,
+        maxReservationMicroRub: this.config.maxReservationMicroRub,
+        price: candidate.price,
+        safetyBps: this.config.reservationSafetyBps,
+      });
+      return budget.kind === "FUNDED";
+    });
+    // If no candidate can fund even its minimum turn, keep the normal
+    // downstream admission path so it can distinguish temporary capacity wait,
+    // true allowance exhaustion, plan ceiling, and request-cost-limit errors.
+    const rankingPool =
+      fundedCandidates.length > 0 ? fundedCandidates : capableCandidates;
+
+    const ranked = [...rankingPool].sort((left, right) => {
       if (left.autoPriority !== right.autoPriority) {
         return left.autoPriority - right.autoPriority;
       }
@@ -803,7 +847,7 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
       if (leftCost === rightCost) return left.slug.localeCompare(right.slug);
       return leftCost < rightCost ? -1 : 1;
     });
-    return ranked[0] ?? capableCandidates[0] ?? firstCandidate;
+    return ranked[0] ?? rankingPool[0] ?? firstCandidate;
   }
 
   private estimatedCost(model: ResolvedModel, estimatedInputTokens: number): bigint {
