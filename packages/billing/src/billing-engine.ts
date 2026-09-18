@@ -897,7 +897,10 @@ export class BillingEngine {
     };
   }
 
-  async getSpendableUsageMicroRub(userId: string): Promise<MicroRub> {
+  async getSpendableUsageState(userId: string): Promise<{
+    availableMicroRub: MicroRub;
+    activeReservedMicroRub: MicroRub;
+  }> {
     const now = new Date();
     const buckets = await this.prisma.usageBucket.findMany({
       where: {
@@ -911,16 +914,26 @@ export class BillingEngine {
       },
     });
 
-    return buckets.reduce(
-      (sum, bucket) =>
-        sum +
-        availableMicroRub(
-          bucket.totalMicroRub,
-          bucket.spentMicroRub,
-          bucket.reservedMicroRub,
-        ),
-      0n,
-    );
+    return {
+      availableMicroRub: buckets.reduce(
+        (sum, bucket) =>
+          sum +
+          availableMicroRub(
+            bucket.totalMicroRub,
+            bucket.spentMicroRub,
+            bucket.reservedMicroRub,
+          ),
+        0n,
+      ),
+      activeReservedMicroRub: buckets.reduce(
+        (sum, bucket) => sum + bucket.reservedMicroRub,
+        0n,
+      ),
+    };
+  }
+
+  async getSpendableUsageMicroRub(userId: string): Promise<MicroRub> {
+    return (await this.getSpendableUsageState(userId)).availableMicroRub;
   }
 
   async getActiveSubscription(userId: string): Promise<ActiveSubscriptionView | null> {
@@ -1588,14 +1601,13 @@ function summarizeBuckets(
   const spent = buckets.reduce((sum, bucket) => sum + bucket.spentMicroRub, 0n);
   const reserved = buckets.reduce((sum, bucket) => sum + bucket.reservedMicroRub, 0n);
   const remaining = availableMicroRub(total, spent, reserved);
-  const committed = spent + reserved;
 
   return {
     totalMicroRub: total,
     spentMicroRub: spent,
     reservedMicroRub: reserved,
     remainingMicroRub: remaining,
-    usedPercent: usedPercentFloor(committed, total),
+    usedPercent: usedPercentFloor(spent, total),
   };
 }
 
