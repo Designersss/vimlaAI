@@ -169,6 +169,40 @@ describe("ExternalAiInvocationExecutor", () => {
     ).toBe(1);
   });
 
+  it("rejects in-place mutation of frozen AI price-version economics", async () => {
+    const model = await prisma.aiModel.findUniqueOrThrow({
+      where: { slug: "gpt-5-6-luna" },
+      include: {
+        priceVersions: {
+          where: { effectiveTo: null },
+          orderBy: { effectiveFrom: "desc" },
+          take: 1,
+        },
+      },
+    });
+    const price = model.priceVersions[0];
+    if (!price) throw new Error("AI price version missing");
+
+    await expect(
+      prisma.aiModelPriceVersion.update({
+        where: { id: price.id },
+        data: {
+          inputMicroRubPerMillion:
+            price.inputMicroRubPerMillion + 1n,
+        },
+      }),
+    ).rejects.toThrow(
+      "ai_model_price_version commercial fields are immutable",
+    );
+
+    const unchanged = await prisma.aiModelPriceVersion.findUniqueOrThrow({
+      where: { id: price.id },
+    });
+    expect(unchanged.inputMicroRubPerMillion).toBe(
+      price.inputMicroRubPerMillion,
+    );
+  });
+
   it("reuses the frozen price version for a created turn after catalog pricing changes", async () => {
     const seeded = await seedInvocation(prisma, {
       targetKind: "AI_MODEL",
