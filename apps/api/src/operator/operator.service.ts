@@ -346,7 +346,7 @@ export class OperatorService {
 
       const plannerClientRequestId = run.plannerClientRequestId ?? randomUUID();
       plannerOutput = mockOperatorPlannerResponse([
-        { role: "user", content: prompt },
+        { content: prompt },
       ]);
       await this.prisma.operatorRun.update({
         where: { id: run.id },
