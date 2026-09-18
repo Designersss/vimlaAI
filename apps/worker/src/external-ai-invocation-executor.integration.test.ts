@@ -178,9 +178,8 @@ describe("ExternalAiInvocationExecutor", () => {
     }));
 
     expect(result).toEqual({
-      status: "FAILED",
+      status: "BLOCKED_INSUFFICIENT_USAGE",
       errorCode: "BILLING_INSUFFICIENT_USAGE",
-      retryable: false,
     });
     expect(provider.callCount).toBe(0);
     expect(
@@ -242,9 +241,8 @@ describe("ExternalAiInvocationExecutor", () => {
     }));
 
     expect(result).toEqual({
-      status: "FAILED",
+      status: "BLOCKED_INSUFFICIENT_USAGE",
       errorCode: "BILLING_INSUFFICIENT_USAGE",
-      retryable: false,
     });
     expect(provider.callCount).toBe(0);
     expect(
