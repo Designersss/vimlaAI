@@ -353,14 +353,14 @@ export const apiEnvSchema = z
         ctx.addIssue({
           code: "custom",
           path: ["SEMANTIC_PLANNER_BASE_URL"],
-          message: "SEMANTIC_PLANNER_BASE_URL is required when SEMANTIC_PLANNER_PROVIDER=internal HTTP planner",
+          message: "SEMANTIC_PLANNER_BASE_URL is required when SEMANTIC_PLANNER_PROVIDER=internal-http",
         });
       }
       if (!value.SEMANTIC_PLANNER_MODEL) {
         ctx.addIssue({
           code: "custom",
           path: ["SEMANTIC_PLANNER_MODEL"],
-          message: "SEMANTIC_PLANNER_MODEL is required when SEMANTIC_PLANNER_PROVIDER=internal HTTP planner",
+          message: "SEMANTIC_PLANNER_MODEL is required when SEMANTIC_PLANNER_PROVIDER=internal-http",
         });
       }
     }
