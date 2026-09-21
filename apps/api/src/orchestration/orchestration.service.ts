@@ -48,6 +48,7 @@ import {
   SemanticPlanPolicyError,
 } from "./semantic-plan-policy.js";
 import { SEMANTIC_PLANNER_MODEL } from "./semantic-planner.adapter.js";
+import { semanticPlanningContext } from "./planning-context.js";
 
 export type SemanticPlanMessageResult =
   | { kind: "PLANNING"; planId: string }
@@ -173,14 +174,7 @@ export class OrchestrationService {
         result = await planner.plan({
           userText: sourceMessage.content,
           mentions: plannerMentions,
-          planningContext: snapshot.items.map((item) => ({
-            sourceType: item.sourceType,
-            sourceId: item.sourceId,
-            sourceVersion: item.sourceVersion,
-            classification: item.classification,
-            contentRef: item.contentRef,
-            metadata: item.metadata,
-          })),
+          planningContext: semanticPlanningContext(snapshot),
           correlationId,
           signal: abortController.signal,
         });
