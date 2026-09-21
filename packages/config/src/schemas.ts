@@ -113,6 +113,11 @@ export const apiEnvSchema = z
     PROXYAPI_BASE_URL: z.url().default("https://api.proxyapi.ru/v1"),
     AI_TEXT_ENABLED: z.enum(["true", "false"]).default("true"),
     AI_TEXT_PROVIDER: z.enum(["auto", "mock", "proxyapi"]).default("auto"),
+    SEMANTIC_PLANNER_PROVIDER: z.enum(["auto", "mock", "vimla-core"]).default("auto"),
+    VIMLA_CORE_BASE_URL: z.preprocess(emptyToUndefined, z.url().optional()),
+    VIMLA_CORE_MODEL: z.preprocess(emptyToUndefined, z.string().trim().min(1).optional()),
+    VIMLA_CORE_API_KEY: z.preprocess(emptyToUndefined, z.string().trim().min(1).optional()),
+    VIMLA_CORE_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(600_000).default(120_000),
     AI_DEFAULT_MAX_OUTPUT_TOKENS: z.coerce.number().int().min(1).max(128_000).default(2048),
     AI_MAX_MESSAGE_BYTES: z.coerce.number().int().min(1).default(16_384),
     AI_MAX_CONTEXT_BYTES: z.coerce.number().int().min(1).default(65_536),
@@ -343,6 +348,23 @@ export const apiEnvSchema = z
       }
     }
 
+    if (value.SEMANTIC_PLANNER_PROVIDER === "vimla-core") {
+      if (!value.VIMLA_CORE_BASE_URL) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["VIMLA_CORE_BASE_URL"],
+          message: "VIMLA_CORE_BASE_URL is required when SEMANTIC_PLANNER_PROVIDER=vimla-core",
+        });
+      }
+      if (!value.VIMLA_CORE_MODEL) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["VIMLA_CORE_MODEL"],
+          message: "VIMLA_CORE_MODEL is required when SEMANTIC_PLANNER_PROVIDER=vimla-core",
+        });
+      }
+    }
+
     if (value.TBANK_RECURRING_ENABLED === "true") {
       ctx.addIssue({
         code: "custom",
@@ -432,6 +454,11 @@ export const apiConfigSchema = z.object({
   proxyapiBaseUrl: z.url(),
   aiTextEnabled: z.boolean(),
   aiTextProvider: z.enum(["mock", "proxyapi"]),
+  semanticPlannerProvider: z.enum(["mock", "vimla-core"]),
+  vimlaCoreBaseUrl: z.url().optional(),
+  vimlaCoreModel: z.string().min(1).optional(),
+  vimlaCoreApiKey: z.string().min(1).optional(),
+  vimlaCoreTimeoutMs: z.number().int().min(1_000).max(600_000),
   aiDefaultMaxOutputTokens: z.number().int().min(1),
   aiMaxMessageBytes: z.number().int().min(1),
   aiMaxContextBytes: z.number().int().min(1),
