@@ -33,6 +33,7 @@ describe("structured normal-chat mention routing", () => {
       process.env.BETTER_AUTH_SECRET ?? "local-dev-only-change-me-use-32-chars-min";
     process.env.BETTER_AUTH_URL = process.env.BETTER_AUTH_URL ?? "http://localhost:3001";
     process.env.AI_TEXT_ENABLED = "true";
+    process.env.AI_MAX_MESSAGE_BYTES = "1024";
     process.env.AI_TEXT_PROVIDER = "mock";
     process.env.OPERATOR_ENABLED = "true";
 
@@ -125,6 +126,90 @@ describe("structured normal-chat mention routing", () => {
       [16, 21],
     ]);
     expect(new Set(result.mentions.map((mention) => mention.id)).size).toBe(2);
+  });
+
+  it("replays the same workflow submission but rejects a changed payload for the same clientRequestId", async () => {
+    const user = await registerVerifiedUser(app, "structured-idempotency");
+    const conversation = await prisma.conversation.create({
+      data: { userId: user.id, title: "Idempotency" },
+    });
+    const auto = await prisma.handle.findUniqueOrThrow({
+      where: { normalized: "auto" },
+    });
+    const clientRequestId = crypto.randomUUID();
+    const mention = {
+      handleId: auto.id,
+      kind: "AI_AUTO" as const,
+      canonicalHandle: "auto",
+      startOffset: 0,
+      endOffset: 5,
+    };
+
+    const first = await routing.persist({
+      userId: user.id,
+      conversationId: conversation.id,
+      clientRequestId,
+      content: "@auto first request",
+      mentions: [mention],
+    });
+    const replay = await routing.persist({
+      userId: user.id,
+      conversationId: conversation.id,
+      clientRequestId,
+      content: "@auto first request",
+      mentions: [mention],
+    });
+    expect(replay.messageId).toBe(first.messageId);
+
+    await expect(
+      routing.persist({
+        userId: user.id,
+        conversationId: conversation.id,
+        clientRequestId,
+        content: "@auto changed request",
+        mentions: [mention],
+      }),
+    ).rejects.toMatchObject({ status: 409 });
+  });
+
+  it("rejects oversized orchestration messages before persistence", async () => {
+    const user = await registerVerifiedUser(app, "structured-size-limit");
+    const conversation = await prisma.conversation.create({
+      data: { userId: user.id, title: "Size limit" },
+    });
+    const auto = await prisma.handle.findUniqueOrThrow({
+      where: { normalized: "auto" },
+    });
+    const clientRequestId = crypto.randomUUID();
+    const content = `@auto ${"x".repeat(2_000)}`;
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/v1/conversations/${conversation.id}/messages`,
+      headers: { origin, "content-type": "application/json" },
+      cookies: user.cookies,
+      payload: {
+        clientRequestId,
+        modelId: "unused-for-orchestration",
+        content,
+        mentions: [
+          {
+            handleId: auto.id,
+            kind: "AI_AUTO",
+            canonicalHandle: "auto",
+            startOffset: 0,
+            endOffset: 5,
+          },
+        ],
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(
+      await prisma.chatMessageSubmission.count({
+        where: { userId: user.id, clientRequestId },
+      }),
+    ).toBe(0);
   });
 
   it("compiles a routed structured mention into one durable replay-safe execution plan", async () => {
