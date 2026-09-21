@@ -100,23 +100,21 @@ export interface InvocationExecutorRegistry {
   execute(input: InvocationExecutionInput): Promise<InvocationExecutionResult>;
 }
 
-export class MockInvocationExecutorRegistry implements InvocationExecutorRegistry {
+export class FailClosedInvocationExecutorRegistry implements InvocationExecutorRegistry {
   async execute(input: InvocationExecutionInput): Promise<InvocationExecutionResult> {
-    if (input.target.kind === "EVALUATOR") {
-      return {
-        status: "FAILED",
-        errorCode: "EVALUATOR_NOT_IMPLEMENTED",
-        retryable: false,
-      };
-    }
-    if (input.target.kind === "AGENT") {
-      return {
-        status: "FAILED",
-        errorCode: "AGENT_NOT_IMPLEMENTED",
-        retryable: false,
-      };
-    }
-    return { status: "COMPLETED" };
+    const errorCode =
+      input.target.kind === "EVALUATOR"
+        ? "EVALUATOR_NOT_IMPLEMENTED"
+        : input.target.kind === "AGENT"
+          ? "AGENT_NOT_IMPLEMENTED"
+          : input.target.kind === "VIMLA"
+            ? "VIMLA_EXECUTOR_NOT_CONFIGURED"
+            : "AI_EXECUTOR_NOT_CONFIGURED";
+    return {
+      status: "FAILED",
+      errorCode,
+      retryable: false,
+    };
   }
 }
 
@@ -175,7 +173,7 @@ export class OrchestrationRuntime {
     if (this.usageRecheckMaxMs < this.usageRecheckBaseMs) {
       throw new Error("usageRecheckMaxMs must be >= usageRecheckBaseMs");
     }
-    this.executorRegistry = options.executorRegistry ?? new MockInvocationExecutorRegistry();
+    this.executorRegistry = options.executorRegistry ?? new FailClosedInvocationExecutorRegistry();
   }
 
   async reconcile(): Promise<void> {
@@ -333,7 +331,7 @@ export class OrchestrationRuntime {
           attempt: claim.attempt,
           error: error instanceof Error ? error.name : "unknown",
         },
-        "orchestration mock executor failed unexpectedly",
+        "orchestration executor failed unexpectedly",
       );
       result = { status: "FAILED", errorCode: "EXECUTOR_ERROR", retryable: true };
     }
