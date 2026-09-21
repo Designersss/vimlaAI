@@ -37,6 +37,7 @@ import { AiRateLimitGuard } from "./ai-rate-limit.guard.js";
 import { ChatMentionRoutingService } from "./chat-mention-routing.service.js";
 import { TextChatService } from "./text-chat.service.js";
 import { buildOperatorRunView } from "../operator/view.js";
+import { OrchestrationService } from "../orchestration/orchestration.service.js";
 
 @Controller("v1/conversations")
 @SensitiveArea()
@@ -45,6 +46,7 @@ export class ConversationsController {
   constructor(
     @Inject(TextChatService) private readonly chat: TextChatService,
     @Inject(ChatMentionRoutingService) private readonly routing: ChatMentionRoutingService,
+    @Inject(OrchestrationService) private readonly orchestration: OrchestrationService,
     @Inject(API_CONFIG) private readonly config: ApiRuntimeConfig,
   ) {}
 
@@ -173,10 +175,38 @@ export class ConversationsController {
             mentionCount: result.mentions.length,
           }),
         );
+      }
+
+      const workflow = await this.orchestration.planMessage(
+        user.id,
+        result.messageId,
+        result.mentions,
+        String(request.id),
+      );
+
+      if (!response.writableEnded) {
+        response.write(
+          encodeVimlaSse(
+            "workflow",
+            workflow.kind === "PLANNED"
+              ? {
+                  status: workflow.kind,
+                  planId: workflow.plan.id,
+                }
+              : {
+                  status: workflow.kind,
+                  clarificationQuestion: workflow.clarificationQuestion,
+                },
+          ),
+        );
         response.write(
           encodeVimlaSse("done", {
             messageId: result.messageId,
             route: result.route,
+            workflowStatus: workflow.kind,
+            ...(workflow.kind === "PLANNED"
+              ? { planId: workflow.plan.id }
+              : {}),
           }),
         );
       }
