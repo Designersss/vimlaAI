@@ -1,4 +1,4 @@
-import { SEMANTIC_WORKFLOW_PLANNER_MARKER } from "@vimla/orchestration";
+const SEMANTIC_WORKFLOW_PLANNER_MARKER = "VIMLA_SEMANTIC_WORKFLOW_PLANNER_V1";
 
 type PlannerMentionConstraint = {
   occurrenceId: string;
