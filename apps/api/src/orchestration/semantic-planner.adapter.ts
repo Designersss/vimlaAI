@@ -14,17 +14,17 @@ export const SEMANTIC_PLANNER_MODEL = Symbol("SEMANTIC_PLANNER_MODEL");
 export function createSemanticPlannerModel(
   config: ApiRuntimeConfig,
 ): SemanticPlannerModel {
-  if (config.semanticPlannerProvider === "vimla-core") {
-    if (!config.vimlaCoreBaseUrl || !config.vimlaCoreModel) {
+  if (config.semanticPlannerProvider === "internal-http") {
+    if (!config.semanticPlannerBaseUrl || !config.semanticPlannerModel) {
       throw new Error(
-        "Vimla Core semantic planner requires base URL and model",
+        "Internal semantic planner requires base URL and model",
       );
     }
     return new OpenAiCompatibleSemanticPlannerModel({
-      baseUrl: config.vimlaCoreBaseUrl,
-      model: config.vimlaCoreModel,
-      apiKey: config.vimlaCoreApiKey,
-      timeoutMs: config.vimlaCoreTimeoutMs,
+      baseUrl: config.semanticPlannerBaseUrl,
+      model: config.semanticPlannerModel,
+      apiKey: config.semanticPlannerApiKey,
+      timeoutMs: config.semanticPlannerTimeoutMs,
     });
   }
 
