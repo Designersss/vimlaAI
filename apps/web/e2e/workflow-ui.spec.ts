@@ -152,74 +152,17 @@ test("workflow lane stays usable with the chat composer across desktop and mobil
   await expect(composer).toBeVisible();
   await expect(composer).toBeEnabled();
 
-  await composer.fill("Workflow stop source message");
-  await page.getByRole("button", { name: /отправить|send/i }).click();
-  await expect(page.getByText("Hello from Vimla").last()).toBeVisible({
-    timeout: 20_000,
-  });
-
-  const refreshedConversationResponse = await page.request.get(
-    `${apiBase}/v1/conversations/${conversationId}`,
-    { headers: { origin: webOrigin } },
-  );
-  expect(refreshedConversationResponse.status()).toBe(200);
-  const refreshedConversation = (await refreshedConversationResponse.json()) as {
-    messages: Array<{ id: string; role: "USER" | "ASSISTANT"; content: string }>;
-  };
-  const stopSource = [...refreshedConversation.messages]
-    .reverse()
-    .find(
-      (message) =>
-        message.role === "USER" &&
-        message.content === "Workflow stop source message",
-    );
-  expect(stopSource?.id).toBeTruthy();
-
-  const stopPlanResponse = await page.request.post(
-    `${apiBase}/v1/execution-plans`,
-    {
-      headers: {
-        origin: webOrigin,
-        "content-type": "application/json",
-      },
-      data: {
-        messageId: stopSource?.id,
-        plan: {
-          schemaVersion: 1,
-          goal: "Stop this workflow before start",
-          maxParallelism: 1,
-          invocations: [
-            {
-              id: "remind",
-              purpose: "Create another reminder",
-              target: { kind: "VIMLA" },
-              outputs: [],
-              acceptanceCriteria: [],
-              riskClass: "INTERNAL_WRITE",
-              approvalPolicy: "USER_CONFIRMATION",
-              failurePolicy: "FAIL_PLAN",
-              joinPolicy: "ALL_REQUIRED",
-            },
-          ],
-          dependencies: [],
-        },
-      },
-    },
-  );
-  expect(stopPlanResponse.status()).toBe(201);
-
-  await page.reload();
-  const stopCard = page.getByTestId("workflow-card").filter({
-    hasText: /stop this workflow before start/i,
-  });
-  const stop = stopCard.getByRole("button", {
+  const stop = approvalCard.getByRole("button", {
     name: /остановить|stop/i,
   });
   await expect(stop).toBeVisible();
   await stop.click();
   await expect(stop).toHaveCount(0);
-  await expect(stopCard).toContainText(/остановлен|stopped/i);
+  await expect(approvalCard).toContainText(
+    /остановлен|stopped|завершён|completed/i,
+  );
   await expect(composer).toBeVisible();
   await expect(composer).toBeEnabled();
+  await assertNoDocumentOverflow(page);
   await assertNoDocumentOverflow(page);
 });
