@@ -117,7 +117,7 @@ export class ContextSnapshotService {
         if (!plan) {
           throw new ContextNotFoundError("Execution plan not found");
         }
-        if (plan.status !== "PLANNED") {
+        if (plan.status !== "PLANNING" && plan.status !== "PLANNED") {
           throw new ContextConflictError("Context snapshot can only be created before execution starts");
         }
 
@@ -202,7 +202,7 @@ export class ContextSnapshotService {
     if (!plan) {
       throw new ContextNotFoundError("Execution plan not found");
     }
-    if (plan.status !== "PLANNED") {
+    if (plan.status !== "PLANNING" && plan.status !== "PLANNED") {
       throw new ContextConflictError("Context snapshot must be frozen before execution starts");
     }
 
