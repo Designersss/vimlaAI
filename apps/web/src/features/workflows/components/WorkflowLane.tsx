@@ -24,6 +24,7 @@ import type {
   WorkflowPlanStatus,
 } from "@vimla/contracts";
 import { AuthRequiredError } from "../../auth/services/current-user";
+import { tx } from "../../../shared/i18n/translate";
 import {
   WorkflowRequestError,
   approveExecutionPlanInvocation,
@@ -342,17 +343,17 @@ function WorkflowStep({
                 </summary>
                 <div className={styles.artifactDetails}>
                   <Text tone="caption">
-                    {t("workflow.artifactVersion" as never, {
+                    {tx(t, "workflow.artifactVersion", {
                       version: artifact.version,
                     })}
                   </Text>
                   <Text tone="caption">
-                    {t("workflow.artifactClassification" as never, {
+                    {tx(t, "workflow.artifactClassification", {
                       classification: artifact.classification,
                     })}
                   </Text>
                   <Text tone="caption">
-                    {t("workflow.artifactCreated" as never, {
+                    {tx(t, "workflow.artifactCreated", {
                       createdAt: artifact.createdAt,
                     })}
                   </Text>
@@ -484,15 +485,15 @@ function dependencyLabel(
 ): string {
   switch (dependency.condition.kind) {
     case "DATA":
-      return t("workflow.dependencyData" as never, { source: sourcePurpose });
+      return tx(t, "workflow.dependencyData", { source: sourcePurpose });
     case "ON_SUCCESS":
-      return t("workflow.dependencySuccess" as never, { source: sourcePurpose });
+      return tx(t, "workflow.dependencySuccess", { source: sourcePurpose });
     case "ON_FAILURE":
-      return t("workflow.dependencyFailure" as never, { source: sourcePurpose });
+      return tx(t, "workflow.dependencyFailure", { source: sourcePurpose });
     case "ALWAYS":
-      return t("workflow.dependencyAlways" as never, { source: sourcePurpose });
+      return tx(t, "workflow.dependencyAlways", { source: sourcePurpose });
     case "OUTCOME":
-      return t("workflow.dependencyOutcome" as never, {
+      return tx(t, "workflow.dependencyOutcome", {
         source: sourcePurpose,
         outcome: dependency.condition.outcome,
       });
