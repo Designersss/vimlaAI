@@ -781,7 +781,7 @@ function oneOf<const T extends readonly string[]>(
   values: T,
   path: string,
 ): T[number] {
-  if (typeof input !== "string" || !values.includes(input)) {
+  if (typeof input !== "string" || !values.includes(input as T[number])) {
     invalid(path, `expected one of ${values.join(", ")}`);
   }
   return input as T[number];
