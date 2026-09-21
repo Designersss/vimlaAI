@@ -262,6 +262,51 @@ test("normalization is deterministic when equivalent arrays arrive in a differen
   );
 });
 
+test("normalization ignores arbitrary planner ids for independent semantic nodes", () => {
+  const first = {
+    schemaVersion: 1,
+    goal: "Canonical independent graph",
+    maxParallelism: 2,
+    invocations: [
+      {
+        id: "random-z",
+        purpose: "Write the final answer",
+        target: { kind: "AI_AUTO" },
+        outputs: [{ name: "answer", artifactType: "TEXT" }],
+        acceptanceCriteria: [],
+        riskClass: "READ_ONLY",
+        approvalPolicy: "AUTO",
+        failurePolicy: "FAIL_PLAN",
+        joinPolicy: "ALL_REQUIRED",
+      },
+      {
+        id: "random-a",
+        purpose: "Research the source material",
+        target: { kind: "AI_AUTO" },
+        outputs: [{ name: "research", artifactType: "DOCUMENT" }],
+        acceptanceCriteria: [],
+        riskClass: "READ_ONLY",
+        approvalPolicy: "AUTO",
+        failurePolicy: "FAIL_PLAN",
+        joinPolicy: "ALL_REQUIRED",
+      },
+    ],
+    dependencies: [],
+  };
+  const renamed = {
+    ...first,
+    invocations: [
+      { ...first.invocations[0], id: "node-001" },
+      { ...first.invocations[1], id: "node-999" },
+    ],
+  };
+
+  assert.deepEqual(
+    normalizeSemanticExecutionPlan(first),
+    normalizeSemanticExecutionPlan(renamed),
+  );
+});
+
 test("returns clarification rather than creating a low-confidence workflow", () => {
   const result = compileSemanticPlannerDraft(
     {
