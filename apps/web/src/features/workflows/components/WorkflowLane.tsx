@@ -72,8 +72,26 @@ export function WorkflowLane({
   }, [conversationId, router]);
 
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    let cancelled = false;
+    void fetchConversationWorkflows(conversationId)
+      .then((response) => {
+        if (cancelled) return;
+        setPlans(response.plans);
+        setFailed(false);
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        if (error instanceof AuthRequiredError) {
+          router.replace("/sign-in");
+          return;
+        }
+        setFailed(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [conversationId, router]);
 
   const hasActivePlan = useMemo(
     () => plans.some((plan) => !TERMINAL_PLAN_STATUSES.has(plan.status)),
