@@ -178,8 +178,35 @@ export type ExecutionPlanStatus =
   | "FAILED"
   | "CANCELED";
 
+export interface ExecutionPlanInvocationRunView {
+  id: string;
+  attempt: number;
+  status: string;
+  outcome: string | null;
+  errorCode: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+}
+
+export interface ExecutionPlanArtifactSummaryView {
+  artifactId: string;
+  artifactVersionId: string;
+  outputName: string;
+  type: z.infer<typeof artifactTypeSchema>;
+  classification: string;
+  version: number;
+  createdAt: string;
+}
+
 export interface ExecutionPlanInvocationView extends InvocationDefinition {
   status: InvocationStatus;
+  requiresApproval: boolean;
+  latestRun: ExecutionPlanInvocationRunView | null;
+  artifacts: ExecutionPlanArtifactSummaryView[];
+}
+
+export interface ExecutionPlanLookupView {
+  plan: ExecutionPlanView | null;
 }
 
 export interface ExecutionPlanView {
