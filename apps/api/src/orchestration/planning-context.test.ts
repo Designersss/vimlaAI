@@ -76,7 +76,7 @@ describe("semanticPlanningContext", () => {
 function item(
   sourceType: ContextSnapshotView["items"][number]["sourceType"],
   sourceId: string,
-  metadata: Record<string, unknown>,
+  metadata: ContextSnapshotView["items"][number]["metadata"],
 ): ContextSnapshotView["items"][number] {
   return {
     id: `item-${sourceId}`,
