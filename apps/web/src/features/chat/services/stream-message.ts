@@ -11,6 +11,7 @@ export async function streamAssistantMessage(input: {
   onDelta: (text: string) => void;
   onDone: () => void;
   onRoute?: (route: ChatMessageRoute) => void;
+  onWorkflow?: (workflow: { status: string; planId?: string }) => void;
   onError: (code: string) => void;
 }): Promise<void> {
   const response = await fetch(
@@ -64,6 +65,7 @@ export async function streamAssistantMessage(input: {
       input.onDone();
     },
     onRoute: input.onRoute,
+    onWorkflow: input.onWorkflow,
     onError: (code: string) => {
       terminal = true;
       input.onError(code);
@@ -91,6 +93,7 @@ function consumeSse(
     onDelta: (text: string) => void;
     onDone: () => void;
     onRoute?: (route: ChatMessageRoute) => void;
+    onWorkflow?: (workflow: { status: string; planId?: string }) => void;
     onError: (code: string) => void;
   },
   flush = false,
@@ -116,6 +119,7 @@ function applySseBlock(
     onDelta: (text: string) => void;
     onDone: () => void;
     onRoute?: (route: ChatMessageRoute) => void;
+    onWorkflow?: (workflow: { status: string; planId?: string }) => void;
     onError: (code: string) => void;
   },
 ): void {
@@ -145,6 +149,12 @@ function applySseBlock(
       (payload.route === "CHAT" || payload.route === "ORCHESTRATION")
     ) {
       input.onRoute(payload.route);
+    }
+    if (event === "workflow" && input.onWorkflow && typeof payload.status === "string") {
+      input.onWorkflow({
+        status: payload.status,
+        ...(typeof payload.planId === "string" ? { planId: payload.planId } : {}),
+      });
     }
     if (event === "done") {
       input.onDone();
