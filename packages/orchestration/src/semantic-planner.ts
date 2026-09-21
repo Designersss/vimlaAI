@@ -1,4 +1,5 @@
 import {
+  type SemanticPlannerAbortSignal,
   type SemanticPlannerModel,
   type SemanticWorkflowPlannerInput,
   type SemanticWorkflowPlannerResult,
@@ -18,7 +19,7 @@ export class SemanticWorkflowPlanner {
   async plan(
     input: SemanticWorkflowPlannerInput & {
       correlationId: string;
-      signal?: AbortSignal;
+      signal?: SemanticPlannerAbortSignal;
     },
   ): Promise<SemanticWorkflowPlannerResult> {
     const prompt = buildSemanticPlannerPrompt(input);
