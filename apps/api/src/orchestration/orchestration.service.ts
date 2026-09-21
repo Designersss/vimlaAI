@@ -150,15 +150,6 @@ export class OrchestrationService {
       return { kind: "PLANNING", planId: claim.plan.id };
     }
 
-    let snapshot: ContextSnapshotView;
-    try {
-      snapshot = await this.ensureContextSnapshot(userId, shell.id);
-    } catch (error: unknown) {
-      await this.failPlanningClaim(userId, shell.id, claim.claimHash);
-      throw error;
-    }
-
-    const planner = new SemanticWorkflowPlanner(this.semanticPlannerModel);
     const abortController = new AbortController();
     const stopHeartbeat = this.startPlanningHeartbeat(
       userId,
@@ -167,93 +158,104 @@ export class OrchestrationService {
       abortController,
     );
 
-    let result: SemanticWorkflowPlannerResult;
     try {
-      result = await planner.plan({
-        userText: sourceMessage.content,
-        mentions: plannerMentions,
-        planningContext: snapshot.items.map((item) => ({
-          sourceType: item.sourceType,
-          sourceId: item.sourceId,
-          sourceVersion: item.sourceVersion,
-          classification: item.classification,
-          contentRef: item.contentRef,
-          metadata: item.metadata,
-        })),
-        correlationId,
-        signal: abortController.signal,
-      });
-    } catch (error: unknown) {
-      if (abortController.signal.aborted) {
-        const replay = await this.prisma.client.executionPlan.findFirst({
-          where: { id: shell.id, userId },
-          include: planInclude,
+      let snapshot: ContextSnapshotView;
+      try {
+        snapshot = await this.ensureContextSnapshot(userId, shell.id);
+      } catch (error: unknown) {
+        await this.failPlanningClaim(userId, shell.id, claim.claimHash);
+        throw error;
+      }
+
+      const planner = new SemanticWorkflowPlanner(this.semanticPlannerModel);
+      let result: SemanticWorkflowPlannerResult;
+      try {
+        result = await planner.plan({
+          userText: sourceMessage.content,
+          mentions: plannerMentions,
+          planningContext: snapshot.items.map((item) => ({
+            sourceType: item.sourceType,
+            sourceId: item.sourceId,
+            sourceVersion: item.sourceVersion,
+            classification: item.classification,
+            contentRef: item.contentRef,
+            metadata: item.metadata,
+          })),
+          correlationId,
+          signal: abortController.signal,
         });
-        if (replay && replay.status !== "PLANNING") {
-          return existingSemanticPlanResult(replay);
+      } catch (error: unknown) {
+        if (abortController.signal.aborted) {
+          const replay = await this.prisma.client.executionPlan.findFirst({
+            where: { id: shell.id, userId },
+            include: planInclude,
+          });
+          if (replay && replay.status !== "PLANNING") {
+            return existingSemanticPlanResult(replay);
+          }
         }
+        await this.failPlanningClaim(userId, shell.id, claim.claimHash);
+        if (error instanceof SemanticPlannerError) {
+          throw new BadRequestException({
+            code: "semantic_plan_invalid",
+            message: "The workflow proposal could not be validated safely",
+          });
+        }
+        throw error;
       }
-      await this.failPlanningClaim(userId, shell.id, claim.claimHash);
-      if (error instanceof SemanticPlannerError) {
-        throw new BadRequestException({
-          code: "semantic_plan_invalid",
-          message: "The workflow proposal could not be validated safely",
-        });
-      }
-      throw error;
-    } finally {
-      stopHeartbeat();
-    }
 
-    if (result.kind === "CLARIFY") {
-      const question = await this.persistClarification(
-        userId,
-        shell.id,
-        claim.claimHash,
-        result.clarificationQuestion,
-      );
-      return {
-        kind: "CLARIFICATION_REQUIRED",
-        clarificationQuestion: question,
-      };
-    }
-
-    let executablePlan: ExecutionPlanDefinition;
-    try {
-      executablePlan = applySemanticPlanExecutionPolicy(
-        result.plan,
-      ) as ExecutionPlanDefinition;
-      validateManualExecutionPlan(executablePlan);
-    } catch (error: unknown) {
-      if (error instanceof SemanticPlanPolicyError) {
+      if (result.kind === "CLARIFY") {
         const question = await this.persistClarification(
           userId,
           shell.id,
           claim.claimHash,
-          error.message,
+          result.clarificationQuestion,
         );
         return {
           kind: "CLARIFICATION_REQUIRED",
           clarificationQuestion: question,
         };
       }
-      await this.failPlanningClaim(userId, shell.id, claim.claimHash);
-      throw error;
-    }
 
-    try {
-      return {
-        kind: "PLANNED",
-        plan: await this.finalizePlanningShell(
-          userId,
-          shell.id,
-          claim.claimHash,
-          executablePlan,
-        ),
-      };
-    } catch (error: unknown) {
-      await this.failPlanningClaim(userId, shell.id, claim.claimHash);
-      throw error;
+      let executablePlan: ExecutionPlanDefinition;
+      try {
+        executablePlan = applySemanticPlanExecutionPolicy(
+          result.plan,
+        ) as ExecutionPlanDefinition;
+        validateManualExecutionPlan(executablePlan);
+      } catch (error: unknown) {
+        if (error instanceof SemanticPlanPolicyError) {
+          const question = await this.persistClarification(
+            userId,
+            shell.id,
+            claim.claimHash,
+            error.message,
+          );
+          return {
+            kind: "CLARIFICATION_REQUIRED",
+            clarificationQuestion: question,
+          };
+        }
+        await this.failPlanningClaim(userId, shell.id, claim.claimHash);
+        throw error;
+      }
+
+      try {
+        return {
+          kind: "PLANNED",
+          plan: await this.finalizePlanningShell(
+            userId,
+            shell.id,
+            claim.claimHash,
+            executablePlan,
+          ),
+        };
+      } catch (error: unknown) {
+        await this.failPlanningClaim(userId, shell.id, claim.claimHash);
+        throw error;
+      }
+    } finally {
+      stopHeartbeat();
     }
   }
 
@@ -282,10 +284,7 @@ export class OrchestrationService {
           version: 1,
           planHash: PLANNING_PENDING_HASH,
           goal: PLANNING_GOAL,
-          status:
-        plan.status === "NEEDS_CLARIFICATION"
-          ? "NEEDS_CLARIFICATION"
-          : "PLANNING",
+          status: "PLANNING",
           maxParallelism: 1,
         },
       });
@@ -1080,7 +1079,10 @@ function toView(plan: PersistedPlan): ExecutionPlanView {
       version: plan.version,
       planHash: plan.planHash,
       goal: plan.goal,
-      status: "PLANNING",
+      status:
+        plan.status === "NEEDS_CLARIFICATION"
+          ? "NEEDS_CLARIFICATION"
+          : "PLANNING",
       maxParallelism: plan.maxParallelism,
       invocations: [],
       dependencies: [],
