@@ -9,7 +9,6 @@ import {
   providerCostFromUsage,
   resolveAiExecutionBudget,
   selectContextMessages,
-  utf8ByteLength,
   VIMLA_AI_MODEL_CATALOG,
   ProviderCallError,
   type PriceVersionQuote,
