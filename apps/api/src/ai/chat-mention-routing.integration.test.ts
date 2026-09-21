@@ -297,6 +297,7 @@ describe("structured normal-chat mention routing", () => {
         goal: "Planning workflow",
         status: "PLANNING",
         maxParallelism: 1,
+        updatedAt: new Date(Date.now() - 70_000),
       },
     });
 
