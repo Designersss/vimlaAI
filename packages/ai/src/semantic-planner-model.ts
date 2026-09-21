@@ -25,7 +25,7 @@ type OpenAiChatResponse = {
  *
  * This adapter is deliberately separate from Vimla's paid external-AI
  * execution path: it has no billing/reservation/catalog dependency and is
- * configured through a dedicated Vimla Core endpoint.
+ * configured through a dedicated internal planner endpoint.
  */
 export class OpenAiCompatibleSemanticPlannerModel {
   private readonly baseUrl: string;
