@@ -1,4 +1,10 @@
 import { mockOperatorPlannerResponse } from "@vimla/ai";
+import {
+  ArtifactBindingError,
+  ArtifactNotFoundError,
+  ArtifactService,
+  ArtifactValidationError,
+} from "@vimla/artifacts";
 import { type Prisma, type PrismaClient } from "@vimla/database";
 import { NotificationPlatformError, NotificationPreferenceService } from "@vimla/notifications";
 import {
@@ -33,6 +39,7 @@ export interface VimlaToolPlannerInput {
   userText: string;
   locale: VimlaLocale;
   snapshot: WorkspaceSnapshot;
+  dependencyContext: string | null;
 }
 
 export interface VimlaToolPlanner {
@@ -51,6 +58,7 @@ export class DeterministicVimlaToolPlanner implements VimlaToolPlanner {
       locale: input.locale,
       snapshot: input.snapshot,
       invocationScope: "PERSONAL",
+      untrustedContext: input.dependencyContext,
     });
     return parsePlannerOutput(mockOperatorPlannerResponse([{ content: prompt }]));
   }
@@ -70,11 +78,15 @@ export class VimlaAwareInvocationExecutorRegistry implements InvocationExecutorR
 }
 
 export class VimlaInvocationExecutor implements InvocationExecutorRegistry {
+  private readonly artifacts: ArtifactService;
+
   constructor(
     private readonly prisma: PrismaClient,
     private readonly planner: VimlaToolPlanner,
     private readonly defaultLocale: VimlaLocale,
-  ) {}
+  ) {
+    this.artifacts = new ArtifactService(prisma);
+  }
 
   async execute(input: InvocationExecutionInput): Promise<InvocationExecutionResult> {
     if (input.target.kind !== "VIMLA") {
@@ -129,10 +141,15 @@ export class VimlaInvocationExecutor implements InvocationExecutorRegistry {
         timezone: profile.timezone,
       });
       const snapshot = await loadWorkspaceSnapshot(snapshotContext);
+      const dependencyContext = await this.buildDependencyContext(
+        invocation.plan.userId,
+        input.invocationId,
+      );
       const planned = await this.planner.plan({
         userText: invocation.purpose,
         locale: profile.locale,
         snapshot,
+        dependencyContext,
       });
 
       if (planned.intent === "answer") {
@@ -253,6 +270,45 @@ export class VimlaInvocationExecutor implements InvocationExecutorRegistry {
     }
   }
 
+  private async buildDependencyContext(
+    userId: string,
+    invocationId: string,
+  ): Promise<string | null> {
+    const bindings = await this.artifacts.resolveInputBindings({
+      actorUserId: userId,
+      targetInvocationId: invocationId,
+    });
+    if (bindings.length === 0) return null;
+
+    const parts: string[] = [];
+    for (const binding of bindings) {
+      const version = await this.artifacts.readVersion({
+        actorUserId: userId,
+        artifactVersionId: binding.reference.artifactVersionId,
+      });
+      const value =
+        version.content.kind === "INLINE_JSON"
+          ? JSON.stringify(version.content.value)
+          : JSON.stringify({ contentRef: version.content.ref });
+      parts.push(
+        [
+          `INPUT ${binding.inputName}`,
+          `type=${binding.expectedType}`,
+          `sourceInvocationId=${binding.sourceInvocationId}`,
+          `value=${value}`,
+        ].join("\n"),
+      );
+    }
+
+    const context = parts.join("\n\n");
+    if (new TextEncoder().encode(context).byteLength > 65_536) {
+      throw new ArtifactValidationError(
+        "Vimla dependency artifact context exceeds the execution bound",
+      );
+    }
+    return context;
+  }
+
   private toolContext(
     db: PrismaClient | Prisma.TransactionClient,
     input: {
@@ -364,6 +420,17 @@ function classifyVimlaExecutionError(error: unknown): InvocationExecutionResult 
       status: "FAILED",
       errorCode: "VIMLA_TOOL_EXECUTION_RETRY",
       retryable: true,
+    };
+  }
+  if (
+    error instanceof ArtifactBindingError ||
+    error instanceof ArtifactNotFoundError ||
+    error instanceof ArtifactValidationError
+  ) {
+    return {
+      status: "FAILED",
+      errorCode: "VIMLA_ARTIFACT_CONTEXT_INVALID",
+      retryable: false,
     };
   }
   if (error instanceof WorkspaceError) {
