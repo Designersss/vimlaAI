@@ -47,6 +47,45 @@ describe("OpenAiCompatibleSemanticPlannerModel", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
+  it("aborts the provider request when orchestration loses the planning claim", async () => {
+    const caller = new AbortController();
+    const fetchImpl = vi.fn(
+      async (_input: string | URL | Request, init?: RequestInit) =>
+        await new Promise<Response>((_resolve, reject) => {
+          const signal = init?.signal;
+          if (!signal) {
+            reject(new Error("missing abort signal"));
+            return;
+          }
+          if (signal.aborted) {
+            reject(new DOMException("Aborted", "AbortError"));
+            return;
+          }
+          signal.addEventListener(
+            "abort",
+            () => reject(new DOMException("Aborted", "AbortError")),
+            { once: true },
+          );
+        }),
+    );
+
+    const model = new OpenAiCompatibleSemanticPlannerModel({
+      baseUrl: "http://planner.internal/v1",
+      model: "planner",
+      timeoutMs: 5_000,
+      fetchImpl: fetchImpl as typeof fetch,
+    });
+    const completion = model.complete({
+      prompt: "planner prompt",
+      correlationId: "cancel-1",
+      signal: caller.signal,
+    });
+    caller.abort();
+
+    await expect(completion).rejects.toMatchObject({ name: "AbortError" });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
   it("fails closed on provider errors and empty responses", async () => {
     const errorModel = new OpenAiCompatibleSemanticPlannerModel({
       baseUrl: "http://planner.internal/v1",
