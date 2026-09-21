@@ -59,10 +59,10 @@ export function loadApiConfig(
     aiTextEnabled: parsed.AI_TEXT_ENABLED === "true",
     aiTextProvider: resolveAiTextProvider(parsed),
     semanticPlannerProvider: resolveSemanticPlannerProvider(parsed),
-    vimlaCoreBaseUrl: parsed.VIMLA_CORE_BASE_URL?.replace(/\/$/, ""),
-    vimlaCoreModel: parsed.VIMLA_CORE_MODEL,
-    vimlaCoreApiKey: parsed.VIMLA_CORE_API_KEY,
-    vimlaCoreTimeoutMs: parsed.VIMLA_CORE_TIMEOUT_MS,
+    semanticPlannerBaseUrl: parsed.SEMANTIC_PLANNER_BASE_URL?.replace(/\/$/, ""),
+    semanticPlannerModel: parsed.SEMANTIC_PLANNER_MODEL,
+    semanticPlannerApiKey: parsed.SEMANTIC_PLANNER_API_KEY,
+    semanticPlannerTimeoutMs: parsed.SEMANTIC_PLANNER_TIMEOUT_MS,
     aiDefaultMaxOutputTokens: parsed.AI_DEFAULT_MAX_OUTPUT_TOKENS,
     aiMaxMessageBytes: parsed.AI_MAX_MESSAGE_BYTES,
     aiMaxContextBytes: parsed.AI_MAX_CONTEXT_BYTES,
@@ -138,19 +138,19 @@ export function loadApiConfig(
 }
 
 function resolveSemanticPlannerProvider(parsed: {
-  SEMANTIC_PLANNER_PROVIDER: "auto" | "mock" | "vimla-core";
-  VIMLA_CORE_BASE_URL?: string;
-  VIMLA_CORE_MODEL?: string;
-}): "mock" | "vimla-core" {
+  SEMANTIC_PLANNER_PROVIDER: "auto" | "mock" | "internal-http";
+  SEMANTIC_PLANNER_BASE_URL?: string;
+  SEMANTIC_PLANNER_MODEL?: string;
+}): "mock" | "internal-http" {
   if (
     parsed.SEMANTIC_PLANNER_PROVIDER === "mock" ||
-    parsed.SEMANTIC_PLANNER_PROVIDER === "vimla-core"
+    parsed.SEMANTIC_PLANNER_PROVIDER === "internal-http"
   ) {
     return parsed.SEMANTIC_PLANNER_PROVIDER;
   }
 
-  return parsed.VIMLA_CORE_BASE_URL && parsed.VIMLA_CORE_MODEL
-    ? "vimla-core"
+  return parsed.SEMANTIC_PLANNER_BASE_URL && parsed.SEMANTIC_PLANNER_MODEL
+    ? "internal-http"
     : "mock";
 }
 
