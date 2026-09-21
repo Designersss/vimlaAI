@@ -10,6 +10,7 @@ import { tx } from "../../../shared/i18n/translate";
 type Translate = ReturnType<typeof useTranslations>;
 
 export const TERMINAL_PLAN_STATUSES = new Set<WorkflowPlanStatus>([
+  "NEEDS_CLARIFICATION",
   "PARTIAL",
   "COMPLETED",
   "FAILED",
@@ -28,7 +29,11 @@ export function planStatusVariant(
 ): "neutral" | "accent" | "success" | "warning" | "danger" {
   if (status === "COMPLETED") return "success";
   if (status === "FAILED") return "danger";
-  if (status === "PARTIAL" || status === "CANCELED") return "warning";
+  if (
+    status === "NEEDS_CLARIFICATION" ||
+    status === "PARTIAL" ||
+    status === "CANCELED"
+  ) return "warning";
   if (status === "RUNNING") return "accent";
   return "neutral";
 }
