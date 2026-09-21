@@ -514,6 +514,15 @@
       "FAILED": "Ошибка",
       "SKIPPED": "Пропущен",
       "CANCELED": "Остановлен"
-    }
+    },
+    "openBilling": "Открыть тариф и лимит",
+    "artifactVersion": "Версия {version}",
+    "artifactClassification": "Доступ: {classification}",
+    "artifactCreated": "Создан: {createdAt}",
+    "dependencyData": "Использует результат: {source}",
+    "dependencySuccess": "После успешного шага: {source}",
+    "dependencyFailure": "Если шаг завершится ошибкой: {source}",
+    "dependencyAlways": "После завершения шага: {source}",
+    "dependencyOutcome": "Если «{source}» вернёт {outcome}"
   }
 }
