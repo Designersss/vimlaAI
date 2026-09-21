@@ -251,6 +251,15 @@ export class OrchestrationService {
           ),
         };
       } catch (error: unknown) {
+        if (error instanceof ConflictException) {
+          const replay = await this.prisma.client.executionPlan.findFirst({
+            where: { id: shell.id, userId },
+            include: planInclude,
+          });
+          if (replay && replay.status !== "PLANNING") {
+            return existingSemanticPlanResult(replay);
+          }
+        }
         await this.failPlanningClaim(userId, shell.id, claim.claimHash);
         throw error;
       }
