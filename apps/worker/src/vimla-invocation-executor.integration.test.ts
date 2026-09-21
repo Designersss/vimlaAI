@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { ArtifactService } from "@vimla/artifacts";
 import { createPrismaClient, type PrismaClient } from "@vimla/database";
 import type { PlannerPlan } from "@vimla/operator";
 import {
@@ -123,6 +124,80 @@ describe("VimlaInvocationExecutor", () => {
         where: { idempotencyKey: vimlaToolIdempotencyKey(seeded.invocationId) },
       }),
     ).toBe(1);
+  });
+
+  it("passes DATA dependency artifacts to the Vimla tool planner as untrusted execution context", async () => {
+    const seeded = await seedInvocation(
+      prisma,
+      "Create a reminder using the provided prompt artifact",
+    );
+    const sourceInvocationId = randomUUID();
+    await prisma.invocation.create({
+      data: {
+        id: sourceInvocationId,
+        planId: seeded.planId,
+        sequence: 99,
+        purpose: "Produce the reminder text",
+        targetKind: "AI_AUTO",
+        targetModelSlug: null,
+        targetAgentId: null,
+        outputDeclarations: [
+          { name: "prompt", artifactType: "PROMPT" },
+        ],
+        acceptanceCriteria: [],
+        riskClass: "READ_ONLY",
+        approvalPolicy: "AUTO",
+        failurePolicy: "FAIL_PLAN",
+        joinPolicy: "ALL_REQUIRED",
+        status: "COMPLETED",
+      },
+    });
+    const artifacts = new ArtifactService(prisma);
+    await artifacts.createArtifact({
+      actorUserId: seeded.userId,
+      creatorInvocationId: sourceInvocationId,
+      outputName: "prompt",
+      type: "PROMPT",
+      classification: "PRIVATE",
+      content: {
+        kind: "INLINE_JSON",
+        value: { text: "Review the generated campaign prompt" },
+      },
+    });
+    await prisma.invocationDependency.create({
+      data: {
+        id: randomUUID(),
+        planId: seeded.planId,
+        fromInvocationId: sourceInvocationId,
+        toInvocationId: seeded.invocationId,
+        conditionKind: "DATA",
+        conditionOutcome: "",
+        inputBindings: [
+          {
+            inputName: "prompt",
+            sourceOutputName: "prompt",
+            expectedArtifactType: "PROMPT",
+          },
+        ],
+      },
+    });
+
+    const planner = new CapturingPlanner({
+      intent: "answer",
+      userMessage: "context received",
+      clarificationQuestion: null,
+      commands: [],
+    });
+    const executor = new VimlaInvocationExecutor(prisma, planner, "en");
+
+    await expect(
+      executor.execute(executionInput(seeded, 1)),
+    ).resolves.toEqual({ status: "COMPLETED", outcome: "NO_ACTION" });
+    expect(planner.input?.dependencyContext).toContain("INPUT prompt");
+    expect(planner.input?.dependencyContext).toContain("PROMPT");
+    expect(planner.input?.dependencyContext).toContain(
+      "Review the generated campaign prompt",
+    );
   });
 
   it("requires orchestration approval for destructive Vimla tools and accepts an already-approved invocation", async () => {
@@ -278,6 +353,17 @@ class StaticPlanner implements VimlaToolPlanner {
   constructor(private readonly result: PlannerPlan) {}
 
   async plan(_input: VimlaToolPlannerInput): Promise<PlannerPlan> {
+    return this.result;
+  }
+}
+
+class CapturingPlanner implements VimlaToolPlanner {
+  input: VimlaToolPlannerInput | null = null;
+
+  constructor(private readonly result: PlannerPlan) {}
+
+  async plan(input: VimlaToolPlannerInput): Promise<PlannerPlan> {
+    this.input = input;
     return this.result;
   }
 }
