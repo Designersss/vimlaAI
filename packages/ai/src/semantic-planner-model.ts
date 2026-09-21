@@ -1,6 +1,7 @@
 export interface SemanticPlannerCompletionInput {
   prompt: string;
   correlationId: string;
+  signal?: AbortSignal;
 }
 
 export interface OpenAiCompatibleSemanticPlannerConfig {
@@ -42,6 +43,12 @@ export class OpenAiCompatibleSemanticPlannerModel {
 
   async complete(input: SemanticPlannerCompletionInput): Promise<string> {
     const controller = new AbortController();
+    const abortFromCaller = (): void => controller.abort();
+    if (input.signal?.aborted) {
+      controller.abort();
+    } else {
+      input.signal?.addEventListener("abort", abortFromCaller, { once: true });
+    }
     const timer = setTimeout(() => controller.abort(), this.config.timeoutMs);
 
     try {
@@ -81,6 +88,7 @@ export class OpenAiCompatibleSemanticPlannerModel {
       return content;
     } finally {
       clearTimeout(timer);
+      input.signal?.removeEventListener("abort", abortFromCaller);
     }
   }
 }
