@@ -1,6 +1,6 @@
 import type { ExecutionPlan } from "@vimla/orchestration";
 
-const SUPPORTED_AI_OUTPUT_TYPES = new Set([
+const SUPPORTED_AI_OUTPUT_TYPES = new Set<string>([
   "TEXT",
   "PROMPT",
   "DOCUMENT",
@@ -64,7 +64,7 @@ export function applySemanticPlanExecutionPolicy(
             );
           }
           const output = invocation.outputs[0];
-          if (!output || !SUPPORTED_AI_OUTPUT_TYPES.has(output.artifactType as never)) {
+          if (!output || !SUPPORTED_AI_OUTPUT_TYPES.has(output.artifactType)) {
             throw new SemanticPlanPolicyError(
               "OUTPUT_NOT_EXECUTABLE",
               "The selected AI executor cannot emit this artifact type yet",
