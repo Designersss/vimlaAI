@@ -87,9 +87,17 @@ export function validateExecutionPlanGraph(
     outgoing.set(id, []);
   }
 
+  const dependencyIds = new Set<string>();
   const edgeKeys = new Set<string>();
   const boundInputs = new Map<string, Set<string>>();
   for (const dependency of plan.dependencies) {
+    if (dependencyIds.has(dependency.id)) {
+      throw new GraphValidationError(
+        "DUPLICATE_DEPENDENCY",
+        `Duplicate dependency id ${dependency.id}`,
+      );
+    }
+    dependencyIds.add(dependency.id);
     if (!invocationsById.has(dependency.fromInvocationId)) {
       throw new GraphValidationError("UNKNOWN_SOURCE", `Unknown dependency source ${dependency.fromInvocationId}`);
     }
