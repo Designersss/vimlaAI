@@ -332,6 +332,98 @@ describe("execution plan API", () => {
     expect(foreignLookup.json()).toEqual({ plan: null });
   });
 
+  it("bounds conversation polling to active plans or the latest terminal plan", async () => {
+    const owner = await registerVerifiedUser(app, "orchestration-ui-bounded");
+    const conversation = await prisma.conversation.create({
+      data: {
+        userId: owner.id,
+        title: "Workflow polling bounds",
+      },
+    });
+    const firstMessage = await prisma.message.create({
+      data: {
+        conversationId: conversation.id,
+        role: "USER",
+        content: "First workflow",
+        status: "COMPLETE",
+      },
+    });
+    const secondMessage = await prisma.message.create({
+      data: {
+        conversationId: conversation.id,
+        role: "USER",
+        content: "Second workflow",
+        status: "COMPLETE",
+      },
+    });
+
+    const firstCreated = await app.inject({
+      method: "POST",
+      url: "/v1/execution-plans",
+      headers: jsonHeaders(),
+      cookies: owner.cookies,
+      payload: { messageId: firstMessage.id, plan: approvalPlan() },
+    });
+    const secondCreated = await app.inject({
+      method: "POST",
+      url: "/v1/execution-plans",
+      headers: jsonHeaders(),
+      cookies: owner.cookies,
+      payload: { messageId: secondMessage.id, plan: approvalPlan() },
+    });
+    expect(firstCreated.statusCode).toBe(201);
+    expect(secondCreated.statusCode).toBe(201);
+
+    const firstPlanId = firstCreated.json().id as string;
+    const secondPlanId = secondCreated.json().id as string;
+    await prisma.executionPlan.update({
+      where: { id: firstPlanId },
+      data: {
+        status: "COMPLETED",
+        completedAt: new Date("2026-09-21T08:00:01.000Z"),
+        createdAt: new Date("2026-09-21T08:00:00.000Z"),
+      },
+    });
+    await prisma.executionPlan.update({
+      where: { id: secondPlanId },
+      data: {
+        status: "RUNNING",
+        startedAt: new Date("2026-09-21T08:01:00.000Z"),
+        createdAt: new Date("2026-09-21T08:01:00.000Z"),
+      },
+    });
+
+    const activeOnly = await app.inject({
+      method: "GET",
+      url: `/v1/execution-plans/by-conversation/${conversation.id}`,
+      headers: { origin },
+      cookies: owner.cookies,
+    });
+    expect(activeOnly.statusCode).toBe(200);
+    expect(activeOnly.json().plans.map((plan: { id: string }) => plan.id)).toEqual([
+      secondPlanId,
+    ]);
+
+    await prisma.executionPlan.update({
+      where: { id: secondPlanId },
+      data: {
+        status: "CANCELED",
+        completedAt: new Date("2026-09-21T08:02:00.000Z"),
+      },
+    });
+
+    const latestTerminalOnly = await app.inject({
+      method: "GET",
+      url: `/v1/execution-plans/by-conversation/${conversation.id}`,
+      headers: { origin },
+      cookies: owner.cookies,
+    });
+    expect(latestTerminalOnly.statusCode).toBe(200);
+    expect(
+      latestTerminalOnly.json().plans.map((plan: { id: string }) => plan.id),
+    ).toEqual([secondPlanId]);
+  });
+
   it("supports explicit approval without executing the invocation", async () => {
     const owner = await registerVerifiedUser(app, "orchestration-approval");
     const messageId = await createSourceMessage(owner.id);
