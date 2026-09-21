@@ -2,14 +2,14 @@ import { describe, expect, it, vi } from "vitest";
 import { OpenAiCompatibleSemanticPlannerModel } from "./semantic-planner-model.js";
 
 describe("OpenAiCompatibleSemanticPlannerModel", () => {
-  it("calls the dedicated OpenAI-compatible Vimla Core endpoint", async () => {
+  it("calls the dedicated OpenAI-compatible internal planner endpoint", async () => {
     const fetchImpl = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
-      expect(String(input)).toBe("http://vimla-core.local/v1/chat/completions");
+      expect(String(input)).toBe("http://planner.internal/v1/chat/completions");
       expect(init?.method).toBe("POST");
       expect(init?.headers).toMatchObject({
         "content-type": "application/json",
         "x-correlation-id": "corr-1",
-        authorization: "Bearer core-secret",
+        authorization: "Bearer planner-secret",
       });
       const body = JSON.parse(String(init?.body)) as {
         model: string;
@@ -34,9 +34,9 @@ describe("OpenAiCompatibleSemanticPlannerModel", () => {
     });
 
     const model = new OpenAiCompatibleSemanticPlannerModel({
-      baseUrl: "http://vimla-core.local/v1/",
+      baseUrl: "http://planner.internal/v1/",
       model: "qwen-planner",
-      apiKey: "core-secret",
+      apiKey: "planner-secret",
       timeoutMs: 5_000,
       fetchImpl: fetchImpl as typeof fetch,
     });
@@ -49,7 +49,7 @@ describe("OpenAiCompatibleSemanticPlannerModel", () => {
 
   it("fails closed on provider errors and empty responses", async () => {
     const errorModel = new OpenAiCompatibleSemanticPlannerModel({
-      baseUrl: "http://vimla-core.local/v1",
+      baseUrl: "http://planner.internal/v1",
       model: "planner",
       timeoutMs: 5_000,
       fetchImpl: (async () => new Response("no", { status: 503 })) as typeof fetch,
@@ -59,7 +59,7 @@ describe("OpenAiCompatibleSemanticPlannerModel", () => {
     ).rejects.toThrow(/HTTP 503/);
 
     const emptyModel = new OpenAiCompatibleSemanticPlannerModel({
-      baseUrl: "http://vimla-core.local/v1",
+      baseUrl: "http://planner.internal/v1",
       model: "planner",
       timeoutMs: 5_000,
       fetchImpl: (async () =>
