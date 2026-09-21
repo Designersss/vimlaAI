@@ -23,7 +23,12 @@ export function semanticPlanningContext(
   return snapshot.items.flatMap((item) => {
     // The source user message is supplied separately as userText. Repeating it
     // here wastes context and creates a second instruction-shaped copy.
-    if (item.sourceType === "USER_MESSAGE") return [];
+    if (
+      item.sourceType === "USER_MESSAGE" ||
+      item.classification === "RESTRICTED"
+    ) {
+      return [];
+    }
 
     const metadata = sanitizeMetadata(item.sourceType, item.metadata);
     return [
