@@ -38,6 +38,7 @@ import { apiErrorMessageKey } from "../../../../shared/errors/error-keys";
 import { tx } from "../../../../shared/i18n/translate";
 import { CONSUMER_FEATURES } from "../../../../shared/config/consumer-features";
 import { OperatorRunPanel } from "../../../operator/components/OperatorRunPanel";
+import { WorkflowLane } from "../../../workflows/components/WorkflowLane";
 import {
   OperatorRequestError,
   confirmOperatorRun,
@@ -417,6 +418,9 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
           )
         )}
       </div>
+      {CONSUMER_FEATURES.orchestrationUi ? (
+        <WorkflowLane conversationId={conversationId} />
+      ) : null}
       <div style={{ position: "relative" }} onKeyDown={handleComposerKeyDown}>
         {store.error ? <Alert variant="error">{tx(t, apiErrorMessageKey(store.error))}</Alert> : null}
         <MentionPicker
