@@ -191,6 +191,169 @@ describe("structured normal-chat mention routing", () => {
     ).toBe(1);
   });
 
+  it("persists clarification on the planning shell and replays it without a second plan", async () => {
+    const user = await registerVerifiedUser(app, "semantic-plan-clarify");
+    const conversation = await prisma.conversation.create({
+      data: { userId: user.id, title: "Clarification" },
+    });
+    const auto = await prisma.handle.findUniqueOrThrow({
+      where: { normalized: "auto" },
+    });
+    const vimla = await prisma.handle.findUniqueOrThrow({
+      where: { normalized: "vimla" },
+    });
+    const content = "@auto x @vimla";
+
+    const routed = await routing.persist({
+      userId: user.id,
+      conversationId: conversation.id,
+      clientRequestId: crypto.randomUUID(),
+      content,
+      mentions: [
+        {
+          handleId: auto.id,
+          kind: "AI_AUTO",
+          canonicalHandle: "auto",
+          startOffset: 0,
+          endOffset: 5,
+        },
+        {
+          handleId: vimla.id,
+          kind: "SYSTEM_AGENT",
+          canonicalHandle: "vimla",
+          startOffset: 8,
+          endOffset: 14,
+        },
+      ],
+    });
+
+    const first = await orchestration.planMessage(
+      user.id,
+      routed.messageId,
+      routed.mentions,
+      crypto.randomUUID(),
+    );
+    expect(first.kind).toBe("CLARIFICATION_REQUIRED");
+    if (first.kind !== "CLARIFICATION_REQUIRED") {
+      throw new Error("Expected clarification");
+    }
+
+    const shell = await prisma.executionPlan.findUniqueOrThrow({
+      where: { messageId: routed.messageId },
+      include: { invocations: true, contextSnapshot: true },
+    });
+    expect(shell.status).toBe("PLANNING");
+    expect(shell.planHash).toMatch(/^clarification:/);
+    expect(shell.invocations).toHaveLength(0);
+    expect(shell.contextSnapshot).not.toBeNull();
+
+    const replay = await orchestration.planMessage(
+      user.id,
+      routed.messageId,
+      routed.mentions,
+      crypto.randomUUID(),
+    );
+    expect(replay).toEqual(first);
+    expect(
+      await prisma.executionPlan.count({
+        where: { messageId: routed.messageId },
+      }),
+    ).toBe(1);
+  });
+
+  it("returns the durable PLANNING shell instead of starting a concurrent planner", async () => {
+    const user = await registerVerifiedUser(app, "semantic-plan-concurrent");
+    const conversation = await prisma.conversation.create({
+      data: { userId: user.id, title: "Concurrent planning" },
+    });
+    const auto = await prisma.handle.findUniqueOrThrow({
+      where: { normalized: "auto" },
+    });
+
+    const routed = await routing.persist({
+      userId: user.id,
+      conversationId: conversation.id,
+      clientRequestId: crypto.randomUUID(),
+      content: "@auto analyze this",
+      mentions: [
+        {
+          handleId: auto.id,
+          kind: "AI_AUTO",
+          canonicalHandle: "auto",
+          startOffset: 0,
+          endOffset: 5,
+        },
+      ],
+    });
+
+    const shell = await prisma.executionPlan.create({
+      data: {
+        messageId: routed.messageId,
+        userId: user.id,
+        conversationId: conversation.id,
+        schemaVersion: 1,
+        version: 1,
+        planHash: "planning:claimed:active",
+        goal: "Planning workflow",
+        status: "PLANNING",
+        maxParallelism: 1,
+      },
+    });
+
+    const result = await orchestration.planMessage(
+      user.id,
+      routed.messageId,
+      routed.mentions,
+      crypto.randomUUID(),
+    );
+    expect(result).toEqual({ kind: "PLANNING", planId: shell.id });
+    expect(
+      await prisma.invocation.count({ where: { planId: shell.id } }),
+    ).toBe(0);
+  });
+
+  it("persists server-authoritative approval policy for Vimla semantic actions", async () => {
+    const user = await registerVerifiedUser(app, "semantic-plan-vimla-policy");
+    const conversation = await prisma.conversation.create({
+      data: { userId: user.id, title: "Vimla policy" },
+    });
+    const vimla = await prisma.handle.findUniqueOrThrow({
+      where: { normalized: "vimla" },
+    });
+
+    const routed = await routing.persist({
+      userId: user.id,
+      conversationId: conversation.id,
+      clientRequestId: crypto.randomUUID(),
+      content: "@vimla create a reminder",
+      mentions: [
+        {
+          handleId: vimla.id,
+          kind: "SYSTEM_AGENT",
+          canonicalHandle: "vimla",
+          startOffset: 0,
+          endOffset: 6,
+        },
+      ],
+    });
+
+    const result = await orchestration.planMessage(
+      user.id,
+      routed.messageId,
+      routed.mentions,
+      crypto.randomUUID(),
+    );
+    expect(result.kind).toBe("PLANNED");
+    if (result.kind !== "PLANNED") {
+      throw new Error("Expected planned Vimla workflow");
+    }
+    expect(result.plan.invocations[0]).toMatchObject({
+      target: { kind: "VIMLA" },
+      riskClass: "INTERNAL_WRITE",
+      approvalPolicy: "USER_CONFIRMATION",
+    });
+  });
+
   it("rejects stale ranges and forged kinds", async () => {
     const user = await registerVerifiedUser(app, "structured-forged");
     const vimla = await prisma.handle.findUniqueOrThrow({ where: { normalized: "vimla" } });
