@@ -123,6 +123,7 @@ export class MockInvocationExecutorRegistry implements InvocationExecutorRegistr
 export interface OrchestrationRuntimeOptions {
   maxAttempts?: number;
   staleAfterMs?: number;
+  planningStaleAfterMs?: number;
   reconcileBatchSize?: number;
   usageRecheckBaseMs?: number;
   usageRecheckMaxMs?: number;
@@ -149,6 +150,7 @@ type RuntimePlan = Prisma.ExecutionPlanGetPayload<{
 export class OrchestrationRuntime {
   private readonly maxAttempts: number;
   private readonly staleAfterMs: number;
+  private readonly planningStaleAfterMs: number;
   private readonly reconcileBatchSize: number;
   private readonly usageRecheckBaseMs: number;
   private readonly usageRecheckMaxMs: number;
@@ -163,6 +165,10 @@ export class OrchestrationRuntime {
   ) {
     this.maxAttempts = positiveInteger(options.maxAttempts, 3);
     this.staleAfterMs = positiveInteger(options.staleAfterMs, 60_000);
+    this.planningStaleAfterMs = positiveInteger(
+      options.planningStaleAfterMs,
+      660_000,
+    );
     this.reconcileBatchSize = positiveInteger(options.reconcileBatchSize, 100);
     this.usageRecheckBaseMs = positiveInteger(options.usageRecheckBaseMs, 15_000);
     this.usageRecheckMaxMs = positiveInteger(options.usageRecheckMaxMs, 60_000);
@@ -173,6 +179,7 @@ export class OrchestrationRuntime {
   }
 
   async reconcile(): Promise<void> {
+    await this.recoverStalePlanningShells();
     await this.recoverStaleRuns();
 
     let cursor: string | undefined;
@@ -458,6 +465,41 @@ export class OrchestrationRuntime {
         await failPlan(tx, claim.planId, claim.invocationId, now);
       }
     });
+  }
+
+  private async recoverStalePlanningShells(): Promise<void> {
+    const cutoff = new Date(Date.now() - this.planningStaleAfterMs);
+    const stalePlans = await this.prisma.executionPlan.findMany({
+      where: {
+        status: "PLANNING",
+        planHash: { startsWith: "planning:" },
+        updatedAt: { lt: cutoff },
+      },
+      select: { id: true, updatedAt: true },
+      orderBy: { id: "asc" },
+      take: this.reconcileBatchSize,
+    });
+
+    for (const plan of stalePlans) {
+      const recovered = await this.prisma.executionPlan.updateMany({
+        where: {
+          id: plan.id,
+          status: "PLANNING",
+          planHash: { startsWith: "planning:" },
+          updatedAt: { lte: plan.updatedAt },
+        },
+        data: {
+          status: "FAILED",
+          completedAt: new Date(),
+        },
+      });
+      if (recovered.count === 1) {
+        this.logger.warn(
+          { planId: plan.id },
+          "recovered stale semantic planning shell",
+        );
+      }
+    }
   }
 
   private async recoverStaleRuns(): Promise<void> {
