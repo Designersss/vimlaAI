@@ -67,6 +67,28 @@ describe("orchestration queue boundary", () => {
     });
   });
 
+  it("fails closed when a configured executor layer is missing", async () => {
+    const executor = new FailClosedInvocationExecutorRegistry();
+    await expect(
+      executor.execute({
+        planId: "plan-1",
+        invocationId: "inv-ai",
+        attempt: 1,
+        runId: "run-ai",
+        idempotencyKey: "run-ai",
+        target: {
+          kind: "AI_MODEL",
+          modelSlug: "gpt-5-6-luna",
+          agentId: null,
+        },
+      }),
+    ).resolves.toEqual({
+      status: "FAILED",
+      errorCode: "AI_EXECUTOR_NOT_CONFIGURED",
+      retryable: false,
+    });
+  });
+
   it("strictly validates dispatch and invocation payloads", () => {
     expect(parseOrchestrationDispatchPayload({ planId: "plan-1" })).toEqual({ planId: "plan-1" });
     expect(parseInvocationExecutePayload({ planId: "plan-1", invocationId: "inv-1" })).toEqual({
