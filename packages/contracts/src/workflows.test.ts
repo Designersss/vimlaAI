@@ -63,27 +63,40 @@ function planFixture() {
 }
 
 describe("workflow UI contracts", () => {
-  it("parses the current workflow read model and strips artifact internals", () => {
-    const parsed = executionPlanViewSchema.parse(planFixture());
-    const artifact = parsed.invocations[0]?.artifacts[0];
+  it("rejects artifact internals that are not part of the public read model", () => {
+    expect(() => executionPlanViewSchema.parse(planFixture())).toThrow();
+  });
 
-    expect(artifact).toEqual({
-      artifactId: "artifact-1",
-      artifactVersionId: "artifact-version-1",
-      outputName: "result",
-      type: "TEXT",
-      classification: "PRIVATE",
-      version: 1,
-      createdAt: "2026-09-21T08:00:01.000Z",
-    });
-    expect(artifact).not.toHaveProperty("contentJson");
-    expect(artifact).not.toHaveProperty("contentRef");
-    expect(artifact).not.toHaveProperty("metadata");
+  it("parses the exact public workflow read model", () => {
+    const fixture = planFixture();
+    fixture.invocations[0] = {
+      ...fixture.invocations[0],
+      artifacts: [
+        {
+          artifactId: "artifact-1",
+          artifactVersionId: "artifact-version-1",
+          outputName: "result",
+          type: "TEXT",
+          classification: "PRIVATE",
+          version: 1,
+          createdAt: "2026-09-21T08:00:01.000Z",
+        },
+      ],
+    };
+    const parsed = executionPlanViewSchema.parse(fixture);
+    expect(parsed.invocations[0]?.artifacts[0]).toEqual(
+      fixture.invocations[0].artifacts[0],
+    );
   });
 
   it("parses a conversation workflow collection", () => {
+    const fixture = planFixture();
+    fixture.invocations[0] = {
+      ...fixture.invocations[0],
+      artifacts: [],
+    };
     const parsed = executionPlanConversationViewSchema.parse({
-      plans: [planFixture()],
+      plans: [fixture],
     });
     expect(parsed.plans).toHaveLength(1);
     expect(parsed.plans[0]?.invocations[0]?.requiresApproval).toBe(true);
@@ -93,6 +106,7 @@ describe("workflow UI contracts", () => {
     const fixture = planFixture();
     fixture.invocations[0] = {
       ...fixture.invocations[0],
+      artifacts: [],
       status: "MYSTERY" as never,
     };
     expect(() => executionPlanViewSchema.parse(fixture)).toThrow();
