@@ -156,23 +156,17 @@ describe("loadApiConfig", () => {
   it("disables an unconfigured semantic planner outside local/test and rejects explicit mocks", () => {
     const productionBase = {
       ...validSharedEnv,
+      ...productionPaymentEnv,
       APP_ENV: "production",
       BETTER_AUTH_SECRET: "production-secret-value-32-chars-min",
       API_HOST: "127.0.0.1",
       API_PORT: "3001",
-      WEB_ORIGIN: "https://app.vimla.example",
       AI_TEXT_ENABLED: "false",
       EMAIL_PROVIDER: "smtp",
       SMTP_HOST: "smtp.example.com",
       SMTP_USER: "vimla",
       SMTP_PASSWORD: "smtp-secret-value",
       EMAIL_FROM: "noreply@vimla.example",
-      ADMIN_ORIGIN: "https://admin.vimla.example",
-      ADMIN_REQUIRE_PASSKEY: "true",
-      ADMIN_WEBAUTHN_ORIGIN: "https://admin.vimla.example",
-      TBANK_ENV: "production",
-      TBANK_TERMINAL_KEY: "production-terminal",
-      TBANK_PASSWORD: "production-tbank-password",
     };
 
     expect(loadApiConfig(productionBase).semanticPlannerProvider).toBe("disabled");
