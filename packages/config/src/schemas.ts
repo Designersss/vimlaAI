@@ -205,6 +205,14 @@ export const apiEnvSchema = z
         });
       }
 
+      if (value.SEMANTIC_PLANNER_PROVIDER === "mock") {
+        ctx.addIssue({
+          code: "custom",
+          path: ["SEMANTIC_PLANNER_PROVIDER"],
+          message: "Mock semantic planner is not allowed in staging/production",
+        });
+      }
+
       if (value.AI_TEXT_ENABLED === "true") {
         if (!value.PROXYAPI_API_KEY || value.PROXYAPI_API_KEY.trim().length === 0) {
           ctx.addIssue({
@@ -454,7 +462,7 @@ export const apiConfigSchema = z.object({
   proxyapiBaseUrl: z.url(),
   aiTextEnabled: z.boolean(),
   aiTextProvider: z.enum(["mock", "proxyapi"]),
-  semanticPlannerProvider: z.enum(["mock", "internal-http"]),
+  semanticPlannerProvider: z.enum(["disabled", "mock", "internal-http"]),
   semanticPlannerBaseUrl: z.url().optional(),
   semanticPlannerModel: z.string().min(1).optional(),
   semanticPlannerApiKey: z.string().min(1).optional(),
