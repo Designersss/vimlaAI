@@ -193,10 +193,15 @@ export class ConversationsController {
                   status: workflow.kind,
                   planId: workflow.plan.id,
                 }
-              : {
-                  status: workflow.kind,
-                  clarificationQuestion: workflow.clarificationQuestion,
-                },
+              : workflow.kind === "PLANNING"
+                ? {
+                    status: workflow.kind,
+                    planId: workflow.planId,
+                  }
+                : {
+                    status: workflow.kind,
+                    clarificationQuestion: workflow.clarificationQuestion,
+                  },
           ),
         );
         response.write(
@@ -206,7 +211,9 @@ export class ConversationsController {
             workflowStatus: workflow.kind,
             ...(workflow.kind === "PLANNED"
               ? { planId: workflow.plan.id }
-              : {}),
+              : workflow.kind === "PLANNING"
+                ? { planId: workflow.planId }
+                : {}),
           }),
         );
       }
