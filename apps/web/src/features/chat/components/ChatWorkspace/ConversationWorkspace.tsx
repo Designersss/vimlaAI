@@ -419,7 +419,7 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
         )}
       </div>
       {CONSUMER_FEATURES.orchestrationUi ? (
-        <WorkflowLane conversationId={conversationId} />
+        <WorkflowLane key={conversationId} conversationId={conversationId} />
       ) : null}
       <div style={{ position: "relative" }} onKeyDown={handleComposerKeyDown}>
         {store.error ? <Alert variant="error">{tx(t, apiErrorMessageKey(store.error))}</Alert> : null}
