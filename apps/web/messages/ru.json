@@ -523,6 +523,10 @@
     "dependencySuccess": "После успешного шага: {source}",
     "dependencyFailure": "Если шаг завершится ошибкой: {source}",
     "dependencyAlways": "После завершения шага: {source}",
-    "dependencyOutcome": "Если «{source}» вернёт {outcome}"
+    "dependencyOutcome": "Если «{source}» вернёт {outcome}",
+    "attempt": "Попытка {attempt}",
+    "outcome": "Результат: {outcome}",
+    "durationMs": "{milliseconds} мс",
+    "durationSeconds": "{seconds} с"
   }
 }
