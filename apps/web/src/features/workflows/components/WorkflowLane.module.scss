@@ -1,5 +1,3 @@
-@use "@vimla/ui/styles/breakpoints" as bp;
-
 .lane {
   display: flex;
   flex-direction: column;
@@ -17,9 +15,6 @@
   flex-direction: column;
   gap: var(--vimla-space-4);
   min-width: 0;
-  max-height: min(24rem, 42vh);
-  overflow: auto;
-  overscroll-behavior: contain;
 }
 
 .header {
@@ -145,7 +140,6 @@
   }
 
   .card {
-    max-height: min(21rem, 38vh);
     gap: var(--vimla-space-3);
   }
 
@@ -170,13 +164,13 @@
 }
 
 @media (max-height: 520px) and (orientation: landscape) {
-  .card {
+  .lane {
     max-height: 34vh;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .card {
+  .lane {
     scroll-behavior: auto;
   }
 }
