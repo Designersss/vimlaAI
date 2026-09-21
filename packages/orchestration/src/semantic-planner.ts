@@ -16,12 +16,16 @@ export class SemanticWorkflowPlanner {
   constructor(private readonly model: SemanticPlannerModel) {}
 
   async plan(
-    input: SemanticWorkflowPlannerInput & { correlationId: string },
+    input: SemanticWorkflowPlannerInput & {
+      correlationId: string;
+      signal?: AbortSignal;
+    },
   ): Promise<SemanticWorkflowPlannerResult> {
     const prompt = buildSemanticPlannerPrompt(input);
     const raw = await this.model.complete({
       prompt,
       correlationId: input.correlationId,
+      signal: input.signal,
     });
     return compileSemanticPlannerDraft(
       input,
