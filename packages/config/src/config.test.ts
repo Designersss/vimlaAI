@@ -72,10 +72,10 @@ describe("loadApiConfig", () => {
     expect(config.directChatsMutationLimitPerMinute).toBe(60);
     expect(config.aiTextProvider).toBe("mock");
     expect(config.semanticPlannerProvider).toBe("mock");
-    expect(config.vimlaCoreBaseUrl).toBeUndefined();
-    expect(config.vimlaCoreModel).toBeUndefined();
-    expect(config.vimlaCoreApiKey).toBeUndefined();
-    expect(config.vimlaCoreTimeoutMs).toBe(120_000);
+    expect(config.semanticPlannerBaseUrl).toBeUndefined();
+    expect(config.semanticPlannerModel).toBeUndefined();
+    expect(config.semanticPlannerApiKey).toBeUndefined();
+    expect(config.semanticPlannerTimeoutMs).toBe(120_000);
     expect(config.proxyapiBaseUrl).toBe("https://api.proxyapi.ru/v1");
     expect(config.proxyapiApiKey).toBeUndefined();
     expect(config.authOtpDigits).toBe(6);
@@ -90,35 +90,35 @@ describe("loadApiConfig", () => {
     expect(config.notifyDeliveryMaxAttempts).toBe(6);
   });
 
-  it("selects a dedicated Vimla Core semantic planner without changing paid AI routing", () => {
+  it("selects a dedicated Internal semantic planner without changing paid AI routing", () => {
     const config = loadApiConfig({
       ...validSharedEnv,
       API_HOST: "127.0.0.1",
       API_PORT: "3001",
       WEB_ORIGIN: "http://localhost:3000",
-      SEMANTIC_PLANNER_PROVIDER: "vimla-core",
-      VIMLA_CORE_BASE_URL: "http://127.0.0.1:11434/v1/",
-      VIMLA_CORE_MODEL: "qwen-planner",
-      VIMLA_CORE_API_KEY: "internal-secret",
-      VIMLA_CORE_TIMEOUT_MS: "45000",
+      SEMANTIC_PLANNER_PROVIDER: "internal-http",
+      SEMANTIC_PLANNER_BASE_URL: "http://127.0.0.1:11434/v1/",
+      SEMANTIC_PLANNER_MODEL: "qwen-planner",
+      SEMANTIC_PLANNER_API_KEY: "internal-secret",
+      SEMANTIC_PLANNER_TIMEOUT_MS: "45000",
     });
 
-    expect(config.semanticPlannerProvider).toBe("vimla-core");
-    expect(config.vimlaCoreBaseUrl).toBe("http://127.0.0.1:11434/v1");
-    expect(config.vimlaCoreModel).toBe("qwen-planner");
-    expect(config.vimlaCoreApiKey).toBe("internal-secret");
-    expect(config.vimlaCoreTimeoutMs).toBe(45_000);
+    expect(config.semanticPlannerProvider).toBe("internal-http");
+    expect(config.semanticPlannerBaseUrl).toBe("http://127.0.0.1:11434/v1");
+    expect(config.semanticPlannerModel).toBe("qwen-planner");
+    expect(config.semanticPlannerApiKey).toBe("internal-secret");
+    expect(config.semanticPlannerTimeoutMs).toBe(45_000);
     expect(config.aiTextProvider).toBe("mock");
   });
 
-  it("requires endpoint and model for an explicit Vimla Core semantic planner", () => {
+  it("requires endpoint and model for an explicit Internal semantic planner", () => {
     expect(() =>
       loadApiConfig({
         ...validSharedEnv,
         API_HOST: "127.0.0.1",
         API_PORT: "3001",
         WEB_ORIGIN: "http://localhost:3000",
-        SEMANTIC_PLANNER_PROVIDER: "vimla-core",
+        SEMANTIC_PLANNER_PROVIDER: "internal-http",
       }),
     ).toThrow(/VIMLA_CORE/);
   });
