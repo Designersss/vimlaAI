@@ -293,10 +293,12 @@ export class VimlaInvocationExecutor implements InvocationExecutorRegistry {
         actorUserId: userId,
         artifactVersionId: binding.reference.artifactVersionId,
       });
-      const value =
-        version.content.kind === "INLINE_JSON"
-          ? JSON.stringify(version.content.value)
-          : JSON.stringify({ contentRef: version.content.ref });
+      if (version.content.kind !== "INLINE_JSON") {
+        throw new ArtifactBindingError(
+          `Vimla input ${JSON.stringify(binding.inputName)} is not inline content`,
+        );
+      }
+      const value = JSON.stringify(version.content.value);
       parts.push(
         [
           `INPUT ${binding.inputName}`,
