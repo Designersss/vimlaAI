@@ -242,7 +242,7 @@ describe("structured normal-chat mention routing", () => {
       where: { messageId: routed.messageId },
       include: { invocations: true, contextSnapshot: true },
     });
-    expect(shell.status).toBe("PLANNING");
+    expect(shell.status).toBe("NEEDS_CLARIFICATION");
     expect(shell.planHash).toMatch(/^clarification:/);
     expect(shell.invocations).toHaveLength(0);
     expect(shell.contextSnapshot).not.toBeNull();
