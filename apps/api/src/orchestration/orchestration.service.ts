@@ -178,12 +178,30 @@ export class OrchestrationService {
     conversationId: string,
   ): Promise<ExecutionPlanConversationView> {
     this.assertPreviewEnabled();
-    const plans = await this.prisma.client.executionPlan.findMany({
-      where: { userId, conversationId },
+
+    const activePlans = await this.prisma.client.executionPlan.findMany({
+      where: {
+        userId,
+        conversationId,
+        status: { in: ["PLANNING", "PLANNED", "RUNNING"] },
+      },
       include: planInclude,
       orderBy: [{ createdAt: "asc" }, { id: "asc" }],
     });
-    return { plans: plans.map(toView) };
+    if (activePlans.length > 0) {
+      return { plans: activePlans.map(toView) };
+    }
+
+    const latestTerminal = await this.prisma.client.executionPlan.findFirst({
+      where: {
+        userId,
+        conversationId,
+        status: { in: ["PARTIAL", "COMPLETED", "FAILED", "CANCELED"] },
+      },
+      include: planInclude,
+      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+    });
+    return { plans: latestTerminal ? [toView(latestTerminal)] : [] };
   }
 
   async start(userId: string, id: string): Promise<ExecutionPlanView> {
