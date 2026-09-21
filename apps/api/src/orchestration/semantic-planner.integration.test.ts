@@ -231,6 +231,73 @@ describe("semantic planner Vimla Core integration", () => {
       result.plan.updatedAt ? new Date(result.plan.updatedAt).getTime() : Date.now(),
     );
   });
+
+  it("persists a terminal FAILED shell when bounded planning context cannot be built safely", async () => {
+    const suffix = randomUUID();
+    const user = await prisma.user.create({
+      data: {
+        id: `semantic-context-bound-${suffix}`,
+        email: `${suffix}@semantic-context-bound.test`,
+        name: "Semantic Context Bound",
+        emailVerified: true,
+      },
+    });
+    const conversation = await prisma.conversation.create({
+      data: { userId: user.id, title: "Semantic context bound" },
+    });
+    await prisma.message.create({
+      data: {
+        conversationId: conversation.id,
+        role: "ASSISTANT",
+        content: "x".repeat(70_000),
+        status: "COMPLETE",
+      },
+    });
+    const source = await prisma.message.create({
+      data: {
+        conversationId: conversation.id,
+        role: "USER",
+        content: "@gpt-5-6-luna use the prior context with @claude-haiku-4-5",
+        status: "COMPLETE",
+      },
+    });
+
+    const service = app.get(OrchestrationService);
+    await expect(
+      service.planMessage(
+        user.id,
+        source.id,
+        [
+          {
+            id: "context-bound-a",
+            handleId: "handle-a",
+            kind: "AI_MODEL",
+            targetId: "model-a",
+            canonicalHandle: "gpt-5-6-luna",
+            startOffset: 0,
+            endOffset: 15,
+          },
+          {
+            id: "context-bound-b",
+            handleId: "handle-b",
+            kind: "AI_MODEL",
+            targetId: "model-b",
+            canonicalHandle: "claude-haiku-4-5",
+            startOffset: 43,
+            endOffset: 61,
+          },
+        ],
+        randomUUID(),
+      ),
+    ).rejects.toMatchObject({ status: 400 });
+
+    const shell = await prisma.executionPlan.findUniqueOrThrow({
+      where: { messageId: source.id },
+      select: { status: true, completedAt: true },
+    });
+    expect(shell.status).toBe("FAILED");
+    expect(shell.completedAt).not.toBeNull();
+  });
 });
 
 function plannerMentions(
