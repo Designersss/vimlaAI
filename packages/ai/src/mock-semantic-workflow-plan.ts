@@ -69,13 +69,16 @@ export function mockSemanticWorkflowPlannerResponse(prompt: string): string {
         occurrenceId: mention.occurrenceId,
         semanticRole: "EXECUTION",
       },
-      outputs: [
-        {
-          name: "result",
-          artifactType: "TEXT",
-          description: "Primary output of this invocation",
-        },
-      ],
+      outputs:
+        mention.target.kind === "VIMLA"
+          ? []
+          : [
+              {
+                name: "result",
+                artifactType: "TEXT",
+                description: "Primary output of this invocation",
+              },
+            ],
       acceptanceCriteria: [],
       riskHint:
         mention.target.kind === "VIMLA" ? "INTERNAL_WRITE" : "READ_ONLY",
