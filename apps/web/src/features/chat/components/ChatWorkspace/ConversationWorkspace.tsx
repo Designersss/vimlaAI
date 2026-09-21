@@ -313,6 +313,9 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
           mentions,
           onDelta: () => undefined,
           onRoute: () => undefined,
+          onWorkflow: () => {
+            setWorkflowRefreshToken((value) => value + 1);
+          },
           onDone: () => undefined,
           onError: (code) => {
             failed = true;
