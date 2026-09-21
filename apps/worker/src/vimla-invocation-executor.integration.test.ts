@@ -183,21 +183,43 @@ describe("VimlaInvocationExecutor", () => {
     });
 
     const planner = new CapturingPlanner({
-      intent: "answer",
+      intent: "act",
       userMessage: "context received",
       clarificationQuestion: null,
-      commands: [],
+      commands: [{ tool: "profile.getSafe", args: {} }],
     });
     const executor = new VimlaInvocationExecutor(prisma, planner, "en");
 
     await expect(
       executor.execute(executionInput(seeded, 1)),
-    ).resolves.toEqual({ status: "COMPLETED", outcome: "NO_ACTION" });
+    ).resolves.toEqual({ status: "COMPLETED", outcome: "PASS" });
     expect(planner.input?.dependencyContext).toContain("INPUT prompt");
     expect(planner.input?.dependencyContext).toContain("PROMPT");
     expect(planner.input?.dependencyContext).toContain(
       "Review the generated campaign prompt",
     );
+  });
+
+  it("fails closed when a write-class Vimla invocation cannot be resolved to a tool action", async () => {
+    const seeded = await seedInvocation(prisma, "perform the requested workspace change");
+    const executor = new VimlaInvocationExecutor(
+      prisma,
+      new StaticPlanner({
+        intent: "answer",
+        userMessage: "I could not resolve an action",
+        clarificationQuestion: null,
+        commands: [],
+      }),
+      "en",
+    );
+
+    await expect(
+      executor.execute(executionInput(seeded, 1)),
+    ).resolves.toEqual({
+      status: "FAILED",
+      errorCode: "VIMLA_ACTION_NOT_RESOLVED",
+      retryable: false,
+    });
   });
 
   it("requires orchestration approval for destructive Vimla tools and accepts an already-approved invocation", async () => {
