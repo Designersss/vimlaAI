@@ -473,5 +473,47 @@
     "emailUnverified": "Verify your email to receive reminder emails.",
     "verifyEmail": "Verify email",
     "saved": "Notification settings saved."
+  },
+  "workflow": {
+    "region": "Workflow execution",
+    "title": "Workflow",
+    "loadFailed": "Unable to refresh the workflow state.",
+    "progress": "{completed} of {total} steps",
+    "progressLabel": "Workflow progress",
+    "start": "Start",
+    "stop": "Stop",
+    "approve": "Approve",
+    "artifacts": "Step results",
+    "targetAuto": "Auto",
+    "targetEvaluator": "Evaluator",
+    "targetAgent": "Agent",
+    "waitingCapacity": "Waiting for temporarily reserved AI capacity to become available.",
+    "blockedUsage": "There is not enough available AI allowance. After a top-up or plan renewal, the workflow can continue from this step.",
+    "waitingApproval": "Approval is required before this step can continue.",
+    "failureSpendLimit": "This workflow reached its safe spend limit.",
+    "failureReconciliation": "AI usage is being reconciled. No duplicate paid call is started.",
+    "failureInterrupted": "The AI call was interrupted. Known usage was accounted for safely.",
+    "failureGeneric": "This step did not complete. Review the workflow state and retry when policy allows it.",
+    "planStatus": {
+      "PLANNING": "Preparing",
+      "PLANNED": "Ready to start",
+      "RUNNING": "Running",
+      "PARTIAL": "Partially completed",
+      "COMPLETED": "Completed",
+      "FAILED": "Failed",
+      "CANCELED": "Stopped"
+    },
+    "invocationStatus": {
+      "PENDING": "Pending",
+      "READY": "Ready",
+      "RUNNING": "Running",
+      "WAITING_APPROVAL": "Needs approval",
+      "WAITING_FOR_USAGE_CAPACITY": "Waiting for capacity",
+      "BLOCKED_INSUFFICIENT_USAGE": "Insufficient allowance",
+      "COMPLETED": "Completed",
+      "FAILED": "Failed",
+      "SKIPPED": "Skipped",
+      "CANCELED": "Stopped"
+    }
   }
 }
