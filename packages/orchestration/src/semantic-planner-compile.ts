@@ -210,6 +210,21 @@ function validateGraph(plan: ExecutionPlan): void {
 
 function stableTopologicalOrder(plan: ExecutionPlan): string[] {
   const ids = new Set(plan.invocations.map((invocation) => invocation.id));
+  const invocationById = new Map(
+    plan.invocations.map((invocation) => [invocation.id, invocation]),
+  );
+  const compareIds = (left: string, right: string): number => {
+    const leftInvocation = invocationById.get(left);
+    const rightInvocation = invocationById.get(right);
+    if (!leftInvocation || !rightInvocation) {
+      return left.localeCompare(right);
+    }
+    const semantic =
+      invocationSemanticSortKey(leftInvocation).localeCompare(
+        invocationSemanticSortKey(rightInvocation),
+      );
+    return semantic || left.localeCompare(right);
+  };
   const indegree = new Map<string, number>(
     [...ids].map((id) => [id, 0]),
   );
@@ -233,12 +248,12 @@ function stableTopologicalOrder(plan: ExecutionPlan): string[] {
     );
     outgoing.get(dependency.fromInvocationId)?.push(dependency.toInvocationId);
   }
-  for (const values of outgoing.values()) values.sort();
+  for (const values of outgoing.values()) values.sort(compareIds);
 
   const ready = [...indegree.entries()]
     .filter(([, degree]) => degree === 0)
     .map(([id]) => id)
-    .sort();
+    .sort(compareIds);
   const order: string[] = [];
 
   while (ready.length > 0) {
@@ -250,7 +265,7 @@ function stableTopologicalOrder(plan: ExecutionPlan): string[] {
       indegree.set(next, degree);
       if (degree === 0) {
         ready.push(next);
-        ready.sort();
+        ready.sort(compareIds);
       }
     }
   }
@@ -262,6 +277,25 @@ function stableTopologicalOrder(plan: ExecutionPlan): string[] {
     );
   }
   return order;
+}
+
+function invocationSemanticSortKey(
+  invocation: ExecutionPlan["invocations"][number],
+): string {
+  return JSON.stringify({
+    purpose: invocation.purpose.trim(),
+    target: invocation.target,
+    outputs: [...invocation.outputs].sort((left, right) =>
+      left.name.localeCompare(right.name),
+    ),
+    acceptanceCriteria: [...invocation.acceptanceCriteria].sort((left, right) =>
+      left.id.localeCompare(right.id),
+    ),
+    riskClass: invocation.riskClass,
+    approvalPolicy: invocation.approvalPolicy,
+    failurePolicy: invocation.failurePolicy,
+    joinPolicy: invocation.joinPolicy,
+  });
 }
 
 function requiredMappedId(
