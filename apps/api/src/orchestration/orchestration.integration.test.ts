@@ -424,6 +424,33 @@ describe("execution plan API", () => {
     ).toEqual([secondPlanId]);
   });
 
+  it("rejects high-risk invocations that try to bypass explicit approval", async () => {
+    const owner = await registerVerifiedUser(app, "orchestration-risk-approval");
+    const messageId = await createSourceMessage(owner.id);
+    const plan = approvalPlan();
+    const invocation = plan.invocations[0];
+    if (!invocation) throw new Error("Expected approval-plan invocation");
+    plan.invocations[0] = {
+      ...invocation,
+      riskClass: "FINANCIAL",
+      approvalPolicy: "AUTO",
+    };
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/execution-plans",
+      headers: jsonHeaders(),
+      cookies: owner.cookies,
+      payload: { messageId, plan },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error.code).toBe("validation_error");
+    expect(
+      await prisma.executionPlan.count({ where: { messageId } }),
+    ).toBe(0);
+  });
+
   it("supports explicit approval without executing the invocation", async () => {
     const owner = await registerVerifiedUser(app, "orchestration-approval");
     const messageId = await createSourceMessage(owner.id);
