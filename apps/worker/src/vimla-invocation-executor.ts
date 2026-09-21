@@ -169,7 +169,10 @@ export class VimlaInvocationExecutor implements InvocationExecutorRegistry {
           retryable: false,
         };
       }
-      if (step.confirmationRequired) {
+      if (
+        step.confirmationRequired &&
+        invocation.approvalPolicy === "AUTO"
+      ) {
         return {
           status: "FAILED",
           errorCode: "VIMLA_CONFIRMATION_REQUIRED",
