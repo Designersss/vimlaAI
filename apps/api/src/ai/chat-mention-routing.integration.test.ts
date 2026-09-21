@@ -5,6 +5,7 @@ import { createPrismaClient } from "@vimla/database";
 import { createVimlaApiApp } from "../create-app.js";
 import { registerVerifiedUser } from "../test/identity-helpers.js";
 import { ChatMentionRoutingService } from "./chat-mention-routing.service.js";
+import { OrchestrationService } from "../orchestration/orchestration.service.js";
 
 const testDatabaseUrl = process.env.TEST_DATABASE_URL;
 if (!testDatabaseUrl) {
@@ -16,6 +17,7 @@ const origin = "http://localhost:3000";
 describe("structured normal-chat mention routing", () => {
   let app: NestFastifyApplication;
   let routing: ChatMentionRoutingService;
+  let orchestration: OrchestrationService;
   const prisma = createPrismaClient(testDatabaseUrl);
 
   beforeAll(async () => {
@@ -37,6 +39,7 @@ describe("structured normal-chat mention routing", () => {
     await app.init();
     await app.getHttpAdapter().getInstance().ready();
     routing = app.get(ChatMentionRoutingService);
+    orchestration = app.get(OrchestrationService);
   });
 
   afterAll(async () => {
@@ -121,6 +124,70 @@ describe("structured normal-chat mention routing", () => {
       [16, 21],
     ]);
     expect(new Set(result.mentions.map((mention) => mention.id)).size).toBe(2);
+  });
+
+  it("compiles a routed structured mention into one durable replay-safe execution plan", async () => {
+    const user = await registerVerifiedUser(app, "semantic-plan-auto");
+    const conversation = await prisma.conversation.create({
+      data: { userId: user.id, title: "Semantic planner" },
+    });
+    const auto = await prisma.handle.findUniqueOrThrow({
+      where: { normalized: "auto" },
+    });
+    const content = "@auto prepare an independent analysis";
+
+    const routed = await routing.persist({
+      userId: user.id,
+      conversationId: conversation.id,
+      clientRequestId: crypto.randomUUID(),
+      content,
+      mentions: [
+        {
+          handleId: auto.id,
+          kind: "AI_AUTO",
+          canonicalHandle: "auto",
+          startOffset: 0,
+          endOffset: 5,
+        },
+      ],
+    });
+
+    const planned = await orchestration.planMessage(
+      user.id,
+      routed.messageId,
+      routed.mentions,
+      crypto.randomUUID(),
+    );
+    expect(planned.kind).toBe("PLANNED");
+    if (planned.kind !== "PLANNED") {
+      throw new Error("Expected a planned workflow");
+    }
+    expect(planned.plan.status).toBe("PLANNED");
+    expect(planned.plan.messageId).toBe(routed.messageId);
+    expect(planned.plan.invocations).toHaveLength(1);
+    expect(planned.plan.invocations[0]?.target).toEqual({ kind: "AI_AUTO" });
+
+    const replay = await orchestration.planMessage(
+      user.id,
+      routed.messageId,
+      routed.mentions,
+      crypto.randomUUID(),
+    );
+    expect(replay.kind).toBe("PLANNED");
+    if (replay.kind !== "PLANNED") {
+      throw new Error("Expected a replayed workflow");
+    }
+    expect(replay.plan.id).toBe(planned.plan.id);
+    expect(
+      await prisma.executionPlan.count({
+        where: { messageId: routed.messageId, userId: user.id },
+      }),
+    ).toBe(1);
+    expect(
+      await prisma.contextSnapshot.count({
+        where: { planId: planned.plan.id },
+      }),
+    ).toBe(1);
   });
 
   it("rejects stale ranges and forged kinds", async () => {
