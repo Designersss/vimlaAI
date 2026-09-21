@@ -153,6 +153,13 @@ export class VimlaInvocationExecutor implements InvocationExecutorRegistry {
       });
 
       if (planned.intent === "answer") {
+        if (invocation.riskClass !== "READ_ONLY") {
+          return {
+            status: "FAILED",
+            errorCode: "VIMLA_ACTION_NOT_RESOLVED",
+            retryable: false,
+          };
+        }
         return { status: "COMPLETED", outcome: "NO_ACTION" };
       }
       if (planned.intent === "clarify") {
