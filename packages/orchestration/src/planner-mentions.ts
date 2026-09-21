@@ -95,7 +95,7 @@ export function toPlannerInvocationMentions(
 }
 
 /**
- * Semantic role assignment is deliberately explicit. The future planner may
+ * Semantic role assignment is deliberately explicit. The semantic planner may
  * assign EVALUATION after understanding intent; this boundary must never infer
  * it from keyword matching such as "check", "if" or "approve".
  */
@@ -112,8 +112,8 @@ export function withPlannerMentionRole(
 /**
  * Converts a planner-resolved mention target to the existing immutable
  * ExecutionPlan InvocationTarget contract. Stable model identity remains on
- * PlannerMentionTarget for provenance while orchestration continues to use the
- * public model slug until PR-09 performs authoritative catalog resolution.
+ * PlannerMentionTarget for provenance; the canonical model handle is guaranteed
+ * by the handle registry to match the immutable published model slug.
  */
 export function invocationTargetForPlannerMention(
   mention: Pick<PlannerInvocationMention, "target">,
