@@ -7,6 +7,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./semantic-planner-testing": {
+      "types": "./dist/semantic-planner-testing.d.ts",
+      "import": "./dist/semantic-planner-testing.js"
     }
   },
   "files": ["dist"],
