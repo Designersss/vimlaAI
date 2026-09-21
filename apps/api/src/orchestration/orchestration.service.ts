@@ -89,6 +89,7 @@ export class OrchestrationService {
     messageId: string,
     resolvedMentions: readonly ResolvedInvocationMentionInput[],
     correlationId: string,
+    onPlanning?: (planId: string) => void,
   ): Promise<SemanticPlanMessageResult> {
     this.assertPreviewEnabled();
 
@@ -118,6 +119,9 @@ export class OrchestrationService {
     }
 
     const shell = await this.ensurePlanningShell(userId, sourceMessage);
+    if (shell.status === "PLANNING") {
+      onPlanning?.(shell.id);
+    }
     if (isClarificationShell(shell)) {
       return {
         kind: "CLARIFICATION_REQUIRED",
