@@ -58,6 +58,11 @@ export function loadApiConfig(
     proxyapiBaseUrl: parsed.PROXYAPI_BASE_URL.replace(/\/$/, ""),
     aiTextEnabled: parsed.AI_TEXT_ENABLED === "true",
     aiTextProvider: resolveAiTextProvider(parsed),
+    semanticPlannerProvider: resolveSemanticPlannerProvider(parsed),
+    vimlaCoreBaseUrl: parsed.VIMLA_CORE_BASE_URL?.replace(/\/$/, ""),
+    vimlaCoreModel: parsed.VIMLA_CORE_MODEL,
+    vimlaCoreApiKey: parsed.VIMLA_CORE_API_KEY,
+    vimlaCoreTimeoutMs: parsed.VIMLA_CORE_TIMEOUT_MS,
     aiDefaultMaxOutputTokens: parsed.AI_DEFAULT_MAX_OUTPUT_TOKENS,
     aiMaxMessageBytes: parsed.AI_MAX_MESSAGE_BYTES,
     aiMaxContextBytes: parsed.AI_MAX_CONTEXT_BYTES,
@@ -130,6 +135,23 @@ export function loadApiConfig(
     tbankReceiptItemName: parsed.TBANK_RECEIPT_ITEM_NAME,
     tbankRecurringEnabled: parsed.TBANK_RECURRING_ENABLED === "true",
   });
+}
+
+function resolveSemanticPlannerProvider(parsed: {
+  SEMANTIC_PLANNER_PROVIDER: "auto" | "mock" | "vimla-core";
+  VIMLA_CORE_BASE_URL?: string;
+  VIMLA_CORE_MODEL?: string;
+}): "mock" | "vimla-core" {
+  if (
+    parsed.SEMANTIC_PLANNER_PROVIDER === "mock" ||
+    parsed.SEMANTIC_PLANNER_PROVIDER === "vimla-core"
+  ) {
+    return parsed.SEMANTIC_PLANNER_PROVIDER;
+  }
+
+  return parsed.VIMLA_CORE_BASE_URL && parsed.VIMLA_CORE_MODEL
+    ? "vimla-core"
+    : "mock";
 }
 
 function resolveAiTextProvider(parsed: {
