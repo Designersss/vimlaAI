@@ -1,0 +1,158 @@
+@use "@vimla/ui/styles/breakpoints" as bp;
+
+.lane {
+  min-width: 0;
+  padding: 0 max(var(--vimla-page-pad), calc((100% - 52rem) / 2)) var(--vimla-space-3);
+  background: var(--vimla-bg-primary);
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--vimla-space-4);
+  min-width: 0;
+  max-height: min(24rem, 42vh);
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+.header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--vimla-space-4);
+  min-width: 0;
+}
+
+.heading {
+  display: flex;
+  flex-direction: column;
+  gap: var(--vimla-space-1);
+  min-width: 0;
+}
+
+.eyebrow,
+.stepBadges,
+.actions,
+.stepActions,
+.artifacts {
+  display: flex;
+  align-items: center;
+  gap: var(--vimla-space-2);
+  flex-wrap: wrap;
+}
+
+.goal,
+.stepPurpose {
+  overflow-wrap: anywhere;
+}
+
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--vimla-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.step {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--vimla-space-3);
+  min-width: 0;
+  padding: var(--vimla-space-3);
+  border: 1px solid var(--vimla-border-subtle);
+  border-radius: var(--vimla-radius-lg);
+  background: var(--vimla-bg-secondary);
+}
+
+.stepIndex {
+  display: inline-grid;
+  place-items: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 999px;
+  background: var(--vimla-bg-tertiary);
+  color: var(--vimla-text-secondary);
+  font-size: var(--vimla-type-caption-size);
+  font-weight: var(--vimla-type-semibold-weight);
+}
+
+.stepBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--vimla-space-2);
+  min-width: 0;
+}
+
+.stepTop {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--vimla-space-3);
+  min-width: 0;
+}
+
+.artifact {
+  max-width: 100%;
+  padding: 0.25rem 0.5rem;
+  border-radius: var(--vimla-radius-md);
+  background: var(--vimla-bg-tertiary);
+  color: var(--vimla-text-secondary);
+  font-size: var(--vimla-type-caption-size);
+  overflow-wrap: anywhere;
+}
+
+.failure {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--vimla-space-3);
+  padding: var(--vimla-space-3);
+  border: 1px solid var(--vimla-border-subtle);
+  border-radius: var(--vimla-radius-lg);
+}
+
+@media (max-width: 767px) {
+  .lane {
+    padding-inline: var(--vimla-page-pad);
+    padding-bottom: var(--vimla-space-2);
+  }
+
+  .card {
+    max-height: min(21rem, 38vh);
+    gap: var(--vimla-space-3);
+  }
+
+  .header,
+  .stepTop {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .actions {
+    width: 100%;
+  }
+
+  .actions > * {
+    flex: 1 1 auto;
+  }
+
+  .step {
+    padding: var(--vimla-space-2);
+    gap: var(--vimla-space-2);
+  }
+}
+
+@media (max-height: 520px) and (orientation: landscape) {
+  .card {
+    max-height: 34vh;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card {
+    scroll-behavior: auto;
+  }
+}
