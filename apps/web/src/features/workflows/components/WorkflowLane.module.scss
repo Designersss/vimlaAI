@@ -1,7 +1,13 @@
 @use "@vimla/ui/styles/breakpoints" as bp;
 
 .lane {
+  display: flex;
+  flex-direction: column;
+  gap: var(--vimla-space-3);
   min-width: 0;
+  max-height: min(28rem, 45vh);
+  overflow: auto;
+  overscroll-behavior: contain;
   padding: 0 max(var(--vimla-page-pad), calc((100% - 52rem) / 2)) var(--vimla-space-3);
   background: var(--vimla-bg-primary);
 }
@@ -116,6 +122,7 @@
 
 @media (max-width: 767px) {
   .lane {
+    max-height: 38vh;
     padding-inline: var(--vimla-page-pad);
     padding-bottom: var(--vimla-space-2);
   }
