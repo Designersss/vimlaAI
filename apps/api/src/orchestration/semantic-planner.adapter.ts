@@ -1,7 +1,5 @@
-import {
-  mockSemanticWorkflowPlannerResponse,
-  OpenAiCompatibleSemanticPlannerModel,
-} from "@vimla/ai";
+import { OpenAiCompatibleSemanticPlannerModel } from "@vimla/ai";
+import { mockSemanticWorkflowPlannerResponse } from "@vimla/ai/semantic-planner-testing";
 import type { SemanticPlannerModel } from "@vimla/orchestration";
 import type { ApiRuntimeConfig } from "../config/api-config.js";
 
