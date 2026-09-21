@@ -78,10 +78,7 @@ export type SemanticPlannerDraft =
 
 export interface SemanticPlannerContextItem {
   sourceType: string;
-  sourceId: string;
-  sourceVersion: string | null;
   classification: string;
-  contentRef: string | null;
   metadata: unknown;
 }
 
