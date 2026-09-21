@@ -523,6 +523,10 @@
     "dependencySuccess": "After success: {source}",
     "dependencyFailure": "If this step fails: {source}",
     "dependencyAlways": "After this step settles: {source}",
-    "dependencyOutcome": "If “{source}” returns {outcome}"
+    "dependencyOutcome": "If “{source}” returns {outcome}",
+    "attempt": "Attempt {attempt}",
+    "outcome": "Outcome: {outcome}",
+    "durationMs": "{milliseconds} ms",
+    "durationSeconds": "{seconds} s"
   }
 }
