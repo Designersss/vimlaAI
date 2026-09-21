@@ -6,6 +6,7 @@ import { OriginGuard } from "../auth/origin.guard.js";
 import { SensitiveArea } from "../auth/sensitive-area.js";
 import { SensitiveAreaGuard } from "../auth/sensitive-area.guard.js";
 import type {
+  ExecutionPlanConversationView,
   ExecutionPlanLookupView,
   ExecutionPlanView,
 } from "./contracts.js";
@@ -35,6 +36,14 @@ export class OrchestrationController {
     @Param("messageId") messageId: string,
   ): Promise<ExecutionPlanLookupView> {
     return this.orchestration.getForMessage(user.id, messageId);
+  }
+
+  @Get("by-conversation/:conversationId")
+  getForConversation(
+    @AuthUser() user: AuthenticatedUser,
+    @Param("conversationId") conversationId: string,
+  ): Promise<ExecutionPlanConversationView> {
+    return this.orchestration.getForConversation(user.id, conversationId);
   }
 
   @Get(":id")
