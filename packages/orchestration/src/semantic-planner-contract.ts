@@ -22,6 +22,7 @@ export const SEMANTIC_PLANNER_LIMITS = {
   maxOutputsPerInvocation: 32,
   maxCriteriaPerInvocation: 32,
   maxBindingsPerDependency: 32,
+  maxPlanningContextItems: 128,
   maxConfidence: 1,
   minPlanConfidence: 0.65,
   defaultMaxParallelism: 4,
@@ -74,9 +75,19 @@ export type SemanticPlannerDraft =
       dependencies: readonly [];
     };
 
+export interface SemanticPlannerContextItem {
+  sourceType: string;
+  sourceId: string;
+  sourceVersion: string | null;
+  classification: string;
+  contentRef: string | null;
+  metadata: unknown;
+}
+
 export interface SemanticWorkflowPlannerInput {
   userText: string;
   mentions: readonly PlannerInvocationMention[];
+  planningContext: readonly SemanticPlannerContextItem[];
 }
 
 export type SemanticWorkflowPlannerResult =
