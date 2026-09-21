@@ -24,6 +24,17 @@ export function validateManualExecutionPlan(plan: ExecutionPlanDefinition): void
     }
     invocations.set(invocation.id, invocation);
 
+    if (
+      invocation.approvalPolicy === "AUTO" &&
+      (invocation.riskClass === "EXTERNAL_SIDE_EFFECT" ||
+        invocation.riskClass === "DESTRUCTIVE" ||
+        invocation.riskClass === "FINANCIAL")
+    ) {
+      invalid(
+        `Invocation ${invocation.id} requires explicit approval for risk class ${invocation.riskClass}`,
+      );
+    }
+
     const declared = new Map<string, string>();
     for (const output of invocation.outputs) {
       if (declared.has(output.name)) {
