@@ -19,7 +19,7 @@ import { createAiReconciler } from "./ai-reconciliation.js";
 import { aiReconciliationCutoffs } from "./ai-reconciliation-timing.js";
 import { createNotificationRuntime, parseDeliveryJobPayload } from "./notifications.js";
 import {
-  MockInvocationExecutorRegistry,
+  FailClosedInvocationExecutorRegistry,
   OrchestrationRuntime,
   parseInvocationExecutePayload,
   parseOrchestrationDispatchPayload,
@@ -347,7 +347,7 @@ async function startOrchestrationRuntime(
         new DeterministicVimlaToolPlanner(),
         config.authDefaultLocale,
       ),
-      new MockInvocationExecutorRegistry(),
+      new FailClosedInvocationExecutorRegistry(),
     ),
   );
   const runtime = new OrchestrationRuntime(
