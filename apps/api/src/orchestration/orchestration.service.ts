@@ -154,7 +154,7 @@ export class OrchestrationService {
     try {
       snapshot = await this.ensureContextSnapshot(userId, shell.id);
     } catch (error: unknown) {
-      await this.releasePlanningClaim(userId, shell.id, claim.claimHash);
+      await this.failPlanningClaim(userId, shell.id, claim.claimHash);
       throw error;
     }
 
@@ -184,7 +184,6 @@ export class OrchestrationService {
         signal: abortController.signal,
       });
     } catch (error: unknown) {
-      await this.releasePlanningClaim(userId, shell.id, claim.claimHash);
       if (abortController.signal.aborted) {
         const replay = await this.prisma.client.executionPlan.findFirst({
           where: { id: shell.id, userId },
@@ -194,6 +193,7 @@ export class OrchestrationService {
           return existingSemanticPlanResult(replay);
         }
       }
+      await this.failPlanningClaim(userId, shell.id, claim.claimHash);
       if (error instanceof SemanticPlannerError) {
         throw new BadRequestException({
           code: "semantic_plan_invalid",
@@ -237,7 +237,7 @@ export class OrchestrationService {
           clarificationQuestion: question,
         };
       }
-      await this.releasePlanningClaim(userId, shell.id, claim.claimHash);
+      await this.failPlanningClaim(userId, shell.id, claim.claimHash);
       throw error;
     }
 
@@ -252,7 +252,7 @@ export class OrchestrationService {
         ),
       };
     } catch (error: unknown) {
-      await this.releasePlanningClaim(userId, shell.id, claim.claimHash);
+      await this.failPlanningClaim(userId, shell.id, claim.claimHash);
       throw error;
     }
   }
@@ -376,7 +376,7 @@ export class OrchestrationService {
     return { claimed: true, claimHash, plan };
   }
 
-  private async releasePlanningClaim(
+  private async failPlanningClaim(
     userId: string,
     planId: string,
     claimHash: string,
@@ -389,8 +389,8 @@ export class OrchestrationService {
         planHash: claimHash,
       },
       data: {
-        planHash: PLANNING_PENDING_HASH,
-        goal: PLANNING_GOAL,
+        status: "FAILED",
+        completedAt: new Date(),
       },
     });
   }
