@@ -122,9 +122,9 @@ describe("semantic planner Vimla Core integration", () => {
     process.env.BETTER_AUTH_URL =
       process.env.BETTER_AUTH_URL ?? "http://localhost:3001";
     process.env.OPERATOR_ENABLED = "true";
-    process.env.SEMANTIC_PLANNER_PROVIDER = "vimla-core";
-    process.env.VIMLA_CORE_BASE_URL = baseUrl;
-    process.env.VIMLA_CORE_MODEL = "test-planner";
+    process.env.SEMANTIC_PLANNER_PROVIDER = "internal-http";
+    process.env.SEMANTIC_PLANNER_BASE_URL = baseUrl;
+    process.env.SEMANTIC_PLANNER_MODEL = "test-planner";
 
     prisma = createPrismaClient(testDatabaseUrl);
     app = await createVimlaApiApp(loadApiConfig(process.env), { quiet: true });
