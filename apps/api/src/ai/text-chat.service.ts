@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger, NotFoundException, BadRequestException } fr
 import { isAiTextOperatorDisabled } from "@vimla/admin";
 import {
   AiError,
+  assertMessageSize as assertAiMessageSize,
   DEFAULT_AI_EXECUTION_BUDGET_PROFILES,
   encodeVimlaSse,
   estimateProviderRequestInputTokens,
@@ -61,6 +62,10 @@ export class TextChatService {
     if (!this.config.aiTextEnabled || (await isAiTextOperatorDisabled(this.prisma))) {
       throw new AiError("AI_DISABLED", "Text AI is temporarily disabled", 503);
     }
+  }
+
+  assertMessageSize(content: string): void {
+    assertAiMessageSize(content, this.config.aiMaxMessageBytes);
   }
 
   async listRetailModels() {
@@ -151,9 +156,7 @@ export class TextChatService {
       });
     }
 
-    if (utf8ByteLength(input.body.content) > this.config.aiMaxMessageBytes) {
-      throw new AiError("MESSAGE_TOO_LARGE", "Message exceeds the configured size limit", 400);
-    }
+    this.assertMessageSize(input.body.content);
 
     const model = await this.resolveModel(input.body.modelId);
     const outcome = await this.beginOrReuseRequest({
