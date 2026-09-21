@@ -21,6 +21,7 @@ import {
   createExecutionPlanRequestSchema,
   invocationDependencySchema,
   invocationSchema,
+  workflowInvocationRunStatusSchema,
   type ApproveExecutionPlanRequest,
   type CreateExecutionPlanRequest,
   type DependencyConditionDefinition,
@@ -30,6 +31,7 @@ import {
   type ExecutionPlanStatus,
   type ExecutionPlanView,
   type InvocationStatus,
+  type WorkflowInvocationRunStatus,
 } from "./contracts.js";
 import { initialInvocationStatuses, validateManualExecutionPlan } from "./plan-validation.js";
 
@@ -529,7 +531,7 @@ function toView(plan: PersistedPlan): ExecutionPlanView {
           ? {
               id: latestRun.id,
               attempt: latestRun.attempt,
-              status: latestRun.status,
+              status: parseInvocationRunStatus(latestRun.status),
               outcome: latestRun.outcome,
               errorCode: latestRun.errorCode,
               startedAt: latestRun.startedAt?.toISOString() ?? null,
@@ -597,6 +599,18 @@ function requiredGraphKey(keys: ReadonlyMap<string, string>, dbId: string): stri
     throw new InternalServerErrorException("Execution plan dependency references an invalid invocation");
   }
   return value;
+}
+
+function parseInvocationRunStatus(
+  status: string,
+): WorkflowInvocationRunStatus {
+  const parsed = workflowInvocationRunStatusSchema.safeParse(status);
+  if (!parsed.success) {
+    throw new InternalServerErrorException(
+      "Invalid persisted invocation run status",
+    );
+  }
+  return parsed.data;
 }
 
 function parseInvocationStatus(status: string): InvocationStatus {
