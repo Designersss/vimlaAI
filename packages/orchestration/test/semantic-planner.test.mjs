@@ -132,6 +132,33 @@ test("compiles prompt-to-image data flow without relying on sequencing keywords"
   ]);
 });
 
+test("semantic paraphrase corpus does not depend on then/if/after keywords", () => {
+  const phrases = [
+    "Have the selected model prepare a concise campaign brief.",
+    "Нужен короткий бриф кампании; подготовку поручаю выбранной модели.",
+    "A concise campaign brief is the desired artifact from the selected model.",
+  ];
+  const draft = planDraft([
+    plannerInvocation("brief", "model-a", {
+      purpose: "Prepare a concise campaign brief",
+      outputs: [{ name: "brief", artifactType: "DOCUMENT" }],
+    }),
+  ]);
+
+  const plans = phrases.map((userText) =>
+    compileSemanticPlannerDraft(
+      { userText, mentions: [mention()] },
+      draft,
+    ),
+  );
+
+  for (const result of plans) {
+    assert.equal(result.kind, "PLAN");
+  }
+  assert.deepEqual(plans[0], plans[1]);
+  assert.deepEqual(plans[1], plans[2]);
+});
+
 test("keeps independent requests parallel", () => {
   const input = {
     userText: "Give me two independent perspectives on this topic.",
