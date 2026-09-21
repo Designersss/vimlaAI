@@ -22,7 +22,7 @@ export function mockSemanticWorkflowPlannerResponse(prompt: string): string {
   const mentionsRaw = extractSection(
     prompt,
     "PLANNER_MENTIONS:",
-    "USER_REQUEST:",
+    "PLANNING_CONTEXT:",
   );
   const mentions = parseMentions(mentionsRaw);
 
