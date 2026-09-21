@@ -30,6 +30,13 @@ describe("semanticPlanningContext", () => {
           kind: "PERSONAL",
           participantUserIds: ["user-secret"],
         }),
+        {
+          ...item("MESSAGE", "restricted-secret", {
+            role: "USER",
+            content: "must never reach planner",
+          }),
+          classification: "RESTRICTED",
+        },
       ],
     } satisfies ContextSnapshotView;
 
@@ -62,6 +69,7 @@ describe("semanticPlanningContext", () => {
     expect(serialized).not.toContain("private@example.test");
     expect(serialized).not.toContain("vimla://");
     expect(serialized).not.toContain("current request");
+    expect(serialized).not.toContain("must never reach planner");
   });
 });
 
