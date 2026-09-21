@@ -278,6 +278,28 @@ describe("execution plan API", () => {
     expect(JSON.stringify(prompt)).not.toContain("fingerprint");
     expect(JSON.stringify(prompt)).not.toContain("must-not-leak");
 
+    const conversationPlans = await app.inject({
+      method: "GET",
+      url: `/v1/execution-plans/by-conversation/${created.json().conversationId}`,
+      headers: { origin },
+      cookies: owner.cookies,
+    });
+    expect(conversationPlans.statusCode).toBe(200);
+    expect(conversationPlans.json().plans).toHaveLength(1);
+    expect(conversationPlans.json().plans[0].id).toBe(planId);
+    expect(conversationPlans.json().plans[0].invocations[0].latestRun.id).toBe(
+      run.id,
+    );
+
+    const foreignConversationPlans = await app.inject({
+      method: "GET",
+      url: `/v1/execution-plans/by-conversation/${created.json().conversationId}`,
+      headers: { origin },
+      cookies: stranger.cookies,
+    });
+    expect(foreignConversationPlans.statusCode).toBe(200);
+    expect(foreignConversationPlans.json()).toEqual({ plans: [] });
+
     const noPlanMessageId = await createSourceMessage(owner.id);
     const noPlan = await app.inject({
       method: "GET",
