@@ -143,7 +143,14 @@ export class OrchestrationService {
       return { kind: "PLANNING", planId: claim.plan.id };
     }
 
-    const snapshot = await this.ensureContextSnapshot(userId, shell.id);
+    let snapshot: ContextSnapshotView;
+    try {
+      snapshot = await this.ensureContextSnapshot(userId, shell.id);
+    } catch (error: unknown) {
+      await this.releasePlanningClaim(userId, shell.id, claim.claimHash);
+      throw error;
+    }
+
     const planner = new SemanticWorkflowPlanner(this.semanticPlannerModel);
 
     let result: SemanticWorkflowPlannerResult;
@@ -208,15 +215,20 @@ export class OrchestrationService {
       throw error;
     }
 
-    return {
-      kind: "PLANNED",
-      plan: await this.finalizePlanningShell(
-        userId,
-        shell.id,
-        claim.claimHash,
-        executablePlan,
-      ),
-    };
+    try {
+      return {
+        kind: "PLANNED",
+        plan: await this.finalizePlanningShell(
+          userId,
+          shell.id,
+          claim.claimHash,
+          executablePlan,
+        ),
+      };
+    } catch (error: unknown) {
+      await this.releasePlanningClaim(userId, shell.id, claim.claimHash);
+      throw error;
+    }
   }
 
   private async ensurePlanningShell(
