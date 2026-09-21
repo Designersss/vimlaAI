@@ -26,8 +26,10 @@ import styles from "./WorkflowLane.module.scss";
 
 export function WorkflowLane({
   conversationId,
+  refreshToken,
 }: {
   conversationId: string;
+  refreshToken: number;
 }): ReactElement | null {
   const t = useTranslations();
   const router = useRouter();
@@ -82,7 +84,7 @@ export function WorkflowLane({
         requestVersion.current += 1;
       }
     };
-  }, [conversationId, handleLoadError]);
+  }, [conversationId, handleLoadError, refreshToken]);
 
   const hasActivePlan = useMemo(
     () => plans.some((plan) => !TERMINAL_PLAN_STATUSES.has(plan.status)),
