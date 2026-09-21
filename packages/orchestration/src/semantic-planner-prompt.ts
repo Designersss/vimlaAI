@@ -19,6 +19,13 @@ export function buildSemanticPlannerPrompt(
     );
   }
 
+  if (input.planningContext.length > SEMANTIC_PLANNER_LIMITS.maxPlanningContextItems) {
+    throw new SemanticPlannerError(
+      "OUTPUT_INVALID",
+      "Planning context exceeds the semantic-planner item limit",
+    );
+  }
+
   const mentionConstraints = input.mentions.map((mention) => ({
     occurrenceId: mention.occurrenceId,
     occurrenceIndex: mention.occurrenceIndex,
@@ -52,6 +59,8 @@ export function buildSemanticPlannerPrompt(
     "Allowed dependency conditions: DATA, ON_SUCCESS, ON_FAILURE, ALWAYS, OUTCOME.",
     "PLANNER_MENTIONS:",
     JSON.stringify(mentionConstraints),
+    "PLANNING_CONTEXT:",
+    JSON.stringify(input.planningContext),
     "USER_REQUEST:",
     userText,
   ].join("\n");
