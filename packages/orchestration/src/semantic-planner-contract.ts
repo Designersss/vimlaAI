@@ -106,6 +106,7 @@ export interface SemanticPlannerModel {
   complete(input: {
     prompt: string;
     correlationId: string;
+    signal?: AbortSignal;
   }): Promise<string>;
 }
 
