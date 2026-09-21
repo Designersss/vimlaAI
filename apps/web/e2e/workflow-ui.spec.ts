@@ -109,11 +109,31 @@ test("workflow lane stays usable with the chat composer across desktop and mobil
   await expect(composer).toBeEnabled();
   await assertNoDocumentOverflow(page);
 
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.reload();
+  for (const viewport of [
+    { width: 320, height: 568 },
+    { width: 390, height: 844 },
+    { width: 768, height: 1024 },
+    { width: 1024, height: 768 },
+    { width: 1440, height: 900 },
+    { width: 844, height: 390 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.reload();
 
-  await expect(page.getByTestId("workflow-card")).toBeVisible();
-  await expect(composer).toBeVisible();
-  await expect(composer).toBeEnabled();
-  await assertNoDocumentOverflow(page);
+    const responsiveCard = page.getByTestId("workflow-card");
+    const responsiveComposer = page.getByPlaceholder(
+      /сообщение для vimla|message vimla/i,
+    );
+    const approve = responsiveCard.getByRole("button", {
+      name: /подтвердить|approve/i,
+    });
+    await expect(responsiveCard).toBeVisible();
+    await expect(responsiveComposer).toBeVisible();
+    await expect(responsiveComposer).toBeEnabled();
+    await expect(approve).toBeVisible();
+    await approve.focus();
+    await expect(approve).toBeFocused();
+    await assertNoDocumentOverflow(page);
+  }
 });
