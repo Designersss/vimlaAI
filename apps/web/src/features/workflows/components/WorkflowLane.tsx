@@ -18,6 +18,7 @@ import {
 } from "@vimla/ui";
 import type {
   ExecutionPlanView,
+  WorkflowDependency,
   WorkflowInvocation,
   WorkflowInvocationStatus,
   WorkflowPlanStatus,
@@ -260,6 +261,10 @@ function WorkflowCard({
             index={index}
             planId={plan.id}
             invocation={invocation}
+            incomingDependencies={plan.dependencies.filter(
+              (dependency) => dependency.toInvocationId === invocation.id,
+            )}
+            sourceInvocations={plan.invocations}
             busyKey={busyKey}
             onApprove={onApprove}
           />
@@ -273,16 +278,21 @@ function WorkflowStep({
   index,
   planId,
   invocation,
+  incomingDependencies,
+  sourceInvocations,
   busyKey,
   onApprove,
 }: {
   index: number;
   planId: string;
   invocation: WorkflowInvocation;
+  incomingDependencies: WorkflowDependency[];
+  sourceInvocations: WorkflowInvocation[];
   busyKey: string | null;
   onApprove: (invocationId: string) => void;
 }): ReactElement {
   const t = useTranslations();
+  const router = useRouter();
   const approveKey = `approve:${planId}:${invocation.id}`;
   const detail = invocationStatusDetail(invocation, t);
 
@@ -302,16 +312,65 @@ function WorkflowStep({
 
         {detail ? <Text tone="caption">{detail}</Text> : null}
 
+        {incomingDependencies.length > 0 ? (
+          <div className={styles.dependencies}>
+            {incomingDependencies.map((dependency) => {
+              const source = sourceInvocations.find(
+                (candidate) => candidate.id === dependency.fromInvocationId,
+              );
+              return (
+                <Text tone="caption" key={dependency.id}>
+                  {dependencyLabel(dependency, source?.purpose ?? dependency.fromInvocationId, t)}
+                </Text>
+              );
+            })}
+          </div>
+        ) : null}
+
         {invocation.artifacts.length > 0 ? (
           <div
             className={styles.artifacts}
             aria-label={t("workflow.artifacts")}
           >
             {invocation.artifacts.map((artifact) => (
-              <span className={styles.artifact} key={artifact.artifactVersionId}>
-                {artifact.outputName} · {artifact.type}
-              </span>
+              <details
+                className={styles.artifact}
+                key={artifact.artifactVersionId}
+              >
+                <summary>
+                  {artifact.outputName} · {artifact.type}
+                </summary>
+                <div className={styles.artifactDetails}>
+                  <Text tone="caption">
+                    {t("workflow.artifactVersion" as never, {
+                      version: artifact.version,
+                    })}
+                  </Text>
+                  <Text tone="caption">
+                    {t("workflow.artifactClassification" as never, {
+                      classification: artifact.classification,
+                    })}
+                  </Text>
+                  <Text tone="caption">
+                    {t("workflow.artifactCreated" as never, {
+                      createdAt: artifact.createdAt,
+                    })}
+                  </Text>
+                </div>
+              </details>
             ))}
+          </div>
+        ) : null}
+
+        {invocation.status === "BLOCKED_INSUFFICIENT_USAGE" ? (
+          <div className={styles.stepActions}>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => router.push("/settings/billing")}
+            >
+              {t("workflow.openBilling" as never)}
+            </Button>
           </div>
         ) : null}
 
@@ -416,6 +475,28 @@ function invocationStatusDetail(
     return workflowFailureLabel(invocation.latestRun?.errorCode ?? null, t);
   }
   return null;
+}
+
+function dependencyLabel(
+  dependency: WorkflowDependency,
+  sourcePurpose: string,
+  t: ReturnType<typeof useTranslations>,
+): string {
+  switch (dependency.condition.kind) {
+    case "DATA":
+      return t("workflow.dependencyData" as never, { source: sourcePurpose });
+    case "ON_SUCCESS":
+      return t("workflow.dependencySuccess" as never, { source: sourcePurpose });
+    case "ON_FAILURE":
+      return t("workflow.dependencyFailure" as never, { source: sourcePurpose });
+    case "ALWAYS":
+      return t("workflow.dependencyAlways" as never, { source: sourcePurpose });
+    case "OUTCOME":
+      return t("workflow.dependencyOutcome" as never, {
+        source: sourcePurpose,
+        outcome: dependency.condition.outcome,
+      });
+  }
 }
 
 function workflowFailureLabel(
