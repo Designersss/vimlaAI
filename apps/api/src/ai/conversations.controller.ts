@@ -188,7 +188,8 @@ export class ConversationsController {
         response.write(
           encodeVimlaSse(
             "workflow",
-            workflow.kind === "PLANNED"
+            workflow.kind === "PLANNED" ||
+            workflow.kind === "EXISTING_PLAN"
               ? {
                   status: workflow.kind,
                   planId: workflow.plan.id,
@@ -209,7 +210,8 @@ export class ConversationsController {
             messageId: result.messageId,
             route: result.route,
             workflowStatus: workflow.kind,
-            ...(workflow.kind === "PLANNED"
+            ...(workflow.kind === "PLANNED" ||
+            workflow.kind === "EXISTING_PLAN"
               ? { planId: workflow.plan.id }
               : workflow.kind === "PLANNING"
                 ? { planId: workflow.planId }
