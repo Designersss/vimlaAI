@@ -1,7 +1,15 @@
 export interface SemanticPlannerCompletionInput {
   prompt: string;
   correlationId: string;
-  signal?: AbortSignal;
+  signal?: {
+    readonly aborted: boolean;
+    addEventListener(
+      type: "abort",
+      listener: () => void,
+      options?: { once?: boolean },
+    ): void;
+    removeEventListener(type: "abort", listener: () => void): void;
+  };
 }
 
 export interface OpenAiCompatibleSemanticPlannerConfig {
