@@ -1,3 +1,5 @@
+const MAX_SEMANTIC_PLANNER_HTTP_RESPONSE_BYTES = 256 * 1024;
+
 export interface SemanticPlannerCompletionInput {
   prompt: string;
   correlationId: string;
@@ -88,7 +90,7 @@ export class OpenAiCompatibleSemanticPlannerModel {
         );
       }
 
-      const payload = (await response.json()) as OpenAiChatResponse;
+      const payload = await readBoundedJsonResponse(response);
       const content = payload.choices?.[0]?.message?.content;
       if (typeof content !== "string" || content.trim().length === 0) {
         throw new Error("Semantic planner provider returned an empty response");
@@ -99,4 +101,58 @@ export class OpenAiCompatibleSemanticPlannerModel {
       input.signal?.removeEventListener("abort", abortFromCaller);
     }
   }
+}
+
+
+async function readBoundedJsonResponse(
+  response: Response,
+): Promise<OpenAiChatResponse> {
+  const declaredLength = Number(response.headers.get("content-length"));
+  if (
+    Number.isFinite(declaredLength) &&
+    declaredLength > MAX_SEMANTIC_PLANNER_HTTP_RESPONSE_BYTES
+  ) {
+    throw new Error("Semantic planner provider response exceeds the size limit");
+  }
+
+  if (!response.body) {
+    throw new Error("Semantic planner provider returned an empty response body");
+  }
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      totalBytes += value.byteLength;
+      if (totalBytes > MAX_SEMANTIC_PLANNER_HTTP_RESPONSE_BYTES) {
+        await reader.cancel();
+        throw new Error("Semantic planner provider response exceeds the size limit");
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const bytes = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(new TextDecoder().decode(bytes)) as unknown;
+  } catch {
+    throw new Error("Semantic planner provider returned invalid JSON");
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error("Semantic planner provider returned an invalid response envelope");
+  }
+  return parsed as OpenAiChatResponse;
 }
