@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { mockSemanticWorkflowPlannerResponse } from "@vimla/ai";
 import {
   BadRequestException,
   ConflictException,
@@ -13,6 +14,12 @@ import {
   ContextSnapshotService,
 } from "@vimla/context";
 import { type Prisma } from "@vimla/database";
+import {
+  SemanticPlannerError,
+  SemanticWorkflowPlanner,
+  toPlannerInvocationMentions,
+  type ResolvedInvocationMentionInput,
+} from "@vimla/orchestration";
 import { API_CONFIG, type ApiRuntimeConfig } from "../config/api-config.js";
 import { PrismaService } from "../persistence/prisma.service.js";
 import {
@@ -35,6 +42,13 @@ import {
 } from "./contracts.js";
 import { initialInvocationStatuses, validateManualExecutionPlan } from "./plan-validation.js";
 
+export type SemanticPlanMessageResult =
+  | { kind: "PLANNED"; plan: ExecutionPlanView }
+  | {
+      kind: "CLARIFICATION_REQUIRED";
+      clarificationQuestion: string;
+    };
+
 const ACTIVE_INVOCATION_STATUSES = [
   "PENDING",
   "READY",
@@ -50,6 +64,85 @@ export class OrchestrationService {
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(API_CONFIG) private readonly config: ApiRuntimeConfig,
   ) {}
+
+  async planMessage(
+    userId: string,
+    messageId: string,
+    resolvedMentions: readonly ResolvedInvocationMentionInput[],
+    correlationId: string,
+  ): Promise<SemanticPlanMessageResult> {
+    this.assertPreviewEnabled();
+
+    const existing = await this.prisma.client.executionPlan.findFirst({
+      where: { messageId, userId },
+      include: planInclude,
+    });
+    if (existing) {
+      await this.ensureContextSnapshot(userId, existing.id);
+      return { kind: "PLANNED", plan: toView(existing) };
+    }
+
+    const sourceMessage = await this.prisma.client.message.findFirst({
+      where: {
+        id: messageId,
+        role: "USER",
+        conversation: { userId },
+      },
+      select: {
+        id: true,
+        content: true,
+      },
+    });
+    if (!sourceMessage) {
+      throw new NotFoundException("Source message not found");
+    }
+
+    const plannerMentions = toPlannerInvocationMentions(resolvedMentions);
+    if (plannerMentions.length === 0) {
+      return {
+        kind: "CLARIFICATION_REQUIRED",
+        clarificationQuestion:
+          "Select @vimla, @auto, or an AI model for this workflow.",
+      };
+    }
+
+    const planner = new SemanticWorkflowPlanner({
+      complete: async ({ prompt }) =>
+        mockSemanticWorkflowPlannerResponse(prompt),
+    });
+
+    let result;
+    try {
+      result = await planner.plan({
+        userText: sourceMessage.content,
+        mentions: plannerMentions,
+        correlationId,
+      });
+    } catch (error: unknown) {
+      if (error instanceof SemanticPlannerError) {
+        throw new BadRequestException({
+          code: "semantic_plan_invalid",
+          message: "The workflow proposal could not be validated safely",
+        });
+      }
+      throw error;
+    }
+
+    if (result.kind === "CLARIFY") {
+      return {
+        kind: "CLARIFICATION_REQUIRED",
+        clarificationQuestion: result.clarificationQuestion,
+      };
+    }
+
+    return {
+      kind: "PLANNED",
+      plan: await this.create(userId, {
+        messageId: sourceMessage.id,
+        plan: result.plan,
+      }),
+    };
+  }
 
   async create(userId: string, body: unknown): Promise<ExecutionPlanView> {
     this.assertPreviewEnabled();
