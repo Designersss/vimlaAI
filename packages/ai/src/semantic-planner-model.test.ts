@@ -86,6 +86,23 @@ describe("OpenAiCompatibleSemanticPlannerModel", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
+  it("rejects oversized provider response bodies before parsing", async () => {
+    const model = new OpenAiCompatibleSemanticPlannerModel({
+      baseUrl: "http://planner.internal/v1",
+      model: "planner",
+      timeoutMs: 5_000,
+      fetchImpl: (async () =>
+        new Response("x".repeat(300 * 1024), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        })) as typeof fetch,
+    });
+
+    await expect(
+      model.complete({ prompt: "x", correlationId: "oversized" }),
+    ).rejects.toThrow(/size limit/);
+  });
+
   it("fails closed on provider errors and empty responses", async () => {
     const errorModel = new OpenAiCompatibleSemanticPlannerModel({
       baseUrl: "http://planner.internal/v1",
