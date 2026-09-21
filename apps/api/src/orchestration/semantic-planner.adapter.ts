@@ -1,27 +1,37 @@
-import { mockSemanticWorkflowPlannerResponse } from "@vimla/ai";
+import {
+  mockSemanticWorkflowPlannerResponse,
+  OpenAiCompatibleSemanticPlannerModel,
+} from "@vimla/ai";
 import type { SemanticPlannerModel } from "@vimla/orchestration";
 import type { ApiRuntimeConfig } from "../config/api-config.js";
 
 export const SEMANTIC_PLANNER_MODEL = Symbol("SEMANTIC_PLANNER_MODEL");
 
 /**
- * Preview adapter for the PR-11 planner boundary.
- *
- * The orchestration service depends only on SemanticPlannerModel. A future
- * included Vimla Core/OpenAI-compatible local model can replace this provider
- * without changing planning/persistence code. We deliberately do not reuse the
- * paid external-AI path as a hidden planner fallback.
+ * Semantic planning uses an included/internal model boundary. It must never
+ * silently reuse the paid external-AI execution path.
  */
 export function createSemanticPlannerModel(
   config: ApiRuntimeConfig,
 ): SemanticPlannerModel {
+  if (config.semanticPlannerProvider === "vimla-core") {
+    if (!config.vimlaCoreBaseUrl || !config.vimlaCoreModel) {
+      throw new Error(
+        "Vimla Core semantic planner requires base URL and model",
+      );
+    }
+    return new OpenAiCompatibleSemanticPlannerModel({
+      baseUrl: config.vimlaCoreBaseUrl,
+      model: config.vimlaCoreModel,
+      apiKey: config.vimlaCoreApiKey,
+      timeoutMs: config.vimlaCoreTimeoutMs,
+    });
+  }
+
   if (config.appEnv !== "local" && config.appEnv !== "test") {
-    return {
-      complete: () =>
-        Promise.reject(
-          new Error("Included semantic planner model is not configured"),
-        ),
-    };
+    throw new Error(
+      "Mock semantic planner is only allowed in local/test environments",
+    );
   }
 
   return {
