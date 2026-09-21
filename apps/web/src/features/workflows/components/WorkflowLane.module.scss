@@ -110,6 +110,23 @@
   overflow-wrap: anywhere;
 }
 
+.artifact summary {
+  cursor: pointer;
+  user-select: none;
+}
+
+.artifactDetails,
+.dependencies {
+  display: flex;
+  flex-direction: column;
+  gap: var(--vimla-space-1);
+  min-width: 0;
+}
+
+.artifactDetails {
+  padding-top: var(--vimla-space-2);
+}
+
 .failure {
   display: flex;
   align-items: center;
