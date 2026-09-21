@@ -228,15 +228,26 @@ describe("execution plan API", () => {
           create: {
             version: 1,
             contentJson: { secretPayload: "not-for-plan-view" },
-            fingerprint: "sha256:test-workflow-ui",
+            fingerprint: "sha256:test-workflow-ui-v1",
             metadata: { internalVersion: true },
+            createdAt: new Date("2026-09-21T08:00:01.000Z"),
           },
         },
       },
       include: { versions: true },
     });
-    const version = artifact.versions[0];
-    if (!version) throw new Error("Expected artifact version");
+    const version1 = artifact.versions[0];
+    if (!version1) throw new Error("Expected artifact version");
+    const version = await prisma.artifactVersion.create({
+      data: {
+        artifactId: artifact.id,
+        version: 2,
+        contentJson: { secretPayload: "latest-still-not-for-plan-view" },
+        fingerprint: "sha256:test-workflow-ui-v2",
+        metadata: { internalVersion: "latest" },
+        createdAt: new Date("2026-09-21T08:00:02.000Z"),
+      },
+    });
 
     const lookup = await app.inject({
       method: "GET",
@@ -268,7 +279,8 @@ describe("execution plan API", () => {
           outputName: "prompt",
           type: "PROMPT",
           classification: "PRIVATE",
-          version: 1,
+          version: 2,
+          createdAt: "2026-09-21T08:00:02.000Z",
         },
       ],
     });
