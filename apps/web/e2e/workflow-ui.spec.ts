@@ -164,5 +164,4 @@ test("workflow lane stays usable with the chat composer across desktop and mobil
   await expect(composer).toBeVisible();
   await expect(composer).toBeEnabled();
   await assertNoDocumentOverflow(page);
-  await assertNoDocumentOverflow(page);
 });
