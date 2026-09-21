@@ -125,6 +125,94 @@ describe("VimlaInvocationExecutor", () => {
     ).toBe(1);
   });
 
+  it("requires orchestration approval for destructive Vimla tools and accepts an already-approved invocation", async () => {
+    const unapproved = await seedInvocation(
+      prisma,
+      "delete my task",
+      "AUTO",
+    );
+    const unapprovedTask = await prisma.workspaceObject.create({
+      data: {
+        kind: "TASK",
+        scopeType: "PERSONAL",
+        personalOwnerUserId: unapproved.userId,
+        createdByUserId: unapproved.userId,
+        task: { create: { title: "Keep until approved", status: "TODO" } },
+      },
+    });
+    const unapprovedExecutor = new VimlaInvocationExecutor(
+      prisma,
+      new StaticPlanner({
+        intent: "act",
+        userMessage: "delete",
+        clarificationQuestion: null,
+        commands: [
+          {
+            tool: "tasks.delete",
+            args: { id: unapprovedTask.id },
+          },
+        ],
+      }),
+      "en",
+    );
+
+    await expect(
+      unapprovedExecutor.execute(executionInput(unapproved, 1)),
+    ).resolves.toEqual({
+      status: "FAILED",
+      errorCode: "VIMLA_CONFIRMATION_REQUIRED",
+      retryable: false,
+    });
+    expect(
+      await prisma.workspaceObject.findUniqueOrThrow({
+        where: { id: unapprovedTask.id },
+        select: { deletedAt: true },
+      }),
+    ).toEqual({ deletedAt: null });
+
+    const approved = await seedInvocation(
+      prisma,
+      "delete my approved task",
+      "USER_CONFIRMATION",
+    );
+    const approvedTask = await prisma.workspaceObject.create({
+      data: {
+        kind: "TASK",
+        scopeType: "PERSONAL",
+        personalOwnerUserId: approved.userId,
+        createdByUserId: approved.userId,
+        task: { create: { title: "Delete after approval", status: "TODO" } },
+      },
+    });
+    const approvedExecutor = new VimlaInvocationExecutor(
+      prisma,
+      new StaticPlanner({
+        intent: "act",
+        userMessage: "delete",
+        clarificationQuestion: null,
+        commands: [
+          {
+            tool: "tasks.delete",
+            args: { id: approvedTask.id },
+          },
+        ],
+      }),
+      "en",
+    );
+
+    await expect(
+      approvedExecutor.execute(executionInput(approved, 1)),
+    ).resolves.toEqual({ status: "COMPLETED", outcome: "PASS" });
+    expect(
+      (
+        await prisma.workspaceObject.findUniqueOrThrow({
+          where: { id: approvedTask.id },
+          select: { deletedAt: true },
+        })
+      ).deletedAt,
+    ).not.toBeNull();
+  });
+
   it("preserves workspace authorization and rolls back ToolExecution when a command targets another user's object", async () => {
     const actor = await seedInvocation(prisma, "attempt unauthorized update");
     const victimId = `victim-${randomUUID()}`;
@@ -205,6 +293,7 @@ type SeededInvocation = {
 async function seedInvocation(
   prisma: PrismaClient,
   purpose: string,
+  approvalPolicy: "AUTO" | "USER_CONFIRMATION" = "AUTO",
 ): Promise<SeededInvocation> {
   const suffix = randomUUID();
   const userId = `vimla-executor-user-${suffix}`;
@@ -272,7 +361,7 @@ async function seedInvocation(
       outputDeclarations: [],
       acceptanceCriteria: [],
       riskClass: "INTERNAL_WRITE",
-      approvalPolicy: "AUTO",
+      approvalPolicy,
       failurePolicy: "FAIL_PLAN",
       joinPolicy: "ALL_REQUIRED",
       status: "RUNNING",
