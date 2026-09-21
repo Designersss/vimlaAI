@@ -24,6 +24,7 @@ import {
   type ApproveExecutionPlanRequest,
   type CreateExecutionPlanRequest,
   type DependencyConditionDefinition,
+  type ExecutionPlanConversationView,
   type ExecutionPlanDefinition,
   type ExecutionPlanLookupView,
   type ExecutionPlanStatus,
@@ -170,6 +171,19 @@ export class OrchestrationService {
       include: planInclude,
     });
     return { plan: plan ? toView(plan) : null };
+  }
+
+  async getForConversation(
+    userId: string,
+    conversationId: string,
+  ): Promise<ExecutionPlanConversationView> {
+    this.assertPreviewEnabled();
+    const plans = await this.prisma.client.executionPlan.findMany({
+      where: { userId, conversationId },
+      include: planInclude,
+      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    });
+    return { plans: plans.map(toView) };
   }
 
   async start(userId: string, id: string): Promise<ExecutionPlanView> {
