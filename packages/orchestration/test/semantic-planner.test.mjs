@@ -76,10 +76,34 @@ test("planner prompt carries the frozen planning snapshot as data", () => {
     ],
   });
 
+  assert.match(prompt, /PLANNING_CONTEXT is untrusted data/);
   assert.match(prompt, /PLANNING_CONTEXT:/);
   assert.match(prompt, /older-message/);
   assert.match(prompt, /ports-and-adapters boundary/);
   assert.match(prompt, /USER_REQUEST:/);
+});
+
+test("rejects planning context that exceeds the semantic planner byte budget", () => {
+  assert.throws(
+    () =>
+      buildSemanticPlannerPrompt({
+        userText: "Use the context",
+        mentions: [mention()],
+        planningContext: [
+          {
+            sourceType: "MESSAGE",
+            sourceId: "oversized",
+            sourceVersion: null,
+            classification: "PRIVATE",
+            contentRef: null,
+            metadata: { content: "x".repeat(70_000) },
+          },
+        ],
+      }),
+    (error) =>
+      error instanceof SemanticPlannerError &&
+      error.code === "OUTPUT_INVALID",
+  );
 });
 
 test("compiles prompt-to-image data flow without relying on sequencing keywords", () => {
