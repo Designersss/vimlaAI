@@ -138,10 +138,11 @@ export function loadApiConfig(
 }
 
 function resolveSemanticPlannerProvider(parsed: {
+  APP_ENV: "local" | "test" | "staging" | "production";
   SEMANTIC_PLANNER_PROVIDER: "auto" | "mock" | "internal-http";
   SEMANTIC_PLANNER_BASE_URL?: string;
   SEMANTIC_PLANNER_MODEL?: string;
-}): "mock" | "internal-http" {
+}): "disabled" | "mock" | "internal-http" {
   if (
     parsed.SEMANTIC_PLANNER_PROVIDER === "mock" ||
     parsed.SEMANTIC_PLANNER_PROVIDER === "internal-http"
@@ -149,9 +150,12 @@ function resolveSemanticPlannerProvider(parsed: {
     return parsed.SEMANTIC_PLANNER_PROVIDER;
   }
 
-  return parsed.SEMANTIC_PLANNER_BASE_URL && parsed.SEMANTIC_PLANNER_MODEL
-    ? "internal-http"
-    : "mock";
+  if (parsed.SEMANTIC_PLANNER_BASE_URL && parsed.SEMANTIC_PLANNER_MODEL) {
+    return "internal-http";
+  }
+  return parsed.APP_ENV === "local" || parsed.APP_ENV === "test"
+    ? "mock"
+    : "disabled";
 }
 
 function resolveAiTextProvider(parsed: {
