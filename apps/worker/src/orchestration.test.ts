@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  MockInvocationExecutorRegistry,
+  FailClosedInvocationExecutorRegistry,
   parseInvocationExecutePayload,
   parseOrchestrationDispatchPayload,
 } from "./orchestration.js";
@@ -24,7 +24,7 @@ describe("orchestration queue boundary", () => {
   });
 
   it("fails closed for evaluator targets until evaluator runtime exists", async () => {
-    const executor = new MockInvocationExecutorRegistry();
+    const executor = new FailClosedInvocationExecutorRegistry();
     await expect(
       executor.execute({
         planId: "plan-1",
@@ -46,7 +46,7 @@ describe("orchestration queue boundary", () => {
   });
 
   it("fails closed for future agent targets until agent runtime exists", async () => {
-    const executor = new MockInvocationExecutorRegistry();
+    const executor = new FailClosedInvocationExecutorRegistry();
     await expect(
       executor.execute({
         planId: "plan-1",
