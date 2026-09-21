@@ -22,6 +22,8 @@ const graphKeySchema = z
 
 const boundedText = (max: number) => z.string().trim().min(1).max(max);
 
+const workflowIsoDateTimeSchema = z.string().datetime({ offset: true });
+
 export const artifactTypeSchema = z.enum([
   "TEXT",
   "PROMPT",
@@ -203,7 +205,7 @@ export const workflowArtifactSummarySchema = z
     type: artifactTypeSchema,
     classification: z.string().trim().min(1).max(128),
     version: z.number().int().min(1),
-    createdAt: z.string().min(1),
+    createdAt: workflowIsoDateTimeSchema,
   })
   .strict();
 
@@ -214,8 +216,8 @@ export const workflowInvocationRunSchema = z
     status: workflowInvocationRunStatusSchema,
     outcome: z.string().nullable(),
     errorCode: z.string().nullable(),
-    startedAt: z.string().nullable(),
-    finishedAt: z.string().nullable(),
+    startedAt: workflowIsoDateTimeSchema.nullable(),
+    finishedAt: workflowIsoDateTimeSchema.nullable(),
   })
   .strict();
 
@@ -249,11 +251,11 @@ export const executionPlanViewSchema = z
     dependencies: z
       .array(workflowDependencySchema)
       .max(EXECUTION_PLAN_API_LIMITS.maxDependencies),
-    startedAt: z.string().nullable(),
-    frozenAt: z.string().nullable(),
-    completedAt: z.string().nullable(),
-    createdAt: z.string().min(1),
-    updatedAt: z.string().min(1),
+    startedAt: workflowIsoDateTimeSchema.nullable(),
+    frozenAt: workflowIsoDateTimeSchema.nullable(),
+    completedAt: workflowIsoDateTimeSchema.nullable(),
+    createdAt: workflowIsoDateTimeSchema,
+    updatedAt: workflowIsoDateTimeSchema,
   })
   .strict();
 
