@@ -9,7 +9,7 @@ type PlannerMentionConstraint = {
 /**
  * Deterministic local/test adapter for the semantic planner boundary.
  *
- * Production Semantic Planner must use an included Vimla Core model/provider
+ * Production Semantic Planner must use an included internal model endpoint
  * through an explicitly configured adapter. This helper intentionally does not
  * call a paid external model and must never be treated as production semantics.
  */
