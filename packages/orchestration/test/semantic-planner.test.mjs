@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  buildSemanticPlannerPrompt,
   compileSemanticPlannerDraft,
   normalizeSemanticExecutionPlan,
   parseSemanticPlannerOutput,
@@ -55,6 +56,31 @@ function planDraft(invocations, dependencies = [], overrides = {}) {
     ...overrides,
   };
 }
+
+test("planner prompt carries the frozen planning snapshot as data", () => {
+  const prompt = buildSemanticPlannerPrompt({
+    userText: "Continue the API approach we discussed earlier",
+    mentions: [mention()],
+    planningContext: [
+      {
+        sourceType: "MESSAGE",
+        sourceId: "older-message",
+        sourceVersion: "2026-09-20T10:00:00.000Z",
+        classification: "PRIVATE",
+        contentRef: "vimla://messages/older-message",
+        metadata: {
+          role: "ASSISTANT",
+          content: "Use a ports-and-adapters boundary for provider integrations.",
+        },
+      },
+    ],
+  });
+
+  assert.match(prompt, /PLANNING_CONTEXT:/);
+  assert.match(prompt, /older-message/);
+  assert.match(prompt, /ports-and-adapters boundary/);
+  assert.match(prompt, /USER_REQUEST:/);
+});
 
 test("compiles prompt-to-image data flow without relying on sequencing keywords", () => {
   const input = {
