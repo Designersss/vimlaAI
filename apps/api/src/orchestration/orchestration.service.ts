@@ -17,6 +17,7 @@ import { API_CONFIG, type ApiRuntimeConfig } from "../config/api-config.js";
 import { PrismaService } from "../persistence/prisma.service.js";
 import {
   approveExecutionPlanRequestSchema,
+  artifactTypeSchema,
   createExecutionPlanRequestSchema,
   invocationDependencySchema,
   invocationSchema,
@@ -24,18 +25,12 @@ import {
   type CreateExecutionPlanRequest,
   type DependencyConditionDefinition,
   type ExecutionPlanDefinition,
+  type ExecutionPlanLookupView,
   type ExecutionPlanStatus,
   type ExecutionPlanView,
   type InvocationStatus,
 } from "./contracts.js";
 import { initialInvocationStatuses, validateManualExecutionPlan } from "./plan-validation.js";
-
-type PersistedPlan = Prisma.ExecutionPlanGetPayload<{
-  include: {
-    invocations: true;
-    dependencies: true;
-  };
-}>;
 
 const ACTIVE_INVOCATION_STATUSES = [
   "PENDING",
@@ -163,6 +158,18 @@ export class OrchestrationService {
       throw new NotFoundException("Execution plan not found");
     }
     return toView(plan);
+  }
+
+  async getForMessage(
+    userId: string,
+    messageId: string,
+  ): Promise<ExecutionPlanLookupView> {
+    this.assertPreviewEnabled();
+    const plan = await this.prisma.client.executionPlan.findFirst({
+      where: { userId, messageId },
+      include: planInclude,
+    });
+    return { plan: plan ? toView(plan) : null };
   }
 
   async start(userId: string, id: string): Promise<ExecutionPlanView> {
@@ -347,9 +354,30 @@ export class OrchestrationService {
 }
 
 const planInclude = {
-  invocations: { orderBy: { sequence: "asc" as const } },
+  invocations: {
+    orderBy: { sequence: "asc" as const },
+    include: {
+      runs: {
+        orderBy: { attempt: "desc" as const },
+        take: 1,
+      },
+      artifacts: {
+        orderBy: { createdAt: "asc" as const },
+        include: {
+          versions: {
+            orderBy: { version: "desc" as const },
+            take: 1,
+          },
+        },
+      },
+    },
+  },
   dependencies: { orderBy: { createdAt: "asc" as const } },
 } as const;
+
+type PersistedPlan = Prisma.ExecutionPlanGetPayload<{
+  include: typeof planInclude;
+}>;
 
 function parseCreate(body: unknown): CreateExecutionPlanRequest {
   const parsed = createExecutionPlanRequestSchema.safeParse(body ?? {});
@@ -434,10 +462,10 @@ function definitionFromPersisted(plan: PersistedPlan): ExecutionPlanDefinition {
 
 function toView(plan: PersistedPlan): ExecutionPlanView {
   const definition = definitionFromPersisted(plan);
-  const statuses = new Map(
+  const persistedByGraphId = new Map(
     plan.invocations.map((invocation) => [
       decodeGraphId(plan.id, "inv", invocation.id),
-      parseInvocationStatus(invocation.status),
+      invocation,
     ]),
   );
 
@@ -451,10 +479,48 @@ function toView(plan: PersistedPlan): ExecutionPlanView {
     goal: definition.goal,
     status: parsePlanStatus(plan.status),
     maxParallelism: definition.maxParallelism,
-    invocations: definition.invocations.map((invocation) => ({
-      ...invocation,
-      status: statuses.get(invocation.id) ?? "PENDING",
-    })),
+    invocations: definition.invocations.map((invocation) => {
+      const persisted = persistedByGraphId.get(invocation.id);
+      if (!persisted) {
+        throw new InternalServerErrorException(
+          "Execution plan invocation disappeared while building the UI view",
+        );
+      }
+      const status = parseInvocationStatus(persisted.status);
+      const latestRun = persisted.runs[0] ?? null;
+
+      return {
+        ...invocation,
+        status,
+        requiresApproval: status === "WAITING_APPROVAL",
+        latestRun: latestRun
+          ? {
+              id: latestRun.id,
+              attempt: latestRun.attempt,
+              status: latestRun.status,
+              outcome: latestRun.outcome,
+              errorCode: latestRun.errorCode,
+              startedAt: latestRun.startedAt?.toISOString() ?? null,
+              finishedAt: latestRun.finishedAt?.toISOString() ?? null,
+            }
+          : null,
+        artifacts: persisted.artifacts.flatMap((artifact) => {
+          const version = artifact.versions[0];
+          if (!version) return [];
+          return [
+            {
+              artifactId: artifact.id,
+              artifactVersionId: version.id,
+              outputName: artifact.outputName,
+              type: artifactTypeSchema.parse(artifact.type),
+              classification: artifact.classification,
+              version: version.version,
+              createdAt: artifact.createdAt.toISOString(),
+            },
+          ];
+        }),
+      };
+    }),
     dependencies: definition.dependencies,
     startedAt: plan.startedAt?.toISOString() ?? null,
     frozenAt: plan.frozenAt?.toISOString() ?? null,
