@@ -38,6 +38,7 @@ export function WorkflowLane({
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const requestVersion = useRef(0);
   const mutationInFlight = useRef(false);
+  const refreshInFlight = useRef(false);
 
   const handleLoadError = useCallback(
     (error: unknown): void => {
@@ -51,7 +52,9 @@ export function WorkflowLane({
   );
 
   const refresh = useCallback(async (): Promise<void> => {
-    if (mutationInFlight.current) return;
+    if (mutationInFlight.current || refreshInFlight.current) return;
+
+    refreshInFlight.current = true;
     const version = ++requestVersion.current;
     try {
       const response = await fetchConversationWorkflows(conversationId);
@@ -61,6 +64,8 @@ export function WorkflowLane({
     } catch (error: unknown) {
       if (version !== requestVersion.current) return;
       handleLoadError(error);
+    } finally {
+      refreshInFlight.current = false;
     }
   }, [conversationId, handleLoadError]);
 
