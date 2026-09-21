@@ -18,6 +18,7 @@ describe("semantic planner Vimla Core integration", () => {
   let server: Server;
   let baseUrl = "";
   let capturedPrompt = "";
+  let responseDelayMs = 0;
 
   beforeAll(async () => {
     server = createServer((request, response) => {
@@ -91,12 +92,19 @@ describe("semantic planner Vimla Core integration", () => {
           ],
         };
 
-        response.writeHead(200, { "content-type": "application/json" });
-        response.end(
-          JSON.stringify({
-            choices: [{ message: { content: JSON.stringify(draft) } }],
-          }),
-        );
+        const send = (): void => {
+          response.writeHead(200, { "content-type": "application/json" });
+          response.end(
+            JSON.stringify({
+              choices: [{ message: { content: JSON.stringify(draft) } }],
+            }),
+          );
+        };
+        if (responseDelayMs > 0) {
+          setTimeout(send, responseDelayMs);
+        } else {
+          send();
+        }
       });
     });
     await new Promise<void>((resolve, reject) => {
@@ -230,6 +238,79 @@ describe("semantic planner Vimla Core integration", () => {
     expect(snapshot?.createdAt.getTime()).toBeLessThanOrEqual(
       result.plan.updatedAt ? new Date(result.plan.updatedAt).getTime() : Date.now(),
     );
+  });
+
+  it("returns the durable canceled plan when Stop wins the finalize race", async () => {
+    const suffix = randomUUID();
+    const user = await prisma.user.create({
+      data: {
+        id: `semantic-stop-race-${suffix}`,
+        email: `${suffix}@semantic-stop-race.test`,
+        name: "Semantic Stop Race",
+        emailVerified: true,
+      },
+    });
+    const conversation = await prisma.conversation.create({
+      data: { userId: user.id, title: "Semantic stop race" },
+    });
+    const source = await prisma.message.create({
+      data: {
+        conversationId: conversation.id,
+        role: "USER",
+        content:
+          "@gpt-5-6-luna prepare STOP_RACE input; @claude-haiku-4-5 use it",
+        status: "COMPLETE",
+      },
+    });
+
+    const service = app.get(OrchestrationService);
+    let resolvePlanning!: (planId: string) => void;
+    const planningPlanId = new Promise<string>((resolve) => {
+      resolvePlanning = resolve;
+    });
+    responseDelayMs = 150;
+    try {
+      const planning = service.planMessage(
+        user.id,
+        source.id,
+        [
+          {
+            id: "stop-race-a",
+            handleId: "handle-a",
+            kind: "AI_MODEL",
+            targetId: "model-a",
+            canonicalHandle: "gpt-5-6-luna",
+            startOffset: 0,
+            endOffset: 15,
+          },
+          {
+            id: "stop-race-b",
+            handleId: "handle-b",
+            kind: "AI_MODEL",
+            targetId: "model-b",
+            canonicalHandle: "claude-haiku-4-5",
+            startOffset: 41,
+            endOffset: 59,
+          },
+        ],
+        randomUUID(),
+        (planId) => resolvePlanning(planId),
+      );
+
+      const planId = await planningPlanId;
+      const stopped = await service.stop(user.id, planId);
+      expect(stopped.status).toBe("CANCELED");
+
+      const result = await planning;
+      expect(result.kind).toBe("EXISTING_PLAN");
+      if (result.kind !== "EXISTING_PLAN") {
+        throw new Error("Expected terminal replay after Stop");
+      }
+      expect(result.plan.id).toBe(planId);
+      expect(result.plan.status).toBe("CANCELED");
+    } finally {
+      responseDelayMs = 0;
+    }
   });
 
   it("persists a terminal FAILED shell when bounded planning context cannot be built safely", async () => {
