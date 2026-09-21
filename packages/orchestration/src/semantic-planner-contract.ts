@@ -103,11 +103,21 @@ export type SemanticWorkflowPlannerResult =
       clarificationQuestion: string;
     };
 
+export interface SemanticPlannerAbortSignal {
+  readonly aborted: boolean;
+  addEventListener(
+    type: "abort",
+    listener: () => void,
+    options?: { once?: boolean },
+  ): void;
+  removeEventListener(type: "abort", listener: () => void): void;
+}
+
 export interface SemanticPlannerModel {
   complete(input: {
     prompt: string;
     correlationId: string;
-    signal?: AbortSignal;
+    signal?: SemanticPlannerAbortSignal;
   }): Promise<string>;
 }
 
