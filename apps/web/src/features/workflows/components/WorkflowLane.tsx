@@ -389,13 +389,13 @@ function targetLabel(
     case "VIMLA":
       return "Vimla";
     case "AI_AUTO":
-      return t("workflow.targetAuto");
+      return t("workflow.targetAuto" as never);
     case "AI_MODEL":
       return invocation.target.modelSlug;
     case "EVALUATOR":
-      return t("workflow.targetEvaluator");
+      return t("workflow.targetEvaluator" as never);
     case "AGENT":
-      return t("workflow.targetAgent");
+      return t("workflow.targetAgent" as never);
   }
 }
 
@@ -404,13 +404,13 @@ function invocationStatusDetail(
   t: ReturnType<typeof useTranslations>,
 ): string | null {
   if (invocation.status === "WAITING_FOR_USAGE_CAPACITY") {
-    return t("workflow.waitingCapacity");
+    return t("workflow.waitingCapacity" as never);
   }
   if (invocation.status === "BLOCKED_INSUFFICIENT_USAGE") {
-    return t("workflow.blockedUsage");
+    return t("workflow.blockedUsage" as never);
   }
   if (invocation.status === "WAITING_APPROVAL") {
-    return t("workflow.waitingApproval");
+    return t("workflow.waitingApproval" as never);
   }
   if (invocation.status === "FAILED") {
     return workflowFailureLabel(invocation.latestRun?.errorCode ?? null, t);
@@ -423,16 +423,16 @@ function workflowFailureLabel(
   t: ReturnType<typeof useTranslations>,
 ): string {
   if (errorCode === "PLAN_SPEND_LIMIT_REACHED") {
-    return t("workflow.failureSpendLimit");
+    return t("workflow.failureSpendLimit" as never);
   }
   if (
     errorCode === "AI_RECONCILIATION_REQUIRED" ||
     errorCode === "AI_PROVIDER_BOUNDEDNESS_VIOLATION"
   ) {
-    return t("workflow.failureReconciliation");
+    return t("workflow.failureReconciliation" as never);
   }
   if (errorCode === "AI_PROVIDER_INTERRUPTED") {
-    return t("workflow.failureInterrupted");
+    return t("workflow.failureInterrupted" as never);
   }
-  return t("workflow.failureGeneric");
+  return t("workflow.failureGeneric" as never);
 }
