@@ -166,6 +166,7 @@ export const approveExecutionPlanRequestSchema = z
 
 export const workflowPlanStatusSchema = z.enum([
   "PLANNING",
+  "NEEDS_CLARIFICATION",
   "PLANNED",
   "RUNNING",
   "PARTIAL",
