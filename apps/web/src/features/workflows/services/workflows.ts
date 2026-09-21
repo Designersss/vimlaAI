@@ -67,20 +67,6 @@ export async function fetchConversationWorkflows(
   return executionPlanConversationViewSchema.parse(await response.json());
 }
 
-export async function fetchExecutionPlan(
-  planId: string,
-  fetchImpl: typeof fetch = fetch,
-): Promise<ExecutionPlanView> {
-  const response = await fetchImpl(
-    `${publicWebConfig.apiBaseUrl}/v1/execution-plans/${encodeURIComponent(planId)}`,
-    {
-      credentials: "include",
-      cache: "no-store",
-    },
-  );
-  return parsePlan(response);
-}
-
 export async function startExecutionPlan(planId: string): Promise<ExecutionPlanView> {
   const response = await fetch(
     `${publicWebConfig.apiBaseUrl}/v1/execution-plans/${encodeURIComponent(planId)}/start`,
