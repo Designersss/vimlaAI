@@ -331,7 +331,11 @@ function WorkflowStatusBadge({
           : status === "RUNNING"
             ? "accent"
             : "neutral";
-  return <Badge variant={variant}>{t(`workflow.planStatus.${status}`)}</Badge>;
+  return (
+    <Badge variant={variant}>
+      {t(`workflow.planStatus.${status}` as never)}
+    </Badge>
+  );
 }
 
 function InvocationStatusBadge({
@@ -354,7 +358,7 @@ function InvocationStatusBadge({
             : "neutral";
   return (
     <Badge variant={variant}>
-      {t(`workflow.invocationStatus.${status}`)}
+      {t(`workflow.invocationStatus.${status}` as never)}
     </Badge>
   );
 }
