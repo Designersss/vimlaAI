@@ -90,7 +90,7 @@ describe("loadApiConfig", () => {
     expect(config.notifyDeliveryMaxAttempts).toBe(6);
   });
 
-  it("selects a dedicated Internal semantic planner without changing paid AI routing", () => {
+  it("selects a dedicated internal semantic planner without changing paid AI routing", () => {
     const config = loadApiConfig({
       ...validSharedEnv,
       API_HOST: "127.0.0.1",
@@ -111,7 +111,7 @@ describe("loadApiConfig", () => {
     expect(config.aiTextProvider).toBe("mock");
   });
 
-  it("requires endpoint and model for an explicit Internal semantic planner", () => {
+  it("requires endpoint and model for an explicit internal semantic planner", () => {
     expect(() =>
       loadApiConfig({
         ...validSharedEnv,
@@ -120,7 +120,7 @@ describe("loadApiConfig", () => {
         WEB_ORIGIN: "http://localhost:3000",
         SEMANTIC_PLANNER_PROVIDER: "internal-http",
       }),
-    ).toThrow(/VIMLA_CORE/);
+    ).toThrow(/SEMANTIC_PLANNER/);
   });
 
   it("treats an empty ProxyAPI key as unset", () => {
