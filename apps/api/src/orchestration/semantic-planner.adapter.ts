@@ -28,14 +28,19 @@ export function createSemanticPlannerModel(
     });
   }
 
-  if (config.appEnv !== "local" && config.appEnv !== "test") {
-    throw new Error(
-      "Mock semantic planner is only allowed in local/test environments",
-    );
+  if (config.appEnv === "local" || config.appEnv === "test") {
+    return {
+      complete: ({ prompt }) =>
+        Promise.resolve(mockSemanticWorkflowPlannerResponse(prompt)),
+    };
   }
 
   return {
-    complete: ({ prompt }) =>
-      Promise.resolve(mockSemanticWorkflowPlannerResponse(prompt)),
+    complete: () =>
+      Promise.reject(
+        new Error(
+          "Included semantic planner is not configured for this environment",
+        ),
+      ),
   };
 }
