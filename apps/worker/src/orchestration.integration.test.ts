@@ -485,6 +485,66 @@ describe("orchestration runtime", () => {
     expect(executionQueue.count(INVOCATION_EXECUTE_JOB_NAME)).toBe(1);
   });
 
+  it("marks abandoned semantic PLANNING shells failed during reconciliation", async () => {
+    const suffix = randomUUID();
+    const userId = `planning-recovery-user-${suffix}`;
+    const conversationId = randomUUID();
+    const messageId = randomUUID();
+    const planId = randomUUID();
+
+    await prisma.user.create({
+      data: {
+        id: userId,
+        name: "Planning Recovery",
+        email: `${suffix}@planning-recovery.test`,
+        emailVerified: true,
+      },
+    });
+    await prisma.conversation.create({
+      data: { id: conversationId, userId, title: "Planning recovery", kind: "CHAT" },
+    });
+    await prisma.message.create({
+      data: {
+        id: messageId,
+        conversationId,
+        role: "USER",
+        content: "@auto recover me",
+        status: "COMPLETE",
+      },
+    });
+    await prisma.executionPlan.create({
+      data: {
+        id: planId,
+        messageId,
+        userId,
+        conversationId,
+        schemaVersion: 1,
+        version: 1,
+        planHash: "planning:claimed:abandoned",
+        goal: "Planning workflow",
+        status: "PLANNING",
+        maxParallelism: 1,
+        updatedAt: new Date(Date.now() - 60_000),
+      },
+    });
+
+    const runtime = new OrchestrationRuntime(
+      prisma,
+      new MemoryQueue(),
+      new MemoryQueue(),
+      logger,
+      { planningStaleAfterMs: 1_000 },
+    );
+    await runtime.reconcile();
+
+    const recovered = await prisma.executionPlan.findUniqueOrThrow({
+      where: { id: planId },
+      select: { status: true, completedAt: true },
+    });
+    expect(recovered.status).toBe("FAILED");
+    expect(recovered.completedAt).not.toBeNull();
+  });
+
   it("recovers a stale RUNNING attempt to READY before redispatch", async () => {
     const seeded = await seedPlan(prisma, [{ key: "stale", status: "RUNNING" }], [], 1);
     const invocationId = seeded.invocationIds.stale ?? "";
