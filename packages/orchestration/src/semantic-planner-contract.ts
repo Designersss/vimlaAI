@@ -23,6 +23,7 @@ export const SEMANTIC_PLANNER_LIMITS = {
   maxCriteriaPerInvocation: 32,
   maxBindingsPerDependency: 32,
   maxPlanningContextItems: 128,
+  maxPlanningContextBytes: 65_536,
   maxConfidence: 1,
   minPlanConfidence: 0.65,
   defaultMaxParallelism: 4,
