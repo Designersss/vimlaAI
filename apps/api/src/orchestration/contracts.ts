@@ -209,6 +209,10 @@ export interface ExecutionPlanLookupView {
   plan: ExecutionPlanView | null;
 }
 
+export interface ExecutionPlanConversationView {
+  plans: ExecutionPlanView[];
+}
+
 export interface ExecutionPlanView {
   id: string;
   messageId: string;
