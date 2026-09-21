@@ -11,6 +11,7 @@ export {
   invocationSchema,
   invocationTargetSchema,
   outputDeclarationSchema,
+  workflowInvocationRunStatusSchema,
 } from "@vimla/contracts";
 
 export type {
@@ -25,4 +26,5 @@ export type {
   InvocationDefinition,
   InvocationDependencyDefinition,
   InvocationStatus,
+  WorkflowInvocationRunStatus,
 } from "@vimla/contracts";
