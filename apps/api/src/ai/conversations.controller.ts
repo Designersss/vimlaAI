@@ -182,6 +182,16 @@ export class ConversationsController {
         result.messageId,
         result.mentions,
         String(request.id),
+        (planId) => {
+          if (!response.writableEnded) {
+            response.write(
+              encodeVimlaSse("workflow", {
+                status: "PLANNING",
+                planId,
+              }),
+            );
+          }
+        },
       );
 
       if (!response.writableEnded) {
