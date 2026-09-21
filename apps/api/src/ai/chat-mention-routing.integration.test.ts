@@ -34,6 +34,7 @@ describe("structured normal-chat mention routing", () => {
     process.env.BETTER_AUTH_URL = process.env.BETTER_AUTH_URL ?? "http://localhost:3001";
     process.env.AI_TEXT_ENABLED = "true";
     process.env.AI_TEXT_PROVIDER = "mock";
+    process.env.OPERATOR_ENABLED = "true";
 
     app = await createVimlaApiApp(loadApiConfig(process.env), { quiet: true });
     await app.init();
