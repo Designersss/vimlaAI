@@ -19,6 +19,7 @@ import {
   SemanticWorkflowPlanner,
   toPlannerInvocationMentions,
   type ResolvedInvocationMentionInput,
+  type SemanticWorkflowPlannerResult,
 } from "@vimla/orchestration";
 import { API_CONFIG, type ApiRuntimeConfig } from "../config/api-config.js";
 import { PrismaService } from "../persistence/prisma.service.js";
@@ -107,11 +108,11 @@ export class OrchestrationService {
     }
 
     const planner = new SemanticWorkflowPlanner({
-      complete: async ({ prompt }) =>
-        mockSemanticWorkflowPlannerResponse(prompt),
+      complete: ({ prompt }) =>
+        Promise.resolve(mockSemanticWorkflowPlannerResponse(prompt)),
     });
 
-    let result;
+    let result: SemanticWorkflowPlannerResult;
     try {
       result = await planner.plan({
         userText: sourceMessage.content,
