@@ -514,6 +514,15 @@
       "FAILED": "Failed",
       "SKIPPED": "Skipped",
       "CANCELED": "Stopped"
-    }
+    },
+    "openBilling": "Open plan and usage",
+    "artifactVersion": "Version {version}",
+    "artifactClassification": "Access: {classification}",
+    "artifactCreated": "Created: {createdAt}",
+    "dependencyData": "Uses result from: {source}",
+    "dependencySuccess": "After success: {source}",
+    "dependencyFailure": "If this step fails: {source}",
+    "dependencyAlways": "After this step settles: {source}",
+    "dependencyOutcome": "If “{source}” returns {outcome}"
   }
 }
