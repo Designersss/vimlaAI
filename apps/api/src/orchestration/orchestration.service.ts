@@ -547,7 +547,7 @@ function toView(plan: PersistedPlan): ExecutionPlanView {
               type: artifactTypeSchema.parse(artifact.type),
               classification: artifact.classification,
               version: version.version,
-              createdAt: artifact.createdAt.toISOString(),
+              createdAt: version.createdAt.toISOString(),
             },
           ];
         }),
