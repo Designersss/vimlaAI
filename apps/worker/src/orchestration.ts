@@ -102,9 +102,14 @@ export interface InvocationExecutorRegistry {
 
 export class MockInvocationExecutorRegistry implements InvocationExecutorRegistry {
   async execute(input: InvocationExecutionInput): Promise<InvocationExecutionResult> {
-    return input.target.kind === "EVALUATOR"
-      ? { status: "COMPLETED", outcome: "PASS" }
-      : { status: "COMPLETED" };
+    if (input.target.kind === "EVALUATOR") {
+      return {
+        status: "FAILED",
+        errorCode: "EVALUATOR_NOT_IMPLEMENTED",
+        retryable: false,
+      };
+    }
+    return { status: "COMPLETED" };
   }
 }
 
