@@ -153,16 +153,21 @@ describe("structured normal-chat mention routing", () => {
       ],
     });
 
+    let planningPlanId: string | null = null;
     const planned = await orchestration.planMessage(
       user.id,
       routed.messageId,
       routed.mentions,
       crypto.randomUUID(),
+      (planId) => {
+        planningPlanId = planId;
+      },
     );
     expect(planned.kind).toBe("PLANNED");
     if (planned.kind !== "PLANNED") {
       throw new Error("Expected a planned workflow");
     }
+    expect(planningPlanId).toBe(planned.plan.id);
     expect(planned.plan.status).toBe("PLANNED");
     expect(planned.plan.messageId).toBe(routed.messageId);
     expect(planned.plan.invocations).toHaveLength(1);
@@ -189,6 +194,22 @@ describe("structured normal-chat mention routing", () => {
         where: { planId: planned.plan.id },
       }),
     ).toBe(1);
+
+    await prisma.executionPlan.update({
+      where: { id: planned.plan.id },
+      data: { status: "CANCELED", completedAt: new Date() },
+    });
+    const terminalReplay = await orchestration.planMessage(
+      user.id,
+      routed.messageId,
+      routed.mentions,
+      crypto.randomUUID(),
+    );
+    expect(terminalReplay.kind).toBe("EXISTING_PLAN");
+    if (terminalReplay.kind !== "EXISTING_PLAN") {
+      throw new Error("Expected existing terminal workflow state");
+    }
+    expect(terminalReplay.plan.status).toBe("CANCELED");
   });
 
   it("persists clarification on the planning shell and replays it without a second plan", async () => {
