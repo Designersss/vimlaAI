@@ -109,6 +109,13 @@ export class MockInvocationExecutorRegistry implements InvocationExecutorRegistr
         retryable: false,
       };
     }
+    if (input.target.kind === "AGENT") {
+      return {
+        status: "FAILED",
+        errorCode: "AGENT_NOT_IMPLEMENTED",
+        retryable: false,
+      };
+    }
     return { status: "COMPLETED" };
   }
 }
