@@ -859,7 +859,7 @@ export class OrchestrationService {
   private planningLeaseMs(): number {
     return Math.max(
       MIN_PLANNING_LEASE_MS,
-      this.config.vimlaCoreTimeoutMs + PLANNING_LEASE_GRACE_MS,
+      this.config.semanticPlannerTimeoutMs + PLANNING_LEASE_GRACE_MS,
     );
   }
 
