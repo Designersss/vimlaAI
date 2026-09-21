@@ -186,6 +186,118 @@ describe("execution plan API", () => {
     expect(stopReplay.json().id).toBe(planId);
   });
 
+  it("exposes an owner-scoped workflow UI read model by source message", async () => {
+    const owner = await registerVerifiedUser(app, "orchestration-ui-owner");
+    const stranger = await registerVerifiedUser(app, "orchestration-ui-stranger");
+    const messageId = await createSourceMessage(owner.id);
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/v1/execution-plans",
+      headers: jsonHeaders(),
+      cookies: owner.cookies,
+      payload: { messageId, plan: sequentialPlan() },
+    });
+    expect(created.statusCode).toBe(201);
+    const planId = created.json().id as string;
+
+    const promptInvocation = await prisma.invocation.findFirstOrThrow({
+      where: { planId, sequence: 0 },
+      select: { id: true },
+    });
+    const run = await prisma.invocationRun.create({
+      data: {
+        invocationId: promptInvocation.id,
+        attempt: 2,
+        idempotencyKey: `ui-read-model:${randomUUID()}`,
+        status: "FAILED",
+        outcome: null,
+        errorCode: "AI_PROVIDER_INTERRUPTED",
+        startedAt: new Date("2026-09-21T08:00:00.000Z"),
+        finishedAt: new Date("2026-09-21T08:00:01.000Z"),
+      },
+    });
+    const artifact = await prisma.artifact.create({
+      data: {
+        creatorInvocationId: promptInvocation.id,
+        outputName: "prompt",
+        type: "PROMPT",
+        classification: "PRIVATE",
+        metadata: { internal: "must-not-leak" },
+        versions: {
+          create: {
+            version: 1,
+            contentJson: { secretPayload: "not-for-plan-view" },
+            fingerprint: "sha256:test-workflow-ui",
+            metadata: { internalVersion: true },
+          },
+        },
+      },
+      include: { versions: true },
+    });
+    const version = artifact.versions[0];
+    if (!version) throw new Error("Expected artifact version");
+
+    const lookup = await app.inject({
+      method: "GET",
+      url: `/v1/execution-plans/by-message/${messageId}`,
+      headers: { origin },
+      cookies: owner.cookies,
+    });
+    expect(lookup.statusCode).toBe(200);
+    expect(lookup.json().plan.id).toBe(planId);
+    const prompt = lookup
+      .json()
+      .plan.invocations.find((item: { id: string }) => item.id === "prompt");
+    expect(prompt).toMatchObject({
+      status: "PENDING",
+      requiresApproval: false,
+      latestRun: {
+        id: run.id,
+        attempt: 2,
+        status: "FAILED",
+        outcome: null,
+        errorCode: "AI_PROVIDER_INTERRUPTED",
+        startedAt: "2026-09-21T08:00:00.000Z",
+        finishedAt: "2026-09-21T08:00:01.000Z",
+      },
+      artifacts: [
+        {
+          artifactId: artifact.id,
+          artifactVersionId: version.id,
+          outputName: "prompt",
+          type: "PROMPT",
+          classification: "PRIVATE",
+          version: 1,
+        },
+      ],
+    });
+    expect(JSON.stringify(prompt)).not.toContain("secretPayload");
+    expect(JSON.stringify(prompt)).not.toContain("contentJson");
+    expect(JSON.stringify(prompt)).not.toContain("contentRef");
+    expect(JSON.stringify(prompt)).not.toContain("fingerprint");
+    expect(JSON.stringify(prompt)).not.toContain("must-not-leak");
+
+    const noPlanMessageId = await createSourceMessage(owner.id);
+    const noPlan = await app.inject({
+      method: "GET",
+      url: `/v1/execution-plans/by-message/${noPlanMessageId}`,
+      headers: { origin },
+      cookies: owner.cookies,
+    });
+    expect(noPlan.statusCode).toBe(200);
+    expect(noPlan.json()).toEqual({ plan: null });
+
+    const foreignLookup = await app.inject({
+      method: "GET",
+      url: `/v1/execution-plans/by-message/${messageId}`,
+      headers: { origin },
+      cookies: stranger.cookies,
+    });
+    expect(foreignLookup.statusCode).toBe(200);
+    expect(foreignLookup.json()).toEqual({ plan: null });
+  });
+
   it("supports explicit approval without executing the invocation", async () => {
     const owner = await registerVerifiedUser(app, "orchestration-approval");
     const messageId = await createSourceMessage(owner.id);
