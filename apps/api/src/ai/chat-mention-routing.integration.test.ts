@@ -247,6 +247,19 @@ describe("structured normal-chat mention routing", () => {
     expect(shell.invocations).toHaveLength(0);
     expect(shell.contextSnapshot).not.toBeNull();
 
+    const conversationView = await app.inject({
+      method: "GET",
+      url: `/v1/execution-plans/by-conversation/${conversation.id}`,
+      headers: { origin },
+      cookies: user.cookies,
+    });
+    expect(conversationView.statusCode).toBe(200);
+    expect(conversationView.json().plans).toHaveLength(1);
+    expect(conversationView.json().plans[0]).toMatchObject({
+      id: shell.id,
+      status: "NEEDS_CLARIFICATION",
+    });
+
     const replay = await orchestration.planMessage(
       user.id,
       routed.messageId,
