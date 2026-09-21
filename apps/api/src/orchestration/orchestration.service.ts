@@ -52,6 +52,7 @@ import { SEMANTIC_PLANNER_MODEL } from "./semantic-planner.adapter.js";
 export type SemanticPlanMessageResult =
   | { kind: "PLANNING"; planId: string }
   | { kind: "PLANNED"; plan: ExecutionPlanView }
+  | { kind: "EXISTING_PLAN"; plan: ExecutionPlanView }
   | {
       kind: "CLARIFICATION_REQUIRED";
       clarificationQuestion: string;
@@ -124,7 +125,7 @@ export class OrchestrationService {
       };
     }
     if (shell.status !== "PLANNING") {
-      return { kind: "PLANNED", plan: toView(shell) };
+      return existingSemanticPlanResult(shell);
     }
 
     const claim = await this.claimPlanningShell(
@@ -140,7 +141,7 @@ export class OrchestrationService {
         };
       }
       if (claim.plan.status !== "PLANNING") {
-        return { kind: "PLANNED", plan: toView(claim.plan) };
+        return existingSemanticPlanResult(claim.plan);
       }
       return { kind: "PLANNING", planId: claim.plan.id };
     }
@@ -186,7 +187,7 @@ export class OrchestrationService {
           include: planInclude,
         });
         if (replay && replay.status !== "PLANNING") {
-          return { kind: "PLANNED", plan: toView(replay) };
+          return existingSemanticPlanResult(replay);
         }
       }
       if (error instanceof SemanticPlannerError) {
@@ -959,6 +960,21 @@ function parseApprove(body: unknown): ApproveExecutionPlanRequest {
     throw new BadRequestException({ code: "validation_error", message: "Invalid approval payload" });
   }
   return parsed.data;
+}
+
+function existingSemanticPlanResult(
+  plan: PersistedPlan,
+): SemanticPlanMessageResult {
+  if (isClarificationShell(plan)) {
+    return {
+      kind: "CLARIFICATION_REQUIRED",
+      clarificationQuestion: plan.goal,
+    };
+  }
+  const view = toView(plan);
+  return plan.status === "PLANNED"
+    ? { kind: "PLANNED", plan: view }
+    : { kind: "EXISTING_PLAN", plan: view };
 }
 
 function planningClaimHash(planId: string, correlationId: string): string {
