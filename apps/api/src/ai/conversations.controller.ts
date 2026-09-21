@@ -119,6 +119,7 @@ export class ConversationsController {
       throw new BadRequestException("Invalid message payload");
     }
 
+    this.chat.assertMessageSize(parsed.data.content);
     await this.chat.getConversation(user.id, conversationId);
 
     const resolvedMentions = await this.routing.resolve({
