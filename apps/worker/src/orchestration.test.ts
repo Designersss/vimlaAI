@@ -45,6 +45,28 @@ describe("orchestration queue boundary", () => {
     });
   });
 
+  it("fails closed for future agent targets until agent runtime exists", async () => {
+    const executor = new MockInvocationExecutorRegistry();
+    await expect(
+      executor.execute({
+        planId: "plan-1",
+        invocationId: "inv-agent",
+        attempt: 1,
+        runId: "run-agent",
+        idempotencyKey: "run-agent",
+        target: {
+          kind: "AGENT",
+          modelSlug: null,
+          agentId: "future-agent",
+        },
+      }),
+    ).resolves.toEqual({
+      status: "FAILED",
+      errorCode: "AGENT_NOT_IMPLEMENTED",
+      retryable: false,
+    });
+  });
+
   it("strictly validates dispatch and invocation payloads", () => {
     expect(parseOrchestrationDispatchPayload({ planId: "plan-1" })).toEqual({ planId: "plan-1" });
     expect(parseInvocationExecutePayload({ planId: "plan-1", invocationId: "inv-1" })).toEqual({
