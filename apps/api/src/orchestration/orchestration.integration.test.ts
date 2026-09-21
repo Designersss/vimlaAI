@@ -186,6 +186,271 @@ describe("execution plan API", () => {
     expect(stopReplay.json().id).toBe(planId);
   });
 
+  it("exposes an owner-scoped workflow UI read model by source message", async () => {
+    const owner = await registerVerifiedUser(app, "orchestration-ui-owner");
+    const stranger = await registerVerifiedUser(app, "orchestration-ui-stranger");
+    const messageId = await createSourceMessage(owner.id);
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/v1/execution-plans",
+      headers: jsonHeaders(),
+      cookies: owner.cookies,
+      payload: { messageId, plan: sequentialPlan() },
+    });
+    expect(created.statusCode).toBe(201);
+    const planId = created.json().id as string;
+
+    const promptInvocation = await prisma.invocation.findFirstOrThrow({
+      where: { planId, sequence: 0 },
+      select: { id: true },
+    });
+    const run = await prisma.invocationRun.create({
+      data: {
+        invocationId: promptInvocation.id,
+        attempt: 2,
+        idempotencyKey: `ui-read-model:${randomUUID()}`,
+        status: "FAILED",
+        outcome: null,
+        errorCode: "AI_PROVIDER_INTERRUPTED",
+        startedAt: new Date("2026-09-21T08:00:00.000Z"),
+        finishedAt: new Date("2026-09-21T08:00:01.000Z"),
+      },
+    });
+    const artifact = await prisma.artifact.create({
+      data: {
+        creatorInvocationId: promptInvocation.id,
+        outputName: "prompt",
+        type: "PROMPT",
+        classification: "PRIVATE",
+        metadata: { internal: "must-not-leak" },
+        versions: {
+          create: {
+            version: 1,
+            contentJson: { secretPayload: "not-for-plan-view" },
+            fingerprint: "sha256:test-workflow-ui-v1",
+            metadata: { internalVersion: true },
+            createdAt: new Date("2026-09-21T08:00:01.000Z"),
+          },
+        },
+      },
+      include: { versions: true },
+    });
+    const version1 = artifact.versions[0];
+    if (!version1) throw new Error("Expected artifact version");
+    const version = await prisma.artifactVersion.create({
+      data: {
+        artifactId: artifact.id,
+        version: 2,
+        contentJson: { secretPayload: "latest-still-not-for-plan-view" },
+        fingerprint: "sha256:test-workflow-ui-v2",
+        metadata: { internalVersion: "latest" },
+        createdAt: new Date("2026-09-21T08:00:02.000Z"),
+      },
+    });
+
+    const lookup = await app.inject({
+      method: "GET",
+      url: `/v1/execution-plans/by-message/${messageId}`,
+      headers: { origin },
+      cookies: owner.cookies,
+    });
+    expect(lookup.statusCode).toBe(200);
+    expect(lookup.json().plan.id).toBe(planId);
+    const prompt = lookup
+      .json()
+      .plan.invocations.find((item: { id: string }) => item.id === "prompt");
+    expect(prompt).toMatchObject({
+      status: "PENDING",
+      requiresApproval: false,
+      latestRun: {
+        id: run.id,
+        attempt: 2,
+        status: "FAILED",
+        outcome: null,
+        errorCode: "AI_PROVIDER_INTERRUPTED",
+        startedAt: "2026-09-21T08:00:00.000Z",
+        finishedAt: "2026-09-21T08:00:01.000Z",
+      },
+      artifacts: [
+        {
+          artifactId: artifact.id,
+          artifactVersionId: version.id,
+          outputName: "prompt",
+          type: "PROMPT",
+          classification: "PRIVATE",
+          version: 2,
+          createdAt: "2026-09-21T08:00:02.000Z",
+        },
+      ],
+    });
+    expect(JSON.stringify(prompt)).not.toContain("secretPayload");
+    expect(JSON.stringify(prompt)).not.toContain("contentJson");
+    expect(JSON.stringify(prompt)).not.toContain("contentRef");
+    expect(JSON.stringify(prompt)).not.toContain("fingerprint");
+    expect(JSON.stringify(prompt)).not.toContain("must-not-leak");
+
+    const conversationPlans = await app.inject({
+      method: "GET",
+      url: `/v1/execution-plans/by-conversation/${created.json().conversationId}`,
+      headers: { origin },
+      cookies: owner.cookies,
+    });
+    expect(conversationPlans.statusCode).toBe(200);
+    expect(conversationPlans.json().plans).toHaveLength(1);
+    expect(conversationPlans.json().plans[0].id).toBe(planId);
+    expect(conversationPlans.json().plans[0].invocations[0].latestRun.id).toBe(
+      run.id,
+    );
+
+    const foreignConversationPlans = await app.inject({
+      method: "GET",
+      url: `/v1/execution-plans/by-conversation/${created.json().conversationId}`,
+      headers: { origin },
+      cookies: stranger.cookies,
+    });
+    expect(foreignConversationPlans.statusCode).toBe(200);
+    expect(foreignConversationPlans.json()).toEqual({ plans: [] });
+
+    const noPlanMessageId = await createSourceMessage(owner.id);
+    const noPlan = await app.inject({
+      method: "GET",
+      url: `/v1/execution-plans/by-message/${noPlanMessageId}`,
+      headers: { origin },
+      cookies: owner.cookies,
+    });
+    expect(noPlan.statusCode).toBe(200);
+    expect(noPlan.json()).toEqual({ plan: null });
+
+    const foreignLookup = await app.inject({
+      method: "GET",
+      url: `/v1/execution-plans/by-message/${messageId}`,
+      headers: { origin },
+      cookies: stranger.cookies,
+    });
+    expect(foreignLookup.statusCode).toBe(200);
+    expect(foreignLookup.json()).toEqual({ plan: null });
+  });
+
+  it("bounds conversation polling to active plans or the latest terminal plan", async () => {
+    const owner = await registerVerifiedUser(app, "orchestration-ui-bounded");
+    const conversation = await prisma.conversation.create({
+      data: {
+        userId: owner.id,
+        title: "Workflow polling bounds",
+      },
+    });
+    const firstMessage = await prisma.message.create({
+      data: {
+        conversationId: conversation.id,
+        role: "USER",
+        content: "First workflow",
+        status: "COMPLETE",
+      },
+    });
+    const secondMessage = await prisma.message.create({
+      data: {
+        conversationId: conversation.id,
+        role: "USER",
+        content: "Second workflow",
+        status: "COMPLETE",
+      },
+    });
+
+    const firstCreated = await app.inject({
+      method: "POST",
+      url: "/v1/execution-plans",
+      headers: jsonHeaders(),
+      cookies: owner.cookies,
+      payload: { messageId: firstMessage.id, plan: approvalPlan() },
+    });
+    const secondCreated = await app.inject({
+      method: "POST",
+      url: "/v1/execution-plans",
+      headers: jsonHeaders(),
+      cookies: owner.cookies,
+      payload: { messageId: secondMessage.id, plan: approvalPlan() },
+    });
+    expect(firstCreated.statusCode).toBe(201);
+    expect(secondCreated.statusCode).toBe(201);
+
+    const firstPlanId = firstCreated.json().id as string;
+    const secondPlanId = secondCreated.json().id as string;
+    await prisma.executionPlan.update({
+      where: { id: firstPlanId },
+      data: {
+        status: "COMPLETED",
+        completedAt: new Date("2026-09-21T08:00:01.000Z"),
+        createdAt: new Date("2026-09-21T08:00:00.000Z"),
+      },
+    });
+    await prisma.executionPlan.update({
+      where: { id: secondPlanId },
+      data: {
+        status: "RUNNING",
+        startedAt: new Date("2026-09-21T08:01:00.000Z"),
+        createdAt: new Date("2026-09-21T08:01:00.000Z"),
+      },
+    });
+
+    const activeOnly = await app.inject({
+      method: "GET",
+      url: `/v1/execution-plans/by-conversation/${conversation.id}`,
+      headers: { origin },
+      cookies: owner.cookies,
+    });
+    expect(activeOnly.statusCode).toBe(200);
+    expect(activeOnly.json().plans.map((plan: { id: string }) => plan.id)).toEqual([
+      secondPlanId,
+    ]);
+
+    await prisma.executionPlan.update({
+      where: { id: secondPlanId },
+      data: {
+        status: "CANCELED",
+        completedAt: new Date("2026-09-21T08:02:00.000Z"),
+      },
+    });
+
+    const latestTerminalOnly = await app.inject({
+      method: "GET",
+      url: `/v1/execution-plans/by-conversation/${conversation.id}`,
+      headers: { origin },
+      cookies: owner.cookies,
+    });
+    expect(latestTerminalOnly.statusCode).toBe(200);
+    expect(
+      latestTerminalOnly.json().plans.map((plan: { id: string }) => plan.id),
+    ).toEqual([secondPlanId]);
+  });
+
+  it("rejects high-risk invocations that try to bypass explicit approval", async () => {
+    const owner = await registerVerifiedUser(app, "orchestration-risk-approval");
+    const messageId = await createSourceMessage(owner.id);
+    const plan = approvalPlan();
+    const invocation = plan.invocations[0];
+    if (!invocation) throw new Error("Expected approval-plan invocation");
+    plan.invocations[0] = {
+      ...invocation,
+      riskClass: "FINANCIAL",
+      approvalPolicy: "AUTO",
+    };
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/v1/execution-plans",
+      headers: jsonHeaders(),
+      cookies: owner.cookies,
+      payload: { messageId, plan },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json().error.code).toBe("validation_error");
+    expect(
+      await prisma.executionPlan.count({ where: { messageId } }),
+    ).toBe(0);
+  });
+
   it("supports explicit approval without executing the invocation", async () => {
     const owner = await registerVerifiedUser(app, "orchestration-approval");
     const messageId = await createSourceMessage(owner.id);

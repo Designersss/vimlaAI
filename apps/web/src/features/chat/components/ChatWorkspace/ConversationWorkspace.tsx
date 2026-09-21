@@ -38,6 +38,7 @@ import { apiErrorMessageKey } from "../../../../shared/errors/error-keys";
 import { tx } from "../../../../shared/i18n/translate";
 import { CONSUMER_FEATURES } from "../../../../shared/config/consumer-features";
 import { OperatorRunPanel } from "../../../operator/components/OperatorRunPanel";
+import { WorkflowLane } from "../../../workflows/components/WorkflowLane";
 import {
   OperatorRequestError,
   confirmOperatorRun,
@@ -94,6 +95,7 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
   const [mentionSuggestions, setMentionSuggestions] = useState<MentionSuggestionsResponse | null>(null);
   const [mentionOptionIndex, setMentionOptionIndex] = useState(0);
   const [composerMentions, setComposerMentions] = useState<ComposerMention[]>([]);
+  const [workflowRefreshToken, setWorkflowRefreshToken] = useState(0);
   const operatorBusy = store.operatorBusy;
   const setOperatorBusy = (value: boolean): void => store.setOperatorBusy(value);
 
@@ -322,6 +324,7 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
           const detail = await fetchConversation(conversationId);
           store.setMessages(detail.messages, revision);
           setTitle(detail.title);
+          setWorkflowRefreshToken((value) => value + 1);
         }
       } catch (error: unknown) {
         if (error instanceof AuthRequiredError) {
@@ -346,6 +349,7 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
         onDelta: (text) => store.appendAssistantDelta(text),
         onDone: () => {
           store.finishAssistant();
+          setWorkflowRefreshToken((value) => value + 1);
           void fetchUsage().then((usage) => workspace.setUsage(usage));
         },
         onError: (code) => store.failAssistant(code),
@@ -417,6 +421,13 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
           )
         )}
       </div>
+      {CONSUMER_FEATURES.orchestrationUi ? (
+        <WorkflowLane
+          key={conversationId}
+          conversationId={conversationId}
+          refreshToken={workflowRefreshToken}
+        />
+      ) : null}
       <div style={{ position: "relative" }} onKeyDown={handleComposerKeyDown}>
         {store.error ? <Alert variant="error">{tx(t, apiErrorMessageKey(store.error))}</Alert> : null}
         <MentionPicker

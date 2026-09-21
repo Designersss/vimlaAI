@@ -4,27 +4,61 @@
   "concurrency": "15",
   "tasks": {
     "build": {
-      "dependsOn": ["^build"],
-      "outputs": ["dist/**", ".next/**", "!.next/cache/**", "!.next/dev/**"],
-      "env": ["NEXT_PUBLIC_API_BASE_URL", "NEXT_PUBLIC_ADMIN_API_BASE_URL", "NODE_ENV"]
+      "dependsOn": [
+        "^build"
+      ],
+      "outputs": [
+        "dist/**",
+        ".next/**",
+        "!.next/cache/**",
+        "!.next/dev/**"
+      ],
+      "env": [
+        "NEXT_PUBLIC_API_BASE_URL",
+        "NEXT_PUBLIC_ADMIN_API_BASE_URL",
+        "NEXT_PUBLIC_VIMLA_OPERATOR",
+        "NEXT_PUBLIC_VIMLA_PROJECTS",
+        "NEXT_PUBLIC_VIMLA_DIRECT_CHATS",
+        "NEXT_PUBLIC_VIMLA_ORCHESTRATION_UI",
+        "NODE_ENV"
+      ]
     },
     "dev": {
       "cache": false,
       "persistent": true,
-      "dependsOn": ["^build"]
+      "dependsOn": [
+        "^build"
+      ]
     },
     "lint": {
-      "dependsOn": ["^build"]
+      "dependsOn": [
+        "^build"
+      ]
     },
     "typecheck": {
-      "dependsOn": ["^build"]
+      "dependsOn": [
+        "^build"
+      ]
     },
     "test": {
-      "dependsOn": ["^build"],
-      "env": ["NODE_ENV", "APP_ENV", "DATABASE_URL", "REDIS_URL", "BETTER_AUTH_SECRET", "BETTER_AUTH_URL", "WEB_ORIGIN", "ADMIN_ORIGIN"]
+      "dependsOn": [
+        "^build"
+      ],
+      "env": [
+        "NODE_ENV",
+        "APP_ENV",
+        "DATABASE_URL",
+        "REDIS_URL",
+        "BETTER_AUTH_SECRET",
+        "BETTER_AUTH_URL",
+        "WEB_ORIGIN",
+        "ADMIN_ORIGIN"
+      ]
     },
     "test:integration": {
-      "dependsOn": ["^build"],
+      "dependsOn": [
+        "^build"
+      ],
       "cache": false,
       "env": [
         "NODE_ENV",
@@ -39,7 +73,9 @@
       ]
     },
     "test:e2e": {
-      "dependsOn": ["^build"],
+      "dependsOn": [
+        "^build"
+      ],
       "cache": false,
       "env": [
         "NODE_ENV",
@@ -52,7 +88,11 @@
         "WEB_ORIGIN",
         "ADMIN_ORIGIN",
         "NEXT_PUBLIC_API_BASE_URL",
-        "NEXT_PUBLIC_ADMIN_API_BASE_URL"
+        "NEXT_PUBLIC_ADMIN_API_BASE_URL",
+        "NEXT_PUBLIC_VIMLA_OPERATOR",
+        "NEXT_PUBLIC_VIMLA_PROJECTS",
+        "NEXT_PUBLIC_VIMLA_DIRECT_CHATS",
+        "NEXT_PUBLIC_VIMLA_ORCHESTRATION_UI"
       ]
     },
     "generate": {
