@@ -27,7 +27,7 @@ export function buildSemanticPlannerPrompt(
   }
   const planningContextJson = JSON.stringify(input.planningContext);
   if (
-    new TextEncoder().encode(planningContextJson).byteLength >
+    utf8ByteLength(planningContextJson) >
     SEMANTIC_PLANNER_LIMITS.maxPlanningContextBytes
   ) {
     throw new SemanticPlannerError(
@@ -75,4 +75,21 @@ export function buildSemanticPlannerPrompt(
     "USER_REQUEST:",
     userText,
   ].join("\n");
+}
+
+
+function utf8ByteLength(value: string): number {
+  let bytes = 0;
+  for (const character of value) {
+    const codePoint = character.codePointAt(0) ?? 0;
+    bytes +=
+      codePoint <= 0x7f
+        ? 1
+        : codePoint <= 0x7ff
+          ? 2
+          : codePoint <= 0xffff
+            ? 3
+            : 4;
+  }
+  return bytes;
 }
