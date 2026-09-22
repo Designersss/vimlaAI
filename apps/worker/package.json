@@ -21,6 +21,7 @@
     "@vimla/database": "workspace:*",
     "@vimla/notifications": "workspace:*",
     "@vimla/operator": "workspace:*",
+    "@vimla/orchestration": "workspace:*",
     "@vimla/shared": "workspace:*",
     "@vimla/workspace": "workspace:*",
     "bullmq": "^5.58.5",
