@@ -7,6 +7,7 @@ import {
   InternalServerErrorException,
   NotFoundException,
 } from "@nestjs/common";
+import { fingerprintArtifactContent } from "@vimla/artifacts";
 import {
   ContextConflictError,
   ContextNotFoundError,
@@ -25,11 +26,15 @@ import {
 import { API_CONFIG, type ApiRuntimeConfig } from "../config/api-config.js";
 import { PrismaService } from "../persistence/prisma.service.js";
 import {
+  acceptanceCriteriaSchema,
   approveExecutionPlanRequestSchema,
   artifactTypeSchema,
   createExecutionPlanRequestSchema,
   invocationDependencySchema,
   invocationSchema,
+  outputDeclarationSchema,
+  resolveHumanEvaluationRequestSchema,
+  workflowEvaluationSchema,
   workflowInvocationRunStatusSchema,
   type ApproveExecutionPlanRequest,
   type CreateExecutionPlanRequest,
@@ -40,6 +45,7 @@ import {
   type ExecutionPlanStatus,
   type ExecutionPlanView,
   type InvocationStatus,
+  type ResolveHumanEvaluationRequest,
   type WorkflowInvocationRunStatus,
 } from "./contracts.js";
 import { initialInvocationStatuses, validateManualExecutionPlan } from "./plan-validation.js";
@@ -815,6 +821,14 @@ export class OrchestrationService {
       if (invocation.approvalPolicy === "AUTO") {
         throw new ConflictException("Invocation does not require approval");
       }
+      if (
+        invocation.targetKind === "EVALUATOR" &&
+        invocation.approvalPolicy === "HUMAN_APPROVAL"
+      ) {
+        throw new ConflictException(
+          "Human evaluator decisions must use the evaluation resolution endpoint",
+        );
+      }
 
       if (invocation.status === "WAITING_APPROVAL") {
         await tx.invocation.updateMany({
@@ -837,6 +851,196 @@ export class OrchestrationService {
         throw new InternalServerErrorException("Execution plan disappeared during approval");
       }
       return toView(approved);
+    });
+  }
+
+  async resolveHumanEvaluation(
+    userId: string,
+    id: string,
+    graphInvocationId: string,
+    body: unknown,
+  ): Promise<ExecutionPlanView> {
+    this.assertPreviewEnabled();
+    const input = parseHumanEvaluation(body);
+
+    return this.prisma.client.$transaction(async (tx) => {
+      const plan = await tx.executionPlan.findFirst({
+        where: { id, userId },
+        include: planInclude,
+      });
+      if (!plan) {
+        throw new NotFoundException("Execution plan not found");
+      }
+      if (plan.status !== "RUNNING") {
+        throw new ConflictException("Execution plan is not running");
+      }
+
+      const invocationId = invocationDbId(id, graphInvocationId);
+      const invocation = plan.invocations.find(
+        (candidate) => candidate.id === invocationId,
+      );
+      if (!invocation) {
+        throw new NotFoundException("Invocation not found");
+      }
+      if (
+        invocation.targetKind !== "EVALUATOR" ||
+        invocation.approvalPolicy !== "HUMAN_APPROVAL"
+      ) {
+        throw new ConflictException(
+          "Invocation is not a human evaluator",
+        );
+      }
+
+      const latestRun = invocation.runs[0] ?? null;
+      if (
+        invocation.status === "COMPLETED" &&
+        latestRun?.evaluation?.evaluatorKind === "HUMAN_APPROVAL"
+      ) {
+        const sameDecision =
+          latestRun.evaluation.outcome === input.outcome &&
+          (latestRun.evaluation.summary ?? undefined) === input.summary;
+        if (!sameDecision) {
+          throw new ConflictException(
+            "Human evaluation was already resolved with a different decision",
+          );
+        }
+        return toView(plan);
+      }
+      if (invocation.status !== "WAITING_APPROVAL") {
+        throw new ConflictException(
+          "Human evaluator is not awaiting a decision",
+        );
+      }
+
+      const criteria = acceptanceCriteriaSchema
+        .array()
+        .parse(invocation.acceptanceCriteria);
+      if (
+        criteria.length === 0 ||
+        criteria.some(
+          (criterion) =>
+            criterion.mode !== "HUMAN_APPROVAL" ||
+            criterion.binding !== undefined,
+        )
+      ) {
+        throw new ConflictException(
+          "Persisted human evaluator contract is invalid",
+        );
+      }
+      const outputs = outputDeclarationSchema
+        .array()
+        .parse(invocation.outputDeclarations);
+      const output = outputs[0];
+      if (
+        outputs.length !== 1 ||
+        !output ||
+        output.artifactType !== "JSON"
+      ) {
+        throw new ConflictException(
+          "Persisted human evaluator output contract is invalid",
+        );
+      }
+
+      const claimed = await tx.invocation.updateMany({
+        where: {
+          id: invocationId,
+          planId: id,
+          status: "WAITING_APPROVAL",
+        },
+        data: { status: "RUNNING" },
+      });
+      if (claimed.count !== 1) {
+        throw new ConflictException(
+          "Human evaluator decision was resolved concurrently",
+        );
+      }
+
+      const now = new Date();
+      const criteriaResults = criteria.map((criterion) => ({
+        criterionId: criterion.id,
+        outcome: input.outcome,
+        confidence: 1,
+        summary: input.summary ?? null,
+      }));
+      const evaluationJson = {
+        mode: "HUMAN_APPROVAL" as const,
+        outcome: input.outcome,
+        confidence: 1,
+        criteriaResults,
+        summary: input.summary ?? null,
+      };
+      const contentJson = toJson(evaluationJson);
+      const fingerprint = fingerprintArtifactContent({
+        kind: "INLINE_JSON",
+        value: contentJson,
+      });
+      const runId = randomUUID();
+
+      await tx.invocationRun.create({
+        data: {
+          id: runId,
+          invocationId,
+          attempt: (latestRun?.attempt ?? 0) + 1,
+          status: "COMPLETED",
+          idempotencyKey: `human-evaluation:${invocationId}:v1`,
+          outcome: input.outcome,
+          startedAt: now,
+          finishedAt: now,
+          evaluation: {
+            create: {
+              evaluatorKind: "HUMAN_APPROVAL",
+              outcome: input.outcome,
+              confidence: 1,
+              criteriaResults: toJson(criteriaResults),
+              summary: input.summary ?? null,
+            },
+          },
+        },
+      });
+
+      await tx.artifact.create({
+        data: {
+          creatorInvocationId: invocationId,
+          outputName: output.name,
+          type: "JSON",
+          classification: "PRIVATE",
+          metadata: {
+            source: "EVALUATION",
+            evaluatorKind: "HUMAN_APPROVAL",
+          },
+          versions: {
+            create: {
+              version: 1,
+              contentJson,
+              fingerprint,
+              metadata: {
+                invocationRunId: runId,
+              },
+            },
+          },
+        },
+      });
+
+      const completed = await tx.invocation.updateMany({
+        where: { id: invocationId, planId: id, status: "RUNNING" },
+        data: { status: "COMPLETED" },
+      });
+      if (completed.count !== 1) {
+        throw new ConflictException(
+          "Human evaluator state changed while resolving the decision",
+        );
+      }
+
+      const resolved = await tx.executionPlan.findFirst({
+        where: { id, userId },
+        include: planInclude,
+      });
+      if (!resolved) {
+        throw new InternalServerErrorException(
+          "Execution plan disappeared during human evaluation",
+        );
+      }
+      return toView(resolved);
     });
   }
 
@@ -933,6 +1137,7 @@ const planInclude = {
       runs: {
         orderBy: { attempt: "desc" as const },
         take: 1,
+        include: { evaluation: true },
       },
       artifacts: {
         orderBy: { createdAt: "asc" as const },
@@ -964,6 +1169,19 @@ function parseApprove(body: unknown): ApproveExecutionPlanRequest {
   const parsed = approveExecutionPlanRequestSchema.safeParse(body ?? {});
   if (!parsed.success) {
     throw new BadRequestException({ code: "validation_error", message: "Invalid approval payload" });
+  }
+  return parsed.data;
+}
+
+function parseHumanEvaluation(
+  body: unknown,
+): ResolveHumanEvaluationRequest {
+  const parsed = resolveHumanEvaluationRequestSchema.safeParse(body ?? {});
+  if (!parsed.success) {
+    throw new BadRequestException({
+      code: "validation_error",
+      message: "Invalid human evaluation payload",
+    });
   }
   return parsed.data;
 }
@@ -1138,6 +1356,15 @@ function toView(plan: PersistedPlan): ExecutionPlanView {
               errorCode: latestRun.errorCode,
               startedAt: latestRun.startedAt?.toISOString() ?? null,
               finishedAt: latestRun.finishedAt?.toISOString() ?? null,
+              evaluation: latestRun.evaluation
+                ? workflowEvaluationSchema.parse({
+                    mode: latestRun.evaluation.evaluatorKind,
+                    outcome: latestRun.evaluation.outcome,
+                    confidence: latestRun.evaluation.confidence,
+                    criteriaResults: latestRun.evaluation.criteriaResults,
+                    summary: latestRun.evaluation.summary,
+                  })
+                : null,
             }
           : null,
         artifacts: persisted.artifacts.flatMap((artifact) => {
