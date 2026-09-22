@@ -381,6 +381,109 @@ describe("orchestration runtime", () => {
     expect(plan.status).toBe("COMPLETED");
   });
 
+  it("propagates a persisted HUMAN_APPROVAL FAIL outcome into the failure branch", async () => {
+    const seeded = await seedPlan(
+      prisma,
+      [
+        {
+          key: "human-review",
+          status: "COMPLETED",
+          targetKind: "EVALUATOR",
+          outputDeclarations: [{ name: "evaluation", artifactType: "JSON" }],
+          acceptanceCriteria: [
+            {
+              id: "human-review",
+              description: "Human reviewer accepts the generated result",
+              mode: "HUMAN_APPROVAL",
+            },
+          ],
+          approvalPolicy: "HUMAN_APPROVAL",
+        },
+        { key: "group-success", status: "PENDING" },
+        { key: "nikita-fix", status: "PENDING" },
+      ],
+      [
+        {
+          from: "human-review",
+          to: "group-success",
+          condition: "OUTCOME",
+          outcome: "PASS",
+        },
+        {
+          from: "human-review",
+          to: "nikita-fix",
+          condition: "OUTCOME",
+          outcome: "FAIL",
+        },
+      ],
+      1,
+    );
+    const humanInvocationId = seeded.invocationIds["human-review"];
+    if (!humanInvocationId) throw new Error("Missing human evaluator invocation");
+    const run = await prisma.invocationRun.create({
+      data: {
+        invocationId: humanInvocationId,
+        attempt: 1,
+        idempotencyKey: `${humanInvocationId}:human:v1`,
+        status: "COMPLETED",
+        outcome: "FAIL",
+        startedAt: new Date(),
+        finishedAt: new Date(),
+      },
+    });
+    await prisma.evaluation.create({
+      data: {
+        invocationRunId: run.id,
+        evaluatorKind: "HUMAN_APPROVAL",
+        outcome: "FAIL",
+        confidence: 1,
+        inputFingerprint: `sha256:${"a".repeat(64)}`,
+        criteriaResults: [
+          {
+            criterionId: "human-review",
+            outcome: "FAIL",
+            confidence: 1,
+            summary: "Needs changes.",
+          },
+        ],
+        summary: "Needs changes.",
+      },
+    });
+
+    const dispatchQueue = new MemoryQueue();
+    const executionQueue = new MemoryQueue();
+    const runtime = new OrchestrationRuntime(
+      prisma,
+      dispatchQueue,
+      executionQueue,
+      logger,
+    );
+
+    await runtime.dispatchPlan(seeded.planId);
+
+    const branchStates = await prisma.invocation.findMany({
+      where: {
+        id: {
+          in: [
+            seeded.invocationIds["group-success"] ?? "",
+            seeded.invocationIds["nikita-fix"] ?? "",
+          ],
+        },
+      },
+      select: { id: true, status: true },
+    });
+    const statusById = new Map(
+      branchStates.map((invocation) => [invocation.id, invocation.status]),
+    );
+    expect(
+      statusById.get(seeded.invocationIds["group-success"] ?? ""),
+    ).toBe("SKIPPED");
+    expect(
+      statusById.get(seeded.invocationIds["nikita-fix"] ?? ""),
+    ).toBe("READY");
+    expect(executionQueue.count(INVOCATION_EXECUTE_JOB_NAME)).toBe(1);
+  });
+
   it("runs a real deterministic evaluator and routes FAIL to Nikita end-to-end", async () => {
     const seeded = await seedPlan(
       prisma,
