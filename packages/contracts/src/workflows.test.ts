@@ -97,7 +97,7 @@ describe("workflow UI contracts", () => {
       ...fixture.invocations[0],
       artifacts: [],
       latestRun: {
-        ...fixture.invocations[0].latestRun!,
+        ...fixture.invocations[0].latestRun,
         evaluation: {
           mode: "AI_EVALUATOR",
           outcome: "PASS",
