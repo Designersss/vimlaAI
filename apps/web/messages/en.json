@@ -528,6 +528,9 @@
     "attempt": "Attempt {attempt}",
     "outcome": "Outcome: {outcome}",
     "durationMs": "{milliseconds} ms",
-    "durationSeconds": "{seconds} s"
+    "durationSeconds": "{seconds} s",
+    "evaluationPass": "Pass",
+    "evaluationFail": "Needs changes",
+    "evaluationResult": "Evaluation: {outcome} · confidence {confidence}%"
   }
 }
