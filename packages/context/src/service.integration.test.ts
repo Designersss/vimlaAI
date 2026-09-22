@@ -107,6 +107,58 @@ describe("ContextSnapshotService", () => {
     });
   });
 
+  it("freezes context on a durable PLANNING shell before semantic planning starts", async () => {
+    const actorUserId = await createUser(prisma, "context-planning-shell");
+    const conversation = await prisma.conversation.create({
+      data: { userId: actorUserId, title: "Planning shell" },
+    });
+    const sourceMessage = await prisma.message.create({
+      data: {
+        conversationId: conversation.id,
+        role: "USER",
+        content: "Continue the API approach from earlier",
+        status: "COMPLETE",
+      },
+    });
+    const planId = randomUUID();
+    await prisma.executionPlan.create({
+      data: {
+        id: planId,
+        messageId: sourceMessage.id,
+        userId: actorUserId,
+        conversationId: conversation.id,
+        schemaVersion: 1,
+        version: 1,
+        planHash: "planning:pending:v1",
+        goal: "Planning workflow",
+        status: "PLANNING",
+        maxParallelism: 1,
+      },
+    });
+
+    const snapshot = await service.createForExecutionPlan({
+      actorUserId,
+      planId,
+    });
+    expect(snapshot.planId).toBe(planId);
+    expect(
+      snapshot.items.find((item) => item.sourceType === "USER_MESSAGE")?.metadata,
+    ).toMatchObject({ content: "Continue the API approach from earlier" });
+
+    await prisma.message.update({
+      where: { id: sourceMessage.id },
+      data: { content: "Changed after planning started" },
+    });
+    const replay = await service.createForExecutionPlan({
+      actorUserId,
+      planId,
+    });
+    expect(replay.fingerprint).toBe(snapshot.fingerprint);
+    expect(
+      replay.items.find((item) => item.sourceType === "USER_MESSAGE")?.metadata,
+    ).toMatchObject({ content: "Continue the API approach from earlier" });
+  });
+
   it("rejects conflicting explicit replay and re-checks protected access at invocation time", async () => {
     const actorUserId = await createUser(prisma, "context-member");
     const projectOwnerUserId = await createUser(prisma, "context-owner");

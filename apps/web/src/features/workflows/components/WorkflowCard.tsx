@@ -63,7 +63,9 @@ export function WorkflowCard({
               {t("workflow.start")}
             </Button>
           ) : null}
-          {plan.status === "PLANNED" || plan.status === "RUNNING" ? (
+          {plan.status === "PLANNING" ||
+          plan.status === "PLANNED" ||
+          plan.status === "RUNNING" ? (
             <Button
               size="sm"
               variant="ghost"

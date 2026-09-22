@@ -71,6 +71,11 @@ describe("loadApiConfig", () => {
     expect(config.directChatsEnabled).toBe(false);
     expect(config.directChatsMutationLimitPerMinute).toBe(60);
     expect(config.aiTextProvider).toBe("mock");
+    expect(config.semanticPlannerProvider).toBe("mock");
+    expect(config.semanticPlannerBaseUrl).toBeUndefined();
+    expect(config.semanticPlannerModel).toBeUndefined();
+    expect(config.semanticPlannerApiKey).toBeUndefined();
+    expect(config.semanticPlannerTimeoutMs).toBe(120_000);
     expect(config.proxyapiBaseUrl).toBe("https://api.proxyapi.ru/v1");
     expect(config.proxyapiApiKey).toBeUndefined();
     expect(config.authOtpDigits).toBe(6);
@@ -83,6 +88,39 @@ describe("loadApiConfig", () => {
     expect(config.reminderReconcileIntervalSeconds).toBe(60);
     expect(config.reminderMaxLatenessMinutes).toBe(1_440);
     expect(config.notifyDeliveryMaxAttempts).toBe(6);
+  });
+
+  it("selects a dedicated internal semantic planner without changing paid AI routing", () => {
+    const config = loadApiConfig({
+      ...validSharedEnv,
+      API_HOST: "127.0.0.1",
+      API_PORT: "3001",
+      WEB_ORIGIN: "http://localhost:3000",
+      SEMANTIC_PLANNER_PROVIDER: "internal-http",
+      SEMANTIC_PLANNER_BASE_URL: "http://127.0.0.1:11434/v1/",
+      SEMANTIC_PLANNER_MODEL: "qwen-planner",
+      SEMANTIC_PLANNER_API_KEY: "internal-secret",
+      SEMANTIC_PLANNER_TIMEOUT_MS: "45000",
+    });
+
+    expect(config.semanticPlannerProvider).toBe("internal-http");
+    expect(config.semanticPlannerBaseUrl).toBe("http://127.0.0.1:11434/v1");
+    expect(config.semanticPlannerModel).toBe("qwen-planner");
+    expect(config.semanticPlannerApiKey).toBe("internal-secret");
+    expect(config.semanticPlannerTimeoutMs).toBe(45_000);
+    expect(config.aiTextProvider).toBe("mock");
+  });
+
+  it("requires endpoint and model for an explicit internal semantic planner", () => {
+    expect(() =>
+      loadApiConfig({
+        ...validSharedEnv,
+        API_HOST: "127.0.0.1",
+        API_PORT: "3001",
+        WEB_ORIGIN: "http://localhost:3000",
+        SEMANTIC_PLANNER_PROVIDER: "internal-http",
+      }),
+    ).toThrow(/SEMANTIC_PLANNER/);
   });
 
   it("treats an empty ProxyAPI key as unset", () => {
@@ -113,6 +151,31 @@ describe("loadApiConfig", () => {
         EMAIL_FROM: "noreply@vimla.example",
       }),
     ).toThrow();
+  });
+
+  it("disables an unconfigured semantic planner outside local/test and rejects explicit mocks", () => {
+    const productionBase = {
+      ...validSharedEnv,
+      ...productionPaymentEnv,
+      APP_ENV: "production",
+      BETTER_AUTH_SECRET: "production-secret-value-32-chars-min",
+      API_HOST: "127.0.0.1",
+      API_PORT: "3001",
+      AI_TEXT_ENABLED: "false",
+      EMAIL_PROVIDER: "smtp",
+      SMTP_HOST: "smtp.example.com",
+      SMTP_USER: "vimla",
+      SMTP_PASSWORD: "smtp-secret-value",
+      EMAIL_FROM: "noreply@vimla.example",
+    };
+
+    expect(loadApiConfig(productionBase).semanticPlannerProvider).toBe("disabled");
+    expect(() =>
+      loadApiConfig({
+        ...productionBase,
+        SEMANTIC_PLANNER_PROVIDER: "mock",
+      }),
+    ).toThrow(/SEMANTIC_PLANNER_PROVIDER/);
   });
 
   it("requires a ProxyAPI key when AI is enabled in production", () => {

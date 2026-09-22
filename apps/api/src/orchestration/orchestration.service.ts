@@ -11,8 +11,17 @@ import {
   ContextConflictError,
   ContextNotFoundError,
   ContextSnapshotService,
+  type ContextSnapshotView,
 } from "@vimla/context";
 import { type Prisma } from "@vimla/database";
+import {
+  SemanticPlannerError,
+  SemanticWorkflowPlanner,
+  toPlannerInvocationMentions,
+  type ResolvedInvocationMentionInput,
+  type SemanticPlannerModel,
+  type SemanticWorkflowPlannerResult,
+} from "@vimla/orchestration";
 import { API_CONFIG, type ApiRuntimeConfig } from "../config/api-config.js";
 import { PrismaService } from "../persistence/prisma.service.js";
 import {
@@ -34,6 +43,29 @@ import {
   type WorkflowInvocationRunStatus,
 } from "./contracts.js";
 import { initialInvocationStatuses, validateManualExecutionPlan } from "./plan-validation.js";
+import {
+  applySemanticPlanExecutionPolicy,
+  SemanticPlanPolicyError,
+} from "./semantic-plan-policy.js";
+import { SEMANTIC_PLANNER_MODEL } from "./semantic-planner.adapter.js";
+import { semanticPlanningContext } from "./planning-context.js";
+
+export type SemanticPlanMessageResult =
+  | { kind: "PLANNING"; planId: string }
+  | { kind: "PLANNED"; plan: ExecutionPlanView }
+  | { kind: "EXISTING_PLAN"; plan: ExecutionPlanView }
+  | {
+      kind: "CLARIFICATION_REQUIRED";
+      clarificationQuestion: string;
+    };
+
+const PLANNING_PENDING_HASH = "planning:pending:v1";
+const PLANNING_CLAIM_PREFIX = "planning:claimed:";
+const CLARIFICATION_HASH_PREFIX = "clarification:";
+const PLANNING_GOAL = "Planning workflow";
+const MIN_PLANNING_LEASE_MS = 60_000;
+const PLANNING_LEASE_GRACE_MS = 30_000;
+const MAX_PLANNING_HEARTBEAT_MS = 15_000;
 
 const ACTIVE_INVOCATION_STATUSES = [
   "PENDING",
@@ -49,7 +81,450 @@ export class OrchestrationService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(API_CONFIG) private readonly config: ApiRuntimeConfig,
+    @Inject(SEMANTIC_PLANNER_MODEL)
+    private readonly semanticPlannerModel: SemanticPlannerModel,
   ) {}
+
+  async planMessage(
+    userId: string,
+    messageId: string,
+    resolvedMentions: readonly ResolvedInvocationMentionInput[],
+    correlationId: string,
+    onPlanning?: (planId: string) => void,
+  ): Promise<SemanticPlanMessageResult> {
+    this.assertPreviewEnabled();
+
+    const sourceMessage = await this.prisma.client.message.findFirst({
+      where: {
+        id: messageId,
+        role: "USER",
+        conversation: { userId },
+      },
+      select: {
+        id: true,
+        content: true,
+        conversationId: true,
+      },
+    });
+    if (!sourceMessage) {
+      throw new NotFoundException("Source message not found");
+    }
+
+    const plannerMentions = toPlannerInvocationMentions(resolvedMentions);
+    if (plannerMentions.length === 0) {
+      return {
+        kind: "CLARIFICATION_REQUIRED",
+        clarificationQuestion:
+          "Select @vimla, @auto, or an AI model for this workflow.",
+      };
+    }
+
+    const shell = await this.ensurePlanningShell(userId, sourceMessage);
+    if (shell.status === "PLANNING") {
+      onPlanning?.(shell.id);
+    }
+    if (isClarificationShell(shell)) {
+      return {
+        kind: "CLARIFICATION_REQUIRED",
+        clarificationQuestion: shell.goal,
+      };
+    }
+    if (shell.status !== "PLANNING") {
+      return existingSemanticPlanResult(shell);
+    }
+
+    const claim = await this.claimPlanningShell(
+      userId,
+      shell.id,
+      correlationId,
+    );
+    if (!claim.claimed) {
+      if (isClarificationShell(claim.plan)) {
+        return {
+          kind: "CLARIFICATION_REQUIRED",
+          clarificationQuestion: claim.plan.goal,
+        };
+      }
+      if (claim.plan.status !== "PLANNING") {
+        return existingSemanticPlanResult(claim.plan);
+      }
+      return { kind: "PLANNING", planId: claim.plan.id };
+    }
+
+    const abortController = new AbortController();
+    const stopHeartbeat = this.startPlanningHeartbeat(
+      userId,
+      shell.id,
+      claim.claimHash,
+      abortController,
+    );
+
+    try {
+      let snapshot: ContextSnapshotView;
+      try {
+        snapshot = await this.ensureContextSnapshot(userId, shell.id);
+      } catch (error: unknown) {
+        await this.failPlanningClaim(userId, shell.id, claim.claimHash);
+        throw error;
+      }
+
+      const planner = new SemanticWorkflowPlanner(this.semanticPlannerModel);
+      let result: SemanticWorkflowPlannerResult;
+      try {
+        result = await planner.plan({
+          userText: sourceMessage.content,
+          mentions: plannerMentions,
+          planningContext: semanticPlanningContext(snapshot),
+          correlationId,
+          signal: abortController.signal,
+        });
+      } catch (error: unknown) {
+        if (abortController.signal.aborted) {
+          const replay = await this.prisma.client.executionPlan.findFirst({
+            where: { id: shell.id, userId },
+            include: planInclude,
+          });
+          if (replay && replay.status !== "PLANNING") {
+            return existingSemanticPlanResult(replay);
+          }
+        }
+        await this.failPlanningClaim(userId, shell.id, claim.claimHash);
+        if (error instanceof SemanticPlannerError) {
+          throw new BadRequestException({
+            code: "semantic_plan_invalid",
+            message: "The workflow proposal could not be validated safely",
+          });
+        }
+        throw error;
+      }
+
+      if (result.kind === "CLARIFY") {
+        const question = await this.persistClarification(
+          userId,
+          shell.id,
+          claim.claimHash,
+          result.clarificationQuestion,
+        );
+        return {
+          kind: "CLARIFICATION_REQUIRED",
+          clarificationQuestion: question,
+        };
+      }
+
+      let executablePlan: ExecutionPlanDefinition;
+      try {
+        executablePlan = applySemanticPlanExecutionPolicy(
+          result.plan,
+        ) as ExecutionPlanDefinition;
+        validateManualExecutionPlan(executablePlan);
+      } catch (error: unknown) {
+        if (error instanceof SemanticPlanPolicyError) {
+          const question = await this.persistClarification(
+            userId,
+            shell.id,
+            claim.claimHash,
+            error.message,
+          );
+          return {
+            kind: "CLARIFICATION_REQUIRED",
+            clarificationQuestion: question,
+          };
+        }
+        await this.failPlanningClaim(userId, shell.id, claim.claimHash);
+        throw error;
+      }
+
+      try {
+        return {
+          kind: "PLANNED",
+          plan: await this.finalizePlanningShell(
+            userId,
+            shell.id,
+            claim.claimHash,
+            executablePlan,
+          ),
+        };
+      } catch (error: unknown) {
+        if (error instanceof ConflictException) {
+          const replay = await this.prisma.client.executionPlan.findFirst({
+            where: { id: shell.id, userId },
+            include: planInclude,
+          });
+          if (replay && replay.status !== "PLANNING") {
+            return existingSemanticPlanResult(replay);
+          }
+        }
+        await this.failPlanningClaim(userId, shell.id, claim.claimHash);
+        throw error;
+      }
+    } finally {
+      stopHeartbeat();
+    }
+  }
+
+  private async ensurePlanningShell(
+    userId: string,
+    sourceMessage: {
+      id: string;
+      conversationId: string;
+    },
+  ): Promise<PersistedPlan> {
+    const existing = await this.prisma.client.executionPlan.findFirst({
+      where: { messageId: sourceMessage.id, userId },
+      include: planInclude,
+    });
+    if (existing) return existing;
+
+    const planId = randomUUID();
+    try {
+      await this.prisma.client.executionPlan.create({
+        data: {
+          id: planId,
+          messageId: sourceMessage.id,
+          userId,
+          conversationId: sourceMessage.conversationId,
+          schemaVersion: 1,
+          version: 1,
+          planHash: PLANNING_PENDING_HASH,
+          goal: PLANNING_GOAL,
+          status: "PLANNING",
+          maxParallelism: 1,
+        },
+      });
+    } catch (error: unknown) {
+      if (!isUniqueConstraintError(error)) throw error;
+    }
+
+    const shell = await this.prisma.client.executionPlan.findFirst({
+      where: { messageId: sourceMessage.id, userId },
+      include: planInclude,
+    });
+    if (!shell) {
+      throw new ConflictException("Planning shell could not be created");
+    }
+    return shell;
+  }
+
+  private async claimPlanningShell(
+    userId: string,
+    planId: string,
+    correlationId: string,
+  ): Promise<{
+    claimed: boolean;
+    claimHash: string;
+    plan: PersistedPlan;
+  }> {
+    const claimHash = planningClaimHash(planId, correlationId);
+    let claimed = await this.prisma.client.executionPlan.updateMany({
+      where: {
+        id: planId,
+        userId,
+        status: "PLANNING",
+        planHash: PLANNING_PENDING_HASH,
+      },
+      data: {
+        planHash: claimHash,
+        goal: PLANNING_GOAL,
+      },
+    });
+
+    if (claimed.count === 0) {
+      const current = await this.prisma.client.executionPlan.findFirst({
+        where: { id: planId, userId },
+        include: planInclude,
+      });
+      if (!current) {
+        throw new NotFoundException("Execution plan not found");
+      }
+
+      const stale =
+        current.status === "PLANNING" &&
+        current.planHash.startsWith(PLANNING_CLAIM_PREFIX) &&
+        current.updatedAt.getTime() <= Date.now() - this.planningLeaseMs();
+      if (stale) {
+        claimed = await this.prisma.client.executionPlan.updateMany({
+          where: {
+            id: planId,
+            userId,
+            status: "PLANNING",
+            planHash: current.planHash,
+          },
+          data: {
+            planHash: claimHash,
+            goal: PLANNING_GOAL,
+          },
+        });
+      }
+
+      if (claimed.count === 0) {
+        const replay = await this.prisma.client.executionPlan.findFirst({
+          where: { id: planId, userId },
+          include: planInclude,
+        });
+        if (!replay) {
+          throw new NotFoundException("Execution plan not found");
+        }
+        return { claimed: false, claimHash, plan: replay };
+      }
+    }
+
+    const plan = await this.prisma.client.executionPlan.findFirst({
+      where: { id: planId, userId },
+      include: planInclude,
+    });
+    if (!plan) {
+      throw new NotFoundException("Execution plan not found");
+    }
+    return { claimed: true, claimHash, plan };
+  }
+
+  private async failPlanningClaim(
+    userId: string,
+    planId: string,
+    claimHash: string,
+  ): Promise<void> {
+    await this.prisma.client.executionPlan.updateMany({
+      where: {
+        id: planId,
+        userId,
+        status: "PLANNING",
+        planHash: claimHash,
+      },
+      data: {
+        status: "FAILED",
+        completedAt: new Date(),
+      },
+    });
+  }
+
+  private async persistClarification(
+    userId: string,
+    planId: string,
+    claimHash: string,
+    question: string,
+  ): Promise<string> {
+    const normalizedQuestion = question.trim().slice(0, 4_000);
+    const clarificationHash =
+      CLARIFICATION_HASH_PREFIX +
+      createHash("sha256").update(normalizedQuestion).digest("hex");
+
+    const updated = await this.prisma.client.executionPlan.updateMany({
+      where: {
+        id: planId,
+        userId,
+        status: "PLANNING",
+        planHash: claimHash,
+      },
+      data: {
+        planHash: clarificationHash,
+        goal: normalizedQuestion,
+        status: "NEEDS_CLARIFICATION",
+        completedAt: new Date(),
+      },
+    });
+    if (updated.count === 1) return normalizedQuestion;
+
+    const replay = await this.prisma.client.executionPlan.findFirst({
+      where: { id: planId, userId },
+      include: planInclude,
+    });
+    if (!replay) {
+      throw new NotFoundException("Execution plan not found");
+    }
+    if (isClarificationShell(replay)) return replay.goal;
+    if (replay.status !== "PLANNING") {
+      throw new ConflictException("Execution plan finished while clarification was being stored");
+    }
+    throw new ConflictException("Planning ownership changed");
+  }
+
+  private async finalizePlanningShell(
+    userId: string,
+    planId: string,
+    claimHash: string,
+    plan: ExecutionPlanDefinition,
+  ): Promise<ExecutionPlanView> {
+    const planHash = hashPlan(plan);
+    const finalized = await this.prisma.client.$transaction(async (tx) => {
+      const claimed = await tx.executionPlan.updateMany({
+        where: {
+          id: planId,
+          userId,
+          status: "PLANNING",
+          planHash: claimHash,
+        },
+        data: {
+          schemaVersion: plan.schemaVersion,
+          planHash,
+          goal: plan.goal,
+          status: "PLANNED",
+          maxParallelism: plan.maxParallelism,
+        },
+      });
+      if (claimed.count !== 1) return false;
+
+      await tx.invocation.createMany({
+        data: plan.invocations.map((invocation, sequence) => ({
+          id: invocationDbId(planId, invocation.id),
+          planId,
+          sequence,
+          purpose: invocation.purpose,
+          targetKind: invocation.target.kind,
+          targetModelSlug:
+            invocation.target.kind === "AI_MODEL"
+              ? invocation.target.modelSlug
+              : null,
+          targetAgentId:
+            invocation.target.kind === "AGENT"
+              ? invocation.target.agentId
+              : null,
+          outputDeclarations: toJson(invocation.outputs),
+          acceptanceCriteria: toJson(invocation.acceptanceCriteria),
+          riskClass: invocation.riskClass,
+          approvalPolicy: invocation.approvalPolicy,
+          failurePolicy: invocation.failurePolicy,
+          joinPolicy: invocation.joinPolicy,
+          status: "PENDING",
+        })),
+      });
+
+      if (plan.dependencies.length > 0) {
+        await tx.invocationDependency.createMany({
+          data: plan.dependencies.map((dependency) => ({
+            id: dependencyDbId(planId, dependency.id),
+            planId,
+            fromInvocationId: invocationDbId(
+              planId,
+              dependency.fromInvocationId,
+            ),
+            toInvocationId: invocationDbId(
+              planId,
+              dependency.toInvocationId,
+            ),
+            conditionKind: dependency.condition.kind,
+            conditionOutcome:
+              dependency.condition.kind === "OUTCOME"
+                ? dependency.condition.outcome
+                : "",
+            inputBindings: toJson(dependency.inputBindings),
+          })),
+        });
+      }
+      return true;
+    });
+
+    const persisted = await this.prisma.client.executionPlan.findFirst({
+      where: { id: planId, userId },
+      include: planInclude,
+    });
+    if (!persisted) {
+      throw new NotFoundException("Execution plan not found");
+    }
+    if (!finalized && persisted.planHash !== planHash) {
+      throw new ConflictException("A different execution plan won the planning claim");
+    }
+    return toView(persisted);
+  }
 
   async create(userId: string, body: unknown): Promise<ExecutionPlanView> {
     this.assertPreviewEnabled();
@@ -198,7 +673,15 @@ export class OrchestrationService {
       where: {
         userId,
         conversationId,
-        status: { in: ["PARTIAL", "COMPLETED", "FAILED", "CANCELED"] },
+        status: {
+          in: [
+            "NEEDS_CLARIFICATION",
+            "PARTIAL",
+            "COMPLETED",
+            "FAILED",
+            "CANCELED",
+          ],
+        },
       },
       include: planInclude,
       orderBy: [{ createdAt: "desc" }, { id: "desc" }],
@@ -286,7 +769,7 @@ export class OrchestrationService {
       }
 
       await tx.executionPlan.updateMany({
-        where: { id, userId, status: { in: ["PLANNED", "RUNNING"] } },
+        where: { id, userId, status: { in: ["PLANNING", "PLANNED", "RUNNING"] } },
         data: { status: "CANCELED", completedAt: new Date() },
       });
       await tx.invocation.updateMany({
@@ -357,10 +840,10 @@ export class OrchestrationService {
     });
   }
 
-  private async ensureContextSnapshot(userId: string, planId: string): Promise<void> {
+  private async ensureContextSnapshot(userId: string, planId: string): Promise<ContextSnapshotView> {
     try {
       const context = new ContextSnapshotService(this.prisma.client);
-      await context.createForExecutionPlan({ actorUserId: userId, planId });
+      return await context.createForExecutionPlan({ actorUserId: userId, planId });
     } catch (error: unknown) {
       if (error instanceof ContextNotFoundError) {
         throw new NotFoundException("Execution plan not found");
@@ -377,6 +860,62 @@ export class OrchestrationService {
       throw new ConflictException("A different execution plan already exists for this message");
     }
     return toView(existing);
+  }
+
+  private planningLeaseMs(): number {
+    return Math.max(
+      MIN_PLANNING_LEASE_MS,
+      this.config.semanticPlannerTimeoutMs + PLANNING_LEASE_GRACE_MS,
+    );
+  }
+
+  private startPlanningHeartbeat(
+    userId: string,
+    planId: string,
+    claimHash: string,
+    abortController: AbortController,
+  ): () => void {
+    const intervalMs = Math.max(
+      1_000,
+      Math.min(
+        MAX_PLANNING_HEARTBEAT_MS,
+        Math.floor(this.planningLeaseMs() / 3),
+      ),
+    );
+    let stopped = false;
+    let inFlight = false;
+
+    const heartbeat = async (): Promise<void> => {
+      if (stopped || inFlight || abortController.signal.aborted) return;
+      inFlight = true;
+      try {
+        const refreshed = await this.prisma.client.executionPlan.updateMany({
+          where: {
+            id: planId,
+            userId,
+            status: "PLANNING",
+            planHash: claimHash,
+          },
+          data: { updatedAt: new Date() },
+        });
+        if (refreshed.count !== 1) {
+          abortController.abort();
+        }
+      } catch {
+        abortController.abort();
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    const timer = setInterval(() => {
+      void heartbeat();
+    }, intervalMs);
+
+    return () => {
+      stopped = true;
+      clearInterval(timer);
+    };
   }
 
   private assertPreviewEnabled(): void {
@@ -427,6 +966,37 @@ function parseApprove(body: unknown): ApproveExecutionPlanRequest {
     throw new BadRequestException({ code: "validation_error", message: "Invalid approval payload" });
   }
   return parsed.data;
+}
+
+function existingSemanticPlanResult(
+  plan: PersistedPlan,
+): SemanticPlanMessageResult {
+  if (isClarificationShell(plan)) {
+    return {
+      kind: "CLARIFICATION_REQUIRED",
+      clarificationQuestion: plan.goal,
+    };
+  }
+  const view = toView(plan);
+  return plan.status === "PLANNED"
+    ? { kind: "PLANNED", plan: view }
+    : { kind: "EXISTING_PLAN", plan: view };
+}
+
+function planningClaimHash(planId: string, correlationId: string): string {
+  return (
+    PLANNING_CLAIM_PREFIX +
+    createHash("sha256")
+      .update(`${planId}:${correlationId}`)
+      .digest("hex")
+  );
+}
+
+function isClarificationShell(plan: PersistedPlan): boolean {
+  return (
+    plan.status === "NEEDS_CLARIFICATION" &&
+    plan.planHash.startsWith(CLARIFICATION_HASH_PREFIX)
+  );
 }
 
 function hashPlan(plan: ExecutionPlanDefinition): string {
@@ -495,6 +1065,38 @@ function definitionFromPersisted(plan: PersistedPlan): ExecutionPlanDefinition {
 }
 
 function toView(plan: PersistedPlan): ExecutionPlanView {
+  if (
+    plan.status === "PLANNING" ||
+    plan.status === "NEEDS_CLARIFICATION"
+  ) {
+    if (plan.schemaVersion !== 1) {
+      throw new InternalServerErrorException(
+        "Unsupported persisted execution plan schema",
+      );
+    }
+    return {
+      id: plan.id,
+      messageId: plan.messageId,
+      conversationId: plan.conversationId,
+      schemaVersion: 1,
+      version: plan.version,
+      planHash: plan.planHash,
+      goal: plan.goal,
+      status:
+        plan.status === "NEEDS_CLARIFICATION"
+          ? "NEEDS_CLARIFICATION"
+          : "PLANNING",
+      maxParallelism: plan.maxParallelism,
+      invocations: [],
+      dependencies: [],
+      startedAt: plan.startedAt?.toISOString() ?? null,
+      frozenAt: plan.frozenAt?.toISOString() ?? null,
+      completedAt: plan.completedAt?.toISOString() ?? null,
+      createdAt: plan.createdAt.toISOString(),
+      updatedAt: plan.updatedAt.toISOString(),
+    };
+  }
+
   const definition = definitionFromPersisted(plan);
   const persistedByGraphId = new Map(
     plan.invocations.map((invocation) => [
@@ -634,6 +1236,7 @@ function parseInvocationStatus(status: string): InvocationStatus {
 function parsePlanStatus(status: string): ExecutionPlanStatus {
   switch (status) {
     case "PLANNING":
+    case "NEEDS_CLARIFICATION":
     case "PLANNED":
     case "RUNNING":
     case "PARTIAL":
@@ -647,7 +1250,13 @@ function parsePlanStatus(status: string): ExecutionPlanStatus {
 }
 
 function isTerminalPlan(status: string): boolean {
-  return status === "PARTIAL" || status === "COMPLETED" || status === "FAILED";
+  return (
+    status === "NEEDS_CLARIFICATION" ||
+    status === "PARTIAL" ||
+    status === "COMPLETED" ||
+    status === "FAILED" ||
+    status === "CANCELED"
+  );
 }
 
 function toJson(value: unknown): Prisma.InputJsonValue {

@@ -150,6 +150,9 @@ importers:
       '@vimla/operator':
         specifier: workspace:*
         version: link:../../packages/operator
+      '@vimla/orchestration':
+        specifier: workspace:*
+        version: link:../../packages/orchestration
       '@vimla/projects':
         specifier: workspace:*
         version: link:../../packages/projects

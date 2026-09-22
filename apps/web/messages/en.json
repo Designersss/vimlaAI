@@ -496,6 +496,7 @@
     "failureGeneric": "This step did not complete. Review the workflow state and retry when policy allows it.",
     "planStatus": {
       "PLANNING": "Preparing",
+      "NEEDS_CLARIFICATION": "Needs clarification",
       "PLANNED": "Ready to start",
       "RUNNING": "Running",
       "PARTIAL": "Partially completed",

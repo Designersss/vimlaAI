@@ -58,6 +58,11 @@ export function loadApiConfig(
     proxyapiBaseUrl: parsed.PROXYAPI_BASE_URL.replace(/\/$/, ""),
     aiTextEnabled: parsed.AI_TEXT_ENABLED === "true",
     aiTextProvider: resolveAiTextProvider(parsed),
+    semanticPlannerProvider: resolveSemanticPlannerProvider(parsed),
+    semanticPlannerBaseUrl: parsed.SEMANTIC_PLANNER_BASE_URL?.replace(/\/$/, ""),
+    semanticPlannerModel: parsed.SEMANTIC_PLANNER_MODEL,
+    semanticPlannerApiKey: parsed.SEMANTIC_PLANNER_API_KEY,
+    semanticPlannerTimeoutMs: parsed.SEMANTIC_PLANNER_TIMEOUT_MS,
     aiDefaultMaxOutputTokens: parsed.AI_DEFAULT_MAX_OUTPUT_TOKENS,
     aiMaxMessageBytes: parsed.AI_MAX_MESSAGE_BYTES,
     aiMaxContextBytes: parsed.AI_MAX_CONTEXT_BYTES,
@@ -130,6 +135,27 @@ export function loadApiConfig(
     tbankReceiptItemName: parsed.TBANK_RECEIPT_ITEM_NAME,
     tbankRecurringEnabled: parsed.TBANK_RECURRING_ENABLED === "true",
   });
+}
+
+function resolveSemanticPlannerProvider(parsed: {
+  APP_ENV: "local" | "test" | "staging" | "production";
+  SEMANTIC_PLANNER_PROVIDER: "auto" | "mock" | "internal-http";
+  SEMANTIC_PLANNER_BASE_URL?: string;
+  SEMANTIC_PLANNER_MODEL?: string;
+}): "disabled" | "mock" | "internal-http" {
+  if (
+    parsed.SEMANTIC_PLANNER_PROVIDER === "mock" ||
+    parsed.SEMANTIC_PLANNER_PROVIDER === "internal-http"
+  ) {
+    return parsed.SEMANTIC_PLANNER_PROVIDER;
+  }
+
+  if (parsed.SEMANTIC_PLANNER_BASE_URL && parsed.SEMANTIC_PLANNER_MODEL) {
+    return "internal-http";
+  }
+  return parsed.APP_ENV === "local" || parsed.APP_ENV === "test"
+    ? "mock"
+    : "disabled";
 }
 
 function resolveAiTextProvider(parsed: {

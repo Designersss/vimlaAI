@@ -303,7 +303,6 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
     if (invocationMention) {
       const revision = store.revision;
       store.setDraft("");
-      setOperatorBusy(true);
       let failed = false;
       try {
         await streamAssistantMessage({
@@ -314,6 +313,9 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
           mentions,
           onDelta: () => undefined,
           onRoute: () => undefined,
+          onWorkflow: () => {
+            setWorkflowRefreshToken((value) => value + 1);
+          },
           onDone: () => undefined,
           onError: (code) => {
             failed = true;
@@ -332,8 +334,6 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
           return;
         }
         store.failAssistant("internal_error");
-      } finally {
-        setOperatorBusy(false);
       }
       return;
     }

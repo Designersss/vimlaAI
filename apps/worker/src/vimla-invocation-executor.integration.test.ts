@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { ArtifactService } from "@vimla/artifacts";
 import { createPrismaClient, type PrismaClient } from "@vimla/database";
 import type { PlannerPlan } from "@vimla/operator";
 import {
@@ -125,6 +126,190 @@ describe("VimlaInvocationExecutor", () => {
     ).toBe(1);
   });
 
+  it("passes DATA dependency artifacts to the Vimla tool planner as untrusted execution context", async () => {
+    const seeded = await seedInvocation(
+      prisma,
+      "Create a reminder using the provided prompt artifact",
+    );
+    const sourceInvocationId = randomUUID();
+    await prisma.invocation.create({
+      data: {
+        id: sourceInvocationId,
+        planId: seeded.planId,
+        sequence: 99,
+        purpose: "Produce the reminder text",
+        targetKind: "AI_AUTO",
+        targetModelSlug: null,
+        targetAgentId: null,
+        outputDeclarations: [
+          { name: "prompt", artifactType: "PROMPT" },
+        ],
+        acceptanceCriteria: [],
+        riskClass: "READ_ONLY",
+        approvalPolicy: "AUTO",
+        failurePolicy: "FAIL_PLAN",
+        joinPolicy: "ALL_REQUIRED",
+        status: "COMPLETED",
+      },
+    });
+    const artifacts = new ArtifactService(prisma);
+    await artifacts.createArtifact({
+      actorUserId: seeded.userId,
+      creatorInvocationId: sourceInvocationId,
+      outputName: "prompt",
+      type: "PROMPT",
+      classification: "PRIVATE",
+      content: {
+        kind: "INLINE_JSON",
+        value: { text: "Review the generated campaign prompt" },
+      },
+    });
+    await prisma.invocationDependency.create({
+      data: {
+        id: randomUUID(),
+        planId: seeded.planId,
+        fromInvocationId: sourceInvocationId,
+        toInvocationId: seeded.invocationId,
+        conditionKind: "DATA",
+        conditionOutcome: "",
+        inputBindings: [
+          {
+            inputName: "prompt",
+            sourceOutputName: "prompt",
+            expectedArtifactType: "PROMPT",
+          },
+        ],
+      },
+    });
+
+    const planner = new CapturingPlanner({
+      intent: "act",
+      userMessage: "context received",
+      clarificationQuestion: null,
+      commands: [{ tool: "profile.getSafe", args: {} }],
+    });
+    const executor = new VimlaInvocationExecutor(prisma, planner, "en");
+
+    await expect(
+      executor.execute(executionInput(seeded, 1)),
+    ).resolves.toEqual({ status: "COMPLETED", outcome: "PASS" });
+    expect(planner.input?.dependencyContext).toContain("INPUT prompt");
+    expect(planner.input?.dependencyContext).toContain("PROMPT");
+    expect(planner.input?.dependencyContext).toContain(
+      "Review the generated campaign prompt",
+    );
+  });
+
+  it("fails closed when a write-class Vimla invocation cannot be resolved to a tool action", async () => {
+    const seeded = await seedInvocation(prisma, "perform the requested workspace change");
+    const executor = new VimlaInvocationExecutor(
+      prisma,
+      new StaticPlanner({
+        intent: "answer",
+        userMessage: "I could not resolve an action",
+        clarificationQuestion: null,
+        commands: [],
+      }),
+      "en",
+    );
+
+    await expect(
+      executor.execute(executionInput(seeded, 1)),
+    ).resolves.toEqual({
+      status: "FAILED",
+      errorCode: "VIMLA_ACTION_NOT_RESOLVED",
+      retryable: false,
+    });
+  });
+
+  it("requires orchestration approval for destructive Vimla tools and accepts an already-approved invocation", async () => {
+    const unapproved = await seedInvocation(
+      prisma,
+      "delete my task",
+      "AUTO",
+    );
+    const unapprovedTask = await prisma.workspaceObject.create({
+      data: {
+        kind: "TASK",
+        scopeType: "PERSONAL",
+        personalOwnerUserId: unapproved.userId,
+        createdByUserId: unapproved.userId,
+        task: { create: { title: "Keep until approved", status: "TODO" } },
+      },
+    });
+    const unapprovedExecutor = new VimlaInvocationExecutor(
+      prisma,
+      new StaticPlanner({
+        intent: "act",
+        userMessage: "delete",
+        clarificationQuestion: null,
+        commands: [
+          {
+            tool: "tasks.delete",
+            args: { id: unapprovedTask.id },
+          },
+        ],
+      }),
+      "en",
+    );
+
+    await expect(
+      unapprovedExecutor.execute(executionInput(unapproved, 1)),
+    ).resolves.toEqual({
+      status: "FAILED",
+      errorCode: "VIMLA_CONFIRMATION_REQUIRED",
+      retryable: false,
+    });
+    expect(
+      await prisma.workspaceObject.findUniqueOrThrow({
+        where: { id: unapprovedTask.id },
+        select: { deletedAt: true },
+      }),
+    ).toEqual({ deletedAt: null });
+
+    const approved = await seedInvocation(
+      prisma,
+      "delete my approved task",
+      "USER_CONFIRMATION",
+    );
+    const approvedTask = await prisma.workspaceObject.create({
+      data: {
+        kind: "TASK",
+        scopeType: "PERSONAL",
+        personalOwnerUserId: approved.userId,
+        createdByUserId: approved.userId,
+        task: { create: { title: "Delete after approval", status: "TODO" } },
+      },
+    });
+    const approvedExecutor = new VimlaInvocationExecutor(
+      prisma,
+      new StaticPlanner({
+        intent: "act",
+        userMessage: "delete",
+        clarificationQuestion: null,
+        commands: [
+          {
+            tool: "tasks.delete",
+            args: { id: approvedTask.id },
+          },
+        ],
+      }),
+      "en",
+    );
+
+    await expect(
+      approvedExecutor.execute(executionInput(approved, 1)),
+    ).resolves.toEqual({ status: "COMPLETED", outcome: "PASS" });
+    expect(
+      (
+        await prisma.workspaceObject.findUniqueOrThrow({
+          where: { id: approvedTask.id },
+          select: { deletedAt: true },
+        })
+      ).deletedAt,
+    ).not.toBeNull();
+  });
+
   it("preserves workspace authorization and rolls back ToolExecution when a command targets another user's object", async () => {
     const actor = await seedInvocation(prisma, "attempt unauthorized update");
     const victimId = `victim-${randomUUID()}`;
@@ -194,6 +379,17 @@ class StaticPlanner implements VimlaToolPlanner {
   }
 }
 
+class CapturingPlanner implements VimlaToolPlanner {
+  input: VimlaToolPlannerInput | null = null;
+
+  constructor(private readonly result: PlannerPlan) {}
+
+  async plan(input: VimlaToolPlannerInput): Promise<PlannerPlan> {
+    this.input = input;
+    return this.result;
+  }
+}
+
 type SeededInvocation = {
   userId: string;
   planId: string;
@@ -205,6 +401,7 @@ type SeededInvocation = {
 async function seedInvocation(
   prisma: PrismaClient,
   purpose: string,
+  approvalPolicy: "AUTO" | "USER_CONFIRMATION" = "AUTO",
 ): Promise<SeededInvocation> {
   const suffix = randomUUID();
   const userId = `vimla-executor-user-${suffix}`;
@@ -272,7 +469,7 @@ async function seedInvocation(
       outputDeclarations: [],
       acceptanceCriteria: [],
       riskClass: "INTERNAL_WRITE",
-      approvalPolicy: "AUTO",
+      approvalPolicy,
       failurePolicy: "FAIL_PLAN",
       joinPolicy: "ALL_REQUIRED",
       status: "RUNNING",

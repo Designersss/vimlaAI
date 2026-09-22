@@ -113,6 +113,11 @@ export const apiEnvSchema = z
     PROXYAPI_BASE_URL: z.url().default("https://api.proxyapi.ru/v1"),
     AI_TEXT_ENABLED: z.enum(["true", "false"]).default("true"),
     AI_TEXT_PROVIDER: z.enum(["auto", "mock", "proxyapi"]).default("auto"),
+    SEMANTIC_PLANNER_PROVIDER: z.enum(["auto", "mock", "internal-http"]).default("auto"),
+    SEMANTIC_PLANNER_BASE_URL: z.preprocess(emptyToUndefined, z.url().optional()),
+    SEMANTIC_PLANNER_MODEL: z.preprocess(emptyToUndefined, z.string().trim().min(1).optional()),
+    SEMANTIC_PLANNER_API_KEY: z.preprocess(emptyToUndefined, z.string().trim().min(1).optional()),
+    SEMANTIC_PLANNER_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(600_000).default(120_000),
     AI_DEFAULT_MAX_OUTPUT_TOKENS: z.coerce.number().int().min(1).max(128_000).default(2048),
     AI_MAX_MESSAGE_BYTES: z.coerce.number().int().min(1).default(16_384),
     AI_MAX_CONTEXT_BYTES: z.coerce.number().int().min(1).default(65_536),
@@ -197,6 +202,14 @@ export const apiEnvSchema = z
           path: ["BETTER_AUTH_SECRET"],
           message:
             "BETTER_AUTH_SECRET must be a unique production secret, not a local example value",
+        });
+      }
+
+      if (value.SEMANTIC_PLANNER_PROVIDER === "mock") {
+        ctx.addIssue({
+          code: "custom",
+          path: ["SEMANTIC_PLANNER_PROVIDER"],
+          message: "Mock semantic planner is not allowed in staging/production",
         });
       }
 
@@ -343,6 +356,23 @@ export const apiEnvSchema = z
       }
     }
 
+    if (value.SEMANTIC_PLANNER_PROVIDER === "internal-http") {
+      if (!value.SEMANTIC_PLANNER_BASE_URL) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["SEMANTIC_PLANNER_BASE_URL"],
+          message: "SEMANTIC_PLANNER_BASE_URL is required when SEMANTIC_PLANNER_PROVIDER=internal-http",
+        });
+      }
+      if (!value.SEMANTIC_PLANNER_MODEL) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["SEMANTIC_PLANNER_MODEL"],
+          message: "SEMANTIC_PLANNER_MODEL is required when SEMANTIC_PLANNER_PROVIDER=internal-http",
+        });
+      }
+    }
+
     if (value.TBANK_RECURRING_ENABLED === "true") {
       ctx.addIssue({
         code: "custom",
@@ -432,6 +462,11 @@ export const apiConfigSchema = z.object({
   proxyapiBaseUrl: z.url(),
   aiTextEnabled: z.boolean(),
   aiTextProvider: z.enum(["mock", "proxyapi"]),
+  semanticPlannerProvider: z.enum(["disabled", "mock", "internal-http"]),
+  semanticPlannerBaseUrl: z.url().optional(),
+  semanticPlannerModel: z.string().min(1).optional(),
+  semanticPlannerApiKey: z.string().min(1).optional(),
+  semanticPlannerTimeoutMs: z.number().int().min(1_000).max(600_000),
   aiDefaultMaxOutputTokens: z.number().int().min(1),
   aiMaxMessageBytes: z.number().int().min(1),
   aiMaxContextBytes: z.number().int().min(1),

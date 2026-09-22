@@ -1,4 +1,10 @@
 import { mockOperatorPlannerResponse } from "@vimla/ai";
+import {
+  ArtifactBindingError,
+  ArtifactNotFoundError,
+  ArtifactService,
+  ArtifactValidationError,
+} from "@vimla/artifacts";
 import { type Prisma, type PrismaClient } from "@vimla/database";
 import { NotificationPlatformError, NotificationPreferenceService } from "@vimla/notifications";
 import {
@@ -33,6 +39,7 @@ export interface VimlaToolPlannerInput {
   userText: string;
   locale: VimlaLocale;
   snapshot: WorkspaceSnapshot;
+  dependencyContext: string | null;
 }
 
 export interface VimlaToolPlanner {
@@ -40,9 +47,9 @@ export interface VimlaToolPlanner {
 }
 
 /**
- * Local/test planner adapter. It keeps PR-08 focused on converting the existing
- * typed Operator tool stack into an orchestration executor. Production semantic
- * workflow planning remains PR-11.
+ * Local/test planner adapter for exercising the typed Operator tool stack
+ * through the orchestration executor. Production environments never start this
+ * preview runtime.
  */
 export class DeterministicVimlaToolPlanner implements VimlaToolPlanner {
   async plan(input: VimlaToolPlannerInput): Promise<PlannerPlan> {
@@ -51,6 +58,7 @@ export class DeterministicVimlaToolPlanner implements VimlaToolPlanner {
       locale: input.locale,
       snapshot: input.snapshot,
       invocationScope: "PERSONAL",
+      untrustedContext: input.dependencyContext,
     });
     return parsePlannerOutput(mockOperatorPlannerResponse([{ content: prompt }]));
   }
@@ -70,11 +78,15 @@ export class VimlaAwareInvocationExecutorRegistry implements InvocationExecutorR
 }
 
 export class VimlaInvocationExecutor implements InvocationExecutorRegistry {
+  private readonly artifacts: ArtifactService;
+
   constructor(
     private readonly prisma: PrismaClient,
     private readonly planner: VimlaToolPlanner,
     private readonly defaultLocale: VimlaLocale,
-  ) {}
+  ) {
+    this.artifacts = new ArtifactService(prisma);
+  }
 
   async execute(input: InvocationExecutionInput): Promise<InvocationExecutionResult> {
     if (input.target.kind !== "VIMLA") {
@@ -129,13 +141,25 @@ export class VimlaInvocationExecutor implements InvocationExecutorRegistry {
         timezone: profile.timezone,
       });
       const snapshot = await loadWorkspaceSnapshot(snapshotContext);
+      const dependencyContext = await this.buildDependencyContext(
+        invocation.plan.userId,
+        input.invocationId,
+      );
       const planned = await this.planner.plan({
         userText: invocation.purpose,
         locale: profile.locale,
         snapshot,
+        dependencyContext,
       });
 
       if (planned.intent === "answer") {
+        if (invocation.riskClass !== "READ_ONLY") {
+          return {
+            status: "FAILED",
+            errorCode: "VIMLA_ACTION_NOT_RESOLVED",
+            retryable: false,
+          };
+        }
         return { status: "COMPLETED", outcome: "NO_ACTION" };
       }
       if (planned.intent === "clarify") {
@@ -169,7 +193,10 @@ export class VimlaInvocationExecutor implements InvocationExecutorRegistry {
           retryable: false,
         };
       }
-      if (step.confirmationRequired) {
+      if (
+        step.confirmationRequired &&
+        invocation.approvalPolicy === "AUTO"
+      ) {
         return {
           status: "FAILED",
           errorCode: "VIMLA_CONFIRMATION_REQUIRED",
@@ -248,6 +275,47 @@ export class VimlaInvocationExecutor implements InvocationExecutorRegistry {
       }
       throw error;
     }
+  }
+
+  private async buildDependencyContext(
+    userId: string,
+    invocationId: string,
+  ): Promise<string | null> {
+    const bindings = await this.artifacts.resolveInputBindings({
+      actorUserId: userId,
+      targetInvocationId: invocationId,
+    });
+    if (bindings.length === 0) return null;
+
+    const parts: string[] = [];
+    for (const binding of bindings) {
+      const version = await this.artifacts.readVersion({
+        actorUserId: userId,
+        artifactVersionId: binding.reference.artifactVersionId,
+      });
+      if (version.content.kind !== "INLINE_JSON") {
+        throw new ArtifactBindingError(
+          `Vimla input ${JSON.stringify(binding.inputName)} is not inline content`,
+        );
+      }
+      const value = JSON.stringify(version.content.value);
+      parts.push(
+        [
+          `INPUT ${binding.inputName}`,
+          `type=${binding.expectedType}`,
+          `sourceInvocationId=${binding.sourceInvocationId}`,
+          `value=${value}`,
+        ].join("\n"),
+      );
+    }
+
+    const context = parts.join("\n\n");
+    if (new TextEncoder().encode(context).byteLength > 65_536) {
+      throw new ArtifactValidationError(
+        "Vimla dependency artifact context exceeds the execution bound",
+      );
+    }
+    return context;
   }
 
   private toolContext(
@@ -361,6 +429,17 @@ function classifyVimlaExecutionError(error: unknown): InvocationExecutionResult 
       status: "FAILED",
       errorCode: "VIMLA_TOOL_EXECUTION_RETRY",
       retryable: true,
+    };
+  }
+  if (
+    error instanceof ArtifactBindingError ||
+    error instanceof ArtifactNotFoundError ||
+    error instanceof ArtifactValidationError
+  ) {
+    return {
+      status: "FAILED",
+      errorCode: "VIMLA_ARTIFACT_CONTEXT_INVALID",
+      retryable: false,
     };
   }
   if (error instanceof WorkspaceError) {

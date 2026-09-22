@@ -1,5 +1,11 @@
 import { randomUUID } from "node:crypto";
-import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
 import type {
   ChatMessageRoute,
   MessageMentionInput,
@@ -164,7 +170,24 @@ export class ChatMentionRoutingService {
       });
     }
 
-    const mentions = await this.readForMessage(replay.messageId);
+    const [message, mentions] = await Promise.all([
+      this.prisma.client.message.findUnique({
+        where: { id: replay.messageId },
+        select: { content: true },
+      }),
+      this.readForMessage(replay.messageId),
+    ]);
+    if (
+      !message ||
+      message.content !== input.content ||
+      !sameResolvedMentions(mentions, resolved)
+    ) {
+      throw new ConflictException({
+        code: "idempotency_conflict",
+        message: "clientRequestId was already used for a different message payload",
+      });
+    }
+
     return {
       messageId: replay.messageId,
       route: this.routeFor(mentions),
@@ -296,6 +319,29 @@ export class ChatMentionRoutingService {
       };
     });
   }
+}
+
+function sameResolvedMentions(
+  persisted: readonly MessageMentionView[],
+  current: readonly ResolvedChatMention[],
+): boolean {
+  if (persisted.length !== current.length) return false;
+
+  const comparable = (mention: MessageMentionView) => ({
+    handleId: mention.handleId,
+    kind: mention.kind,
+    targetId: mention.targetId,
+    canonicalHandle: mention.canonicalHandle,
+    startOffset: mention.startOffset,
+    endOffset: mention.endOffset,
+  });
+  return persisted.every((mention, index) => {
+    const candidate = current[index];
+    return (
+      candidate !== undefined &&
+      JSON.stringify(comparable(mention)) === JSON.stringify(comparable(candidate))
+    );
+  });
 }
 
 function kindForHandle(handle: {
