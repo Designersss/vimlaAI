@@ -79,6 +79,12 @@ describe("ContextBundleService", () => {
       },
     });
 
+    const firstInvocationId = invocationIds[0];
+    const secondInvocationId = invocationIds[1];
+    if (!firstInvocationId || !secondInvocationId) {
+      throw new Error("Expected two context-policy test invocations");
+    }
+
     await snapshots.create({
       actorUserId,
       planId,
@@ -115,7 +121,7 @@ describe("ContextBundleService", () => {
 
     const first = await bundles.resolveForInvocation({
       actorUserId,
-      invocationId: invocationIds[0]!,
+      invocationId: firstInvocationId,
     });
 
     expect(first.items.map((item) => item.sourceType)).toEqual(["PROJECT"]);
@@ -146,12 +152,12 @@ describe("ContextBundleService", () => {
     await expect(
       bundles.resolveForInvocation({
         actorUserId,
-        invocationId: invocationIds[1]!,
+        invocationId: secondInvocationId,
       }),
     ).rejects.toBeInstanceOf(ContextAccessDeniedError);
 
     const blocked = await prisma.contextBundle.findUnique({
-      where: { invocationId: invocationIds[1]! },
+      where: { invocationId: secondInvocationId },
     });
     expect(blocked).not.toBeNull();
     const blockedManifest = blocked?.manifest as {
@@ -178,7 +184,7 @@ describe("ContextBundleService", () => {
     await expect(
       bundles.resolveForInvocation({
         actorUserId,
-        invocationId: invocationIds[0]!,
+        invocationId: firstInvocationId,
       }),
     ).rejects.toBeInstanceOf(ContextAccessDeniedError);
   });
