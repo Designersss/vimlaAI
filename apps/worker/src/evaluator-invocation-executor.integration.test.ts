@@ -176,11 +176,58 @@ describe("EvaluatorInvocationExecutor", () => {
         },
       }),
     ).toBe(1);
+
+    const sourceArtifact = await prisma.artifact.findUniqueOrThrow({
+      where: {
+        creatorInvocationId_outputName: {
+          creatorInvocationId: seeded.sourceInvocationId,
+          outputName: "result",
+        },
+      },
+      include: { versions: { orderBy: { version: "desc" }, take: 1 } },
+    });
+    const sourceVersion = sourceArtifact.versions[0];
+    if (!sourceVersion) throw new Error("Missing source artifact version");
+    const artifacts = new ArtifactService(prisma);
+    await artifacts.createVersion({
+      actorUserId: seeded.userId,
+      artifactId: sourceArtifact.id,
+      expectedCurrentVersion: sourceVersion.version,
+      content: {
+        kind: "INLINE_JSON",
+        value: { text: "candidate result changed after evaluation" },
+      },
+    });
+
+    const changedRun = await prisma.invocationRun.create({
+      data: {
+        invocationId: seeded.evaluatorInvocationId,
+        attempt: 3,
+        idempotencyKey: `${seeded.evaluatorInvocationId}:attempt:3`,
+        status: "RUNNING",
+        startedAt: new Date(),
+      },
+    });
+    await expect(
+      executor.execute({
+        ...executionInput(seeded),
+        attempt: 3,
+        runId: changedRun.id,
+        idempotencyKey: changedRun.idempotencyKey,
+      }),
+    ).resolves.toEqual({
+      status: "FAILED",
+      errorCode: "EVALUATOR_INPUT_CHANGED",
+      retryable: false,
+    });
+    expect(model.calls).toBe(1);
   });
 });
 
 type SeededEvaluator = {
   planId: string;
+  userId: string;
+  sourceInvocationId: string;
   evaluatorInvocationId: string;
   runId: string;
   idempotencyKey: string;
@@ -318,6 +365,8 @@ async function seedEvaluator(
 
   return {
     planId,
+    userId,
+    sourceInvocationId,
     evaluatorInvocationId,
     runId: run.id,
     idempotencyKey: run.idempotencyKey,
