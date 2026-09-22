@@ -64,6 +64,15 @@ function uniqueOutputs(invocation: Invocation): Map<string, OutputDeclaration> {
   return result;
 }
 
+function isValidJsonPointer(pointer: string): boolean {
+  if (pointer === "") return true;
+  if (!pointer.startsWith("/")) return false;
+  return pointer
+    .slice(1)
+    .split("/")
+    .every((token) => !/~(?![01])/u.test(token));
+}
+
 export function validateExecutionPlanGraph(
   plan: ExecutionPlan,
   limits: GraphLimits = DEFAULT_GRAPH_LIMITS,
@@ -264,6 +273,15 @@ export function validateExecutionPlanGraph(
 
       const availableInputs = boundInputs.get(invocation.id) ?? new Set<string>();
       for (const criterion of invocation.acceptanceCriteria) {
+        if (
+          criterion.binding?.kind === "JSON_EQUALS" &&
+          !isValidJsonPointer(criterion.binding.path)
+        ) {
+          throw new GraphValidationError(
+            "INVALID_EVALUATOR_BINDING",
+            `Evaluator criterion ${criterion.id} contains an invalid JSON pointer`,
+          );
+        }
         if (
           criterion.binding &&
           !availableInputs.has(criterion.binding.inputName)
