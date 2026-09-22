@@ -35,6 +35,7 @@ import {
   outputDeclarationSchema,
   resolveHumanEvaluationRequestSchema,
   workflowEvaluationSchema,
+  workflowGraphKeySchema,
   workflowInvocationRunStatusSchema,
   type ApproveExecutionPlanRequest,
   type CreateExecutionPlanRequest,
@@ -862,6 +863,13 @@ export class OrchestrationService {
   ): Promise<ExecutionPlanView> {
     this.assertPreviewEnabled();
     const input = parseHumanEvaluation(body);
+    const parsedInvocationId = workflowGraphKeySchema.safeParse(
+      graphInvocationId,
+    );
+    if (!parsedInvocationId.success) {
+      throw new BadRequestException("Invalid invocation id");
+    }
+    const validatedInvocationId = parsedInvocationId.data;
     const artifacts = new ArtifactService(this.prisma.client);
 
     return this.prisma.client.$transaction(async (tx) => {
@@ -876,7 +884,7 @@ export class OrchestrationService {
         throw new ConflictException("Execution plan is not running");
       }
 
-      const invocationId = invocationDbId(id, graphInvocationId);
+      const invocationId = invocationDbId(id, validatedInvocationId);
       const invocation = plan.invocations.find(
         (candidate) => candidate.id === invocationId,
       );
