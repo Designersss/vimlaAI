@@ -15,17 +15,29 @@ export type ContextSourceScope =
   | { kind: "PROJECT"; projectId: string }
   | { kind: "DIRECT_CHAT"; directConversationId: string };
 
+export type ContextReadScope = ContextSourceScope;
+export type ContextWriteScope = ContextSourceScope;
+
 export type ContextSurfaceDescriptor =
   | { kind: "PERSONAL"; ownerUserId: string }
   | { kind: "PROJECT"; projectId: string }
   | { kind: "DIRECT_CHAT"; directConversationId: string };
 
-export interface ContextAudienceDescriptor {
-  kind: ContextAudienceKind;
-  participantUserIds: readonly string[];
-  projectId?: string;
-  directConversationId?: string;
-}
+export type ContextAudienceDescriptor =
+  | {
+      kind: "PERSONAL";
+      participantUserIds: readonly string[];
+    }
+  | {
+      kind: "PROJECT";
+      participantUserIds: readonly string[];
+      projectId: string;
+    }
+  | {
+      kind: "DIRECT_CHAT";
+      participantUserIds: readonly string[];
+      directConversationId: string;
+    };
 
 export type ContextPolicyDenialReason =
   | "SOURCE_SCOPE_DENIED"
@@ -150,14 +162,8 @@ export function surfaceFromAudience(
     case "PERSONAL":
       return { kind: "PERSONAL", ownerUserId: actorUserId };
     case "PROJECT":
-      if (!audience.projectId) {
-        throw new TypeError("Project audience requires projectId");
-      }
       return { kind: "PROJECT", projectId: audience.projectId };
     case "DIRECT_CHAT":
-      if (!audience.directConversationId) {
-        throw new TypeError("Direct-chat audience requires directConversationId");
-      }
       return {
         kind: "DIRECT_CHAT",
         directConversationId: audience.directConversationId,
