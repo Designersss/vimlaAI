@@ -13,6 +13,7 @@ export {
   outputDeclarationSchema,
   resolveHumanEvaluationRequestSchema,
   workflowEvaluationSchema,
+  workflowGraphKeySchema,
   workflowInvocationRunStatusSchema,
 } from "@vimla/contracts";
 
