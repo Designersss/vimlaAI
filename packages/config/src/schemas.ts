@@ -591,6 +591,11 @@ export const workerEnvSchema = z
     AI_MAX_PLAN_SETTLED_MICRORUB: integerStringSchema.default("80000000"),
     AI_MAX_PLAN_COMMITTED_MICRORUB: integerStringSchema.default("80000000"),
     AI_CANCELLATION_POLL_MS: z.coerce.number().int().min(10).max(5_000).default(250),
+    EVALUATOR_PROVIDER: z.enum(["disabled", "internal-http"]).default("disabled"),
+    EVALUATOR_BASE_URL: z.preprocess(emptyToUndefined, z.url().optional()),
+    EVALUATOR_MODEL: z.preprocess(emptyToUndefined, z.string().trim().min(1).optional()),
+    EVALUATOR_API_KEY: z.preprocess(emptyToUndefined, z.string().trim().min(1).optional()),
+    EVALUATOR_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(600_000).default(120_000),
     AI_RECONCILIATION_INTERVAL_SECONDS: z.coerce.number().int().min(15).max(3_600).default(60),
     AI_RECONCILIATION_BATCH: z.coerce.number().int().min(1).max(500).default(50),
     AI_RECONCILIATION_PRE_PROVIDER_STALE_SECONDS: z.coerce.number().int().min(30).max(86_400).default(300),
@@ -601,6 +606,23 @@ export const workerEnvSchema = z
     TBANK_API_BASE_URL: z.preprocess(emptyToUndefined, z.url().optional()),
   })
   .superRefine((value, ctx) => {
+    if (value.EVALUATOR_PROVIDER === "internal-http") {
+      if (!value.EVALUATOR_BASE_URL) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["EVALUATOR_BASE_URL"],
+          message: "EVALUATOR_BASE_URL is required when EVALUATOR_PROVIDER=internal-http",
+        });
+      }
+      if (!value.EVALUATOR_MODEL) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["EVALUATOR_MODEL"],
+          message: "EVALUATOR_MODEL is required when EVALUATOR_PROVIDER=internal-http",
+        });
+      }
+    }
+
     if (value.APP_ENV === "production" || value.APP_ENV === "staging") {
       if ((value.PAYMENT_PROVIDER ?? "tbank") === "mock") {
         ctx.addIssue({
@@ -693,6 +715,11 @@ export const workerConfigSchema = z.object({
   aiMaxPlanSettledMicroRub: z.string().regex(/^\d+$/),
   aiMaxPlanCommittedMicroRub: z.string().regex(/^\d+$/),
   aiCancellationPollMs: z.number().int().min(10).max(5_000),
+  evaluatorProvider: z.enum(["disabled", "internal-http"]),
+  evaluatorBaseUrl: z.url().optional(),
+  evaluatorModel: z.string().min(1).optional(),
+  evaluatorApiKey: z.string().min(1).optional(),
+  evaluatorTimeoutMs: z.number().int().min(1_000).max(600_000),
   aiReconciliationIntervalSeconds: z.number().int().min(15).max(3_600),
   aiReconciliationBatch: z.number().int().min(1).max(500),
   aiReconciliationPreProviderStaleSeconds: z.number().int().min(30).max(86_400),
