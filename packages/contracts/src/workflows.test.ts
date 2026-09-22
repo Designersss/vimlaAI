@@ -91,6 +91,32 @@ describe("workflow UI contracts", () => {
     expect(parsed.invocations[0]?.latestRun?.evaluation).toBeNull();
   });
 
+  it("rejects oversized evaluator summaries in the public read model", () => {
+    const fixture = planFixture();
+    fixture.invocations[0] = {
+      ...fixture.invocations[0],
+      artifacts: [],
+      latestRun: {
+        ...fixture.invocations[0].latestRun!,
+        evaluation: {
+          mode: "AI_EVALUATOR",
+          outcome: "PASS",
+          confidence: 0.8,
+          criteriaResults: [
+            {
+              criterionId: "quality",
+              outcome: "PASS",
+              confidence: 0.8,
+              summary: "x".repeat(2_001),
+            },
+          ],
+          summary: null,
+        },
+      },
+    };
+    expect(() => executionPlanViewSchema.parse(fixture)).toThrow();
+  });
+
   it("parses a conversation workflow collection", () => {
     const fixture = planFixture();
     fixture.invocations[0] = {
