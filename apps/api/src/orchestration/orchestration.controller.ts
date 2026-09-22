@@ -81,4 +81,20 @@ export class OrchestrationController {
   ): Promise<ExecutionPlanView> {
     return this.orchestration.approve(user.id, id, body);
   }
+
+  @Post(":id/evaluations/:invocationId/resolve")
+  @HttpCode(200)
+  resolveHumanEvaluation(
+    @AuthUser() user: AuthenticatedUser,
+    @Param("id") id: string,
+    @Param("invocationId") invocationId: string,
+    @Body() body: unknown,
+  ): Promise<ExecutionPlanView> {
+    return this.orchestration.resolveHumanEvaluation(
+      user.id,
+      id,
+      invocationId,
+      body,
+    );
+  }
 }
