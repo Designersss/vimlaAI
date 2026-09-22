@@ -17,6 +17,7 @@ import {
   WorkflowRequestError,
   approveExecutionPlanInvocation,
   fetchConversationWorkflows,
+  resolveHumanEvaluation,
   startExecutionPlan,
   stopExecutionPlan,
 } from "../services/workflows";
@@ -187,6 +188,12 @@ export function WorkflowLane({
           onApprove={(invocationId) =>
             void mutate(`approve:${plan.id}:${invocationId}`, () =>
               approveExecutionPlanInvocation(plan.id, invocationId),
+            )
+          }
+          onEvaluate={(invocationId, outcome) =>
+            void mutate(
+              `evaluate:${plan.id}:${invocationId}:${outcome}`,
+              () => resolveHumanEvaluation(plan.id, invocationId, outcome),
             )
           }
         />
