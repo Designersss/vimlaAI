@@ -120,6 +120,9 @@ importers:
       '@vimla/ai':
         specifier: workspace:*
         version: link:../../packages/ai
+      '@vimla/artifacts':
+        specifier: workspace:*
+        version: link:../../packages/artifacts
       '@vimla/auth':
         specifier: workspace:*
         version: link:../../packages/auth
@@ -302,6 +305,9 @@ importers:
       '@vimla/operator':
         specifier: workspace:*
         version: link:../../packages/operator
+      '@vimla/orchestration':
+        specifier: workspace:*
+        version: link:../../packages/orchestration
       '@vimla/shared':
         specifier: workspace:*
         version: link:../../packages/shared
