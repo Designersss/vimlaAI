@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   ArtifactBindingError,
   ArtifactError,
@@ -200,7 +201,11 @@ export class EvaluatorInvocationExecutor {
       });
       if (existing) {
         const result = evaluationFromStored(existing);
-        await this.ensureOutcomeArtifact(input.invocationId, result);
+        await this.ensureOutcomeArtifact(
+          input.invocationId,
+          result,
+          existing.inputFingerprint,
+        );
         return { status: "COMPLETED", outcome: result.outcome };
       }
 
@@ -235,6 +240,12 @@ export class EvaluatorInvocationExecutor {
         return terminal("HUMAN_EVALUATION_REQUIRES_API_DECISION");
       }
 
+      const resolved = await this.resolveArtifacts(
+        invocation.plan.userId,
+        input.invocationId,
+      );
+      const inputFingerprint = evaluationInputFingerprint(resolved);
+
       const previousEvaluation = await this.prisma.evaluation.findFirst({
         where: {
           invocationRunId: { not: input.runId },
@@ -244,16 +255,23 @@ export class EvaluatorInvocationExecutor {
         orderBy: { createdAt: "desc" },
       });
       if (previousEvaluation) {
+        if (previousEvaluation.inputFingerprint !== inputFingerprint) {
+          return terminal("EVALUATOR_INPUT_CHANGED");
+        }
         const replayed = evaluationFromStored(previousEvaluation);
-        await this.persistResult(input.runId, mode, replayed);
-        await this.ensureOutcomeArtifact(input.invocationId, replayed);
+        await this.persistResult(
+          input.runId,
+          mode,
+          replayed,
+          inputFingerprint,
+        );
+        await this.ensureOutcomeArtifact(
+          input.invocationId,
+          replayed,
+          inputFingerprint,
+        );
         return { status: "COMPLETED", outcome: replayed.outcome };
       }
-
-      const resolved = await this.resolveArtifacts(
-        invocation.plan.userId,
-        input.invocationId,
-      );
 
       const result =
         mode === "DETERMINISTIC"
@@ -271,8 +289,17 @@ export class EvaluatorInvocationExecutor {
               criteria,
             );
 
-      await this.persistResult(input.runId, mode, result);
-      await this.ensureOutcomeArtifact(input.invocationId, result);
+      await this.persistResult(
+        input.runId,
+        mode,
+        result,
+        inputFingerprint,
+      );
+      await this.ensureOutcomeArtifact(
+        input.invocationId,
+        result,
+        inputFingerprint,
+      );
       return { status: "COMPLETED", outcome: result.outcome };
     } catch (error: unknown) {
       if (error instanceof AiEvaluationUnavailableError) {
@@ -325,12 +352,14 @@ export class EvaluatorInvocationExecutor {
     runId: string,
     mode: EvaluationMode,
     result: EvaluationResult,
+    inputFingerprint: string,
   ): Promise<void> {
     const data = {
       invocationRunId: runId,
       evaluatorKind: mode,
       outcome: result.outcome,
       confidence: result.confidence,
+      inputFingerprint,
       criteriaResults: toJsonCriteriaResults(result.criteriaResults),
       summary: result.summary ?? null,
     };
@@ -343,6 +372,12 @@ export class EvaluatorInvocationExecutor {
         where: { invocationRunId: runId },
       });
       if (!replay) throw error;
+      if (replay.inputFingerprint !== inputFingerprint) {
+        throw new EvaluatorContractError(
+          "EVALUATOR_IDEMPOTENCY_CONFLICT",
+          "Evaluation replay input fingerprint does not match persisted result",
+        );
+      }
       const stored = evaluationFromStored(replay);
       if (JSON.stringify(stored) !== JSON.stringify(normalizeEvaluation(result))) {
         throw new EvaluatorContractError(
@@ -356,6 +391,7 @@ export class EvaluatorInvocationExecutor {
   private async ensureOutcomeArtifact(
     invocationId: string,
     result: EvaluationResult,
+    inputFingerprint: string | null,
   ): Promise<void> {
     const invocation = await this.prisma.invocation.findUnique({
       where: { id: invocationId },
@@ -394,6 +430,9 @@ export class EvaluatorInvocationExecutor {
         source: "EVALUATION",
         evaluatorKind: result.mode,
       },
+      ...(inputFingerprint
+        ? { versionMetadata: { inputFingerprint } }
+        : {}),
     });
   }
 }
@@ -440,6 +479,24 @@ async function readBoundedProviderEnvelope(
     throw new Error("AI evaluator provider returned an invalid response envelope");
   }
   return parsed as EvaluationProviderEnvelope;
+}
+
+function evaluationInputFingerprint(
+  resolved: readonly {
+    inputName: string;
+    version: ReadArtifactVersionResult;
+  }[],
+): string {
+  const canonical = [...resolved]
+    .sort((left, right) => left.inputName.localeCompare(right.inputName))
+    .map((item) => ({
+      inputName: item.inputName,
+      artifactVersionId: item.version.artifactVersionId,
+      fingerprint: item.version.fingerprint,
+    }));
+  return `sha256:${createHash("sha256")
+    .update(JSON.stringify(canonical))
+    .digest("hex")}`;
 }
 
 function parseCriteria(value: Prisma.JsonValue): AcceptanceCriteria[] {
