@@ -389,7 +389,7 @@ describe("orchestration runtime", () => {
           key: "image-result",
           status: "COMPLETED",
           targetKind: "AI_AUTO",
-          outputDeclarations: [{ name: "result", artifactType: "TEXT" }],
+          outputDeclarations: [{ name: "result", artifactType: "IMAGE" }],
         },
         {
           key: "evaluator",
@@ -421,7 +421,7 @@ describe("orchestration runtime", () => {
             {
               inputName: "result",
               sourceOutputName: "result",
-              expectedArtifactType: "TEXT",
+              expectedArtifactType: "IMAGE",
             },
           ],
         },
@@ -446,11 +446,11 @@ describe("orchestration runtime", () => {
       actorUserId: seeded.userId,
       creatorInvocationId: seeded.invocationIds["image-result"] ?? "",
       outputName: "result",
-      type: "TEXT",
+      type: "IMAGE",
       classification: "PRIVATE",
       content: {
         kind: "INLINE_JSON",
-        value: { text: "generated result needs revision" },
+        value: { description: "generated result needs revision" },
       },
     });
 
