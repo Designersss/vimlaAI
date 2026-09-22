@@ -7,7 +7,10 @@ import {
   InternalServerErrorException,
   NotFoundException,
 } from "@nestjs/common";
-import { ArtifactService } from "@vimla/artifacts";
+import {
+  ArtifactService,
+  fingerprintResolvedArtifactInputs,
+} from "@vimla/artifacts";
 import {
   ContextConflictError,
   ContextNotFoundError,
@@ -950,6 +953,16 @@ export class OrchestrationService {
         );
       }
 
+      const resolvedInputs = await artifacts.resolveInputBindingsInTransaction(
+        tx,
+        {
+          actorUserId: userId,
+          targetInvocationId: invocationId,
+        },
+      );
+      const inputFingerprint =
+        fingerprintResolvedArtifactInputs(resolvedInputs);
+
       const claimed = await tx.invocation.updateMany({
         where: {
           id: invocationId,
@@ -996,6 +1009,7 @@ export class OrchestrationService {
               evaluatorKind: "HUMAN_APPROVAL",
               outcome: input.outcome,
               confidence: 1,
+              inputFingerprint,
               criteriaResults: toJson(criteriaResults),
               summary: input.summary ?? null,
             },
@@ -1019,6 +1033,7 @@ export class OrchestrationService {
         },
         versionMetadata: {
           invocationRunId: runId,
+          inputFingerprint,
         },
       });
 
