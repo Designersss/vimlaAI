@@ -160,6 +160,50 @@ test("rejects duplicate evaluator acceptance criterion ids", () => {
   );
 });
 
+test("enforces evaluator approval policy and read-only risk", () => {
+  const human = invocation("human-evaluator", {
+    target: { kind: "EVALUATOR" },
+    outputs: [{ name: "evaluation", artifactType: "JSON" }],
+    acceptanceCriteria: [
+      {
+        id: "human-review",
+        description: "Human accepts the result",
+        mode: "HUMAN_APPROVAL",
+      },
+    ],
+    approvalPolicy: "AUTO",
+  });
+  expectGraphError(plan([human]), "INVALID_EVALUATOR");
+
+  const automated = invocation("automatic-evaluator", {
+    target: { kind: "EVALUATOR" },
+    outputs: [{ name: "evaluation", artifactType: "JSON" }],
+    acceptanceCriteria: [
+      {
+        id: "quality",
+        description: "AI checks quality",
+        mode: "AI_EVALUATOR",
+      },
+    ],
+    approvalPolicy: "HUMAN_APPROVAL",
+  });
+  expectGraphError(plan([automated]), "INVALID_EVALUATOR");
+
+  const risky = invocation("risky-evaluator", {
+    target: { kind: "EVALUATOR" },
+    outputs: [{ name: "evaluation", artifactType: "JSON" }],
+    acceptanceCriteria: [
+      {
+        id: "quality",
+        description: "AI checks quality",
+        mode: "AI_EVALUATOR",
+      },
+    ],
+    riskClass: "INTERNAL_WRITE",
+  });
+  expectGraphError(plan([risky]), "INVALID_EVALUATOR");
+});
+
 test("readiness handles roots, success, failure and outcome branches", () => {
   const root = invocation("root");
   assert.equal(decideInvocationReadiness(root, [], new Map()).decision, "READY");
