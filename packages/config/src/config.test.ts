@@ -311,6 +311,29 @@ describe("loadWorkerConfig", () => {
     expect(config.workerHealthPort).toBeUndefined();
   });
 
+  it("keeps AI evaluator disabled by default and validates internal-http settings", () => {
+    expect(loadWorkerConfig(validSharedEnv).evaluatorProvider).toBe("disabled");
+
+    expect(() =>
+      loadWorkerConfig({
+        ...validSharedEnv,
+        EVALUATOR_PROVIDER: "internal-http",
+      }),
+    ).toThrow(/EVALUATOR_BASE_URL|EVALUATOR_MODEL/);
+
+    const configured = loadWorkerConfig({
+      ...validSharedEnv,
+      EVALUATOR_PROVIDER: "internal-http",
+      EVALUATOR_BASE_URL: "http://127.0.0.1:11434/v1",
+      EVALUATOR_MODEL: "internal-evaluator",
+      EVALUATOR_TIMEOUT_MS: "45000",
+    });
+    expect(configured.evaluatorProvider).toBe("internal-http");
+    expect(configured.evaluatorBaseUrl).toBe("http://127.0.0.1:11434/v1");
+    expect(configured.evaluatorModel).toBe("internal-evaluator");
+    expect(configured.evaluatorTimeoutMs).toBe(45_000);
+  });
+
   it("accepts an optional loopback health port", () => {
     const config = loadWorkerConfig({
       ...validSharedEnv,
