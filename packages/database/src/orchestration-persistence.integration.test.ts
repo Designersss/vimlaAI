@@ -226,6 +226,7 @@ describe("orchestration persistence", () => {
           invocationRunId: run.id,
           evaluatorKind: "DETERMINISTIC",
           outcome: "PASS",
+          confidence: 1,
           criteriaResults: [],
         },
       });
