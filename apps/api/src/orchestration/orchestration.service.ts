@@ -981,6 +981,23 @@ export class OrchestrationService {
         data: { status: "RUNNING" },
       });
       if (claimed.count !== 1) {
+        const replay = await tx.executionPlan.findFirst({
+          where: { id, userId },
+          include: planInclude,
+        });
+        const replayInvocation = replay?.invocations.find(
+          (candidate) => candidate.id === invocationId,
+        );
+        const replayEvaluation = replayInvocation?.runs[0]?.evaluation;
+        if (
+          replay &&
+          replayInvocation?.status === "COMPLETED" &&
+          replayEvaluation?.evaluatorKind === "HUMAN_APPROVAL" &&
+          replayEvaluation.outcome === input.outcome &&
+          (replayEvaluation.summary ?? undefined) === input.summary
+        ) {
+          return toView(replay);
+        }
         throw new ConflictException(
           "Human evaluator decision was resolved concurrently",
         );

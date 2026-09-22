@@ -199,6 +199,21 @@ test("rejects invalid deterministic JSON pointer bindings before execution", () 
   );
 });
 
+test("rejects AI evaluators without DATA artifact evidence", () => {
+  const evaluator = invocation("ai-evaluator", {
+    target: { kind: "EVALUATOR" },
+    outputs: [{ name: "evaluation", artifactType: "JSON" }],
+    acceptanceCriteria: [
+      {
+        id: "quality",
+        description: "Candidate satisfies the quality bar",
+        mode: "AI_EVALUATOR",
+      },
+    ],
+  });
+  expectGraphError(plan([evaluator]), "INVALID_EVALUATOR_BINDING");
+});
+
 test("rejects multiple HUMAN_APPROVAL criteria because v1 resolves one human decision", () => {
   const human = invocation("human-evaluator", {
     target: { kind: "EVALUATOR" },

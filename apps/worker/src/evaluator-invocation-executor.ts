@@ -245,6 +245,9 @@ export class EvaluatorInvocationExecutor {
         invocation.plan.userId,
         input.invocationId,
       );
+      if (mode === "AI_EVALUATOR" && resolved.length === 0) {
+        return terminal("EVALUATOR_INPUT_MISSING");
+      }
       const inputFingerprint = fingerprintResolvedArtifactInputs(resolved);
 
       const existing = await this.prisma.evaluation.findUnique({

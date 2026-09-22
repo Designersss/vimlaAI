@@ -273,6 +273,12 @@ export function validateExecutionPlanGraph(
       }
 
       const availableInputs = boundInputs.get(invocation.id) ?? new Set<string>();
+      if (mode === "AI_EVALUATOR" && availableInputs.size === 0) {
+        throw new GraphValidationError(
+          "INVALID_EVALUATOR_BINDING",
+          `AI evaluator ${invocation.id} requires at least one DATA artifact input`,
+        );
+      }
       for (const criterion of invocation.acceptanceCriteria) {
         if (
           criterion.binding?.kind === "JSON_EQUALS" &&

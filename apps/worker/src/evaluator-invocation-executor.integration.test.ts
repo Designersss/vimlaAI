@@ -223,6 +223,37 @@ describe("EvaluatorInvocationExecutor", () => {
     expect(model.calls).toBe(1);
   });
 
+  it("fails closed before AI when no artifact evidence is bound", async () => {
+    const seeded = await seedEvaluator(prisma, {
+      mode: "AI_EVALUATOR",
+      criterion: {
+        id: "quality",
+        description: "Candidate satisfies the quality bar",
+        mode: "AI_EVALUATOR",
+      },
+      artifactValue: { text: "candidate result" },
+    });
+    await prisma.invocationDependency.deleteMany({
+      where: { toInvocationId: seeded.evaluatorInvocationId },
+    });
+    const model = new CountingAiModel({
+      mode: "AI_EVALUATOR",
+      outcome: "PASS",
+      confidence: 1,
+      criteriaResults: [
+        { criterionId: "quality", outcome: "PASS", confidence: 1 },
+      ],
+    });
+    const executor = new EvaluatorInvocationExecutor(prisma, model);
+
+    await expect(executor.execute(executionInput(seeded))).resolves.toEqual({
+      status: "FAILED",
+      errorCode: "EVALUATOR_INPUT_MISSING",
+      retryable: false,
+    });
+    expect(model.calls).toBe(0);
+  });
+
   it("fails closed before AI when an evaluator input is only a CONTENT_REF", async () => {
     const seeded = await seedEvaluator(prisma, {
       mode: "AI_EVALUATOR",
