@@ -13,7 +13,7 @@ export const EXECUTION_PLAN_API_LIMITS = {
   maxBindingsPerDependency: 32,
 } as const;
 
-const graphKeySchema = z
+export const workflowGraphKeySchema = z
   .string()
   .trim()
   .min(1)
@@ -33,6 +33,7 @@ export const artifactTypeSchema = z.enum([
   "PLAN",
   "FILE",
   "PATCH",
+  "JSON",
 ]);
 
 export const invocationTargetSchema = z.discriminatedUnion("kind", [
@@ -68,15 +69,15 @@ export const dependencyConditionSchema = z.discriminatedUnion("kind", [
 
 export const inputBindingSchema = z
   .object({
-    inputName: graphKeySchema,
-    sourceOutputName: graphKeySchema,
+    inputName: workflowGraphKeySchema,
+    sourceOutputName: workflowGraphKeySchema,
     expectedArtifactType: artifactTypeSchema,
   })
   .strict();
 
 export const outputDeclarationSchema = z
   .object({
-    name: graphKeySchema,
+    name: workflowGraphKeySchema,
     artifactType: artifactTypeSchema,
     description: boundedText(
       EXECUTION_PLAN_API_LIMITS.descriptionMax,
@@ -84,17 +85,48 @@ export const outputDeclarationSchema = z
   })
   .strict();
 
+export const deterministicCriterionBindingSchema = z.discriminatedUnion("kind", [
+  z
+    .object({
+      kind: z.literal("ARTIFACT_EXISTS"),
+      inputName: workflowGraphKeySchema,
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("TEXT_CONTAINS"),
+      inputName: workflowGraphKeySchema,
+      value: boundedText(EXECUTION_PLAN_API_LIMITS.descriptionMax),
+      caseSensitive: z.boolean().optional(),
+    })
+    .strict(),
+  z
+    .object({
+      kind: z.literal("JSON_EQUALS"),
+      inputName: workflowGraphKeySchema,
+      path: z.string().max(512),
+      expectedValue: z.union([
+        z.string().max(EXECUTION_PLAN_API_LIMITS.descriptionMax),
+        z.number().finite(),
+        z.boolean(),
+        z.null(),
+      ]),
+    })
+    .strict(),
+]);
+
 export const acceptanceCriteriaSchema = z
   .object({
-    id: graphKeySchema,
+    id: workflowGraphKeySchema,
     description: boundedText(EXECUTION_PLAN_API_LIMITS.descriptionMax),
     mode: z.enum(["DETERMINISTIC", "AI_EVALUATOR", "HUMAN_APPROVAL"]),
+    binding: deterministicCriterionBindingSchema.optional(),
   })
   .strict();
 
 export const invocationSchema = z
   .object({
-    id: graphKeySchema,
+    id: workflowGraphKeySchema,
     purpose: boundedText(EXECUTION_PLAN_API_LIMITS.purposeMax),
     target: invocationTargetSchema,
     outputs: z
@@ -122,9 +154,9 @@ export const invocationSchema = z
 
 export const invocationDependencySchema = z
   .object({
-    id: graphKeySchema,
-    fromInvocationId: graphKeySchema,
-    toInvocationId: graphKeySchema,
+    id: workflowGraphKeySchema,
+    fromInvocationId: workflowGraphKeySchema,
+    toInvocationId: workflowGraphKeySchema,
     condition: dependencyConditionSchema,
     inputBindings: z
       .array(inputBindingSchema)
@@ -160,7 +192,14 @@ export const createExecutionPlanRequestSchema = z
 
 export const approveExecutionPlanRequestSchema = z
   .object({
-    invocationId: graphKeySchema,
+    invocationId: workflowGraphKeySchema,
+  })
+  .strict();
+
+export const resolveHumanEvaluationRequestSchema = z
+  .object({
+    outcome: z.enum(["PASS", "FAIL"]),
+    summary: z.string().trim().min(1).max(2_000).optional(),
   })
   .strict();
 
@@ -202,13 +241,67 @@ export const workflowArtifactSummarySchema = z
   .object({
     artifactId: z.string().min(1),
     artifactVersionId: z.string().min(1),
-    outputName: graphKeySchema,
+    outputName: workflowGraphKeySchema,
     type: artifactTypeSchema,
     classification: z.string().trim().min(1).max(128),
     version: z.number().int().min(1),
     createdAt: workflowIsoDateTimeSchema,
   })
   .strict();
+
+export const workflowEvaluationCriterionResultSchema = z
+  .object({
+    criterionId: workflowGraphKeySchema,
+    outcome: z.enum(["PASS", "FAIL"]),
+    confidence: z.number().min(0).max(1),
+    summary: z
+      .string()
+      .max(EXECUTION_PLAN_API_LIMITS.descriptionMax)
+      .nullable(),
+  })
+  .strict();
+
+export const workflowEvaluationSchema = z
+  .object({
+    mode: z.enum(["DETERMINISTIC", "AI_EVALUATOR", "HUMAN_APPROVAL"]),
+    outcome: z.enum(["PASS", "FAIL"]),
+    confidence: z.number().min(0).max(1),
+    criteriaResults: z
+      .array(workflowEvaluationCriterionResultSchema)
+      .min(1)
+      .max(EXECUTION_PLAN_API_LIMITS.maxCriteriaPerInvocation),
+    summary: z
+      .string()
+      .max(EXECUTION_PLAN_API_LIMITS.descriptionMax)
+      .nullable(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    const ids = new Set<string>();
+    for (const criterion of value.criteriaResults) {
+      if (ids.has(criterion.criterionId)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["criteriaResults"],
+          message: "Evaluation criterion ids must be unique",
+        });
+        break;
+      }
+      ids.add(criterion.criterionId);
+    }
+    const derivedOutcome = value.criteriaResults.every(
+      (criterion) => criterion.outcome === "PASS",
+    )
+      ? "PASS"
+      : "FAIL";
+    if (derivedOutcome !== value.outcome) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["outcome"],
+        message: "Evaluation outcome must match criterion results",
+      });
+    }
+  });
 
 export const workflowInvocationRunSchema = z
   .object({
@@ -219,6 +312,7 @@ export const workflowInvocationRunSchema = z
     errorCode: z.string().nullable(),
     startedAt: workflowIsoDateTimeSchema.nullable(),
     finishedAt: workflowIsoDateTimeSchema.nullable(),
+    evaluation: workflowEvaluationSchema.nullable(),
   })
   .strict();
 
@@ -294,6 +388,9 @@ export type CreateExecutionPlanRequest = z.infer<
 export type ApproveExecutionPlanRequest = z.infer<
   typeof approveExecutionPlanRequestSchema
 >;
+export type ResolveHumanEvaluationRequest = z.infer<
+  typeof resolveHumanEvaluationRequestSchema
+>;
 export type WorkflowArtifactType = z.infer<typeof artifactTypeSchema>;
 export type WorkflowPlanStatus = z.infer<typeof workflowPlanStatusSchema>;
 export type WorkflowInvocationStatus = z.infer<
@@ -306,6 +403,10 @@ export type WorkflowInvocationTarget = z.infer<typeof invocationTargetSchema>;
 export type WorkflowArtifactSummary = z.infer<
   typeof workflowArtifactSummarySchema
 >;
+export type WorkflowEvaluationCriterionResult = z.infer<
+  typeof workflowEvaluationCriterionResultSchema
+>;
+export type WorkflowEvaluation = z.infer<typeof workflowEvaluationSchema>;
 export type WorkflowInvocationRun = z.infer<
   typeof workflowInvocationRunSchema
 >;

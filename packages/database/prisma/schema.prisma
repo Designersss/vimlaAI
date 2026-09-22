@@ -1347,6 +1347,8 @@ model Evaluation {
   invocationRun   InvocationRun @relation(fields: [invocationRunId], references: [id], onDelete: Restrict)
   evaluatorKind   String
   outcome         String
+  confidence      Float
+  inputFingerprint String?
   criteriaResults Json
   summary         String?
   createdAt       DateTime      @default(now())

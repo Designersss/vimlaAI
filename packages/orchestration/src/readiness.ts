@@ -67,9 +67,12 @@ function decideJoin(policy: JoinPolicy, evaluations: readonly DependencyEvaluati
   return { decision: "PENDING", reason: "waiting for required dependencies" };
 }
 
-export function decideInvocationReadiness(
-  invocation: Invocation,
-  incomingDependencies: readonly InvocationDependency[],
+export function decideDependencyReadiness(
+  joinPolicy: JoinPolicy,
+  incomingDependencies: readonly Pick<
+    InvocationDependency,
+    "fromInvocationId" | "condition"
+  >[],
   sourceStates: ReadonlyMap<string, DependencySourceRuntimeState>,
 ): InvocationReadinessResult {
   const evaluations = incomingDependencies.map((dependency) => {
@@ -78,7 +81,19 @@ export function decideInvocationReadiness(
     return evaluateCondition(dependency.condition, source);
   });
 
-  return decideJoin(invocation.joinPolicy, evaluations);
+  return decideJoin(joinPolicy, evaluations);
+}
+
+export function decideInvocationReadiness(
+  invocation: Invocation,
+  incomingDependencies: readonly InvocationDependency[],
+  sourceStates: ReadonlyMap<string, DependencySourceRuntimeState>,
+): InvocationReadinessResult {
+  return decideDependencyReadiness(
+    invocation.joinPolicy,
+    incomingDependencies,
+    sourceStates,
+  );
 }
 
 export function computePendingInvocationTransitions(

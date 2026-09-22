@@ -53,17 +53,28 @@ export function compileSemanticPlannerDraft(
         mentionByOccurrence,
         consumedMentions,
       );
+      const evaluationMode =
+        target.kind === "EVALUATOR"
+          ? invocation.acceptanceCriteria[0]?.mode
+          : undefined;
       return {
         id: invocation.id,
         purpose: invocation.purpose,
         target,
         outputs: invocation.outputs,
         acceptanceCriteria: invocation.acceptanceCriteria,
-        riskClass: invocation.riskHint,
+        riskClass:
+          target.kind === "EVALUATOR"
+            ? "READ_ONLY"
+            : invocation.riskHint,
         approvalPolicy:
-          target.kind === "VIMLA" || invocation.riskHint !== "READ_ONLY"
-            ? "USER_CONFIRMATION"
-            : "AUTO",
+          target.kind === "EVALUATOR"
+            ? evaluationMode === "HUMAN_APPROVAL"
+              ? "HUMAN_APPROVAL"
+              : "AUTO"
+            : target.kind === "VIMLA" || invocation.riskHint !== "READ_ONLY"
+              ? "USER_CONFIRMATION"
+              : "AUTO",
         failurePolicy: invocation.failurePolicy,
         joinPolicy: invocation.joinPolicy,
       };
@@ -190,11 +201,15 @@ function resolveTarget(
       `Mention occurrence ${hint.occurrenceId} was consumed more than once`,
     );
   }
+  if (hint.semanticRole !== "EXECUTION") {
+    throw new SemanticPlannerError(
+      "MENTION_CONSTRAINT_VIOLATION",
+      `Explicit executor mention ${hint.occurrenceId} cannot be substituted by an evaluator node`,
+    );
+  }
   consumedMentions.add(hint.occurrenceId);
 
-  return hint.semanticRole === "EVALUATION"
-    ? { kind: "EVALUATOR" }
-    : invocationTargetForPlannerMention(mention);
+  return invocationTargetForPlannerMention(mention);
 }
 
 function validateGraph(plan: ExecutionPlan): void {

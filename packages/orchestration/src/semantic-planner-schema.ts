@@ -1,6 +1,7 @@
 import type {
   AcceptanceCriteria,
   ArtifactType,
+  DeterministicCriterionBinding,
   InputBinding,
   InvocationDependency,
   OutputDeclaration,
@@ -181,7 +182,7 @@ function parseTargetHint(
     occurrenceId: boundedString(value.occurrenceId, 160, `${path}.occurrenceId`),
     semanticRole: oneOf(
       value.semanticRole,
-      ["EXECUTION", "EVALUATION"] as const,
+      ["EXECUTION"] as const,
       `${path}.semanticRole`,
     ),
   };
@@ -201,9 +202,50 @@ function parseOutput(input: unknown, path: string): OutputDeclaration {
   };
 }
 
+function parseCriterionBinding(
+  input: unknown,
+  path: string,
+): DeterministicCriterionBinding {
+  const value = asRecord(input, path);
+  const kind = oneOf(
+    value.kind,
+    ["ARTIFACT_EXISTS", "TEXT_CONTAINS", "JSON_EQUALS"] as const,
+    `${path}.kind`,
+  );
+  switch (kind) {
+    case "ARTIFACT_EXISTS":
+      exactKeys(value, ["kind", "inputName"], path);
+      return {
+        kind,
+        inputName: graphKey(value.inputName, `${path}.inputName`),
+      };
+    case "TEXT_CONTAINS": {
+      exactKeys(value, ["kind", "inputName", "value", "caseSensitive"], path);
+      const caseSensitive =
+        value.caseSensitive === undefined
+          ? undefined
+          : booleanValue(value.caseSensitive, `${path}.caseSensitive`);
+      return {
+        kind,
+        inputName: graphKey(value.inputName, `${path}.inputName`),
+        value: boundedString(value.value, 2_000, `${path}.value`),
+        ...(caseSensitive === undefined ? {} : { caseSensitive }),
+      };
+    }
+    case "JSON_EQUALS":
+      exactKeys(value, ["kind", "inputName", "path", "expectedValue"], path);
+      return {
+        kind,
+        inputName: graphKey(value.inputName, `${path}.inputName`),
+        path: stringValue(value.path, 512, `${path}.path`),
+        expectedValue: jsonPrimitive(value.expectedValue, `${path}.expectedValue`),
+      };
+  }
+}
+
 function parseCriterion(input: unknown, path: string): AcceptanceCriteria {
   const value = asRecord(input, path);
-  exactKeys(value, ["id", "description", "mode"], path);
+  exactKeys(value, ["id", "description", "mode", "binding"], path);
   return {
     id: graphKey(value.id, `${path}.id`),
     description: boundedString(value.description, 2_000, `${path}.description`),
@@ -212,6 +254,9 @@ function parseCriterion(input: unknown, path: string): AcceptanceCriteria {
       ["DETERMINISTIC", "AI_EVALUATOR", "HUMAN_APPROVAL"] as const,
       `${path}.mode`,
     ),
+    ...(value.binding === undefined
+      ? {}
+      : { binding: parseCriterionBinding(value.binding, `${path}.binding`) }),
   };
 }
 
@@ -294,7 +339,7 @@ function parseBinding(input: unknown, path: string): InputBinding {
 function artifactType(input: unknown, path: string): ArtifactType {
   return oneOf(
     input,
-    ["TEXT", "PROMPT", "DOCUMENT", "CODE", "IMAGE", "PLAN", "FILE", "PATCH"] as const,
+    ["TEXT", "PROMPT", "DOCUMENT", "CODE", "IMAGE", "PLAN", "FILE", "PATCH", "JSON"] as const,
     path,
   );
 }
@@ -334,6 +379,33 @@ function exactKeys(
 function array(input: unknown, path: string): unknown[] {
   if (!Array.isArray(input)) invalid(path, "expected array");
   return input;
+}
+
+function booleanValue(input: unknown, path: string): boolean {
+  if (typeof input !== "boolean") invalid(path, "expected boolean");
+  return input as boolean;
+}
+
+function stringValue(input: unknown, max: number, path: string): string {
+  if (typeof input !== "string" || input.length > max) {
+    invalid(path, `expected string with at most ${max} characters`);
+  }
+  return input as string;
+}
+
+function jsonPrimitive(
+  input: unknown,
+  path: string,
+): string | number | boolean | null {
+  if (
+    input === null ||
+    (typeof input === "string" && input.length <= 2_000) ||
+    typeof input === "boolean" ||
+    (typeof input === "number" && Number.isFinite(input))
+  ) {
+    return input;
+  }
+  invalid(path, "expected JSON primitive");
 }
 
 function finiteNumber(input: unknown, path: string): number {

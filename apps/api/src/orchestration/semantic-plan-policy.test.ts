@@ -34,16 +34,48 @@ describe("semantic plan execution policy", () => {
     );
   });
 
-  it("rejects unsupported evaluator and image execution before persistence", () => {
-    const evaluator = basePlan({
+  it("enables typed evaluator modes and still rejects unsupported AI image execution", () => {
+    const deterministic = basePlan({
       target: { kind: "EVALUATOR" },
-      outputs: [],
+      outputs: [{ name: "evaluation", artifactType: "JSON" }],
+      acceptanceCriteria: [
+        {
+          id: "quality",
+          description: "Artifact must exist",
+          mode: "DETERMINISTIC",
+          binding: {
+            kind: "ARTIFACT_EXISTS",
+            inputName: "candidate",
+          },
+        },
+      ],
+      riskClass: "FINANCIAL",
+      approvalPolicy: "USER_CONFIRMATION",
+    });
+    expect(
+      applySemanticPlanExecutionPolicy(deterministic).invocations[0],
+    ).toMatchObject({
       riskClass: "READ_ONLY",
       approvalPolicy: "AUTO",
     });
-    expect(() => applySemanticPlanExecutionPolicy(evaluator)).toThrow(
-      /evaluator execution is not available/i,
-    );
+
+    const human = basePlan({
+      target: { kind: "EVALUATOR" },
+      outputs: [{ name: "evaluation", artifactType: "JSON" }],
+      acceptanceCriteria: [
+        {
+          id: "review",
+          description: "Human reviewer approves the result",
+          mode: "HUMAN_APPROVAL",
+        },
+      ],
+    });
+    expect(
+      applySemanticPlanExecutionPolicy(human).invocations[0],
+    ).toMatchObject({
+      riskClass: "READ_ONLY",
+      approvalPolicy: "HUMAN_APPROVAL",
+    });
 
     const image = basePlan({
       target: { kind: "AI_MODEL", modelSlug: "image-model" },
@@ -55,6 +87,67 @@ describe("semantic plan execution policy", () => {
       /cannot emit this artifact type/,
     );
   });
+
+  it("rejects malformed evaluator contracts", () => {
+    const missingBinding = basePlan({
+      target: { kind: "EVALUATOR" },
+      outputs: [{ name: "evaluation", artifactType: "JSON" }],
+      acceptanceCriteria: [
+        {
+          id: "quality",
+          description: "Artifact must exist",
+          mode: "DETERMINISTIC",
+        },
+      ],
+    });
+    expect(() => applySemanticPlanExecutionPolicy(missingBinding)).toThrow(
+      /require explicit artifact bindings/,
+    );
+
+    const mixedModes = basePlan({
+      target: { kind: "EVALUATOR" },
+      outputs: [{ name: "evaluation", artifactType: "JSON" }],
+      acceptanceCriteria: [
+        {
+          id: "one",
+          description: "One",
+          mode: "AI_EVALUATOR",
+        },
+        {
+          id: "two",
+          description: "Two",
+          mode: "HUMAN_APPROVAL",
+        },
+      ],
+    });
+    expect(() => applySemanticPlanExecutionPolicy(mixedModes)).toThrow(
+      /cannot mix evaluation modes/,
+    );
+  });
+  it("rejects multiple human approval criteria in v1", () => {
+    expect(() =>
+      applySemanticPlanExecutionPolicy(
+        basePlan({
+          target: { kind: "EVALUATOR" },
+          outputs: [{ name: "evaluation", artifactType: "JSON" }],
+          acceptanceCriteria: [
+            {
+              id: "quality",
+              description: "Quality is acceptable",
+              mode: "HUMAN_APPROVAL",
+            },
+            {
+              id: "safety",
+              description: "Safety is acceptable",
+              mode: "HUMAN_APPROVAL",
+            },
+          ],
+        }),
+      ),
+    ).toThrow(SemanticPlanPolicyError);
+  });
+
+
 });
 
 function basePlan(

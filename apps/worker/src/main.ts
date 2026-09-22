@@ -36,6 +36,13 @@ import {
   createWorkerPaymentService,
 } from "./payment-reconciliation.js";
 import {
+  DisabledAiEvaluationModel,
+  EvaluationAwareInvocationExecutorRegistry,
+  EvaluatorInvocationExecutor,
+  OpenAiCompatibleAiEvaluationModel,
+  type AiEvaluationModel,
+} from "./evaluator-invocation-executor.js";
+import {
   ExternalAiAwareInvocationExecutorRegistry,
   ExternalAiInvocationExecutor,
 } from "./external-ai-invocation-executor.js";
@@ -347,7 +354,13 @@ async function startOrchestrationRuntime(
         new DeterministicVimlaToolPlanner(),
         config.authDefaultLocale,
       ),
-      new FailClosedInvocationExecutorRegistry(),
+      new EvaluationAwareInvocationExecutorRegistry(
+        new EvaluatorInvocationExecutor(
+          prisma,
+          createAiEvaluationModel(config),
+        ),
+        new FailClosedInvocationExecutorRegistry(),
+      ),
     ),
   );
   const runtime = new OrchestrationRuntime(
@@ -450,6 +463,23 @@ async function startOrchestrationRuntime(
     executionConnection,
     reconcileTimer,
   };
+}
+
+function createAiEvaluationModel(config: WorkerConfig): AiEvaluationModel {
+  if (config.evaluatorProvider === "disabled") {
+    return new DisabledAiEvaluationModel();
+  }
+  if (!config.evaluatorBaseUrl || !config.evaluatorModel) {
+    throw new Error(
+      "Internal evaluator provider requires evaluatorBaseUrl and evaluatorModel",
+    );
+  }
+  return new OpenAiCompatibleAiEvaluationModel({
+    baseUrl: config.evaluatorBaseUrl,
+    model: config.evaluatorModel,
+    apiKey: config.evaluatorApiKey,
+    timeoutMs: config.evaluatorTimeoutMs,
+  });
 }
 
 function queuePublisher(queue: Queue): QueuePublisher {

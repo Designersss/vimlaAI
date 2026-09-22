@@ -164,4 +164,107 @@ test("workflow lane stays usable with the chat composer across desktop and mobil
   await expect(composer).toBeVisible();
   await expect(composer).toBeEnabled();
   await assertNoDocumentOverflow(page);
+
+  await composer.fill("Human evaluation source");
+  await page.getByRole("button", { name: /отправить|send/i }).click();
+  await expect(page.getByText("Hello from Vimla").last()).toBeVisible({
+    timeout: 20_000,
+  });
+
+  const evaluationConversationResponse = await page.request.get(
+    `${apiBase}/v1/conversations/${conversationId}`,
+    {
+      headers: { origin: webOrigin },
+    },
+  );
+  expect(evaluationConversationResponse.status()).toBe(200);
+  const evaluationConversation =
+    (await evaluationConversationResponse.json()) as {
+      messages: Array<{
+        id: string;
+        role: "USER" | "ASSISTANT";
+        content: string;
+      }>;
+    };
+  const evaluationSource = [...evaluationConversation.messages]
+    .reverse()
+    .find(
+      (message) =>
+        message.role === "USER" &&
+        message.content === "Human evaluation source",
+    );
+  expect(evaluationSource?.id).toBeTruthy();
+
+  const evaluationPlanResponse = await page.request.post(
+    `${apiBase}/v1/execution-plans`,
+    {
+      headers: {
+        origin: webOrigin,
+        "content-type": "application/json",
+      },
+      data: {
+        messageId: evaluationSource?.id,
+        plan: {
+          schemaVersion: 1,
+          goal: "Review a result with an explicit human decision",
+          maxParallelism: 1,
+          invocations: [
+            {
+              id: "review",
+              purpose: "Review the candidate result",
+              target: { kind: "EVALUATOR" },
+              outputs: [{ name: "evaluation", artifactType: "JSON" }],
+              acceptanceCriteria: [
+                {
+                  id: "human-review",
+                  description: "Human reviewer accepts the result",
+                  mode: "HUMAN_APPROVAL",
+                },
+              ],
+              riskClass: "READ_ONLY",
+              approvalPolicy: "HUMAN_APPROVAL",
+              failurePolicy: "FAIL_PLAN",
+              joinPolicy: "ALL_REQUIRED",
+            },
+          ],
+          dependencies: [],
+        },
+      },
+    },
+  );
+  expect(evaluationPlanResponse.status()).toBe(201);
+
+  await page.reload();
+  const evaluationCard = page.getByTestId("workflow-card").filter({
+    hasText: /review a result with an explicit human decision/i,
+  });
+  await expect(evaluationCard).toBeVisible();
+  await evaluationCard
+    .getByRole("button", { name: /запустить|start/i })
+    .click();
+
+  const pass = evaluationCard.getByRole("button", {
+    name: /принять|pass/i,
+  });
+  const fail = evaluationCard.getByRole("button", {
+    name: /нужны изменения|needs changes/i,
+  });
+  await expect(pass).toBeVisible();
+  await expect(fail).toBeVisible();
+  await expect(
+    evaluationCard.getByRole("button", { name: /подтвердить|approve/i }),
+  ).toHaveCount(0);
+  await expect(composer).toBeVisible();
+  await expect(composer).toBeEnabled();
+  await assertNoDocumentOverflow(page);
+
+  await fail.click();
+  await expect(pass).toHaveCount(0);
+  await expect(fail).toHaveCount(0);
+  await expect(evaluationCard).toContainText(
+    /проверка:\s*fail|evaluation:\s*fail/i,
+  );
+  await expect(composer).toBeVisible();
+  await expect(composer).toBeEnabled();
+  await assertNoDocumentOverflow(page);
 });

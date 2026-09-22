@@ -32,6 +32,31 @@ export function validateManualExecutionPlan(plan: ExecutionPlanDefinition): void
         `Invocation ${invocation.id} requires explicit approval for risk class ${invocation.riskClass}`,
       );
     }
+
+    if (invocation.target.kind === "EVALUATOR") {
+      const mode = invocation.acceptanceCriteria[0]?.mode;
+      if (invocation.riskClass !== "READ_ONLY") {
+        invalid(
+          `Evaluator ${invocation.id} must use READ_ONLY risk class`,
+        );
+      }
+      if (
+        mode === "HUMAN_APPROVAL" &&
+        invocation.approvalPolicy !== "HUMAN_APPROVAL"
+      ) {
+        invalid(
+          `Human evaluator ${invocation.id} requires HUMAN_APPROVAL policy`,
+        );
+      }
+      if (
+        mode !== "HUMAN_APPROVAL" &&
+        invocation.approvalPolicy !== "AUTO"
+      ) {
+        invalid(
+          `Automatic evaluator ${invocation.id} must use AUTO approval policy`,
+        );
+      }
+    }
   }
 }
 

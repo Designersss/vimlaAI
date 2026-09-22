@@ -26,6 +26,7 @@ export function WorkflowStep({
   sourceInvocations,
   busyKey,
   onApprove,
+  onEvaluate,
 }: {
   index: number;
   planId: string;
@@ -34,10 +35,16 @@ export function WorkflowStep({
   sourceInvocations: WorkflowInvocation[];
   busyKey: string | null;
   onApprove: (invocationId: string) => void;
+  onEvaluate: (invocationId: string, outcome: "PASS" | "FAIL") => void;
 }) {
   const t = useTranslations();
   const router = useRouter();
   const approveKey = `approve:${planId}:${invocation.id}`;
+  const passKey = `evaluate:${planId}:${invocation.id}:PASS`;
+  const failKey = `evaluate:${planId}:${invocation.id}:FAIL`;
+  const isHumanEvaluator =
+    invocation.target.kind === "EVALUATOR" &&
+    invocation.approvalPolicy === "HUMAN_APPROVAL";
   const detail = invocationStatusDetail(invocation, t);
   const runSummary = latestRunSummary(invocation, t);
 
@@ -76,6 +83,20 @@ export function WorkflowStep({
                 </Text>
               );
             })}
+          </div>
+        ) : null}
+
+        {invocation.target.kind === "EVALUATOR" &&
+        invocation.acceptanceCriteria.length > 0 ? (
+          <div className={styles.dependencies}>
+            <Text tone="caption">
+              {t("workflow.evaluationCriteria")}
+            </Text>
+            {invocation.acceptanceCriteria.map((criterion) => (
+              <Text tone="caption" key={criterion.id}>
+                • {criterion.description}
+              </Text>
+            ))}
           </div>
         ) : null}
 
@@ -126,7 +147,28 @@ export function WorkflowStep({
           </div>
         ) : null}
 
-        {invocation.requiresApproval ? (
+        {invocation.requiresApproval && isHumanEvaluator ? (
+          <div className={styles.stepActions}>
+            <Button
+              size="sm"
+              variant="primary"
+              onClick={() => onEvaluate(invocation.id, "PASS")}
+              disabled={busyKey !== null}
+              loading={busyKey === passKey}
+            >
+              {t("workflow.evaluationPass")}
+            </Button>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => onEvaluate(invocation.id, "FAIL")}
+              disabled={busyKey !== null}
+              loading={busyKey === failKey}
+            >
+              {t("workflow.evaluationFail")}
+            </Button>
+          </div>
+        ) : invocation.requiresApproval ? (
           <div className={styles.stepActions}>
             <Button
               size="sm"
@@ -138,6 +180,17 @@ export function WorkflowStep({
               {t("workflow.approve")}
             </Button>
           </div>
+        ) : null}
+
+        {invocation.latestRun?.evaluation ? (
+          <Text tone="caption">
+            {t("workflow.evaluationResult", {
+              outcome: invocation.latestRun.evaluation.outcome,
+              confidence: Math.round(
+                invocation.latestRun.evaluation.confidence * 100,
+              ),
+            })}
+          </Text>
         ) : null}
       </div>
     </li>

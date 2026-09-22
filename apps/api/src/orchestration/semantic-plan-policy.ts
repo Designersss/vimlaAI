@@ -14,7 +14,8 @@ export class SemanticPlanPolicyError extends Error {
     readonly code:
       | "TARGET_NOT_EXECUTABLE"
       | "OUTPUT_NOT_EXECUTABLE"
-      | "SIDE_EFFECT_NOT_EXECUTABLE",
+      | "SIDE_EFFECT_NOT_EXECUTABLE"
+      | "EVALUATOR_INVALID",
     message: string,
   ) {
     super(message);
@@ -77,11 +78,63 @@ export function applySemanticPlanExecutionPolicy(
           };
         }
 
-        case "EVALUATOR":
-          throw new SemanticPlanPolicyError(
-            "TARGET_NOT_EXECUTABLE",
-            "Conditional evaluator execution is not available yet",
-          );
+        case "EVALUATOR": {
+          if (invocation.outputs.length !== 1 || invocation.outputs[0]?.artifactType !== "JSON") {
+            throw new SemanticPlanPolicyError(
+              "OUTPUT_NOT_EXECUTABLE",
+              "Evaluator invocations must declare exactly one JSON outcome artifact",
+            );
+          }
+          if (invocation.acceptanceCriteria.length === 0) {
+            throw new SemanticPlanPolicyError(
+              "EVALUATOR_INVALID",
+              "Evaluator invocations require at least one acceptance criterion",
+            );
+          }
+          const modes = new Set(invocation.acceptanceCriteria.map((criterion) => criterion.mode));
+          if (modes.size !== 1) {
+            throw new SemanticPlanPolicyError(
+              "EVALUATOR_INVALID",
+              "One evaluator invocation cannot mix evaluation modes",
+            );
+          }
+          const mode = invocation.acceptanceCriteria[0]?.mode;
+          if (
+            mode === "HUMAN_APPROVAL" &&
+            invocation.acceptanceCriteria.length !== 1
+          ) {
+            throw new SemanticPlanPolicyError(
+              "EVALUATOR_INVALID",
+              "Human evaluator invocations require exactly one acceptance criterion in v1",
+            );
+          }
+          if (
+            mode === "DETERMINISTIC" &&
+            invocation.acceptanceCriteria.some((criterion) => criterion.binding === undefined)
+          ) {
+            throw new SemanticPlanPolicyError(
+              "EVALUATOR_INVALID",
+              "Deterministic evaluator criteria require explicit artifact bindings",
+            );
+          }
+          if (
+            mode !== "DETERMINISTIC" &&
+            invocation.acceptanceCriteria.some((criterion) => criterion.binding !== undefined)
+          ) {
+            throw new SemanticPlanPolicyError(
+              "EVALUATOR_INVALID",
+              "Only deterministic evaluator criteria may declare deterministic bindings",
+            );
+          }
+          return {
+            ...invocation,
+            riskClass: "READ_ONLY" as const,
+            approvalPolicy:
+              mode === "HUMAN_APPROVAL"
+                ? ("HUMAN_APPROVAL" as const)
+                : ("AUTO" as const),
+          };
+        }
 
         case "AGENT":
           throw new SemanticPlanPolicyError(

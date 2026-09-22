@@ -407,6 +407,73 @@ test("refuses planner target injection that is not backed by a structured mentio
   );
 });
 
+test("rejects planner attempts to substitute an explicit executor mention with evaluator authority", () => {
+  const maliciousRaw = JSON.stringify({
+    schemaVersion: 1,
+    decision: "PLAN",
+    confidence: 0.99,
+    clarificationQuestion: null,
+    goal: "Substitute the selected executor",
+    invocations: [
+      {
+        id: "review",
+        purpose: "Review the result",
+        targetHint: {
+          kind: "MENTION",
+          occurrenceId: "model-a",
+          semanticRole: "EVALUATION",
+        },
+        outputs: [{ name: "evaluation", artifactType: "JSON" }],
+        acceptanceCriteria: [
+          {
+            id: "quality",
+            description: "Quality is acceptable",
+            mode: "AI_EVALUATOR",
+          },
+        ],
+        riskHint: "READ_ONLY",
+        failurePolicy: "FAIL_PLAN",
+        joinPolicy: "ALL_REQUIRED",
+      },
+    ],
+    dependencies: [],
+  });
+
+  assert.throws(
+    () => parseSemanticPlannerOutput(maliciousRaw),
+    (error) =>
+      error instanceof SemanticPlannerError &&
+      error.code === "OUTPUT_INVALID",
+  );
+
+  assert.throws(
+    () =>
+      compileSemanticPlannerDraft(
+        { userText: "Use @gpt-model to review this", mentions: [mention()] },
+        planDraft([
+          plannerInvocation("review", "model-a", {
+            targetHint: {
+              kind: "MENTION",
+              occurrenceId: "model-a",
+              semanticRole: "EVALUATION",
+            },
+            outputs: [{ name: "evaluation", artifactType: "JSON" }],
+            acceptanceCriteria: [
+              {
+                id: "quality",
+                description: "Quality is acceptable",
+                mode: "AI_EVALUATOR",
+              },
+            ],
+          }),
+        ]),
+      ),
+    (error) =>
+      error instanceof SemanticPlannerError &&
+      error.code === "MENTION_CONSTRAINT_VIOLATION",
+  );
+});
+
 test("rejects ignored or duplicated explicit executor mentions", () => {
   const mentions = [
     mention(),
@@ -532,6 +599,60 @@ test("forces explicit approval for Vimla actions even when the model labels risk
   assert.equal(result.plan.invocations[0]?.approvalPolicy, "USER_CONFIRMATION");
 });
 
+test("compiles HUMAN_APPROVAL evaluator proposals with the canonical approval policy", () => {
+  const result = compileSemanticPlannerDraft(
+    {
+      userText: "Generate a draft and let me approve whether it is ready",
+      mentions: [mention()],
+    },
+    planDraft(
+      [
+        plannerInvocation("generate", "model-a", {
+          outputs: [{ name: "draft", artifactType: "TEXT" }],
+        }),
+        {
+          id: "human-review",
+          purpose: "Let the user decide whether the generated draft is ready",
+          targetHint: { kind: "EVALUATOR" },
+          outputs: [{ name: "evaluation", artifactType: "JSON" }],
+          acceptanceCriteria: [
+            {
+              id: "approved",
+              description: "The user approves the generated draft",
+              mode: "HUMAN_APPROVAL",
+            },
+          ],
+          riskHint: "INTERNAL_WRITE",
+          failurePolicy: "FAIL_PLAN",
+          joinPolicy: "ALL_REQUIRED",
+        },
+      ],
+      [
+        {
+          id: "generate-review",
+          fromInvocationId: "generate",
+          toInvocationId: "human-review",
+          condition: { kind: "DATA" },
+          inputBindings: [
+            {
+              inputName: "draft",
+              sourceOutputName: "draft",
+              expectedArtifactType: "TEXT",
+            },
+          ],
+        },
+      ],
+    ),
+  );
+
+  assert.equal(result.kind, "PLAN");
+  const evaluator = result.plan.invocations.find(
+    (invocation) => invocation.target.kind === "EVALUATOR",
+  );
+  assert.equal(evaluator?.riskClass, "READ_ONLY");
+  assert.equal(evaluator?.approvalPolicy, "HUMAN_APPROVAL");
+});
+
 test("supports evaluator proposal nodes without granting model/provider authority", () => {
   const result = compileSemanticPlannerDraft(
     {
@@ -547,7 +668,7 @@ test("supports evaluator proposal nodes without granting model/provider authorit
           id: "evaluate",
           purpose: "Evaluate the generated draft",
           targetHint: { kind: "EVALUATOR" },
-          outputs: [],
+          outputs: [{ name: "evaluation", artifactType: "JSON" }],
           acceptanceCriteria: [
             {
               id: "quality",

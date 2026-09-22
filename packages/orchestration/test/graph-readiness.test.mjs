@@ -4,6 +4,7 @@ import {
   GraphValidationError,
   computePendingInvocationTransitions,
   decideInvocationReadiness,
+  executionPlanSchema,
   validateExecutionPlanGraph,
 } from "../dist/index.js";
 
@@ -113,6 +114,201 @@ test("rejects duplicate inputs, invalid joins and graph limits", () => {
     () => validateExecutionPlanGraph(plan([invocation("a"), invocation("b")]), { maxInvocations: 1, maxDependencies: 10, maxDepth: 10, maxFanOut: 10 }),
     (error) => error instanceof GraphValidationError && error.code === "GRAPH_LIMIT_EXCEEDED",
   );
+});
+
+test("rejects duplicate evaluator acceptance criterion ids", () => {
+  const source = invocation("source", {
+    outputs: [{ name: "result", artifactType: "TEXT" }],
+  });
+  const evaluator = invocation("evaluate", {
+    target: { kind: "EVALUATOR" },
+    outputs: [{ name: "evaluation", artifactType: "JSON" }],
+    acceptanceCriteria: [
+      {
+        id: "quality",
+        description: "First quality criterion",
+        mode: "DETERMINISTIC",
+        binding: {
+          kind: "ARTIFACT_EXISTS",
+          inputName: "result",
+        },
+      },
+      {
+        id: "quality",
+        description: "Duplicate quality criterion",
+        mode: "DETERMINISTIC",
+        binding: {
+          kind: "ARTIFACT_EXISTS",
+          inputName: "result",
+        },
+      },
+    ],
+  });
+  expectGraphError(
+    plan(
+      [source, evaluator],
+      [
+        dep("data", "source", "evaluate", { kind: "DATA" }, [
+          {
+            inputName: "result",
+            sourceOutputName: "result",
+            expectedArtifactType: "TEXT",
+          },
+        ]),
+      ],
+    ),
+    "INVALID_EVALUATOR",
+  );
+});
+
+test("rejects invalid deterministic JSON pointer bindings before execution", () => {
+  const source = invocation("source", {
+    outputs: [{ name: "result", artifactType: "JSON" }],
+  });
+  const evaluator = invocation("evaluate", {
+    target: { kind: "EVALUATOR" },
+    outputs: [{ name: "evaluation", artifactType: "JSON" }],
+    acceptanceCriteria: [
+      {
+        id: "json-check",
+        description: "Check structured result",
+        mode: "DETERMINISTIC",
+        binding: {
+          kind: "JSON_EQUALS",
+          inputName: "result",
+          path: "missing-leading-slash",
+          expectedValue: true,
+        },
+      },
+    ],
+  });
+  expectGraphError(
+    plan(
+      [source, evaluator],
+      [
+        dep("data", "source", "evaluate", { kind: "DATA" }, [
+          {
+            inputName: "result",
+            sourceOutputName: "result",
+            expectedArtifactType: "JSON",
+          },
+        ]),
+      ],
+    ),
+    "INVALID_EVALUATOR_BINDING",
+  );
+});
+
+test("rejects AI evaluators without DATA artifact evidence", () => {
+  const evaluator = invocation("ai-evaluator", {
+    target: { kind: "EVALUATOR" },
+    outputs: [{ name: "evaluation", artifactType: "JSON" }],
+    acceptanceCriteria: [
+      {
+        id: "quality",
+        description: "Candidate satisfies the quality bar",
+        mode: "AI_EVALUATOR",
+      },
+    ],
+  });
+  expectGraphError(plan([evaluator]), "INVALID_EVALUATOR_BINDING");
+});
+
+test("rejects multiple HUMAN_APPROVAL criteria because v1 resolves one human decision", () => {
+  const human = invocation("human-evaluator", {
+    target: { kind: "EVALUATOR" },
+    outputs: [{ name: "evaluation", artifactType: "JSON" }],
+    acceptanceCriteria: [
+      {
+        id: "quality",
+        description: "Human accepts the quality",
+        mode: "HUMAN_APPROVAL",
+      },
+      {
+        id: "safety",
+        description: "Human accepts the safety",
+        mode: "HUMAN_APPROVAL",
+      },
+    ],
+    approvalPolicy: "HUMAN_APPROVAL",
+  });
+  expectGraphError(plan([human]), "INVALID_EVALUATOR");
+});
+
+test("structural runtime schema enforces public graph-key and evaluator field bounds", () => {
+  const invalidKey = plan([
+    invocation("bad key", {
+      target: { kind: "EVALUATOR" },
+      outputs: [{ name: "evaluation", artifactType: "JSON" }],
+      acceptanceCriteria: [
+        {
+          id: "quality",
+          description: "Quality",
+          mode: "AI_EVALUATOR",
+        },
+      ],
+    }),
+  ]);
+  assert.equal(executionPlanSchema.safeParse(invalidKey).success, false);
+
+  const oversized = plan([
+    invocation("evaluate", {
+      target: { kind: "EVALUATOR" },
+      outputs: [{ name: "evaluation", artifactType: "JSON" }],
+      acceptanceCriteria: [
+        {
+          id: "quality",
+          description: "x".repeat(2_001),
+          mode: "AI_EVALUATOR",
+        },
+      ],
+    }),
+  ]);
+  assert.equal(executionPlanSchema.safeParse(oversized).success, false);
+});
+
+test("enforces evaluator approval policy and read-only risk", () => {
+  const human = invocation("human-evaluator", {
+    target: { kind: "EVALUATOR" },
+    outputs: [{ name: "evaluation", artifactType: "JSON" }],
+    acceptanceCriteria: [
+      {
+        id: "human-review",
+        description: "Human accepts the result",
+        mode: "HUMAN_APPROVAL",
+      },
+    ],
+    approvalPolicy: "AUTO",
+  });
+  expectGraphError(plan([human]), "INVALID_EVALUATOR");
+
+  const automated = invocation("automatic-evaluator", {
+    target: { kind: "EVALUATOR" },
+    outputs: [{ name: "evaluation", artifactType: "JSON" }],
+    acceptanceCriteria: [
+      {
+        id: "quality",
+        description: "AI checks quality",
+        mode: "AI_EVALUATOR",
+      },
+    ],
+    approvalPolicy: "HUMAN_APPROVAL",
+  });
+  expectGraphError(plan([automated]), "INVALID_EVALUATOR");
+
+  const risky = invocation("risky-evaluator", {
+    target: { kind: "EVALUATOR" },
+    outputs: [{ name: "evaluation", artifactType: "JSON" }],
+    acceptanceCriteria: [
+      {
+        id: "quality",
+        description: "AI checks quality",
+        mode: "AI_EVALUATOR",
+      },
+    ],
+    riskClass: "INTERNAL_WRITE",
+  });
+  expectGraphError(plan([risky]), "INVALID_EVALUATOR");
 });
 
 test("readiness handles roots, success, failure and outcome branches", () => {

@@ -17,12 +17,14 @@ export function WorkflowCard({
   onStart,
   onStop,
   onApprove,
+  onEvaluate,
 }: {
   plan: ExecutionPlanView;
   busyKey: string | null;
   onStart: () => void;
   onStop: () => void;
   onApprove: (invocationId: string) => void;
+  onEvaluate: (invocationId: string, outcome: "PASS" | "FAIL") => void;
 }) {
   const t = useTranslations();
   const completed = plan.invocations.filter((invocation) =>
@@ -94,6 +96,7 @@ export function WorkflowCard({
             sourceInvocations={plan.invocations}
             busyKey={busyKey}
             onApprove={onApprove}
+            onEvaluate={onEvaluate}
           />
         ))}
       </ol>

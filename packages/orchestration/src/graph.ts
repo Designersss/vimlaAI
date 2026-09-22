@@ -29,6 +29,8 @@ export type GraphValidationCode =
   | "INVALID_CONDITIONAL_BINDING"
   | "INVALID_JOIN"
   | "INVALID_OUTCOME"
+  | "INVALID_EVALUATOR"
+  | "INVALID_EVALUATOR_BINDING"
   | "UNREACHABLE_INVOCATION"
   | "GRAPH_LIMIT_EXCEEDED";
 
@@ -60,6 +62,15 @@ function uniqueOutputs(invocation: Invocation): Map<string, OutputDeclaration> {
     result.set(output.name, output);
   }
   return result;
+}
+
+function isValidJsonPointer(pointer: string): boolean {
+  if (pointer === "") return true;
+  if (!pointer.startsWith("/")) return false;
+  return pointer
+    .slice(1)
+    .split("/")
+    .every((token) => !/~(?![01])/u.test(token));
 }
 
 export function validateExecutionPlanGraph(
@@ -116,6 +127,19 @@ export function validateExecutionPlanGraph(
     if (dependency.condition.kind === "OUTCOME" && dependency.condition.outcome.trim().length === 0) {
       throw new GraphValidationError("INVALID_OUTCOME", `Outcome dependency ${dependency.id} must name an outcome`);
     }
+    if (dependency.condition.kind === "OUTCOME") {
+      const source = invocationsById.get(dependency.fromInvocationId);
+      if (
+        source?.target.kind === "EVALUATOR" &&
+        dependency.condition.outcome !== "PASS" &&
+        dependency.condition.outcome !== "FAIL"
+      ) {
+        throw new GraphValidationError(
+          "INVALID_OUTCOME",
+          `Evaluator outcome dependency ${dependency.id} must use PASS or FAIL`,
+        );
+      }
+    }
     if (dependency.condition.kind === "DATA" && dependency.inputBindings.length === 0) {
       throw new GraphValidationError("INVALID_DATA_DEPENDENCY", `Data dependency ${dependency.id} must bind at least one artifact`);
     }
@@ -166,6 +190,115 @@ export function validateExecutionPlanGraph(
     }
     if (incomingDependencies.length < 2 && invocation.joinPolicy !== "ALL_REQUIRED") {
       throw new GraphValidationError("INVALID_JOIN", `Invocation ${invocation.id} uses ${invocation.joinPolicy} without a multi-edge join`);
+    }
+
+    if (invocation.target.kind === "EVALUATOR") {
+      if (
+        invocation.outputs.length !== 1 ||
+        invocation.outputs[0]?.artifactType !== "JSON" ||
+        invocation.acceptanceCriteria.length === 0
+      ) {
+        throw new GraphValidationError(
+          "INVALID_EVALUATOR",
+          `Evaluator ${invocation.id} must declare one JSON output and at least one acceptance criterion`,
+        );
+      }
+      const criterionIds = new Set<string>();
+      for (const criterion of invocation.acceptanceCriteria) {
+        if (criterionIds.has(criterion.id)) {
+          throw new GraphValidationError(
+            "INVALID_EVALUATOR",
+            `Evaluator ${invocation.id} declares duplicate acceptance criterion ${criterion.id}`,
+          );
+        }
+        criterionIds.add(criterion.id);
+      }
+
+      const modes = new Set(
+        invocation.acceptanceCriteria.map((criterion) => criterion.mode),
+      );
+      if (modes.size !== 1) {
+        throw new GraphValidationError(
+          "INVALID_EVALUATOR",
+          `Evaluator ${invocation.id} cannot mix evaluation modes`,
+        );
+      }
+      const mode = invocation.acceptanceCriteria[0]?.mode;
+      if (
+        mode === "HUMAN_APPROVAL" &&
+        invocation.acceptanceCriteria.length !== 1
+      ) {
+        throw new GraphValidationError(
+          "INVALID_EVALUATOR",
+          `Human evaluator ${invocation.id} must declare exactly one acceptance criterion in v1`,
+        );
+      }
+      if (invocation.riskClass !== "READ_ONLY") {
+        throw new GraphValidationError(
+          "INVALID_EVALUATOR",
+          `Evaluator ${invocation.id} must be read-only`,
+        );
+      }
+      if (
+        (mode === "HUMAN_APPROVAL" &&
+          invocation.approvalPolicy !== "HUMAN_APPROVAL") ||
+        (mode !== "HUMAN_APPROVAL" && invocation.approvalPolicy !== "AUTO")
+      ) {
+        throw new GraphValidationError(
+          "INVALID_EVALUATOR",
+          `Evaluator ${invocation.id} uses an approval policy that does not match its evaluation mode`,
+        );
+      }
+      if (
+        mode === "DETERMINISTIC" &&
+        invocation.acceptanceCriteria.some(
+          (criterion) => criterion.binding === undefined,
+        )
+      ) {
+        throw new GraphValidationError(
+          "INVALID_EVALUATOR",
+          `Deterministic evaluator ${invocation.id} requires bindings for every criterion`,
+        );
+      }
+      if (
+        mode !== "DETERMINISTIC" &&
+        invocation.acceptanceCriteria.some(
+          (criterion) => criterion.binding !== undefined,
+        )
+      ) {
+        throw new GraphValidationError(
+          "INVALID_EVALUATOR",
+          `Only deterministic evaluator ${invocation.id} may declare deterministic bindings`,
+        );
+      }
+
+      const availableInputs = boundInputs.get(invocation.id) ?? new Set<string>();
+      if (mode === "AI_EVALUATOR" && availableInputs.size === 0) {
+        throw new GraphValidationError(
+          "INVALID_EVALUATOR_BINDING",
+          `AI evaluator ${invocation.id} requires at least one DATA artifact input`,
+        );
+      }
+      for (const criterion of invocation.acceptanceCriteria) {
+        if (
+          criterion.binding?.kind === "JSON_EQUALS" &&
+          !isValidJsonPointer(criterion.binding.path)
+        ) {
+          throw new GraphValidationError(
+            "INVALID_EVALUATOR_BINDING",
+            `Evaluator criterion ${criterion.id} contains an invalid JSON pointer`,
+          );
+        }
+        if (
+          criterion.binding &&
+          !availableInputs.has(criterion.binding.inputName)
+        ) {
+          throw new GraphValidationError(
+            "INVALID_EVALUATOR_BINDING",
+            `Evaluator criterion ${criterion.id} references unbound input ${criterion.binding.inputName}`,
+          );
+        }
+      }
     }
   }
 

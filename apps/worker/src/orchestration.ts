@@ -1,4 +1,10 @@
 import { Prisma, type PrismaClient } from "@vimla/database";
+import {
+  decideDependencyReadiness,
+  isTerminalInvocationStatus as isSharedTerminalInvocationStatus,
+  type DependencyCondition,
+  type DependencySourceRuntimeState,
+} from "@vimla/orchestration";
 import { isDuplicateJobError } from "./queue.js";
 import {
   INVOCATION_EXECUTE_JOB_NAME,
@@ -15,13 +21,6 @@ const ACTIVE_INVOCATION_STATUSES = [
   "WAITING_FOR_USAGE_CAPACITY",
   "BLOCKED_INSUFFICIENT_USAGE",
 ] as const;
-const TERMINAL_INVOCATION_STATUSES = new Set<InvocationStatus>([
-  "COMPLETED",
-  "FAILED",
-  "SKIPPED",
-  "CANCELED",
-]);
-
 export type InvocationStatus =
   | "PENDING"
   | "READY"
@@ -60,7 +59,6 @@ type RuntimeDependency = {
   conditionOutcome: string;
 };
 
-type DependencyEvaluation = "WAITING" | "SATISFIED" | "IMPOSSIBLE";
 type ReadinessDecision = "PENDING" | "READY" | "SKIPPED";
 
 export interface QueuePublisher {
@@ -666,48 +664,33 @@ function decideReadiness(
   stateById: ReadonlyMap<string, InvocationStatus>,
   outcomeById: ReadonlyMap<string, string | null>,
 ): ReadinessDecision {
-  const incoming = dependencies.filter((dependency) => dependency.toInvocationId === invocation.id);
-  if (incoming.length === 0) return "READY";
-
-  const evaluations = incoming.map((dependency) => {
-    const sourceStatus = stateById.get(dependency.fromInvocationId);
-    if (!sourceStatus) return "WAITING" as const;
-    return evaluateCondition(dependency, sourceStatus, outcomeById.get(dependency.fromInvocationId) ?? null);
-  });
-
-  if (invocation.joinPolicy === "ALL_SETTLED") {
-    return evaluations.every((value) => value !== "WAITING") ? "READY" : "PENDING";
+  const incoming = dependencies
+    .filter((dependency) => dependency.toInvocationId === invocation.id)
+    .map((dependency) => ({
+      fromInvocationId: dependency.fromInvocationId,
+      condition: runtimeDependencyCondition(dependency),
+    }));
+  const sourceStates = new Map<string, DependencySourceRuntimeState>();
+  for (const [invocationId, status] of stateById) {
+    sourceStates.set(invocationId, {
+      invocationId,
+      status,
+      outcome: outcomeById.get(invocationId) ?? null,
+    });
   }
-  if (invocation.joinPolicy === "ANY_REQUIRED") {
-    if (evaluations.some((value) => value === "SATISFIED")) return "READY";
-    if (evaluations.every((value) => value === "IMPOSSIBLE")) return "SKIPPED";
-    return "PENDING";
-  }
-  if (evaluations.some((value) => value === "IMPOSSIBLE")) return "SKIPPED";
-  if (evaluations.every((value) => value === "SATISFIED")) return "READY";
-  return "PENDING";
+  return decideDependencyReadiness(
+    invocation.joinPolicy,
+    incoming,
+    sourceStates,
+  ).decision;
 }
 
-function evaluateCondition(
+function runtimeDependencyCondition(
   dependency: RuntimeDependency,
-  sourceStatus: InvocationStatus,
-  outcome: string | null,
-): DependencyEvaluation {
-  if (!isTerminalInvocationStatus(sourceStatus)) return "WAITING";
-
-  switch (dependency.conditionKind) {
-    case "ALWAYS":
-      return "SATISFIED";
-    case "DATA":
-    case "ON_SUCCESS":
-      return sourceStatus === "COMPLETED" ? "SATISFIED" : "IMPOSSIBLE";
-    case "ON_FAILURE":
-      return sourceStatus === "FAILED" ? "SATISFIED" : "IMPOSSIBLE";
-    case "OUTCOME":
-      return sourceStatus === "COMPLETED" && outcome === dependency.conditionOutcome
-        ? "SATISFIED"
-        : "IMPOSSIBLE";
-  }
+): DependencyCondition {
+  return dependency.conditionKind === "OUTCOME"
+    ? { kind: "OUTCOME", outcome: dependency.conditionOutcome }
+    : { kind: dependency.conditionKind };
 }
 
 async function failPlan(
@@ -735,7 +718,7 @@ function invocationRunIdempotencyKey(invocationId: string, attempt: number): str
 }
 
 function isTerminalInvocationStatus(status: InvocationStatus): boolean {
-  return TERMINAL_INVOCATION_STATUSES.has(status);
+  return isSharedTerminalInvocationStatus(status);
 }
 
 function parseInvocationStatus(value: string): InvocationStatus {
