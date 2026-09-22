@@ -363,7 +363,7 @@ function evaluateDeterministically(
           const expected = criterion.binding.value;
           passed = criterion.binding.caseSensitive
             ? actual.includes(expected)
-            : actual.toLocaleLowerCase().includes(expected.toLocaleLowerCase());
+            : actual.toLowerCase().includes(expected.toLowerCase());
           break;
         }
         case "JSON_EQUALS": {
@@ -503,7 +503,11 @@ function jsonPointer(value: Prisma.JsonValue, pointer: string): unknown {
       current = current[Number(token)];
       continue;
     }
-    if (typeof current === "object" && current !== null) {
+    if (
+      typeof current === "object" &&
+      current !== null &&
+      Object.prototype.hasOwnProperty.call(current, token)
+    ) {
       current = (current as Record<string, unknown>)[token];
       continue;
     }
