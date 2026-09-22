@@ -137,6 +137,45 @@ describe("EvaluatorInvocationExecutor", () => {
       confidence: 0.86,
       summary: "Accepted.",
     });
+
+    const retryRun = await prisma.invocationRun.create({
+      data: {
+        invocationId: seeded.evaluatorInvocationId,
+        attempt: 2,
+        idempotencyKey: `${seeded.evaluatorInvocationId}:attempt:2`,
+        status: "RUNNING",
+        startedAt: new Date(),
+      },
+    });
+    await expect(
+      executor.execute({
+        ...executionInput(seeded),
+        attempt: 2,
+        runId: retryRun.id,
+        idempotencyKey: retryRun.idempotencyKey,
+      }),
+    ).resolves.toEqual({
+      status: "COMPLETED",
+      outcome: "PASS",
+    });
+    expect(model.calls).toBe(1);
+    expect(
+      await prisma.evaluation.count({
+        where: {
+          invocationRun: {
+            invocationId: seeded.evaluatorInvocationId,
+          },
+        },
+      }),
+    ).toBe(2);
+    expect(
+      await prisma.artifact.count({
+        where: {
+          creatorInvocationId: seeded.evaluatorInvocationId,
+          outputName: "evaluation",
+        },
+      }),
+    ).toBe(1);
   });
 });
 
