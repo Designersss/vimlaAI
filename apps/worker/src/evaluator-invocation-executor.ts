@@ -136,6 +136,21 @@ export class EvaluatorInvocationExecutor {
         return terminal("HUMAN_EVALUATION_REQUIRES_API_DECISION");
       }
 
+      const previousEvaluation = await this.prisma.evaluation.findFirst({
+        where: {
+          invocationRunId: { not: input.runId },
+          evaluatorKind: mode,
+          invocationRun: { invocationId: input.invocationId },
+        },
+        orderBy: { createdAt: "desc" },
+      });
+      if (previousEvaluation) {
+        const replayed = evaluationFromStored(previousEvaluation);
+        await this.persistResult(input.runId, mode, replayed);
+        await this.ensureOutcomeArtifact(input.invocationId, replayed);
+        return { status: "COMPLETED", outcome: replayed.outcome };
+      }
+
       const resolved = await this.resolveArtifacts(
         invocation.plan.userId,
         input.invocationId,
