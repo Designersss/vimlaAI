@@ -498,6 +498,9 @@ importers:
 
   packages/context:
     dependencies:
+      '@vimla/artifacts':
+        specifier: workspace:*
+        version: link:../artifacts
       '@vimla/database':
         specifier: workspace:*
         version: link:../database

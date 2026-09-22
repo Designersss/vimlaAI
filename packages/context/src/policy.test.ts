@@ -4,6 +4,7 @@ import {
   evaluateContextPolicy,
   evaluateContextWritePolicy,
   isExternalProviderClassificationAllowed,
+  isInvocationTargetClassificationAllowed,
   type ContextSurfaceDescriptor,
 } from "./policy.js";
 
@@ -247,6 +248,12 @@ describe("ContextPolicy", () => {
     expect(isExternalProviderClassificationAllowed("PRIVATE")).toBe(true);
     expect(isExternalProviderClassificationAllowed("RESTRICTED")).toBe(false);
     expect(isExternalProviderClassificationAllowed("UNKNOWN")).toBe(false);
+    expect(
+      isInvocationTargetClassificationAllowed("EVALUATOR", "RESTRICTED"),
+    ).toBe(true);
+    expect(
+      isInvocationTargetClassificationAllowed("VIMLA", "UNKNOWN"),
+    ).toBe(false);
   });
 
   it("requires an explicit action for cross-scope project writes", () => {

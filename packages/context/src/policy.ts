@@ -147,8 +147,10 @@ export function evaluateContextPolicy(
   }
 
   if (
-    isExternalTarget(input.targetKind) &&
-    !isExternalProviderClassificationAllowed(input.classification)
+    !isInvocationTargetClassificationAllowed(
+      input.targetKind,
+      input.classification,
+    )
   ) {
     return { allowed: false, reason: "TARGET_CLASSIFICATION_DENIED" };
   }
@@ -305,14 +307,29 @@ function writeScopeRuleMatches(
   }
 }
 
-export function isExternalProviderClassificationAllowed(
+export function isKnownContextClassification(
   classification: string,
-): boolean {
+): classification is ContextClassification {
   return (
     classification === "PUBLIC" ||
     classification === "INTERNAL" ||
-    classification === "PRIVATE"
+    classification === "PRIVATE" ||
+    classification === "RESTRICTED"
   );
+}
+
+export function isInvocationTargetClassificationAllowed(
+  target: ContextInvocationTargetKind,
+  classification: string,
+): classification is ContextClassification {
+  if (!isKnownContextClassification(classification)) return false;
+  return !isExternalTarget(target) || classification !== "RESTRICTED";
+}
+
+export function isExternalProviderClassificationAllowed(
+  classification: string,
+): boolean {
+  return isInvocationTargetClassificationAllowed("AI_MODEL", classification);
 }
 
 function isExternalTarget(target: ContextInvocationTargetKind): boolean {

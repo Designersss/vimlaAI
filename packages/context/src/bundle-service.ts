@@ -1,4 +1,9 @@
 import { createHash } from "node:crypto";
+import {
+  ArtifactError,
+  ArtifactService,
+  type ResolvedArtifactInput,
+} from "@vimla/artifacts";
 import { type Prisma, type PrismaClient } from "@vimla/database";
 import {
   ContextAccessDeniedError,
@@ -9,6 +14,8 @@ import { canonicalJson } from "./fingerprint.js";
 import {
   CONTEXT_POLICY_VERSION,
   evaluateContextPolicy,
+  isInvocationTargetClassificationAllowed,
+  isKnownContextClassification,
   surfaceFromAudience,
   type ContextAudienceDescriptor,
   type ContextInvocationTargetKind,
@@ -37,6 +44,15 @@ export interface ContextBundleDenialAudit {
   reason: ContextBundleDenialReason;
 }
 
+export interface ContextBundleArtifactDenialAudit {
+  artifactRefHash: string;
+  classification: ContextClassification | "UNKNOWN";
+  reason:
+    | "TARGET_CLASSIFICATION_DENIED"
+    | "ACTOR_ACCESS_DENIED"
+    | "AUDIENCE_ACCESS_DENIED";
+}
+
 export interface ContextBundleManifest {
   version: typeof CONTEXT_POLICY_VERSION;
   targetKind: ContextInvocationTargetKind;
@@ -49,7 +65,16 @@ export interface ContextBundleManifest {
     classification: ContextClassification;
     fingerprint: string;
   }>;
+  allowedArtifacts: Array<{
+    inputName: string;
+    artifactId: string;
+    artifactVersionId: string;
+    classification: ContextClassification;
+    version: number;
+    fingerprint: string;
+  }>;
   denials: ContextBundleDenialAudit[];
+  artifactDenials: ContextBundleArtifactDenialAudit[];
 }
 
 export interface ContextBundleView {
@@ -59,17 +84,21 @@ export interface ContextBundleView {
   fingerprint: string;
   manifest: ContextBundleManifest;
   items: ContextSnapshotItemView[];
+  artifacts: ResolvedArtifactInput[];
   createdAt: string;
 }
 
 export class ContextBundleService {
   private readonly snapshots: ContextSnapshotService;
+  private readonly artifacts: ArtifactService;
 
   constructor(
     private readonly db: PrismaClient,
     snapshotService?: ContextSnapshotService,
+    artifactService?: ArtifactService,
   ) {
     this.snapshots = snapshotService ?? new ContextSnapshotService(db);
+    this.artifacts = artifactService ?? new ArtifactService(db);
   }
 
   async resolveForInvocation(
@@ -100,7 +129,9 @@ export class ContextBundleService {
     const surface = surfaceFromAudience(input.actorUserId, audience);
 
     const allowedItems: ContextSnapshotItemView[] = [];
+    const allowedArtifacts: ResolvedArtifactInput[] = [];
     const denials: ContextBundleDenialAudit[] = [];
+    const artifactDenials: ContextBundleArtifactDenialAudit[] = [];
     let blockingDenial = false;
 
     if (
@@ -166,6 +197,75 @@ export class ContextBundleService {
           blockingDenial = true;
         }
       }
+
+      const dependencies = await this.resolveDependencyArtifacts(
+        input.actorUserId,
+        invocation.id,
+      );
+      for (const binding of dependencies) {
+        const reference = binding.reference;
+        const classification = isKnownContextClassification(
+          reference.classification,
+        )
+          ? reference.classification
+          : null;
+
+        if (
+          !classification ||
+          !isInvocationTargetClassificationAllowed(
+            targetKind,
+            classification,
+          )
+        ) {
+          artifactDenials.push(
+            artifactDenialFor(
+              reference.artifactId,
+              reference.artifactVersionId,
+              classification ?? "UNKNOWN",
+              "TARGET_CLASSIFICATION_DENIED",
+            ),
+          );
+          blockingDenial = true;
+          continue;
+        }
+
+        const actorHasAccess = await this.artifacts.canReadVersion({
+          actorUserId: input.actorUserId,
+          artifactVersionId: reference.artifactVersionId,
+        });
+        if (!actorHasAccess) {
+          artifactDenials.push(
+            artifactDenialFor(
+              reference.artifactId,
+              reference.artifactVersionId,
+              classification,
+              "ACTOR_ACCESS_DENIED",
+            ),
+          );
+          blockingDenial = true;
+          continue;
+        }
+
+        const audienceHasAccess =
+          await this.everyAudienceMemberCanReadArtifact(
+            audience,
+            reference.artifactVersionId,
+          );
+        if (!audienceHasAccess) {
+          artifactDenials.push(
+            artifactDenialFor(
+              reference.artifactId,
+              reference.artifactVersionId,
+              classification,
+              "AUDIENCE_ACCESS_DENIED",
+            ),
+          );
+          blockingDenial = true;
+          continue;
+        }
+
+        allowedArtifacts.push(binding);
+      }
     }
 
     const manifest: ContextBundleManifest = {
@@ -180,7 +280,16 @@ export class ContextBundleService {
         classification: item.classification,
         fingerprint: item.fingerprint,
       })),
+      allowedArtifacts: allowedArtifacts.map(({ inputName, reference }) => ({
+        inputName,
+        artifactId: reference.artifactId,
+        artifactVersionId: reference.artifactVersionId,
+        classification: knownClassification(reference.classification),
+        version: reference.version,
+        fingerprint: reference.fingerprint,
+      })),
       denials,
+      artifactDenials,
     };
     const fingerprint = bundleFingerprint(manifest);
     const persisted = await this.persistBundle(
@@ -203,6 +312,7 @@ export class ContextBundleService {
       fingerprint,
       manifest,
       items: allowedItems,
+      artifacts: allowedArtifacts,
       createdAt: persisted.createdAt.toISOString(),
     };
   }
@@ -224,6 +334,42 @@ export class ContextBundleService {
       }
       throw error;
     }
+  }
+
+  private async resolveDependencyArtifacts(
+    actorUserId: string,
+    invocationId: string,
+  ): Promise<readonly ResolvedArtifactInput[]> {
+    try {
+      return await this.artifacts.resolveInputBindings({
+        actorUserId,
+        targetInvocationId: invocationId,
+      });
+    } catch (error: unknown) {
+      if (error instanceof ArtifactError) {
+        throw new ContextValidationError(
+          "Invocation dependency artifacts are invalid",
+        );
+      }
+      throw error;
+    }
+  }
+
+  private async everyAudienceMemberCanReadArtifact(
+    audience: ContextAudienceDescriptor,
+    artifactVersionId: string,
+  ): Promise<boolean> {
+    for (const userId of audience.participantUserIds) {
+      if (
+        !(await this.artifacts.canReadVersion({
+          actorUserId: userId,
+          artifactVersionId,
+        }))
+      ) {
+        return false;
+      }
+    }
+    return true;
   }
 
   private async everyAudienceMemberCanReadScope(
@@ -470,6 +616,30 @@ function inferSourceScope(
     return { kind: "PROJECT", projectId: item.sourceId };
   }
   return { kind: "PERSONAL", ownerUserId: actorUserId };
+}
+
+function artifactDenialFor(
+  artifactId: string,
+  artifactVersionId: string,
+  classification: ContextClassification | "UNKNOWN",
+  reason: ContextBundleArtifactDenialAudit["reason"],
+): ContextBundleArtifactDenialAudit {
+  return {
+    artifactRefHash: hashValue(
+      `ARTIFACT:${artifactId}:${artifactVersionId}`,
+    ),
+    classification,
+    reason,
+  };
+}
+
+function knownClassification(value: string): ContextClassification {
+  if (!isKnownContextClassification(value)) {
+    throw new ContextValidationError(
+      "Allowed artifact has an invalid classification",
+    );
+  }
+  return value;
 }
 
 function denialFor(

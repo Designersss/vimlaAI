@@ -19,6 +19,7 @@
     "test:integration": "vitest run --config vitest.integration.config.ts"
   },
   "dependencies": {
+    "@vimla/artifacts": "workspace:*",
     "@vimla/database": "workspace:*"
   },
   "devDependencies": {

@@ -272,6 +272,42 @@ export class ArtifactService {
     });
   }
 
+  async canReadVersion(input: {
+    actorUserId: string;
+    artifactVersionId: string;
+  }): Promise<boolean> {
+    validateIdentifier(input.actorUserId, "actorUserId");
+    validateIdentifier(input.artifactVersionId, "artifactVersionId");
+
+    const version = await this.prisma.artifactVersion.findUnique({
+      where: { id: input.artifactVersionId },
+      select: {
+        artifact: {
+          select: {
+            creatorInvocation: {
+              select: {
+                plan: {
+                  select: { userId: true },
+                },
+              },
+            },
+            accessGrants: {
+              where: {
+                granteeUserId: input.actorUserId,
+                permission: ARTIFACT_READ_PERMISSION,
+                revokedAt: null,
+              },
+              select: { id: true },
+            },
+          },
+        },
+      },
+    });
+    return Boolean(
+      version && isReadableBy(version.artifact, input.actorUserId),
+    );
+  }
+
   async readVersion(input: {
     actorUserId: string;
     artifactVersionId: string;
