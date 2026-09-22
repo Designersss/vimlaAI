@@ -18,6 +18,7 @@
     "@nestjs/platform-fastify": "^11.1.6",
     "@vimla/admin": "workspace:*",
     "@vimla/ai": "workspace:*",
+    "@vimla/artifacts": "workspace:*",
     "@vimla/auth": "workspace:*",
     "@vimla/billing": "workspace:*",
     "@vimla/config": "workspace:*",
