@@ -252,6 +252,11 @@ export function loadWorkerConfig(
     aiMaxPlanSettledMicroRub: parsed.AI_MAX_PLAN_SETTLED_MICRORUB,
     aiMaxPlanCommittedMicroRub: parsed.AI_MAX_PLAN_COMMITTED_MICRORUB,
     aiCancellationPollMs: parsed.AI_CANCELLATION_POLL_MS,
+    evaluatorProvider: parsed.EVALUATOR_PROVIDER,
+    evaluatorBaseUrl: parsed.EVALUATOR_BASE_URL?.replace(/\/$/, ""),
+    evaluatorModel: parsed.EVALUATOR_MODEL,
+    evaluatorApiKey: parsed.EVALUATOR_API_KEY,
+    evaluatorTimeoutMs: parsed.EVALUATOR_TIMEOUT_MS,
     aiReconciliationIntervalSeconds: parsed.AI_RECONCILIATION_INTERVAL_SECONDS,
     aiReconciliationBatch: parsed.AI_RECONCILIATION_BATCH,
     aiReconciliationPreProviderStaleSeconds:
