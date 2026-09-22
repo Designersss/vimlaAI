@@ -502,6 +502,116 @@ describe("execution plan API", () => {
     expect(runs).toBe(0);
   });
 
+  it("resolves HUMAN_APPROVAL evaluators through a dedicated idempotent decision endpoint", async () => {
+    const owner = await registerVerifiedUser(
+      app,
+      "orchestration-human-evaluator",
+    );
+    const messageId = await createSourceMessage(owner.id);
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/v1/execution-plans",
+      headers: jsonHeaders(),
+      cookies: owner.cookies,
+      payload: { messageId, plan: humanEvaluationPlan() },
+    });
+    expect(created.statusCode).toBe(201);
+    const planId = created.json().id as string;
+
+    const started = await app.inject({
+      method: "POST",
+      url: `/v1/execution-plans/${planId}/start`,
+      headers: jsonHeaders(),
+      cookies: owner.cookies,
+      payload: {},
+    });
+    expect(started.statusCode).toBe(200);
+    expect(statusById(started.json())).toEqual({
+      review: "WAITING_APPROVAL",
+    });
+
+    const genericApprove = await app.inject({
+      method: "POST",
+      url: `/v1/execution-plans/${planId}/approve`,
+      headers: jsonHeaders(),
+      cookies: owner.cookies,
+      payload: { invocationId: "review" },
+    });
+    expect(genericApprove.statusCode).toBe(409);
+
+    const resolved = await app.inject({
+      method: "POST",
+      url: `/v1/execution-plans/${planId}/evaluations/review/resolve`,
+      headers: jsonHeaders(),
+      cookies: owner.cookies,
+      payload: {
+        outcome: "FAIL",
+        summary: "The generated image does not match the agreed direction.",
+      },
+    });
+    expect(resolved.statusCode).toBe(200);
+    expect(statusById(resolved.json())).toEqual({
+      review: "COMPLETED",
+    });
+    const review = resolved
+      .json()
+      .invocations.find((item: { id: string }) => item.id === "review");
+    expect(review.latestRun).toMatchObject({
+      status: "COMPLETED",
+      outcome: "FAIL",
+      evaluation: {
+        mode: "HUMAN_APPROVAL",
+        outcome: "FAIL",
+        confidence: 1,
+        summary: "The generated image does not match the agreed direction.",
+      },
+    });
+    expect(review.artifacts).toHaveLength(1);
+    expect(review.artifacts[0]).toMatchObject({
+      outputName: "evaluation",
+      type: "JSON",
+      version: 1,
+    });
+
+    const replay = await app.inject({
+      method: "POST",
+      url: `/v1/execution-plans/${planId}/evaluations/review/resolve`,
+      headers: jsonHeaders(),
+      cookies: owner.cookies,
+      payload: {
+        outcome: "FAIL",
+        summary: "The generated image does not match the agreed direction.",
+      },
+    });
+    expect(replay.statusCode).toBe(200);
+    expect(replay.json().invocations[0].latestRun.id).toBe(
+      review.latestRun.id,
+    );
+
+    const conflictingReplay = await app.inject({
+      method: "POST",
+      url: `/v1/execution-plans/${planId}/evaluations/review/resolve`,
+      headers: jsonHeaders(),
+      cookies: owner.cookies,
+      payload: {
+        outcome: "PASS",
+        summary: "Changed my mind.",
+      },
+    });
+    expect(conflictingReplay.statusCode).toBe(409);
+
+    expect(
+      await prisma.evaluation.count({
+        where: {
+          invocationRun: {
+            invocation: { planId },
+          },
+        },
+      }),
+    ).toBe(1);
+  });
+
   async function createSourceMessage(userId: string): Promise<string> {
     const conversation = await prisma.conversation.create({
       data: {
@@ -565,6 +675,34 @@ function sequentialPlan(): ExecutionPlanDefinition {
         ],
       },
     ],
+  };
+}
+
+function humanEvaluationPlan(): ExecutionPlanDefinition {
+  return {
+    schemaVersion: 1,
+    goal: "Ask the human to evaluate the generated result",
+    maxParallelism: 1,
+    invocations: [
+      {
+        id: "review",
+        purpose: "Review the generated result",
+        target: { kind: "EVALUATOR" },
+        outputs: [{ name: "evaluation", artifactType: "JSON" }],
+        acceptanceCriteria: [
+          {
+            id: "human-review",
+            description: "Human reviewer accepts the result",
+            mode: "HUMAN_APPROVAL",
+          },
+        ],
+        riskClass: "READ_ONLY",
+        approvalPolicy: "HUMAN_APPROVAL",
+        failurePolicy: "FAIL_PLAN",
+        joinPolicy: "ALL_REQUIRED",
+      },
+    ],
+    dependencies: [],
   };
 }
 
