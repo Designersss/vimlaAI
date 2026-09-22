@@ -86,6 +86,20 @@ export function WorkflowStep({
           </div>
         ) : null}
 
+        {invocation.target.kind === "EVALUATOR" &&
+        invocation.acceptanceCriteria.length > 0 ? (
+          <div className={styles.dependencies}>
+            <Text tone="caption">
+              {t("workflow.evaluationCriteria")}
+            </Text>
+            {invocation.acceptanceCriteria.map((criterion) => (
+              <Text tone="caption" key={criterion.id}>
+                • {criterion.description}
+              </Text>
+            ))}
+          </div>
+        ) : null}
+
         {invocation.artifacts.length > 0 ? (
           <div
             className={styles.artifacts}
