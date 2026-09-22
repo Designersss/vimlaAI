@@ -165,11 +165,15 @@ test("workflow lane stays usable with the chat composer across desktop and mobil
   await expect(composer).toBeEnabled();
   await assertNoDocumentOverflow(page);
 
+  const assistantReplies = page.getByText("Hello from Vimla");
+  const assistantReplyCount = await assistantReplies.count();
+
   await composer.fill("Human evaluation source");
   await page.getByRole("button", { name: /отправить|send/i }).click();
-  await expect(page.getByText("Hello from Vimla").last()).toBeVisible({
+  await expect(assistantReplies).toHaveCount(assistantReplyCount + 1, {
     timeout: 20_000,
   });
+  await expect(assistantReplies.last()).toBeVisible();
 
   const evaluationConversationResponse = await page.request.get(
     `${apiBase}/v1/conversations/${conversationId}`,
