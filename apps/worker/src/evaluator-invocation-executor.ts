@@ -9,7 +9,7 @@ import {
   acceptanceCriteriaSchema,
   outputDeclarationSchema,
 } from "@vimla/contracts";
-import { Prisma, type PrismaClient } from "@vimla/database";
+import type { Prisma, PrismaClient } from "@vimla/database";
 import type {
   AcceptanceCriteria,
   EvaluationCriterionResult,
