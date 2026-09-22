@@ -80,7 +80,7 @@ export function applySemanticPlanExecutionPolicy(
         case "EVALUATOR":
           throw new SemanticPlanPolicyError(
             "TARGET_NOT_EXECUTABLE",
-            "Evaluator execution is not available until PR-12",
+            "Conditional evaluator execution is not available yet",
           );
 
         case "AGENT":
