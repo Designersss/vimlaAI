@@ -29,6 +29,29 @@ describe("ContextPolicy", () => {
     });
   });
 
+  it("never exposes one Direct Chat participant's personal scope to the other participant", () => {
+    expect(
+      evaluateContextPolicy({
+        actorUserId: "nikita",
+        surface: {
+          kind: "DIRECT_CHAT",
+          directConversationId: "direct-1",
+        },
+        targetKind: "VIMLA",
+        classification: "PRIVATE",
+        sourceScope: {
+          kind: "PERSONAL",
+          ownerUserId: "peer-user",
+        },
+        actorHasAccess: false,
+        audienceHasAccess: false,
+      }),
+    ).toEqual({
+      allowed: false,
+      reason: "SOURCE_SCOPE_DENIED",
+    });
+  });
+
   it("allows project context in a Direct Chat only after audience access passes", () => {
     const base = {
       actorUserId: "nikita",
@@ -68,6 +91,18 @@ describe("ContextPolicy", () => {
       kind: "PROJECT",
       projectId: "project-a",
     } satisfies ContextSurfaceDescriptor;
+
+    expect(
+      evaluateContextPolicy({
+        actorUserId: "user-1",
+        surface,
+        targetKind: "VIMLA",
+        classification: "PRIVATE",
+        sourceScope: { kind: "PROJECT", projectId: "project-a" },
+        actorHasAccess: true,
+        audienceHasAccess: true,
+      }),
+    ).toEqual({ allowed: true });
 
     expect(
       evaluateContextPolicy({

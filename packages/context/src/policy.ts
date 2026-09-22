@@ -54,7 +54,7 @@ export interface EvaluateContextPolicyInput {
   surface: ContextSurfaceDescriptor;
   targetKind: ContextInvocationTargetKind;
   classification: ContextClassification;
-  sourceScope: ContextSourceScope;
+  sourceScope: ContextReadScope;
   actorHasAccess: boolean;
   audienceHasAccess: boolean;
 }
@@ -96,7 +96,7 @@ export type ContextWriteDecision =
 export interface EvaluateContextWritePolicyInput {
   actorUserId: string;
   surface: ContextSurfaceDescriptor;
-  requestedScope: ContextSourceScope;
+  requestedScope: ContextWriteScope;
   explicitAction: boolean;
   actorHasWriteAccess: boolean;
 }
@@ -173,7 +173,7 @@ export function surfaceFromAudience(
 
 function sourceScopeAllowed(
   surface: ContextSurfaceDescriptor,
-  source: ContextSourceScope,
+  source: ContextReadScope,
   actorUserId: string,
 ): boolean {
   switch (surface.kind) {
