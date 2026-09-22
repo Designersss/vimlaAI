@@ -29,6 +29,7 @@ export type GraphValidationCode =
   | "INVALID_CONDITIONAL_BINDING"
   | "INVALID_JOIN"
   | "INVALID_OUTCOME"
+  | "INVALID_EVALUATOR"
   | "INVALID_EVALUATOR_BINDING"
   | "UNREACHABLE_INVOCATION"
   | "GRAPH_LIMIT_EXCEEDED";
@@ -117,6 +118,19 @@ export function validateExecutionPlanGraph(
     if (dependency.condition.kind === "OUTCOME" && dependency.condition.outcome.trim().length === 0) {
       throw new GraphValidationError("INVALID_OUTCOME", `Outcome dependency ${dependency.id} must name an outcome`);
     }
+    if (dependency.condition.kind === "OUTCOME") {
+      const source = invocationsById.get(dependency.fromInvocationId);
+      if (
+        source?.target.kind === "EVALUATOR" &&
+        dependency.condition.outcome !== "PASS" &&
+        dependency.condition.outcome !== "FAIL"
+      ) {
+        throw new GraphValidationError(
+          "INVALID_OUTCOME",
+          `Evaluator outcome dependency ${dependency.id} must use PASS or FAIL`,
+        );
+      }
+    }
     if (dependency.condition.kind === "DATA" && dependency.inputBindings.length === 0) {
       throw new GraphValidationError("INVALID_DATA_DEPENDENCY", `Data dependency ${dependency.id} must bind at least one artifact`);
     }
@@ -170,6 +184,49 @@ export function validateExecutionPlanGraph(
     }
 
     if (invocation.target.kind === "EVALUATOR") {
+      if (
+        invocation.outputs.length !== 1 ||
+        invocation.outputs[0]?.artifactType !== "JSON" ||
+        invocation.acceptanceCriteria.length === 0
+      ) {
+        throw new GraphValidationError(
+          "INVALID_EVALUATOR",
+          `Evaluator ${invocation.id} must declare one JSON output and at least one acceptance criterion`,
+        );
+      }
+      const modes = new Set(
+        invocation.acceptanceCriteria.map((criterion) => criterion.mode),
+      );
+      if (modes.size !== 1) {
+        throw new GraphValidationError(
+          "INVALID_EVALUATOR",
+          `Evaluator ${invocation.id} cannot mix evaluation modes`,
+        );
+      }
+      const mode = invocation.acceptanceCriteria[0]?.mode;
+      if (
+        mode === "DETERMINISTIC" &&
+        invocation.acceptanceCriteria.some(
+          (criterion) => criterion.binding === undefined,
+        )
+      ) {
+        throw new GraphValidationError(
+          "INVALID_EVALUATOR",
+          `Deterministic evaluator ${invocation.id} requires bindings for every criterion`,
+        );
+      }
+      if (
+        mode !== "DETERMINISTIC" &&
+        invocation.acceptanceCriteria.some(
+          (criterion) => criterion.binding !== undefined,
+        )
+      ) {
+        throw new GraphValidationError(
+          "INVALID_EVALUATOR",
+          `Only deterministic evaluator ${invocation.id} may declare deterministic bindings`,
+        );
+      }
+
       const availableInputs = boundInputs.get(invocation.id) ?? new Set<string>();
       for (const criterion of invocation.acceptanceCriteria) {
         if (
