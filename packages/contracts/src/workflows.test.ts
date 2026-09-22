@@ -36,6 +36,7 @@ function planFixture() {
           errorCode: null,
           startedAt: "2026-09-21T08:00:00.000Z",
           finishedAt: null,
+          evaluation: null,
         },
         artifacts: [
           {
@@ -87,6 +88,7 @@ describe("workflow UI contracts", () => {
     expect(parsed.invocations[0]?.artifacts[0]).toEqual(
       fixture.invocations[0].artifacts[0],
     );
+    expect(parsed.invocations[0]?.latestRun?.evaluation).toBeNull();
   });
 
   it("parses a conversation workflow collection", () => {
