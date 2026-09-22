@@ -62,6 +62,7 @@ export function buildSemanticPlannerPrompt(
     "A MENTION targetHint may reference only a supplied occurrenceId.",
     "Use EVALUATOR for a distinct evaluation node. It must declare exactly one JSON output and one or more acceptanceCriteria.",
     "All criteria in one evaluator node must use the same mode: DETERMINISTIC, AI_EVALUATOR, or HUMAN_APPROVAL.",
+    "A HUMAN_APPROVAL evaluator must declare exactly one acceptance criterion in v1.",
     "DETERMINISTIC criteria must include a binding: ARTIFACT_EXISTS, TEXT_CONTAINS, or JSON_EQUALS, referencing an inputName supplied by a DATA dependency.",
     "Use OUTCOME dependencies from evaluator nodes with outcome PASS or FAIL to express conditional branches.",
     "When executor intent, side-effect target, or requested behavior is materially ambiguous, return decision=CLARIFY instead of guessing.",
