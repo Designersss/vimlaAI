@@ -18,7 +18,6 @@ import {
   outputDeclarationSchema,
   workflowEvaluationSchema,
 } from "@vimla/contracts";
-import { isExternalProviderClassificationAllowed } from "@vimla/context";
 import type { Prisma, PrismaClient } from "@vimla/database";
 import type {
   AcceptanceCriteria,
@@ -248,17 +247,6 @@ export class EvaluatorInvocationExecutor {
       );
       if (mode === "AI_EVALUATOR" && resolved.length === 0) {
         return terminal("EVALUATOR_INPUT_MISSING");
-      }
-      if (
-        mode === "AI_EVALUATOR" &&
-        resolved.some(
-          (item) =>
-            !isExternalProviderClassificationAllowed(
-              item.version.classification,
-            ),
-        )
-      ) {
-        return terminal("EVALUATOR_ARTIFACT_CLASSIFICATION_DENIED");
       }
       const inputFingerprint = fingerprintResolvedArtifactInputs(resolved);
 

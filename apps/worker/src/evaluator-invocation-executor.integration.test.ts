@@ -223,35 +223,6 @@ describe("EvaluatorInvocationExecutor", () => {
     expect(model.calls).toBe(1);
   });
 
-  it("never sends a restricted artifact to the AI evaluator", async () => {
-    const seeded = await seedEvaluator(prisma, {
-      mode: "AI_EVALUATOR",
-      criterion: {
-        id: "quality",
-        description: "Candidate satisfies the quality bar",
-        mode: "AI_EVALUATOR",
-      },
-      artifactValue: { text: "restricted candidate" },
-      artifactClassification: "RESTRICTED",
-    });
-    const model = new CountingAiModel({
-      mode: "AI_EVALUATOR",
-      outcome: "PASS",
-      confidence: 1,
-      criteriaResults: [
-        { criterionId: "quality", outcome: "PASS", confidence: 1 },
-      ],
-    });
-    const executor = new EvaluatorInvocationExecutor(prisma, model);
-
-    await expect(executor.execute(executionInput(seeded))).resolves.toEqual({
-      status: "FAILED",
-      errorCode: "EVALUATOR_ARTIFACT_CLASSIFICATION_DENIED",
-      retryable: false,
-    });
-    expect(model.calls).toBe(0);
-  });
-
   it("fails closed before AI when no artifact evidence is bound", async () => {
     const seeded = await seedEvaluator(prisma, {
       mode: "AI_EVALUATOR",
@@ -435,7 +406,6 @@ async function seedEvaluator(
     mode: "DETERMINISTIC" | "AI_EVALUATOR";
     criterion: Prisma.InputJsonObject;
     artifactValue: Prisma.InputJsonObject;
-    artifactClassification?: string;
   },
 ): Promise<SeededEvaluator> {
   const suffix = randomUUID();
@@ -543,7 +513,7 @@ async function seedEvaluator(
     creatorInvocationId: sourceInvocationId,
     outputName: "result",
     type: "TEXT",
-    classification: input.artifactClassification ?? "PRIVATE",
+    classification: "PRIVATE",
     content: {
       kind: "INLINE_JSON",
       value: input.artifactValue,
