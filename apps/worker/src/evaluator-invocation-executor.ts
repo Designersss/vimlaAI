@@ -510,7 +510,7 @@ function validConfidence(value: number): boolean {
   return Number.isFinite(value) && value >= 0 && value <= 1;
 }
 
-function normalizeEvaluation(result: EvaluationResult) {
+function normalizeEvaluation(result: EvaluationResult): EvaluationResult {
   return {
     mode: result.mode,
     outcome: result.outcome,
@@ -519,9 +519,9 @@ function normalizeEvaluation(result: EvaluationResult) {
       criterionId: item.criterionId,
       outcome: item.outcome,
       confidence: item.confidence,
-      summary: item.summary ?? null,
+      ...(item.summary === undefined ? {} : { summary: item.summary }),
     })),
-    summary: result.summary ?? null,
+    ...(result.summary === undefined ? {} : { summary: result.summary }),
   };
 }
 
