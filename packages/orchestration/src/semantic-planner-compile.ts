@@ -201,11 +201,15 @@ function resolveTarget(
       `Mention occurrence ${hint.occurrenceId} was consumed more than once`,
     );
   }
+  if (hint.semanticRole !== "EXECUTION") {
+    throw new SemanticPlannerError(
+      "MENTION_CONSTRAINT_VIOLATION",
+      `Explicit executor mention ${hint.occurrenceId} cannot be substituted by an evaluator node`,
+    );
+  }
   consumedMentions.add(hint.occurrenceId);
 
-  return hint.semanticRole === "EVALUATION"
-    ? { kind: "EVALUATOR" }
-    : invocationTargetForPlannerMention(mention);
+  return invocationTargetForPlannerMention(mention);
 }
 
 function validateGraph(plan: ExecutionPlan): void {

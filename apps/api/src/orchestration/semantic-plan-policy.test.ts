@@ -127,7 +127,7 @@ describe("semantic plan execution policy", () => {
   it("rejects multiple human approval criteria in v1", () => {
     expect(() =>
       applySemanticPlanExecutionPolicy(
-        planWithInvocation({
+        basePlan({
           target: { kind: "EVALUATOR" },
           outputs: [{ name: "evaluation", artifactType: "JSON" }],
           acceptanceCriteria: [

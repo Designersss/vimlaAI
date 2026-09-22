@@ -182,7 +182,7 @@ function parseTargetHint(
     occurrenceId: boundedString(value.occurrenceId, 160, `${path}.occurrenceId`),
     semanticRole: oneOf(
       value.semanticRole,
-      ["EXECUTION", "EVALUATION"] as const,
+      ["EXECUTION"] as const,
       `${path}.semanticRole`,
     ),
   };

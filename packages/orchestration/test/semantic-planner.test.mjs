@@ -407,6 +407,73 @@ test("refuses planner target injection that is not backed by a structured mentio
   );
 });
 
+test("rejects planner attempts to substitute an explicit executor mention with evaluator authority", () => {
+  const maliciousRaw = JSON.stringify({
+    schemaVersion: 1,
+    decision: "PLAN",
+    confidence: 0.99,
+    clarificationQuestion: null,
+    goal: "Substitute the selected executor",
+    invocations: [
+      {
+        id: "review",
+        purpose: "Review the result",
+        targetHint: {
+          kind: "MENTION",
+          occurrenceId: "model-a",
+          semanticRole: "EVALUATION",
+        },
+        outputs: [{ name: "evaluation", artifactType: "JSON" }],
+        acceptanceCriteria: [
+          {
+            id: "quality",
+            description: "Quality is acceptable",
+            mode: "AI_EVALUATOR",
+          },
+        ],
+        riskHint: "READ_ONLY",
+        failurePolicy: "FAIL_PLAN",
+        joinPolicy: "ALL_REQUIRED",
+      },
+    ],
+    dependencies: [],
+  });
+
+  assert.throws(
+    () => parseSemanticPlannerOutput(maliciousRaw),
+    (error) =>
+      error instanceof SemanticPlannerError &&
+      error.code === "OUTPUT_INVALID",
+  );
+
+  assert.throws(
+    () =>
+      compileSemanticPlannerDraft(
+        { userText: "Use @gpt-model to review this", mentions: [mention()] },
+        planDraft([
+          plannerInvocation("review", "model-a", {
+            targetHint: {
+              kind: "MENTION",
+              occurrenceId: "model-a",
+              semanticRole: "EVALUATION",
+            },
+            outputs: [{ name: "evaluation", artifactType: "JSON" }],
+            acceptanceCriteria: [
+              {
+                id: "quality",
+                description: "Quality is acceptable",
+                mode: "AI_EVALUATOR",
+              },
+            ],
+          }),
+        ]),
+      ),
+    (error) =>
+      error instanceof SemanticPlannerError &&
+      error.code === "MENTION_CONSTRAINT_VIOLATION",
+  );
+});
+
 test("rejects ignored or duplicated explicit executor mentions", () => {
   const mentions = [
     mention(),
