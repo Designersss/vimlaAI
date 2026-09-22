@@ -268,6 +268,20 @@ export class EvaluatorInvocationExecutor {
       if (!mode) {
         return terminal("EVALUATOR_CONTRACT_INVALID");
       }
+      if (
+        (mode === "HUMAN_APPROVAL" &&
+          invocation.approvalPolicy !== "HUMAN_APPROVAL") ||
+        (mode !== "HUMAN_APPROVAL" &&
+          invocation.approvalPolicy !== "AUTO")
+      ) {
+        return terminal("EVALUATOR_CONTRACT_INVALID");
+      }
+      if (
+        mode !== "DETERMINISTIC" &&
+        criteria.some((criterion) => criterion.binding !== undefined)
+      ) {
+        return terminal("EVALUATOR_CONTRACT_INVALID");
+      }
       if (mode === "HUMAN_APPROVAL") {
         return terminal("HUMAN_EVALUATION_REQUIRES_API_DECISION");
       }
