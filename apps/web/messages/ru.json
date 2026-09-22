@@ -529,6 +529,7 @@
     "outcome": "Результат: {outcome}",
     "durationMs": "{milliseconds} мс",
     "durationSeconds": "{seconds} с",
+    "evaluationCriteria": "Критерии проверки",
     "evaluationPass": "Принять",
     "evaluationFail": "Нужны изменения",
     "evaluationResult": "Проверка: {outcome} · уверенность {confidence}%"
