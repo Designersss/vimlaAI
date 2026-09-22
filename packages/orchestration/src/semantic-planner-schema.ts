@@ -339,7 +339,7 @@ function parseBinding(input: unknown, path: string): InputBinding {
 function artifactType(input: unknown, path: string): ArtifactType {
   return oneOf(
     input,
-    ["TEXT", "PROMPT", "DOCUMENT", "CODE", "IMAGE", "PLAN", "FILE", "PATCH"] as const,
+    ["TEXT", "PROMPT", "DOCUMENT", "CODE", "IMAGE", "PLAN", "FILE", "PATCH", "JSON"] as const,
     path,
   );
 }
