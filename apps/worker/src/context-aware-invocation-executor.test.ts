@@ -34,10 +34,11 @@ const input: InvocationExecutionInput = {
 describe("ContextAwareInvocationExecutorRegistry", () => {
   it("delegates only after the invocation context passes authorization", async () => {
     const findFirst = vi.fn().mockResolvedValue(persistedVimlaInvocation);
-    const resolveForInvocation = vi.fn().mockResolvedValue({
+    const allowedBundle = {
       fingerprint: "sha256:allowed",
       manifest: { surfaceKind: "PERSONAL" },
-    });
+    };
+    const resolveForInvocation = vi.fn().mockResolvedValue(allowedBundle);
     const execute = vi.fn().mockResolvedValue({
       status: "COMPLETED" as const,
     });
@@ -57,7 +58,10 @@ describe("ContextAwareInvocationExecutorRegistry", () => {
       actorUserId: "user-1",
       invocationId: "invocation-1",
     });
-    expect(execute).toHaveBeenCalledOnce();
+    expect(execute).toHaveBeenCalledWith({
+      ...input,
+      contextBundle: allowedBundle,
+    });
   });
 
   it("fails closed and never delegates when audience authorization is denied", async () => {

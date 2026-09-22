@@ -276,8 +276,23 @@ export class ArtifactService {
     actorUserId: string;
     artifactVersionId: string;
   }): Promise<boolean> {
-    validateIdentifier(input.actorUserId, "actorUserId");
+    return this.canUsersReadVersion({
+      actorUserIds: [input.actorUserId],
+      artifactVersionId: input.artifactVersionId,
+    });
+  }
+
+  async canUsersReadVersion(input: {
+    actorUserIds: readonly string[];
+    artifactVersionId: string;
+  }): Promise<boolean> {
     validateIdentifier(input.artifactVersionId, "artifactVersionId");
+    if (input.actorUserIds.length === 0) return false;
+
+    const actorUserIds = [...new Set(input.actorUserIds)];
+    for (const actorUserId of actorUserIds) {
+      validateIdentifier(actorUserId, "actorUserId");
+    }
 
     const version = await this.prisma.artifactVersion.findUnique({
       where: { id: input.artifactVersionId },
@@ -293,18 +308,25 @@ export class ArtifactService {
             },
             accessGrants: {
               where: {
-                granteeUserId: input.actorUserId,
+                granteeUserId: { in: actorUserIds },
                 permission: ARTIFACT_READ_PERMISSION,
                 revokedAt: null,
               },
-              select: { id: true },
+              select: { granteeUserId: true },
             },
           },
         },
       },
     });
-    return Boolean(
-      version && isReadableBy(version.artifact, input.actorUserId),
+    if (!version) return false;
+
+    const ownerUserId = version.artifact.creatorInvocation.plan.userId;
+    const grantedUserIds = new Set(
+      version.artifact.accessGrants.map((grant) => grant.granteeUserId),
+    );
+    return actorUserIds.every(
+      (actorUserId) =>
+        actorUserId === ownerUserId || grantedUserIds.has(actorUserId),
     );
   }
 

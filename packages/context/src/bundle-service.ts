@@ -355,21 +355,14 @@ export class ContextBundleService {
     }
   }
 
-  private async everyAudienceMemberCanReadArtifact(
+  private everyAudienceMemberCanReadArtifact(
     audience: ContextAudienceDescriptor,
     artifactVersionId: string,
   ): Promise<boolean> {
-    for (const userId of audience.participantUserIds) {
-      if (
-        !(await this.artifacts.canReadVersion({
-          actorUserId: userId,
-          artifactVersionId,
-        }))
-      ) {
-        return false;
-      }
-    }
-    return true;
+    return this.artifacts.canUsersReadVersion({
+      actorUserIds: audience.participantUserIds,
+      artifactVersionId,
+    });
   }
 
   private async everyAudienceMemberCanReadScope(

@@ -1,3 +1,4 @@
+import type { ContextBundleView } from "@vimla/context";
 import { Prisma, type PrismaClient } from "@vimla/database";
 import {
   decideDependencyReadiness,
@@ -86,6 +87,7 @@ export interface InvocationExecutionInput {
     modelSlug: string | null;
     agentId: string | null;
   };
+  contextBundle?: ContextBundleView;
 }
 
 export type InvocationExecutionResult =

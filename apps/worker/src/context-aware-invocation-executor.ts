@@ -2,6 +2,7 @@ import {
   ContextAccessDeniedError,
   ContextBundleService,
   ContextError,
+  type ContextBundleView,
 } from "@vimla/context";
 import type { PrismaClient } from "@vimla/database";
 import type {
@@ -49,8 +50,9 @@ export class ContextAwareInvocationExecutorRegistry
       return terminal("CONTEXT_POLICY_TARGET_MISMATCH");
     }
 
+    let bundle: ContextBundleView;
     try {
-      const bundle = await this.bundles.resolveForInvocation({
+      bundle = await this.bundles.resolveForInvocation({
         actorUserId: invocation.plan.userId,
         invocationId: input.invocationId,
       });
@@ -70,7 +72,10 @@ export class ContextAwareInvocationExecutorRegistry
       throw error;
     }
 
-    return this.fallback.execute(input);
+    return this.fallback.execute({
+      ...input,
+      contextBundle: bundle,
+    });
   }
 }
 

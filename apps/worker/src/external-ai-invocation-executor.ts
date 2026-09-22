@@ -4,6 +4,7 @@ import {
   ArtifactService,
   ArtifactValidationError,
   type ArtifactType,
+  type ResolvedArtifactInput,
 } from "@vimla/artifacts";
 import {
   estimateProviderRequestInputTokens,
@@ -183,6 +184,7 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
         invocation.plan.userId,
         input.invocationId,
         invocation.purpose,
+        input.contextBundle?.artifacts,
       );
       const history = await this.loadTurnHistory(input.invocationId);
 
@@ -732,11 +734,14 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
     userId: string,
     invocationId: string,
     purpose: string,
+    authorizedBindings?: readonly ResolvedArtifactInput[],
   ): Promise<ProviderChatMessage[]> {
-    const bindings = await this.artifacts.resolveInputBindings({
-      actorUserId: userId,
-      targetInvocationId: invocationId,
-    });
+    const bindings =
+      authorizedBindings ??
+      (await this.artifacts.resolveInputBindings({
+        actorUserId: userId,
+        targetInvocationId: invocationId,
+      }));
     const inputs: string[] = [];
     for (const binding of bindings) {
       if (
