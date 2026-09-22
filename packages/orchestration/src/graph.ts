@@ -29,6 +29,7 @@ export type GraphValidationCode =
   | "INVALID_CONDITIONAL_BINDING"
   | "INVALID_JOIN"
   | "INVALID_OUTCOME"
+  | "INVALID_EVALUATOR_BINDING"
   | "UNREACHABLE_INVOCATION"
   | "GRAPH_LIMIT_EXCEEDED";
 
@@ -166,6 +167,21 @@ export function validateExecutionPlanGraph(
     }
     if (incomingDependencies.length < 2 && invocation.joinPolicy !== "ALL_REQUIRED") {
       throw new GraphValidationError("INVALID_JOIN", `Invocation ${invocation.id} uses ${invocation.joinPolicy} without a multi-edge join`);
+    }
+
+    if (invocation.target.kind === "EVALUATOR") {
+      const availableInputs = boundInputs.get(invocation.id) ?? new Set<string>();
+      for (const criterion of invocation.acceptanceCriteria) {
+        if (
+          criterion.binding &&
+          !availableInputs.has(criterion.binding.inputName)
+        ) {
+          throw new GraphValidationError(
+            "INVALID_EVALUATOR_BINDING",
+            `Evaluator criterion ${criterion.id} references unbound input ${criterion.binding.inputName}`,
+          );
+        }
+      }
     }
   }
 
