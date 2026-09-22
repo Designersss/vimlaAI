@@ -39,7 +39,6 @@ export interface ContextBundleDenialAudit {
 
 export interface ContextBundleManifest {
   version: typeof CONTEXT_POLICY_VERSION;
-  snapshotFingerprint: string;
   targetKind: ContextInvocationTargetKind;
   surfaceKind: ContextSurfaceDescriptor["kind"];
   surfaceScopeHash: string;
@@ -171,7 +170,6 @@ export class ContextBundleService {
 
     const manifest: ContextBundleManifest = {
       version: CONTEXT_POLICY_VERSION,
-      snapshotFingerprint: snapshot.fingerprint,
       targetKind,
       surfaceKind: surface.kind,
       surfaceScopeHash: hashSurface(surface),
