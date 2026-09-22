@@ -43,6 +43,23 @@ const ARTIFACT_TYPES = ["TEXT", "PROMPT", "DOCUMENT", "CODE", "IMAGE", "PLAN", "
 const EVALUATION_MODES = ["DETERMINISTIC", "AI_EVALUATOR", "HUMAN_APPROVAL"] as const;
 const RISK_CLASSES = ["READ_ONLY", "INTERNAL_WRITE", "EXTERNAL_SIDE_EFFECT", "DESTRUCTIVE", "FINANCIAL"] as const;
 const APPROVAL_POLICIES = ["AUTO", "USER_CONFIRMATION", "HUMAN_APPROVAL"] as const;
+
+const EXECUTION_PLAN_RUNTIME_LIMITS = {
+  idMax: 96,
+  goalMax: 4_000,
+  purposeMax: 1_000,
+  descriptionMax: 2_000,
+  modelOrAgentMax: 128,
+  outcomeMax: 128,
+  jsonPointerMax: 512,
+  maxInvocations: 64,
+  maxDependencies: 256,
+  maxParallelism: 16,
+  maxOutputsPerInvocation: 32,
+  maxCriteriaPerInvocation: 32,
+  maxBindingsPerDependency: 32,
+} as const;
+const GRAPH_KEY_PATTERN = /^[A-Za-z0-9._:-]+$/;
 const FAILURE_POLICIES = ["FAIL_PLAN", "CONTINUE"] as const;
 const JOIN_POLICIES = ["ALL_REQUIRED", "ANY_REQUIRED", "ALL_SETTLED"] as const;
 
@@ -88,6 +105,37 @@ function parseNonEmptyString(input: unknown, path: string): string {
   return input.trim();
 }
 
+function parseBoundedString(
+  input: unknown,
+  path: string,
+  maxLength: number,
+  options: { allowEmpty?: boolean; trim?: boolean } = {},
+): string {
+  if (typeof input !== "string") {
+    throw new ExecutionPlanSchemaError("expected string", path);
+  }
+  const value = options.trim === false ? input : input.trim();
+  if ((!options.allowEmpty && value.length === 0) || value.length > maxLength) {
+    throw new ExecutionPlanSchemaError(
+      `expected string with at most ${maxLength} characters`,
+      path,
+    );
+  }
+  return value;
+}
+
+function parseGraphKey(input: unknown, path: string): string {
+  const value = parseBoundedString(
+    input,
+    path,
+    EXECUTION_PLAN_RUNTIME_LIMITS.idMax,
+  );
+  if (!GRAPH_KEY_PATTERN.test(value)) {
+    throw new ExecutionPlanSchemaError("invalid graph key", path);
+  }
+  return value;
+}
+
 function parsePositiveInteger(input: unknown, path: string): number {
   if (typeof input !== "number" || !Number.isInteger(input) || input <= 0) {
     throw new ExecutionPlanSchemaError("expected positive integer", path);
@@ -109,9 +157,20 @@ function parseEnum<T extends string>(input: unknown, values: readonly T[], path:
   return input as T;
 }
 
-function parseArray<T>(input: unknown, parser: Parser<T>, path: string): T[] {
+function parseArray<T>(
+  input: unknown,
+  parser: Parser<T>,
+  path: string,
+  maxLength?: number,
+): T[] {
   if (!Array.isArray(input)) {
     throw new ExecutionPlanSchemaError("expected array", path);
+  }
+  if (maxLength !== undefined && input.length > maxLength) {
+    throw new ExecutionPlanSchemaError(
+      `expected at most ${maxLength} items`,
+      path,
+    );
   }
   return input.map((item, index) => parser(item, `${path}[${index}]`));
 }
@@ -152,10 +211,10 @@ function parseInvocationTarget(input: unknown, path: string): InvocationTarget {
       return { kind };
     case "AI_MODEL":
       assertExactKeys(value, ["kind", "modelSlug"], path);
-      return { kind, modelSlug: parseNonEmptyString(value.modelSlug, `${path}.modelSlug`) };
+      return { kind, modelSlug: parseBoundedString(value.modelSlug, `${path}.modelSlug`, EXECUTION_PLAN_RUNTIME_LIMITS.modelOrAgentMax) };
     case "AGENT":
       assertExactKeys(value, ["kind", "agentId"], path);
-      return { kind, agentId: parseNonEmptyString(value.agentId, `${path}.agentId`) };
+      return { kind, agentId: parseBoundedString(value.agentId, `${path}.agentId`, EXECUTION_PLAN_RUNTIME_LIMITS.modelOrAgentMax) };
     default:
       throw new ExecutionPlanSchemaError("unknown invocation target kind", `${path}.kind`);
   }
@@ -174,7 +233,7 @@ function parseDependencyCondition(input: unknown, path: string): DependencyCondi
       return { kind };
     case "OUTCOME":
       assertExactKeys(value, ["kind", "outcome"], path);
-      return { kind, outcome: parseNonEmptyString(value.outcome, `${path}.outcome`) };
+      return { kind, outcome: parseBoundedString(value.outcome, `${path}.outcome`, EXECUTION_PLAN_RUNTIME_LIMITS.outcomeMax) };
     default:
       throw new ExecutionPlanSchemaError("unknown dependency condition kind", `${path}.kind`);
   }
@@ -184,8 +243,8 @@ function parseInputBinding(input: unknown, path: string): InputBinding {
   const value = parseRecord(input, path);
   assertExactKeys(value, ["inputName", "sourceOutputName", "expectedArtifactType"], path);
   return {
-    inputName: parseNonEmptyString(value.inputName, `${path}.inputName`),
-    sourceOutputName: parseNonEmptyString(value.sourceOutputName, `${path}.sourceOutputName`),
+    inputName: parseGraphKey(value.inputName, `${path}.inputName`),
+    sourceOutputName: parseGraphKey(value.sourceOutputName, `${path}.sourceOutputName`),
     expectedArtifactType: parseArtifactType(value.expectedArtifactType, `${path}.expectedArtifactType`),
   };
 }
@@ -194,7 +253,7 @@ function parseOutputDeclaration(input: unknown, path: string): OutputDeclaration
   const value = parseRecord(input, path);
   assertExactKeys(value, ["name", "artifactType", "description"], path);
   const base = {
-    name: parseNonEmptyString(value.name, `${path}.name`),
+    name: parseGraphKey(value.name, `${path}.name`),
     artifactType: parseArtifactType(value.artifactType, `${path}.artifactType`),
   };
   if (value.description === undefined) {
@@ -202,7 +261,7 @@ function parseOutputDeclaration(input: unknown, path: string): OutputDeclaration
   }
   return {
     ...base,
-    description: parseNonEmptyString(value.description, `${path}.description`),
+    description: parseBoundedString(value.description, `${path}.description`, EXECUTION_PLAN_RUNTIME_LIMITS.descriptionMax),
   };
 }
 
@@ -212,7 +271,8 @@ function parseJsonPrimitive(
 ): string | number | boolean | null {
   if (
     input === null ||
-    typeof input === "string" ||
+    (typeof input === "string" &&
+      input.length <= EXECUTION_PLAN_RUNTIME_LIMITS.descriptionMax) ||
     typeof input === "boolean" ||
     (typeof input === "number" && Number.isFinite(input))
   ) {
@@ -232,7 +292,7 @@ function parseDeterministicCriterionBinding(
       assertExactKeys(value, ["kind", "inputName"], path);
       return {
         kind,
-        inputName: parseNonEmptyString(value.inputName, `${path}.inputName`),
+        inputName: parseGraphKey(value.inputName, `${path}.inputName`),
       };
     case "TEXT_CONTAINS": {
       assertExactKeys(value, ["kind", "inputName", "value", "caseSensitive"], path);
@@ -247,8 +307,8 @@ function parseDeterministicCriterionBinding(
             })();
       return {
         kind,
-        inputName: parseNonEmptyString(value.inputName, `${path}.inputName`),
-        value: parseNonEmptyString(value.value, `${path}.value`),
+        inputName: parseGraphKey(value.inputName, `${path}.inputName`),
+        value: parseBoundedString(value.value, `${path}.value`, EXECUTION_PLAN_RUNTIME_LIMITS.descriptionMax),
         ...(caseSensitive === undefined ? {} : { caseSensitive }),
       };
     }
@@ -256,13 +316,13 @@ function parseDeterministicCriterionBinding(
       assertExactKeys(value, ["kind", "inputName", "path", "expectedValue"], path);
       return {
         kind,
-        inputName: parseNonEmptyString(value.inputName, `${path}.inputName`),
-        path:
-          typeof value.path === "string"
-            ? value.path
-            : (() => {
-                throw new ExecutionPlanSchemaError("expected string", `${path}.path`);
-              })(),
+        inputName: parseGraphKey(value.inputName, `${path}.inputName`),
+        path: parseBoundedString(
+          value.path,
+          `${path}.path`,
+          EXECUTION_PLAN_RUNTIME_LIMITS.jsonPointerMax,
+          { allowEmpty: true, trim: false },
+        ),
         expectedValue: parseJsonPrimitive(
           value.expectedValue,
           `${path}.expectedValue`,
@@ -280,8 +340,8 @@ function parseAcceptanceCriteria(input: unknown, path: string): AcceptanceCriter
   const value = parseRecord(input, path);
   assertExactKeys(value, ["id", "description", "mode", "binding"], path);
   return {
-    id: parseNonEmptyString(value.id, `${path}.id`),
-    description: parseNonEmptyString(value.description, `${path}.description`),
+    id: parseGraphKey(value.id, `${path}.id`),
+    description: parseBoundedString(value.description, `${path}.description`, EXECUTION_PLAN_RUNTIME_LIMITS.descriptionMax),
     mode: parseEvaluationMode(value.mode, `${path}.mode`),
     ...(value.binding === undefined
       ? {}
@@ -312,11 +372,21 @@ function parseInvocation(input: unknown, path: string): Invocation {
     path,
   );
   return {
-    id: parseNonEmptyString(value.id, `${path}.id`),
-    purpose: parseNonEmptyString(value.purpose, `${path}.purpose`),
+    id: parseGraphKey(value.id, `${path}.id`),
+    purpose: parseBoundedString(value.purpose, `${path}.purpose`, EXECUTION_PLAN_RUNTIME_LIMITS.purposeMax),
     target: parseInvocationTarget(value.target, `${path}.target`),
-    outputs: parseArray(value.outputs, parseOutputDeclaration, `${path}.outputs`),
-    acceptanceCriteria: parseArray(value.acceptanceCriteria, parseAcceptanceCriteria, `${path}.acceptanceCriteria`),
+    outputs: parseArray(
+      value.outputs,
+      parseOutputDeclaration,
+      `${path}.outputs`,
+      EXECUTION_PLAN_RUNTIME_LIMITS.maxOutputsPerInvocation,
+    ),
+    acceptanceCriteria: parseArray(
+      value.acceptanceCriteria,
+      parseAcceptanceCriteria,
+      `${path}.acceptanceCriteria`,
+      EXECUTION_PLAN_RUNTIME_LIMITS.maxCriteriaPerInvocation,
+    ),
     riskClass: parseRiskClass(value.riskClass, `${path}.riskClass`),
     approvalPolicy: parseApprovalPolicy(value.approvalPolicy, `${path}.approvalPolicy`),
     failurePolicy: parseFailurePolicy(value.failurePolicy, `${path}.failurePolicy`),
@@ -328,27 +398,54 @@ function parseInvocationDependency(input: unknown, path: string): InvocationDepe
   const value = parseRecord(input, path);
   assertExactKeys(value, ["id", "fromInvocationId", "toInvocationId", "condition", "inputBindings"], path);
   return {
-    id: parseNonEmptyString(value.id, `${path}.id`),
-    fromInvocationId: parseNonEmptyString(value.fromInvocationId, `${path}.fromInvocationId`),
-    toInvocationId: parseNonEmptyString(value.toInvocationId, `${path}.toInvocationId`),
+    id: parseGraphKey(value.id, `${path}.id`),
+    fromInvocationId: parseGraphKey(value.fromInvocationId, `${path}.fromInvocationId`),
+    toInvocationId: parseGraphKey(value.toInvocationId, `${path}.toInvocationId`),
     condition: parseDependencyCondition(value.condition, `${path}.condition`),
-    inputBindings: parseArray(value.inputBindings, parseInputBinding, `${path}.inputBindings`),
+    inputBindings: parseArray(
+      value.inputBindings,
+      parseInputBinding,
+      `${path}.inputBindings`,
+      EXECUTION_PLAN_RUNTIME_LIMITS.maxBindingsPerDependency,
+    ),
   };
 }
 
 function parseExecutionPlanValue(input: unknown, path: string): ExecutionPlan {
   const value = parseRecord(input, path);
   assertExactKeys(value, ["schemaVersion", "goal", "maxParallelism", "invocations", "dependencies"], path);
-  const invocations = parseArray(value.invocations, parseInvocation, `${path}.invocations`);
+  const invocations = parseArray(
+    value.invocations,
+    parseInvocation,
+    `${path}.invocations`,
+    EXECUTION_PLAN_RUNTIME_LIMITS.maxInvocations,
+  );
   if (invocations.length === 0) {
     throw new ExecutionPlanSchemaError("expected at least one invocation", `${path}.invocations`);
   }
   return {
     schemaVersion: parseLiteralOne(value.schemaVersion, `${path}.schemaVersion`),
-    goal: parseNonEmptyString(value.goal, `${path}.goal`),
-    maxParallelism: parsePositiveInteger(value.maxParallelism, `${path}.maxParallelism`),
+    goal: parseBoundedString(value.goal, `${path}.goal`, EXECUTION_PLAN_RUNTIME_LIMITS.goalMax),
+    maxParallelism: (() => {
+      const valueParsed = parsePositiveInteger(
+        value.maxParallelism,
+        `${path}.maxParallelism`,
+      );
+      if (valueParsed > EXECUTION_PLAN_RUNTIME_LIMITS.maxParallelism) {
+        throw new ExecutionPlanSchemaError(
+          `expected at most ${EXECUTION_PLAN_RUNTIME_LIMITS.maxParallelism}`,
+          `${path}.maxParallelism`,
+        );
+      }
+      return valueParsed;
+    })(),
     invocations,
-    dependencies: parseArray(value.dependencies, parseInvocationDependency, `${path}.dependencies`),
+    dependencies: parseArray(
+      value.dependencies,
+      parseInvocationDependency,
+      `${path}.dependencies`,
+      EXECUTION_PLAN_RUNTIME_LIMITS.maxDependencies,
+    ),
   };
 }
 

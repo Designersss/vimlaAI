@@ -222,6 +222,142 @@ describe("EvaluatorInvocationExecutor", () => {
     });
     expect(model.calls).toBe(1);
   });
+
+  it("fails closed before AI when an evaluator input is only a CONTENT_REF", async () => {
+    const seeded = await seedEvaluator(prisma, {
+      mode: "AI_EVALUATOR",
+      criterion: {
+        id: "quality",
+        description: "Generated result should satisfy the requested quality bar",
+        mode: "AI_EVALUATOR",
+      },
+      artifactValue: { text: "candidate result" },
+    });
+    const sourceArtifact = await prisma.artifact.findUniqueOrThrow({
+      where: {
+        creatorInvocationId_outputName: {
+          creatorInvocationId: seeded.sourceInvocationId,
+          outputName: "result",
+        },
+      },
+      include: { versions: { orderBy: { version: "desc" }, take: 1 } },
+    });
+    const current = sourceArtifact.versions[0];
+    if (!current) throw new Error("Missing source artifact version");
+    await new ArtifactService(prisma).createVersion({
+      actorUserId: seeded.userId,
+      artifactId: sourceArtifact.id,
+      expectedCurrentVersion: current.version,
+      content: { kind: "CONTENT_REF", ref: "blob://private/candidate.bin" },
+    });
+    const model = new CountingAiModel({
+      mode: "AI_EVALUATOR",
+      outcome: "PASS",
+      confidence: 1,
+      criteriaResults: [
+        { criterionId: "quality", outcome: "PASS", confidence: 1 },
+      ],
+    });
+    const executor = new EvaluatorInvocationExecutor(prisma, model);
+
+    await expect(executor.execute(executionInput(seeded))).resolves.toEqual({
+      status: "FAILED",
+      errorCode: "EVALUATOR_CONTENT_UNAVAILABLE",
+      retryable: false,
+    });
+    expect(model.calls).toBe(0);
+  });
+
+  it("revalidates the current run input fingerprint before replaying a persisted evaluation", async () => {
+    const seeded = await seedEvaluator(prisma, {
+      mode: "AI_EVALUATOR",
+      criterion: {
+        id: "quality",
+        description: "Generated result should satisfy the requested quality bar",
+        mode: "AI_EVALUATOR",
+      },
+      artifactValue: { text: "candidate result" },
+    });
+    const model = new CountingAiModel({
+      mode: "AI_EVALUATOR",
+      outcome: "PASS",
+      confidence: 0.9,
+      criteriaResults: [
+        { criterionId: "quality", outcome: "PASS", confidence: 0.9 },
+      ],
+    });
+    const executor = new EvaluatorInvocationExecutor(prisma, model);
+    await expect(executor.execute(executionInput(seeded))).resolves.toEqual({
+      status: "COMPLETED",
+      outcome: "PASS",
+    });
+
+    const sourceArtifact = await prisma.artifact.findUniqueOrThrow({
+      where: {
+        creatorInvocationId_outputName: {
+          creatorInvocationId: seeded.sourceInvocationId,
+          outputName: "result",
+        },
+      },
+      include: { versions: { orderBy: { version: "desc" }, take: 1 } },
+    });
+    const current = sourceArtifact.versions[0];
+    if (!current) throw new Error("Missing source artifact version");
+    await new ArtifactService(prisma).createVersion({
+      actorUserId: seeded.userId,
+      artifactId: sourceArtifact.id,
+      expectedCurrentVersion: current.version,
+      content: {
+        kind: "INLINE_JSON",
+        value: { text: "candidate changed after evaluation" },
+      },
+    });
+
+    await expect(executor.execute(executionInput(seeded))).resolves.toEqual({
+      status: "FAILED",
+      errorCode: "EVALUATOR_INPUT_CHANGED",
+      retryable: false,
+    });
+    expect(model.calls).toBe(1);
+  });
+
+  it("rejects a structurally inconsistent persisted evaluation before branch replay", async () => {
+    const seeded = await seedEvaluator(prisma, {
+      mode: "DETERMINISTIC",
+      criterion: {
+        id: "exists",
+        description: "Candidate exists",
+        mode: "DETERMINISTIC",
+        binding: { kind: "ARTIFACT_EXISTS", inputName: "result" },
+      },
+      artifactValue: { text: "candidate result" },
+    });
+    const executor = new EvaluatorInvocationExecutor(
+      prisma,
+      new CountingAiModel({
+        mode: "AI_EVALUATOR",
+        outcome: "PASS",
+        confidence: 1,
+        criteriaResults: [
+          { criterionId: "exists", outcome: "PASS", confidence: 1 },
+        ],
+      }),
+    );
+    await expect(executor.execute(executionInput(seeded))).resolves.toEqual({
+      status: "COMPLETED",
+      outcome: "PASS",
+    });
+    await prisma.evaluation.update({
+      where: { invocationRunId: seeded.runId },
+      data: { criteriaResults: [] },
+    });
+
+    await expect(executor.execute(executionInput(seeded))).resolves.toEqual({
+      status: "FAILED",
+      errorCode: "EVALUATOR_PERSISTED_RESULT_INVALID",
+      retryable: false,
+    });
+  });
 });
 
 type SeededEvaluator = {

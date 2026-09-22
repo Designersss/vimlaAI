@@ -224,6 +224,15 @@ export function validateExecutionPlanGraph(
         );
       }
       const mode = invocation.acceptanceCriteria[0]?.mode;
+      if (
+        mode === "HUMAN_APPROVAL" &&
+        invocation.acceptanceCriteria.length !== 1
+      ) {
+        throw new GraphValidationError(
+          "INVALID_EVALUATOR",
+          `Human evaluator ${invocation.id} must declare exactly one acceptance criterion in v1`,
+        );
+      }
       if (invocation.riskClass !== "READ_ONLY") {
         throw new GraphValidationError(
           "INVALID_EVALUATOR",

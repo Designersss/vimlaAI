@@ -6,6 +6,17 @@ export { MockAiProvider, type MockProviderScenario } from "./mock-provider.js";
 export { isOperatorPlannerPrompt, mockOperatorPlannerResponse } from "./mock-operator-plan.js";
 export { OpenAiCompatibleSemanticPlannerModel } from "./semantic-planner-model.js";
 export type { OpenAiCompatibleSemanticPlannerConfig, SemanticPlannerCompletionInput } from "./semantic-planner-model.js";
+export {
+  OpenAiCompatibleJsonChatHttpError,
+  OpenAiCompatibleJsonChatResponseError,
+  OpenAiCompatibleJsonChatTransport,
+} from "./openai-json-chat.js";
+export type {
+  OpenAiCompatibleJsonChatConfig,
+  OpenAiCompatibleJsonChatInput,
+  OpenAiCompatibleJsonChatMessage,
+  OpenAiJsonChatAbortSignal,
+} from "./openai-json-chat.js";
 export { createNativeHttpTransport, joinUrl } from "./http-transport.js";
 export { OpenAiCompatSseParser, encodeVimlaSse, parseSseBlock } from "./sse.js";
 export {

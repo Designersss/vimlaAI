@@ -4,6 +4,7 @@ import {
   GraphValidationError,
   computePendingInvocationTransitions,
   decideInvocationReadiness,
+  executionPlanSchema,
   validateExecutionPlanGraph,
 } from "../dist/index.js";
 
@@ -196,6 +197,59 @@ test("rejects invalid deterministic JSON pointer bindings before execution", () 
     ),
     "INVALID_EVALUATOR_BINDING",
   );
+});
+
+test("rejects multiple HUMAN_APPROVAL criteria because v1 resolves one human decision", () => {
+  const human = invocation("human-evaluator", {
+    target: { kind: "EVALUATOR" },
+    outputs: [{ name: "evaluation", artifactType: "JSON" }],
+    acceptanceCriteria: [
+      {
+        id: "quality",
+        description: "Human accepts the quality",
+        mode: "HUMAN_APPROVAL",
+      },
+      {
+        id: "safety",
+        description: "Human accepts the safety",
+        mode: "HUMAN_APPROVAL",
+      },
+    ],
+    approvalPolicy: "HUMAN_APPROVAL",
+  });
+  expectGraphError(plan([human]), "INVALID_EVALUATOR");
+});
+
+test("structural runtime schema enforces public graph-key and evaluator field bounds", () => {
+  const invalidKey = plan([
+    invocation("bad key", {
+      target: { kind: "EVALUATOR" },
+      outputs: [{ name: "evaluation", artifactType: "JSON" }],
+      acceptanceCriteria: [
+        {
+          id: "quality",
+          description: "Quality",
+          mode: "AI_EVALUATOR",
+        },
+      ],
+    }),
+  ]);
+  assert.equal(executionPlanSchema.safeParse(invalidKey).success, false);
+
+  const oversized = plan([
+    invocation("evaluate", {
+      target: { kind: "EVALUATOR" },
+      outputs: [{ name: "evaluation", artifactType: "JSON" }],
+      acceptanceCriteria: [
+        {
+          id: "quality",
+          description: "x".repeat(2_001),
+          mode: "AI_EVALUATOR",
+        },
+      ],
+    }),
+  ]);
+  assert.equal(executionPlanSchema.safeParse(oversized).success, false);
 });
 
 test("enforces evaluator approval policy and read-only risk", () => {

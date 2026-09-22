@@ -42,8 +42,18 @@ describe("AI evaluator model boundary", () => {
       timeoutMs: 5_000,
       fetchImpl: (async (_url, init) => {
         const request = JSON.parse(String(init?.body)) as {
+          model: string;
           messages: Array<{ role: string; content: string }>;
+          temperature: number;
+          stream: boolean;
+          response_format: { type: string };
         };
+        expect(request).toMatchObject({
+          model: "evaluator",
+          temperature: 0,
+          stream: false,
+          response_format: { type: "json_object" },
+        });
         expect(request.messages[1]?.content).toContain("Candidate meets the quality bar");
         return new Response(
           JSON.stringify({
