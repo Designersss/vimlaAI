@@ -1,6 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createPrismaClient, type PrismaClient } from "@vimla/database";
+import { ArtifactService } from "@vimla/artifacts";
+import {
+  createPrismaClient,
+  type Prisma,
+  type PrismaClient,
+} from "@vimla/database";
+import {
+  DisabledAiEvaluationModel,
+  EvaluationAwareInvocationExecutorRegistry,
+  EvaluatorInvocationExecutor,
+} from "./evaluator-invocation-executor.js";
 import {
   OrchestrationRuntime,
   type InvocationExecutionInput,
@@ -113,7 +123,11 @@ class BlockingExecutor implements InvocationExecutorRegistry {
 
 type SeedInvocation = {
   key: string;
-  status: "PENDING" | "READY" | "RUNNING";
+  status: "PENDING" | "READY" | "RUNNING" | "COMPLETED";
+  targetKind?: "VIMLA" | "AI_AUTO" | "AI_MODEL" | "EVALUATOR" | "AGENT";
+  outputDeclarations?: Prisma.InputJsonValue;
+  acceptanceCriteria?: Prisma.InputJsonValue;
+  approvalPolicy?: "AUTO" | "USER_CONFIRMATION" | "HUMAN_APPROVAL";
   failurePolicy?: "FAIL_PLAN" | "CONTINUE";
   joinPolicy?: "ALL_REQUIRED" | "ANY_REQUIRED" | "ALL_SETTLED";
 };
@@ -121,12 +135,14 @@ type SeedInvocation = {
 type SeedDependency = {
   from: string;
   to: string;
-  condition: "ON_SUCCESS" | "ON_FAILURE" | "ALWAYS" | "OUTCOME";
+  condition: "DATA" | "ON_SUCCESS" | "ON_FAILURE" | "ALWAYS" | "OUTCOME";
   outcome?: string;
+  inputBindings?: Prisma.InputJsonValue;
 };
 
 type SeededPlan = {
   planId: string;
+  userId: string;
   invocationIds: Record<string, string>;
 };
 
@@ -363,6 +379,159 @@ describe("orchestration runtime", () => {
       select: { status: true },
     });
     expect(plan.status).toBe("COMPLETED");
+  });
+
+  it("runs a real deterministic evaluator and routes FAIL to Nikita end-to-end", async () => {
+    const seeded = await seedPlan(
+      prisma,
+      [
+        {
+          key: "image-result",
+          status: "COMPLETED",
+          targetKind: "AI_AUTO",
+          outputDeclarations: [{ name: "result", artifactType: "TEXT" }],
+        },
+        {
+          key: "evaluator",
+          status: "PENDING",
+          targetKind: "EVALUATOR",
+          outputDeclarations: [{ name: "evaluation", artifactType: "JSON" }],
+          acceptanceCriteria: [
+            {
+              id: "matches-direction",
+              description: "Generated result contains the approved direction marker",
+              mode: "DETERMINISTIC",
+              binding: {
+                kind: "TEXT_CONTAINS",
+                inputName: "result",
+                value: "approved-direction",
+              },
+            },
+          ],
+        },
+        { key: "group-success", status: "PENDING" },
+        { key: "nikita-fix", status: "PENDING" },
+      ],
+      [
+        {
+          from: "image-result",
+          to: "evaluator",
+          condition: "DATA",
+          inputBindings: [
+            {
+              inputName: "result",
+              sourceOutputName: "result",
+              expectedArtifactType: "TEXT",
+            },
+          ],
+        },
+        {
+          from: "evaluator",
+          to: "group-success",
+          condition: "OUTCOME",
+          outcome: "PASS",
+        },
+        {
+          from: "evaluator",
+          to: "nikita-fix",
+          condition: "OUTCOME",
+          outcome: "FAIL",
+        },
+      ],
+      1,
+    );
+
+    const artifacts = new ArtifactService(prisma);
+    await artifacts.createArtifact({
+      actorUserId: seeded.userId,
+      creatorInvocationId: seeded.invocationIds["image-result"] ?? "",
+      outputName: "result",
+      type: "TEXT",
+      classification: "PRIVATE",
+      content: {
+        kind: "INLINE_JSON",
+        value: { text: "generated result needs revision" },
+      },
+    });
+
+    const dispatchQueue = new MemoryQueue();
+    const executionQueue = new MemoryQueue();
+    const fallback = new ScriptedExecutor(() => ({ status: "COMPLETED" }));
+    const executor = new EvaluationAwareInvocationExecutorRegistry(
+      new EvaluatorInvocationExecutor(
+        prisma,
+        new DisabledAiEvaluationModel(),
+      ),
+      fallback,
+    );
+    const runtime = new OrchestrationRuntime(
+      prisma,
+      dispatchQueue,
+      executionQueue,
+      logger,
+      { executorRegistry: executor },
+    );
+
+    await runtime.dispatchPlan(seeded.planId);
+    const evaluatorJob = executionQueue.take(INVOCATION_EXECUTE_JOB_NAME);
+    expect(evaluatorJob.data.invocationId).toBe(
+      seeded.invocationIds.evaluator,
+    );
+    await runtime.processInvocation(
+      evaluatorJob.data.planId ?? "",
+      evaluatorJob.data.invocationId ?? "",
+    );
+    await runtime.dispatchPlan(seeded.planId);
+
+    const evaluatorRun = await prisma.invocationRun.findFirstOrThrow({
+      where: { invocationId: seeded.invocationIds.evaluator },
+      include: { evaluation: true },
+      orderBy: { attempt: "desc" },
+    });
+    expect(evaluatorRun.outcome).toBe("FAIL");
+    expect(evaluatorRun.evaluation).toMatchObject({
+      evaluatorKind: "DETERMINISTIC",
+      outcome: "FAIL",
+      confidence: 1,
+    });
+
+    const branchStates = await prisma.invocation.findMany({
+      where: {
+        id: {
+          in: [
+            seeded.invocationIds["group-success"] ?? "",
+            seeded.invocationIds["nikita-fix"] ?? "",
+          ],
+        },
+      },
+      select: { id: true, status: true },
+    });
+    const statusById = new Map(
+      branchStates.map((invocation) => [invocation.id, invocation.status]),
+    );
+    expect(
+      statusById.get(seeded.invocationIds["group-success"] ?? ""),
+    ).toBe("SKIPPED");
+    expect(
+      statusById.get(seeded.invocationIds["nikita-fix"] ?? ""),
+    ).toBe("READY");
+
+    const fixJob = executionQueue.take(INVOCATION_EXECUTE_JOB_NAME);
+    expect(fixJob.data.invocationId).toBe(
+      seeded.invocationIds["nikita-fix"],
+    );
+    await runtime.processInvocation(
+      fixJob.data.planId ?? "",
+      fixJob.data.invocationId ?? "",
+    );
+    await runtime.dispatchPlan(seeded.planId);
+
+    const plan = await prisma.executionPlan.findUniqueOrThrow({
+      where: { id: seeded.planId },
+      select: { status: true },
+    });
+    expect(plan.status).toBe("COMPLETED");
+    expect(fallback.calls).toHaveLength(1);
   });
 
   it("keeps usage backpressure non-terminal and only rechecks after bounded backoff", async () => {
@@ -723,13 +892,13 @@ async function seedPlan(
       planId,
       sequence,
       purpose: `Execute ${invocation.key}`,
-      targetKind: "VIMLA",
+      targetKind: invocation.targetKind ?? "VIMLA",
       targetModelSlug: null,
       targetAgentId: null,
-      outputDeclarations: [],
-      acceptanceCriteria: [],
+      outputDeclarations: invocation.outputDeclarations ?? [],
+      acceptanceCriteria: invocation.acceptanceCriteria ?? [],
       riskClass: "READ_ONLY",
-      approvalPolicy: "AUTO",
+      approvalPolicy: invocation.approvalPolicy ?? "AUTO",
       failurePolicy: invocation.failurePolicy ?? "FAIL_PLAN",
       joinPolicy: invocation.joinPolicy ?? "ALL_REQUIRED",
       status: invocation.status,
@@ -744,10 +913,10 @@ async function seedPlan(
         toInvocationId: invocationIds[dependency.to] ?? "missing-target",
         conditionKind: dependency.condition,
         conditionOutcome: dependency.condition === "OUTCOME" ? (dependency.outcome ?? "PASS") : "",
-        inputBindings: [],
+        inputBindings: dependency.inputBindings ?? [],
       })),
     });
   }
 
-  return { planId, invocationIds };
+  return { planId, userId, invocationIds };
 }
