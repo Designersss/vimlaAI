@@ -1,9 +1,10 @@
-import { createHash } from "node:crypto";
 import {
   ArtifactBindingError,
   ArtifactError,
   ArtifactService,
+  fingerprintResolvedArtifactInputs,
   type ArtifactContent,
+  type ArtifactReference,
   type ReadArtifactVersionResult,
 } from "@vimla/artifacts";
 import {
@@ -290,7 +291,7 @@ export class EvaluatorInvocationExecutor {
         invocation.plan.userId,
         input.invocationId,
       );
-      const inputFingerprint = evaluationInputFingerprint(resolved);
+      const inputFingerprint = fingerprintResolvedArtifactInputs(resolved);
 
       const previousEvaluation = await this.prisma.evaluation.findFirst({
         where: {
@@ -386,6 +387,7 @@ export class EvaluatorInvocationExecutor {
   ): Promise<
     Array<{
       inputName: string;
+      reference: ArtifactReference;
       version: ReadArtifactVersionResult;
     }>
   > {
@@ -399,7 +401,11 @@ export class EvaluatorInvocationExecutor {
         actorUserId: userId,
         artifactVersionId: binding.reference.artifactVersionId,
       });
-      resolved.push({ inputName: binding.inputName, version });
+      resolved.push({
+        inputName: binding.inputName,
+        reference: binding.reference,
+        version,
+      });
     }
     return resolved;
   }
@@ -550,24 +556,6 @@ async function readBoundedProviderEnvelope(
     );
   }
   return parsed as EvaluationProviderEnvelope;
-}
-
-function evaluationInputFingerprint(
-  resolved: readonly {
-    inputName: string;
-    version: ReadArtifactVersionResult;
-  }[],
-): string {
-  const canonical = [...resolved]
-    .sort((left, right) => left.inputName.localeCompare(right.inputName))
-    .map((item) => ({
-      inputName: item.inputName,
-      artifactVersionId: item.version.artifactVersionId,
-      fingerprint: item.version.fingerprint,
-    }));
-  return `sha256:${createHash("sha256")
-    .update(JSON.stringify(canonical))
-    .digest("hex")}`;
 }
 
 function parseCriteria(value: Prisma.JsonValue): AcceptanceCriteria[] {
