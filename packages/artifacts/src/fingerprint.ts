@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { Prisma } from "@vimla/database";
-import type { ArtifactContent } from "./types.js";
+import type { ArtifactContent, ResolvedArtifactInput } from "./types.js";
 
 export function fingerprintArtifactContent(content: ArtifactContent): string {
   const payload =
@@ -8,6 +8,21 @@ export function fingerprintArtifactContent(content: ArtifactContent): string {
       ? `ref:${content.ref}`
       : `json:${canonicalJson(content.value)}`;
   return `sha256:${createHash("sha256").update(payload, "utf8").digest("hex")}`;
+}
+
+export function fingerprintResolvedArtifactInputs(
+  inputs: readonly ResolvedArtifactInput[],
+): string {
+  const canonical = [...inputs]
+    .sort((left, right) => left.inputName.localeCompare(right.inputName))
+    .map((input) => ({
+      inputName: input.inputName,
+      artifactVersionId: input.reference.artifactVersionId,
+      fingerprint: input.reference.fingerprint,
+    }));
+  return `sha256:${createHash("sha256")
+    .update(JSON.stringify(canonical), "utf8")
+    .digest("hex")}`;
 }
 
 export function canonicalJson(value: Prisma.InputJsonValue): string {
