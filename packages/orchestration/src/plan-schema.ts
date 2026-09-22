@@ -4,6 +4,7 @@ import { EXECUTION_PLAN_SCHEMA_VERSION } from "./types.js";
 import type {
   AcceptanceCriteria,
   ApprovalPolicy,
+  DeterministicCriterionBinding,
   ArtifactType,
   EvaluationMode,
   ExecutionPlan,
@@ -38,7 +39,7 @@ export interface RuntimeSchema<T> {
 type UnknownRecord = Record<string, unknown>;
 type Parser<T> = (input: unknown, path: string) => T;
 
-const ARTIFACT_TYPES = ["TEXT", "PROMPT", "DOCUMENT", "CODE", "IMAGE", "PLAN", "FILE", "PATCH"] as const;
+const ARTIFACT_TYPES = ["TEXT", "PROMPT", "DOCUMENT", "CODE", "IMAGE", "PLAN", "FILE", "PATCH", "JSON"] as const;
 const EVALUATION_MODES = ["DETERMINISTIC", "AI_EVALUATOR", "HUMAN_APPROVAL"] as const;
 const RISK_CLASSES = ["READ_ONLY", "INTERNAL_WRITE", "EXTERNAL_SIDE_EFFECT", "DESTRUCTIVE", "FINANCIAL"] as const;
 const APPROVAL_POLICIES = ["AUTO", "USER_CONFIRMATION", "HUMAN_APPROVAL"] as const;
@@ -205,13 +206,91 @@ function parseOutputDeclaration(input: unknown, path: string): OutputDeclaration
   };
 }
 
+function parseJsonPrimitive(
+  input: unknown,
+  path: string,
+): string | number | boolean | null {
+  if (
+    input === null ||
+    typeof input === "string" ||
+    typeof input === "boolean" ||
+    (typeof input === "number" && Number.isFinite(input))
+  ) {
+    return input;
+  }
+  throw new ExecutionPlanSchemaError("expected JSON primitive", path);
+}
+
+function parseDeterministicCriterionBinding(
+  input: unknown,
+  path: string,
+): DeterministicCriterionBinding {
+  const value = parseRecord(input, path);
+  const kind = parseNonEmptyString(value.kind, `${path}.kind`);
+  switch (kind) {
+    case "ARTIFACT_EXISTS":
+      assertExactKeys(value, ["kind", "inputName"], path);
+      return {
+        kind,
+        inputName: parseNonEmptyString(value.inputName, `${path}.inputName`),
+      };
+    case "TEXT_CONTAINS": {
+      assertExactKeys(value, ["kind", "inputName", "value", "caseSensitive"], path);
+      const caseSensitive =
+        value.caseSensitive === undefined
+          ? undefined
+          : (() => {
+              if (typeof value.caseSensitive !== "boolean") {
+                throw new ExecutionPlanSchemaError("expected boolean", `${path}.caseSensitive`);
+              }
+              return value.caseSensitive;
+            })();
+      return {
+        kind,
+        inputName: parseNonEmptyString(value.inputName, `${path}.inputName`),
+        value: parseNonEmptyString(value.value, `${path}.value`),
+        ...(caseSensitive === undefined ? {} : { caseSensitive }),
+      };
+    }
+    case "JSON_EQUALS":
+      assertExactKeys(value, ["kind", "inputName", "path", "expectedValue"], path);
+      return {
+        kind,
+        inputName: parseNonEmptyString(value.inputName, `${path}.inputName`),
+        path:
+          typeof value.path === "string"
+            ? value.path
+            : (() => {
+                throw new ExecutionPlanSchemaError("expected string", `${path}.path`);
+              })(),
+        expectedValue: parseJsonPrimitive(
+          value.expectedValue,
+          `${path}.expectedValue`,
+        ),
+      };
+    default:
+      throw new ExecutionPlanSchemaError(
+        "unknown deterministic criterion binding kind",
+        `${path}.kind`,
+      );
+  }
+}
+
 function parseAcceptanceCriteria(input: unknown, path: string): AcceptanceCriteria {
   const value = parseRecord(input, path);
-  assertExactKeys(value, ["id", "description", "mode"], path);
+  assertExactKeys(value, ["id", "description", "mode", "binding"], path);
   return {
     id: parseNonEmptyString(value.id, `${path}.id`),
     description: parseNonEmptyString(value.description, `${path}.description`),
     mode: parseEvaluationMode(value.mode, `${path}.mode`),
+    ...(value.binding === undefined
+      ? {}
+      : {
+          binding: parseDeterministicCriterionBinding(
+            value.binding,
+            `${path}.binding`,
+          ),
+        }),
   };
 }
 
