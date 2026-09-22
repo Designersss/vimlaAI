@@ -12,7 +12,8 @@ export type ArtifactType =
   | "IMAGE"
   | "PLAN"
   | "FILE"
-  | "PATCH";
+  | "PATCH"
+  | "JSON";
 
 export type EvaluationMode = "DETERMINISTIC" | "AI_EVALUATOR" | "HUMAN_APPROVAL";
 
@@ -41,10 +42,46 @@ export interface OutputDeclaration {
   description?: string;
 }
 
+export type DeterministicCriterionBinding =
+  | {
+      kind: "ARTIFACT_EXISTS";
+      inputName: string;
+    }
+  | {
+      kind: "TEXT_CONTAINS";
+      inputName: string;
+      value: string;
+      caseSensitive?: boolean;
+    }
+  | {
+      kind: "JSON_EQUALS";
+      inputName: string;
+      path: string;
+      expectedValue: string | number | boolean | null;
+    };
+
 export interface AcceptanceCriteria {
   id: string;
   description: string;
   mode: EvaluationMode;
+  binding?: DeterministicCriterionBinding;
+}
+
+export type EvaluationOutcome = "PASS" | "FAIL";
+
+export interface EvaluationCriterionResult {
+  criterionId: string;
+  outcome: EvaluationOutcome;
+  confidence: number;
+  summary?: string;
+}
+
+export interface EvaluationResult {
+  mode: EvaluationMode;
+  outcome: EvaluationOutcome;
+  confidence: number;
+  criteriaResults: readonly EvaluationCriterionResult[];
+  summary?: string;
 }
 
 /**
