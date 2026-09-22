@@ -13,7 +13,7 @@ export const EXECUTION_PLAN_API_LIMITS = {
   maxBindingsPerDependency: 32,
 } as const;
 
-const graphKeySchema = z
+export const workflowGraphKeySchema = z
   .string()
   .trim()
   .min(1)
@@ -69,15 +69,15 @@ export const dependencyConditionSchema = z.discriminatedUnion("kind", [
 
 export const inputBindingSchema = z
   .object({
-    inputName: graphKeySchema,
-    sourceOutputName: graphKeySchema,
+    inputName: workflowGraphKeySchema,
+    sourceOutputName: workflowGraphKeySchema,
     expectedArtifactType: artifactTypeSchema,
   })
   .strict();
 
 export const outputDeclarationSchema = z
   .object({
-    name: graphKeySchema,
+    name: workflowGraphKeySchema,
     artifactType: artifactTypeSchema,
     description: boundedText(
       EXECUTION_PLAN_API_LIMITS.descriptionMax,
@@ -89,13 +89,13 @@ export const deterministicCriterionBindingSchema = z.discriminatedUnion("kind", 
   z
     .object({
       kind: z.literal("ARTIFACT_EXISTS"),
-      inputName: graphKeySchema,
+      inputName: workflowGraphKeySchema,
     })
     .strict(),
   z
     .object({
       kind: z.literal("TEXT_CONTAINS"),
-      inputName: graphKeySchema,
+      inputName: workflowGraphKeySchema,
       value: boundedText(EXECUTION_PLAN_API_LIMITS.descriptionMax),
       caseSensitive: z.boolean().optional(),
     })
@@ -103,7 +103,7 @@ export const deterministicCriterionBindingSchema = z.discriminatedUnion("kind", 
   z
     .object({
       kind: z.literal("JSON_EQUALS"),
-      inputName: graphKeySchema,
+      inputName: workflowGraphKeySchema,
       path: z.string().max(512),
       expectedValue: z.union([
         z.string().max(EXECUTION_PLAN_API_LIMITS.descriptionMax),
@@ -117,7 +117,7 @@ export const deterministicCriterionBindingSchema = z.discriminatedUnion("kind", 
 
 export const acceptanceCriteriaSchema = z
   .object({
-    id: graphKeySchema,
+    id: workflowGraphKeySchema,
     description: boundedText(EXECUTION_PLAN_API_LIMITS.descriptionMax),
     mode: z.enum(["DETERMINISTIC", "AI_EVALUATOR", "HUMAN_APPROVAL"]),
     binding: deterministicCriterionBindingSchema.optional(),
@@ -126,7 +126,7 @@ export const acceptanceCriteriaSchema = z
 
 export const invocationSchema = z
   .object({
-    id: graphKeySchema,
+    id: workflowGraphKeySchema,
     purpose: boundedText(EXECUTION_PLAN_API_LIMITS.purposeMax),
     target: invocationTargetSchema,
     outputs: z
@@ -154,9 +154,9 @@ export const invocationSchema = z
 
 export const invocationDependencySchema = z
   .object({
-    id: graphKeySchema,
-    fromInvocationId: graphKeySchema,
-    toInvocationId: graphKeySchema,
+    id: workflowGraphKeySchema,
+    fromInvocationId: workflowGraphKeySchema,
+    toInvocationId: workflowGraphKeySchema,
     condition: dependencyConditionSchema,
     inputBindings: z
       .array(inputBindingSchema)
@@ -192,7 +192,7 @@ export const createExecutionPlanRequestSchema = z
 
 export const approveExecutionPlanRequestSchema = z
   .object({
-    invocationId: graphKeySchema,
+    invocationId: workflowGraphKeySchema,
   })
   .strict();
 
@@ -241,7 +241,7 @@ export const workflowArtifactSummarySchema = z
   .object({
     artifactId: z.string().min(1),
     artifactVersionId: z.string().min(1),
-    outputName: graphKeySchema,
+    outputName: workflowGraphKeySchema,
     type: artifactTypeSchema,
     classification: z.string().trim().min(1).max(128),
     version: z.number().int().min(1),
@@ -251,7 +251,7 @@ export const workflowArtifactSummarySchema = z
 
 export const workflowEvaluationCriterionResultSchema = z
   .object({
-    criterionId: graphKeySchema,
+    criterionId: workflowGraphKeySchema,
     outcome: z.enum(["PASS", "FAIL"]),
     confidence: z.number().min(0).max(1),
     summary: z
