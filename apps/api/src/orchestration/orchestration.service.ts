@@ -7,7 +7,7 @@ import {
   InternalServerErrorException,
   NotFoundException,
 } from "@nestjs/common";
-import { fingerprintArtifactContent } from "@vimla/artifacts";
+import { ArtifactService } from "@vimla/artifacts";
 import {
   ContextConflictError,
   ContextNotFoundError,
@@ -862,6 +862,7 @@ export class OrchestrationService {
   ): Promise<ExecutionPlanView> {
     this.assertPreviewEnabled();
     const input = parseHumanEvaluation(body);
+    const artifacts = new ArtifactService(this.prisma.client);
 
     return this.prisma.client.$transaction(async (tx) => {
       const plan = await tx.executionPlan.findFirst({
@@ -970,10 +971,6 @@ export class OrchestrationService {
         summary: input.summary ?? null,
       };
       const contentJson = toJson(evaluationJson);
-      const fingerprint = fingerprintArtifactContent({
-        kind: "INLINE_JSON",
-        value: contentJson,
-      });
       const runId = randomUUID();
 
       await tx.invocationRun.create({
@@ -998,26 +995,22 @@ export class OrchestrationService {
         },
       });
 
-      await tx.artifact.create({
-        data: {
-          creatorInvocationId: invocationId,
-          outputName: output.name,
-          type: "JSON",
-          classification: "PRIVATE",
-          metadata: {
-            source: "EVALUATION",
-            evaluatorKind: "HUMAN_APPROVAL",
-          },
-          versions: {
-            create: {
-              version: 1,
-              contentJson,
-              fingerprint,
-              metadata: {
-                invocationRunId: runId,
-              },
-            },
-          },
+      await artifacts.createArtifactInTransaction(tx, {
+        actorUserId: userId,
+        creatorInvocationId: invocationId,
+        outputName: output.name,
+        type: "JSON",
+        classification: "PRIVATE",
+        content: {
+          kind: "INLINE_JSON",
+          value: contentJson,
+        },
+        metadata: {
+          source: "EVALUATION",
+          evaluatorKind: "HUMAN_APPROVAL",
+        },
+        versionMetadata: {
+          invocationRunId: runId,
         },
       });
 
