@@ -160,6 +160,44 @@ test("rejects duplicate evaluator acceptance criterion ids", () => {
   );
 });
 
+test("rejects invalid deterministic JSON pointer bindings before execution", () => {
+  const source = invocation("source", {
+    outputs: [{ name: "result", artifactType: "JSON" }],
+  });
+  const evaluator = invocation("evaluate", {
+    target: { kind: "EVALUATOR" },
+    outputs: [{ name: "evaluation", artifactType: "JSON" }],
+    acceptanceCriteria: [
+      {
+        id: "json-check",
+        description: "Check structured result",
+        mode: "DETERMINISTIC",
+        binding: {
+          kind: "JSON_EQUALS",
+          inputName: "result",
+          path: "missing-leading-slash",
+          expectedValue: true,
+        },
+      },
+    ],
+  });
+  expectGraphError(
+    plan(
+      [source, evaluator],
+      [
+        dep("data", "source", "evaluate", { kind: "DATA" }, [
+          {
+            inputName: "result",
+            sourceOutputName: "result",
+            expectedArtifactType: "JSON",
+          },
+        ]),
+      ],
+    ),
+    "INVALID_EVALUATOR_BINDING",
+  );
+});
+
 test("enforces evaluator approval policy and read-only risk", () => {
   const human = invocation("human-evaluator", {
     target: { kind: "EVALUATOR" },
