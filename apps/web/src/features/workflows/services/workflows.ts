@@ -108,3 +108,21 @@ export async function approveExecutionPlanInvocation(
   );
   return parsePlan(response);
 }
+
+
+export async function resolveHumanEvaluation(
+  planId: string,
+  invocationId: string,
+  outcome: "PASS" | "FAIL",
+): Promise<ExecutionPlanView> {
+  const response = await fetch(
+    `${publicWebConfig.apiBaseUrl}/v1/execution-plans/${encodeURIComponent(planId)}/evaluations/${encodeURIComponent(invocationId)}/resolve`,
+    {
+      method: "POST",
+      credentials: "include",
+      headers: headers(),
+      body: JSON.stringify({ outcome }),
+    },
+  );
+  return parsePlan(response);
+}
