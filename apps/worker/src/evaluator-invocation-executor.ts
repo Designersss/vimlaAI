@@ -309,7 +309,18 @@ function parseCriteria(value: Prisma.JsonValue): AcceptanceCriteria[] {
       "Acceptance criteria must be a non-empty bounded array",
     );
   }
-  return value.map((item) => acceptanceCriteriaSchema.parse(item));
+  const parsed = value.map((item) => acceptanceCriteriaSchema.parse(item));
+  const ids = new Set<string>();
+  for (const criterion of parsed) {
+    if (ids.has(criterion.id)) {
+      throw new EvaluatorContractError(
+        "EVALUATOR_CONTRACT_INVALID",
+        `Duplicate acceptance criterion ${criterion.id}`,
+      );
+    }
+    ids.add(criterion.id);
+  }
+  return parsed;
 }
 
 function parseOutputs(value: Prisma.JsonValue) {
