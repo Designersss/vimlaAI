@@ -268,13 +268,40 @@ export const workflowEvaluationSchema = z
     confidence: z.number().min(0).max(1),
     criteriaResults: z
       .array(workflowEvaluationCriterionResultSchema)
+      .min(1)
       .max(EXECUTION_PLAN_API_LIMITS.maxCriteriaPerInvocation),
     summary: z
       .string()
       .max(EXECUTION_PLAN_API_LIMITS.descriptionMax)
       .nullable(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, ctx) => {
+    const ids = new Set<string>();
+    for (const criterion of value.criteriaResults) {
+      if (ids.has(criterion.criterionId)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["criteriaResults"],
+          message: "Evaluation criterion ids must be unique",
+        });
+        break;
+      }
+      ids.add(criterion.criterionId);
+    }
+    const derivedOutcome = value.criteriaResults.every(
+      (criterion) => criterion.outcome === "PASS",
+    )
+      ? "PASS"
+      : "FAIL";
+    if (derivedOutcome !== value.outcome) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["outcome"],
+        message: "Evaluation outcome must match criterion results",
+      });
+    }
+  });
 
 export const workflowInvocationRunSchema = z
   .object({
