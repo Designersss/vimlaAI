@@ -279,6 +279,92 @@ describe("orchestration runtime", () => {
     expect(executor.calls).toHaveLength(1);
   });
 
+  it("propagates evaluator FAIL outcome to the failure branch and skips the success branch", async () => {
+    const seeded = await seedPlan(
+      prisma,
+      [
+        { key: "evaluator", status: "READY" },
+        { key: "group-success", status: "PENDING" },
+        { key: "nikita-fix", status: "PENDING" },
+      ],
+      [
+        {
+          from: "evaluator",
+          to: "group-success",
+          condition: "OUTCOME",
+          outcome: "PASS",
+        },
+        {
+          from: "evaluator",
+          to: "nikita-fix",
+          condition: "OUTCOME",
+          outcome: "FAIL",
+        },
+      ],
+      1,
+    );
+    const dispatchQueue = new MemoryQueue();
+    const executionQueue = new MemoryQueue();
+    const executor = new ScriptedExecutor((_input, callNumber) =>
+      callNumber === 1
+        ? { status: "COMPLETED", outcome: "FAIL" }
+        : { status: "COMPLETED", outcome: "PASS" },
+    );
+    const runtime = new OrchestrationRuntime(
+      prisma,
+      dispatchQueue,
+      executionQueue,
+      logger,
+      { executorRegistry: executor },
+    );
+
+    await runtime.dispatchPlan(seeded.planId);
+    const evaluatorJob = executionQueue.take(INVOCATION_EXECUTE_JOB_NAME);
+    expect(evaluatorJob.data.invocationId).toBe(
+      seeded.invocationIds.evaluator,
+    );
+    await runtime.processInvocation(
+      evaluatorJob.data.planId ?? "",
+      evaluatorJob.data.invocationId ?? "",
+    );
+
+    await runtime.dispatchPlan(seeded.planId);
+
+    const afterEvaluation = await prisma.invocation.findMany({
+      where: { planId: seeded.planId },
+      select: { id: true, status: true },
+    });
+    const statusById = new Map(
+      afterEvaluation.map((invocation) => [
+        invocation.id,
+        invocation.status,
+      ]),
+    );
+    expect(
+      statusById.get(seeded.invocationIds["group-success"] ?? ""),
+    ).toBe("SKIPPED");
+    expect(
+      statusById.get(seeded.invocationIds["nikita-fix"] ?? ""),
+    ).toBe("READY");
+    expect(executionQueue.count(INVOCATION_EXECUTE_JOB_NAME)).toBe(1);
+
+    const fixJob = executionQueue.take(INVOCATION_EXECUTE_JOB_NAME);
+    expect(fixJob.data.invocationId).toBe(
+      seeded.invocationIds["nikita-fix"],
+    );
+    await runtime.processInvocation(
+      fixJob.data.planId ?? "",
+      fixJob.data.invocationId ?? "",
+    );
+    await runtime.dispatchPlan(seeded.planId);
+
+    const plan = await prisma.executionPlan.findUniqueOrThrow({
+      where: { id: seeded.planId },
+      select: { status: true },
+    });
+    expect(plan.status).toBe("COMPLETED");
+  });
+
   it("keeps usage backpressure non-terminal and only rechecks after bounded backoff", async () => {
     const seeded = await seedPlan(prisma, [{ key: "paid", status: "READY" }], [], 1);
     const dispatchQueue = new MemoryQueue();
