@@ -49,6 +49,15 @@ export class ArtifactService {
   constructor(private readonly prisma: PrismaClient) {}
 
   async createArtifact(input: CreateArtifactInput): Promise<ArtifactReference> {
+    return this.prisma.$transaction((tx) =>
+      this.createArtifactInTransaction(tx, input),
+    );
+  }
+
+  async createArtifactInTransaction(
+    tx: Prisma.TransactionClient,
+    input: CreateArtifactInput,
+  ): Promise<ArtifactReference> {
     validateIdentifier(input.actorUserId, "actorUserId");
     validateIdentifier(input.creatorInvocationId, "creatorInvocationId");
     const outputName = validateName(input.outputName, "outputName");
@@ -59,73 +68,89 @@ export class ArtifactService {
     validateMetadata(input.versionMetadata, "versionMetadata");
     const fingerprint = fingerprintArtifactContent(input.content);
 
-    return this.prisma.$transaction(async (tx) => {
-      const locked = await tx.$queryRaw<Array<{ id: string }>>`
-        SELECT "id" FROM "invocation" WHERE "id" = ${input.creatorInvocationId} FOR UPDATE
-      `;
-      if (locked.length === 0) throw new ArtifactNotFoundError();
+    const locked = await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT "id" FROM "invocation" WHERE "id" = ${input.creatorInvocationId} FOR UPDATE
+    `;
+    if (locked.length === 0) throw new ArtifactNotFoundError();
 
-      const invocation = await tx.invocation.findUnique({
-        where: { id: input.creatorInvocationId },
-        select: {
-          outputDeclarations: true,
-          plan: { select: { userId: true } },
-        },
-      });
-      if (!invocation || invocation.plan.userId !== input.actorUserId) {
-        throw new ArtifactNotFoundError();
-      }
+    const invocation = await tx.invocation.findUnique({
+      where: { id: input.creatorInvocationId },
+      select: {
+        outputDeclarations: true,
+        plan: { select: { userId: true } },
+      },
+    });
+    if (!invocation || invocation.plan.userId !== input.actorUserId) {
+      throw new ArtifactNotFoundError();
+    }
 
-      const declaredType = findDeclaredOutputType(invocation.outputDeclarations, outputName);
-      if (!declaredType) {
-        throw new ArtifactValidationError(`Output ${JSON.stringify(outputName)} is not declared by the invocation`);
-      }
-      if (declaredType !== input.type) {
-        throw new ArtifactValidationError(
-          `Output ${JSON.stringify(outputName)} requires ${declaredType}, received ${input.type}`,
-        );
-      }
+    const declaredType = findDeclaredOutputType(
+      invocation.outputDeclarations,
+      outputName,
+    );
+    if (!declaredType) {
+      throw new ArtifactValidationError(
+        `Output ${JSON.stringify(outputName)} is not declared by the invocation`,
+      );
+    }
+    if (declaredType !== input.type) {
+      throw new ArtifactValidationError(
+        `Output ${JSON.stringify(outputName)} requires ${declaredType}, received ${input.type}`,
+      );
+    }
 
-      const existing = await tx.artifact.findUnique({
-        where: {
-          creatorInvocationId_outputName: {
-            creatorInvocationId: input.creatorInvocationId,
-            outputName,
-          },
-        },
-        include: { versions: { orderBy: { version: "desc" } } },
-      });
-      if (existing) {
-        if (existing.type !== input.type || existing.classification !== classification) {
-          throw new ArtifactConflictError("Artifact identity already exists with different immutable attributes");
-        }
-        const matchingVersion = existing.versions.find((version) => version.fingerprint === fingerprint);
-        if (matchingVersion) return toReference(existing, matchingVersion);
-        throw new ArtifactConflictError("Artifact already exists with different content; create an explicit version");
-      }
-
-      const artifact = await tx.artifact.create({
-        data: {
+    const existing = await tx.artifact.findUnique({
+      where: {
+        creatorInvocationId_outputName: {
           creatorInvocationId: input.creatorInvocationId,
           outputName,
-          type: input.type,
-          classification,
-          ...(input.metadata === undefined ? {} : { metadata: input.metadata }),
-          versions: {
-            create: {
-              version: 1,
-              fingerprint,
-              ...contentWriteData(input.content),
-              ...(input.versionMetadata === undefined ? {} : { metadata: input.versionMetadata }),
-            },
+        },
+      },
+      include: { versions: { orderBy: { version: "desc" } } },
+    });
+    if (existing) {
+      if (
+        existing.type !== input.type ||
+        existing.classification !== classification
+      ) {
+        throw new ArtifactConflictError(
+          "Artifact identity already exists with different immutable attributes",
+        );
+      }
+      const matchingVersion = existing.versions.find(
+        (version) => version.fingerprint === fingerprint,
+      );
+      if (matchingVersion) return toReference(existing, matchingVersion);
+      throw new ArtifactConflictError(
+        "Artifact already exists with different content; create an explicit version",
+      );
+    }
+
+    const artifact = await tx.artifact.create({
+      data: {
+        creatorInvocationId: input.creatorInvocationId,
+        outputName,
+        type: input.type,
+        classification,
+        ...(input.metadata === undefined ? {} : { metadata: input.metadata }),
+        versions: {
+          create: {
+            version: 1,
+            fingerprint,
+            ...contentWriteData(input.content),
+            ...(input.versionMetadata === undefined
+              ? {}
+              : { metadata: input.versionMetadata }),
           },
         },
-        include: { versions: true },
-      });
-      const version = artifact.versions[0];
-      if (!version) throw new ArtifactConflictError("Artifact version was not created");
-      return toReference(artifact, version);
+      },
+      include: { versions: true },
     });
+    const version = artifact.versions[0];
+    if (!version) {
+      throw new ArtifactConflictError("Artifact version was not created");
+    }
+    return toReference(artifact, version);
   }
 
   async createVersion(input: CreateArtifactVersionInput): Promise<ArtifactReference> {
