@@ -47,9 +47,9 @@ export interface VimlaToolPlanner {
 }
 
 /**
- * Local/test planner adapter. It keeps PR-08 focused on converting the existing
- * typed Operator tool stack into an orchestration executor. Production semantic
- * workflow planning remains PR-11.
+ * Local/test planner adapter for exercising the typed Operator tool stack
+ * through the orchestration executor. Production environments never start this
+ * preview runtime.
  */
 export class DeterministicVimlaToolPlanner implements VimlaToolPlanner {
   async plan(input: VimlaToolPlannerInput): Promise<PlannerPlan> {
