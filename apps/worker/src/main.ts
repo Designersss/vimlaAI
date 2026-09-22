@@ -36,6 +36,11 @@ import {
   createWorkerPaymentService,
 } from "./payment-reconciliation.js";
 import {
+  EvaluationAwareInvocationExecutorRegistry,
+  EvaluatorInvocationExecutor,
+  LocalTestAiEvaluationModel,
+} from "./evaluator-invocation-executor.js";
+import {
   ExternalAiAwareInvocationExecutorRegistry,
   ExternalAiInvocationExecutor,
 } from "./external-ai-invocation-executor.js";
@@ -347,7 +352,13 @@ async function startOrchestrationRuntime(
         new DeterministicVimlaToolPlanner(),
         config.authDefaultLocale,
       ),
-      new FailClosedInvocationExecutorRegistry(),
+      new EvaluationAwareInvocationExecutorRegistry(
+        new EvaluatorInvocationExecutor(
+          prisma,
+          new LocalTestAiEvaluationModel(),
+        ),
+        new FailClosedInvocationExecutorRegistry(),
+      ),
     ),
   );
   const runtime = new OrchestrationRuntime(
