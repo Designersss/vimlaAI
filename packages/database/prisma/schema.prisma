@@ -1348,6 +1348,7 @@ model Evaluation {
   evaluatorKind   String
   outcome         String
   confidence      Float
+  inputFingerprint String?
   criteriaResults Json
   summary         String?
   createdAt       DateTime      @default(now())
