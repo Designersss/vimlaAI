@@ -115,6 +115,51 @@ test("rejects duplicate inputs, invalid joins and graph limits", () => {
   );
 });
 
+test("rejects duplicate evaluator acceptance criterion ids", () => {
+  const source = invocation("source", {
+    outputs: [{ name: "result", artifactType: "TEXT" }],
+  });
+  const evaluator = invocation("evaluate", {
+    target: { kind: "EVALUATOR" },
+    outputs: [{ name: "evaluation", artifactType: "JSON" }],
+    acceptanceCriteria: [
+      {
+        id: "quality",
+        description: "First quality criterion",
+        mode: "DETERMINISTIC",
+        binding: {
+          kind: "ARTIFACT_EXISTS",
+          inputName: "result",
+        },
+      },
+      {
+        id: "quality",
+        description: "Duplicate quality criterion",
+        mode: "DETERMINISTIC",
+        binding: {
+          kind: "ARTIFACT_EXISTS",
+          inputName: "result",
+        },
+      },
+    ],
+  });
+  expectGraphError(
+    plan(
+      [source, evaluator],
+      [
+        dep("data", "source", "evaluate", { kind: "DATA" }, [
+          {
+            inputName: "result",
+            sourceOutputName: "result",
+            expectedArtifactType: "TEXT",
+          },
+        ]),
+      ],
+    ),
+    "INVALID_EVALUATOR",
+  );
+});
+
 test("readiness handles roots, success, failure and outcome branches", () => {
   const root = invocation("root");
   assert.equal(decideInvocationReadiness(root, [], new Map()).decision, "READY");
