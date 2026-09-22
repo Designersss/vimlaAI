@@ -247,18 +247,19 @@ export class ContextBundleService {
         return scope.ownerUserId === userId;
 
       case "PROJECT":
-        return Boolean(
-          await this.db.project.findFirst({
-            where: {
-              id: scope.projectId,
-              OR: [
-                { ownerUserId: userId },
-                { members: { some: { userId } } },
-              ],
-            },
-            select: { id: true },
-          }),
-        );
+        try {
+          await this.snapshots.assertSourceAccess({
+            actorUserId: userId,
+            sourceType: "PROJECT",
+            sourceId: scope.projectId,
+          });
+          return true;
+        } catch (error: unknown) {
+          if (error instanceof ContextAccessDeniedError) {
+            return false;
+          }
+          throw error;
+        }
 
       case "DIRECT_CHAT":
         return Boolean(
