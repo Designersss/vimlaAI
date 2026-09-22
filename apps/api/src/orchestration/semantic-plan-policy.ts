@@ -100,6 +100,15 @@ export function applySemanticPlanExecutionPolicy(
           }
           const mode = invocation.acceptanceCriteria[0]?.mode;
           if (
+            mode === "HUMAN_APPROVAL" &&
+            invocation.acceptanceCriteria.length !== 1
+          ) {
+            throw new SemanticPlanPolicyError(
+              "EVALUATOR_INVALID",
+              "Human evaluator invocations require exactly one acceptance criterion in v1",
+            );
+          }
+          if (
             mode === "DETERMINISTIC" &&
             invocation.acceptanceCriteria.some((criterion) => criterion.binding === undefined)
           ) {

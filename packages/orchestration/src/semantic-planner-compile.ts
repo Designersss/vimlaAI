@@ -53,17 +53,28 @@ export function compileSemanticPlannerDraft(
         mentionByOccurrence,
         consumedMentions,
       );
+      const evaluationMode =
+        target.kind === "EVALUATOR"
+          ? invocation.acceptanceCriteria[0]?.mode
+          : undefined;
       return {
         id: invocation.id,
         purpose: invocation.purpose,
         target,
         outputs: invocation.outputs,
         acceptanceCriteria: invocation.acceptanceCriteria,
-        riskClass: invocation.riskHint,
+        riskClass:
+          target.kind === "EVALUATOR"
+            ? "READ_ONLY"
+            : invocation.riskHint,
         approvalPolicy:
-          target.kind === "VIMLA" || invocation.riskHint !== "READ_ONLY"
-            ? "USER_CONFIRMATION"
-            : "AUTO",
+          target.kind === "EVALUATOR"
+            ? evaluationMode === "HUMAN_APPROVAL"
+              ? "HUMAN_APPROVAL"
+              : "AUTO"
+            : target.kind === "VIMLA" || invocation.riskHint !== "READ_ONLY"
+              ? "USER_CONFIRMATION"
+              : "AUTO",
         failurePolicy: invocation.failurePolicy,
         joinPolicy: invocation.joinPolicy,
       };

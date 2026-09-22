@@ -532,6 +532,60 @@ test("forces explicit approval for Vimla actions even when the model labels risk
   assert.equal(result.plan.invocations[0]?.approvalPolicy, "USER_CONFIRMATION");
 });
 
+test("compiles HUMAN_APPROVAL evaluator proposals with the canonical approval policy", () => {
+  const result = compileSemanticPlannerDraft(
+    {
+      userText: "Generate a draft and let me approve whether it is ready",
+      mentions: [mention()],
+    },
+    planDraft(
+      [
+        plannerInvocation("generate", "model-a", {
+          outputs: [{ name: "draft", artifactType: "TEXT" }],
+        }),
+        {
+          id: "human-review",
+          purpose: "Let the user decide whether the generated draft is ready",
+          targetHint: { kind: "EVALUATOR" },
+          outputs: [{ name: "evaluation", artifactType: "JSON" }],
+          acceptanceCriteria: [
+            {
+              id: "approved",
+              description: "The user approves the generated draft",
+              mode: "HUMAN_APPROVAL",
+            },
+          ],
+          riskHint: "INTERNAL_WRITE",
+          failurePolicy: "FAIL_PLAN",
+          joinPolicy: "ALL_REQUIRED",
+        },
+      ],
+      [
+        {
+          id: "generate-review",
+          fromInvocationId: "generate",
+          toInvocationId: "human-review",
+          condition: { kind: "DATA" },
+          inputBindings: [
+            {
+              inputName: "draft",
+              sourceOutputName: "draft",
+              expectedArtifactType: "TEXT",
+            },
+          ],
+        },
+      ],
+    ),
+  );
+
+  assert.equal(result.kind, "PLAN");
+  const evaluator = result.plan.invocations.find(
+    (invocation) => invocation.target.kind === "EVALUATOR",
+  );
+  assert.equal(evaluator?.riskClass, "READ_ONLY");
+  assert.equal(evaluator?.approvalPolicy, "HUMAN_APPROVAL");
+});
+
 test("supports evaluator proposal nodes without granting model/provider authority", () => {
   const result = compileSemanticPlannerDraft(
     {

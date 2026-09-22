@@ -399,7 +399,7 @@ function jsonPrimitive(
 ): string | number | boolean | null {
   if (
     input === null ||
-    typeof input === "string" ||
+    (typeof input === "string" && input.length <= 2_000) ||
     typeof input === "boolean" ||
     (typeof input === "number" && Number.isFinite(input))
   ) {

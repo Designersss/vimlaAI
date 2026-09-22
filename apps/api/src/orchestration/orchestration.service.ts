@@ -937,7 +937,7 @@ export class OrchestrationService {
         .array()
         .parse(invocation.acceptanceCriteria);
       if (
-        criteria.length === 0 ||
+        criteria.length !== 1 ||
         criteria.some(
           (criterion) =>
             criterion.mode !== "HUMAN_APPROVAL" ||

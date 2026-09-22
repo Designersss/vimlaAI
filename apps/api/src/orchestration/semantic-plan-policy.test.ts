@@ -124,6 +124,30 @@ describe("semantic plan execution policy", () => {
       /cannot mix evaluation modes/,
     );
   });
+  it("rejects multiple human approval criteria in v1", () => {
+    expect(() =>
+      applySemanticPlanExecutionPolicy(
+        planWithInvocation({
+          target: { kind: "EVALUATOR" },
+          outputs: [{ name: "evaluation", artifactType: "JSON" }],
+          acceptanceCriteria: [
+            {
+              id: "quality",
+              description: "Quality is acceptable",
+              mode: "HUMAN_APPROVAL",
+            },
+            {
+              id: "safety",
+              description: "Safety is acceptable",
+              mode: "HUMAN_APPROVAL",
+            },
+          ],
+        }),
+      ),
+    ).toThrow(SemanticPlanPolicyError);
+  });
+
+
 });
 
 function basePlan(
