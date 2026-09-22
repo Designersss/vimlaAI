@@ -254,7 +254,10 @@ export const workflowEvaluationCriterionResultSchema = z
     criterionId: graphKeySchema,
     outcome: z.enum(["PASS", "FAIL"]),
     confidence: z.number().min(0).max(1),
-    summary: z.string().nullable(),
+    summary: z
+      .string()
+      .max(EXECUTION_PLAN_API_LIMITS.descriptionMax)
+      .nullable(),
   })
   .strict();
 
@@ -263,8 +266,13 @@ export const workflowEvaluationSchema = z
     mode: z.enum(["DETERMINISTIC", "AI_EVALUATOR", "HUMAN_APPROVAL"]),
     outcome: z.enum(["PASS", "FAIL"]),
     confidence: z.number().min(0).max(1),
-    criteriaResults: z.array(workflowEvaluationCriterionResultSchema),
-    summary: z.string().nullable(),
+    criteriaResults: z
+      .array(workflowEvaluationCriterionResultSchema)
+      .max(EXECUTION_PLAN_API_LIMITS.maxCriteriaPerInvocation),
+    summary: z
+      .string()
+      .max(EXECUTION_PLAN_API_LIMITS.descriptionMax)
+      .nullable(),
   })
   .strict();
 
