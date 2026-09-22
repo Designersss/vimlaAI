@@ -224,6 +224,22 @@ export function validateExecutionPlanGraph(
         );
       }
       const mode = invocation.acceptanceCriteria[0]?.mode;
+      if (invocation.riskClass !== "READ_ONLY") {
+        throw new GraphValidationError(
+          "INVALID_EVALUATOR",
+          `Evaluator ${invocation.id} must be read-only`,
+        );
+      }
+      if (
+        (mode === "HUMAN_APPROVAL" &&
+          invocation.approvalPolicy !== "HUMAN_APPROVAL") ||
+        (mode !== "HUMAN_APPROVAL" && invocation.approvalPolicy !== "AUTO")
+      ) {
+        throw new GraphValidationError(
+          "INVALID_EVALUATOR",
+          `Evaluator ${invocation.id} uses an approval policy that does not match its evaluation mode`,
+        );
+      }
       if (
         mode === "DETERMINISTIC" &&
         invocation.acceptanceCriteria.some(
