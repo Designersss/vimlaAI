@@ -34,12 +34,14 @@ type EvaluatorInputArtifact = {
   content: ArtifactContent;
 };
 
+type AiEvaluationInput = {
+  purpose: string;
+  criteria: readonly AcceptanceCriteria[];
+  artifacts: readonly EvaluatorInputArtifact[];
+};
+
 export interface AiEvaluationModel {
-  evaluate(input: {
-    purpose: string;
-    criteria: readonly AcceptanceCriteria[];
-    artifacts: readonly EvaluatorInputArtifact[];
-  }): Promise<EvaluationResult>;
+  evaluate(input: AiEvaluationInput): Promise<EvaluationResult>;
 }
 
 export class AiEvaluationUnavailableError extends Error {
@@ -67,7 +69,7 @@ export class AiEvaluationResponseError extends Error {
 }
 
 export class DisabledAiEvaluationModel implements AiEvaluationModel {
-  async evaluate(): Promise<EvaluationResult> {
+  async evaluate(_input: AiEvaluationInput): Promise<EvaluationResult> {
     throw new AiEvaluationUnavailableError();
   }
 }
@@ -87,11 +89,7 @@ export class OpenAiCompatibleAiEvaluationModel implements AiEvaluationModel {
     this.fetchImpl = config.fetchImpl ?? fetch;
   }
 
-  async evaluate(input: {
-    purpose: string;
-    criteria: readonly AcceptanceCriteria[];
-    artifacts: readonly EvaluatorInputArtifact[];
-  }): Promise<EvaluationResult> {
+  async evaluate(input: AiEvaluationInput): Promise<EvaluationResult> {
     const requestJson = JSON.stringify({
       purpose: input.purpose,
       criteria: input.criteria.map((criterion) => ({
@@ -804,7 +802,9 @@ function validConfidence(value: number): boolean {
   return Number.isFinite(value) && value >= 0 && value <= 1;
 }
 
-function validOptionalSummary(value: unknown): boolean {
+function validOptionalSummary(
+  value: unknown,
+): value is string | null | undefined {
   return (
     value === undefined ||
     value === null ||
@@ -883,7 +883,9 @@ function evaluationFromStored(input: {
       criterionId: raw.criterionId,
       outcome: raw.outcome,
       confidence: raw.confidence,
-      ...(raw.summary === null ? {} : { summary: raw.summary }),
+      ...(raw.summary === null || raw.summary === undefined
+        ? {}
+        : { summary: raw.summary }),
     } satisfies EvaluationCriterionResult;
   });
 
