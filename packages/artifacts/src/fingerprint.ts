@@ -11,7 +11,7 @@ export function fingerprintArtifactContent(content: ArtifactContent): string {
 }
 
 export function fingerprintResolvedArtifactInputs(
-  inputs: readonly ResolvedArtifactInput[],
+  inputs: readonly Pick<ResolvedArtifactInput, "inputName" | "reference">[],
 ): string {
   const canonical = [...inputs]
     .sort((left, right) => left.inputName.localeCompare(right.inputName))
