@@ -23,6 +23,7 @@ import {
   isBillingError,
   type BillingEngine,
 } from "@vimla/billing";
+import { isExternalProviderClassificationAllowed } from "@vimla/context";
 import { Prisma, type PrismaClient } from "@vimla/database";
 import {
   resolveAiExecutionBudget,
@@ -738,6 +739,15 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
     });
     const inputs: string[] = [];
     for (const binding of bindings) {
+      if (
+        !isExternalProviderClassificationAllowed(
+          binding.reference.classification,
+        )
+      ) {
+        throw new ExternalAiTerminalError(
+          "AI_ARTIFACT_CLASSIFICATION_DENIED",
+        );
+      }
       const version = await this.artifacts.readVersion({
         actorUserId: userId,
         artifactVersionId: binding.reference.artifactVersionId,

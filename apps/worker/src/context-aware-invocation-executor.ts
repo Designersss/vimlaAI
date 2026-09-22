@@ -32,6 +32,9 @@ export class ContextAwareInvocationExecutorRegistry
         planId: input.planId,
       },
       select: {
+        targetKind: true,
+        targetModelSlug: true,
+        targetAgentId: true,
         plan: {
           select: {
             userId: true,
@@ -42,12 +45,21 @@ export class ContextAwareInvocationExecutorRegistry
     if (!invocation) {
       return terminal("CONTEXT_POLICY_INVOCATION_NOT_FOUND");
     }
+    if (!persistedTargetMatches(invocation, input.target)) {
+      return terminal("CONTEXT_POLICY_TARGET_MISMATCH");
+    }
 
     try {
-      await this.bundles.resolveForInvocation({
+      const bundle = await this.bundles.resolveForInvocation({
         actorUserId: invocation.plan.userId,
         invocationId: input.invocationId,
       });
+      if (
+        input.target.kind === "VIMLA" &&
+        bundle.manifest.surfaceKind !== "PERSONAL"
+      ) {
+        return terminal("CONTEXT_POLICY_EXECUTOR_SURFACE_UNSUPPORTED");
+      }
     } catch (error: unknown) {
       if (error instanceof ContextAccessDeniedError) {
         return terminal("CONTEXT_POLICY_DENIED");
@@ -60,6 +72,21 @@ export class ContextAwareInvocationExecutorRegistry
 
     return this.fallback.execute(input);
   }
+}
+
+function persistedTargetMatches(
+  invocation: {
+    targetKind: string;
+    targetModelSlug: string | null;
+    targetAgentId: string | null;
+  },
+  target: InvocationExecutionInput["target"],
+): boolean {
+  return (
+    invocation.targetKind === target.kind &&
+    invocation.targetModelSlug === target.modelSlug &&
+    invocation.targetAgentId === target.agentId
+  );
 }
 
 function terminal(errorCode: string): InvocationExecutionResult {

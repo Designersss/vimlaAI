@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  contextSurfaceScopePolicy,
   evaluateContextPolicy,
   evaluateContextWritePolicy,
+  isExternalProviderClassificationAllowed,
   type ContextSurfaceDescriptor,
 } from "./policy.js";
 
@@ -176,6 +178,75 @@ describe("ContextPolicy", () => {
         audienceHasAccess: true,
       }),
     ).toEqual({ allowed: true });
+  });
+
+  it("exposes explicit READ_SCOPE and WRITE_SCOPE for every surface", () => {
+    expect(
+      contextSurfaceScopePolicy({
+        kind: "PERSONAL",
+        ownerUserId: "user-1",
+      }),
+    ).toEqual({
+      readScope: [
+        { kind: "PERSONAL", selector: "ACTOR" },
+        { kind: "PROJECT", selector: "ANY_AUTHORIZED" },
+      ],
+      writeScope: [
+        {
+          kind: "PERSONAL",
+          selector: "ACTOR",
+          explicitActionRequired: false,
+        },
+        {
+          kind: "PROJECT",
+          selector: "ANY_AUTHORIZED",
+          explicitActionRequired: true,
+        },
+      ],
+    });
+
+    expect(
+      contextSurfaceScopePolicy({
+        kind: "PROJECT",
+        projectId: "project-a",
+      }),
+    ).toEqual({
+      readScope: [{ kind: "PROJECT", selector: "CURRENT" }],
+      writeScope: [
+        {
+          kind: "PROJECT",
+          selector: "CURRENT",
+          explicitActionRequired: true,
+        },
+      ],
+    });
+
+    expect(
+      contextSurfaceScopePolicy({
+        kind: "DIRECT_CHAT",
+        directConversationId: "direct-1",
+      }),
+    ).toEqual({
+      readScope: [
+        { kind: "DIRECT_CHAT", selector: "CURRENT" },
+        { kind: "PROJECT", selector: "ANY_AUTHORIZED" },
+      ],
+      writeScope: [
+        {
+          kind: "DIRECT_CHAT",
+          selector: "CURRENT",
+          explicitActionRequired: false,
+        },
+      ],
+    });
+  });
+
+  it("fails closed for classifications that are not external-provider safe", () => {
+    expect(isExternalProviderClassificationAllowed("PUBLIC")).toBe(true);
+    expect(isExternalProviderClassificationAllowed("INTERNAL")).toBe(true);
+    expect(isExternalProviderClassificationAllowed("PRIVATE")).toBe(true);
+    expect(isExternalProviderClassificationAllowed("RESTRICTED")).toBe(false);
+    expect(isExternalProviderClassificationAllowed("UNKNOWN")).toBe(false);
   });
 
   it("requires an explicit action for cross-scope project writes", () => {

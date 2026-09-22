@@ -23,6 +23,86 @@ export type ContextSurfaceDescriptor =
   | { kind: "PROJECT"; projectId: string }
   | { kind: "DIRECT_CHAT"; directConversationId: string };
 
+export type ContextReadScopeRule =
+  | { kind: "PERSONAL"; selector: "ACTOR" }
+  | { kind: "PROJECT"; selector: "CURRENT" | "ANY_AUTHORIZED" }
+  | { kind: "DIRECT_CHAT"; selector: "CURRENT" };
+
+export type ContextWriteScopeRule =
+  | {
+      kind: "PERSONAL";
+      selector: "ACTOR";
+      explicitActionRequired: false;
+    }
+  | {
+      kind: "PROJECT";
+      selector: "CURRENT" | "ANY_AUTHORIZED";
+      explicitActionRequired: true;
+    }
+  | {
+      kind: "DIRECT_CHAT";
+      selector: "CURRENT";
+      explicitActionRequired: false;
+    };
+
+export interface ContextSurfaceScopePolicy {
+  readScope: readonly ContextReadScopeRule[];
+  writeScope: readonly ContextWriteScopeRule[];
+}
+
+export function contextSurfaceScopePolicy(
+  surface: ContextSurfaceDescriptor,
+): ContextSurfaceScopePolicy {
+  switch (surface.kind) {
+    case "PERSONAL":
+      return {
+        readScope: [
+          { kind: "PERSONAL", selector: "ACTOR" },
+          { kind: "PROJECT", selector: "ANY_AUTHORIZED" },
+        ],
+        writeScope: [
+          {
+            kind: "PERSONAL",
+            selector: "ACTOR",
+            explicitActionRequired: false,
+          },
+          {
+            kind: "PROJECT",
+            selector: "ANY_AUTHORIZED",
+            explicitActionRequired: true,
+          },
+        ],
+      };
+
+    case "PROJECT":
+      return {
+        readScope: [{ kind: "PROJECT", selector: "CURRENT" }],
+        writeScope: [
+          {
+            kind: "PROJECT",
+            selector: "CURRENT",
+            explicitActionRequired: true,
+          },
+        ],
+      };
+
+    case "DIRECT_CHAT":
+      return {
+        readScope: [
+          { kind: "DIRECT_CHAT", selector: "CURRENT" },
+          { kind: "PROJECT", selector: "ANY_AUTHORIZED" },
+        ],
+        writeScope: [
+          {
+            kind: "DIRECT_CHAT",
+            selector: "CURRENT",
+            explicitActionRequired: false,
+          },
+        ],
+      };
+  }
+}
+
 export type ContextAudienceDescriptor =
   | {
       kind: "PERSONAL";
@@ -67,8 +147,8 @@ export function evaluateContextPolicy(
   }
 
   if (
-    input.classification === "RESTRICTED" &&
-    isExternalTarget(input.targetKind)
+    isExternalTarget(input.targetKind) &&
+    !isExternalProviderClassificationAllowed(input.classification)
   ) {
     return { allowed: false, reason: "TARGET_CLASSIFICATION_DENIED" };
   }
@@ -108,50 +188,27 @@ export function evaluateContextWritePolicy(
     return { allowed: false, reason: "WRITE_ACCESS_DENIED" };
   }
 
-  if (
-    input.surface.kind === "PERSONAL" &&
-    input.requestedScope.kind === "PERSONAL" &&
-    input.surface.ownerUserId === input.actorUserId &&
-    input.requestedScope.ownerUserId === input.actorUserId
-  ) {
-    return { allowed: true };
+  const rule = contextSurfaceScopePolicy(input.surface).writeScope.find(
+    (candidate) =>
+      writeScopeRuleMatches(
+        candidate,
+        input.surface,
+        input.requestedScope,
+        input.actorUserId,
+      ),
+  );
+  if (!rule) {
+    return { allowed: false, reason: "WRITE_SCOPE_DENIED" };
   }
 
-  if (
-    input.surface.kind === "PERSONAL" &&
-    input.requestedScope.kind === "PROJECT"
-  ) {
-    return input.explicitAction
-      ? { allowed: true }
-      : {
-          allowed: false,
-          reason: "CROSS_SCOPE_WRITE_REQUIRES_EXPLICIT_ACTION",
-        };
+  if (rule.explicitActionRequired && !input.explicitAction) {
+    return {
+      allowed: false,
+      reason: "CROSS_SCOPE_WRITE_REQUIRES_EXPLICIT_ACTION",
+    };
   }
 
-  if (
-    input.surface.kind === "PROJECT" &&
-    input.requestedScope.kind === "PROJECT" &&
-    input.surface.projectId === input.requestedScope.projectId
-  ) {
-    return input.explicitAction
-      ? { allowed: true }
-      : {
-          allowed: false,
-          reason: "CROSS_SCOPE_WRITE_REQUIRES_EXPLICIT_ACTION",
-        };
-  }
-
-  if (
-    input.surface.kind === "DIRECT_CHAT" &&
-    input.requestedScope.kind === "DIRECT_CHAT" &&
-    input.surface.directConversationId ===
-      input.requestedScope.directConversationId
-  ) {
-    return { allowed: true };
-  }
-
-  return { allowed: false, reason: "WRITE_SCOPE_DENIED" };
+  return { allowed: true };
 }
 
 export function surfaceFromAudience(
@@ -176,28 +233,86 @@ function sourceScopeAllowed(
   source: ContextReadScope,
   actorUserId: string,
 ): boolean {
-  switch (surface.kind) {
+  return contextSurfaceScopePolicy(surface).readScope.some((rule) =>
+    readScopeRuleMatches(rule, surface, source, actorUserId),
+  );
+}
+
+function readScopeRuleMatches(
+  rule: ContextReadScopeRule,
+  surface: ContextSurfaceDescriptor,
+  source: ContextReadScope,
+  actorUserId: string,
+): boolean {
+  if (rule.kind !== source.kind) return false;
+
+  switch (rule.kind) {
     case "PERSONAL":
-      if (source.kind === "PERSONAL") {
-        return (
-          surface.ownerUserId === actorUserId &&
-          source.ownerUserId === actorUserId
-        );
-      }
-      return source.kind === "PROJECT";
+      return (
+        source.kind === "PERSONAL" &&
+        surface.kind === "PERSONAL" &&
+        surface.ownerUserId === actorUserId &&
+        source.ownerUserId === actorUserId
+      );
 
     case "PROJECT":
+      if (source.kind !== "PROJECT") return false;
       return (
-        source.kind === "PROJECT" &&
-        source.projectId === surface.projectId
+        rule.selector === "ANY_AUTHORIZED" ||
+        (surface.kind === "PROJECT" && source.projectId === surface.projectId)
       );
 
     case "DIRECT_CHAT":
-      if (source.kind === "DIRECT_CHAT") {
-        return source.directConversationId === surface.directConversationId;
-      }
-      return source.kind === "PROJECT";
+      return (
+        source.kind === "DIRECT_CHAT" &&
+        surface.kind === "DIRECT_CHAT" &&
+        source.directConversationId === surface.directConversationId
+      );
   }
+}
+
+function writeScopeRuleMatches(
+  rule: ContextWriteScopeRule,
+  surface: ContextSurfaceDescriptor,
+  requested: ContextWriteScope,
+  actorUserId: string,
+): boolean {
+  if (rule.kind !== requested.kind) return false;
+
+  switch (rule.kind) {
+    case "PERSONAL":
+      return (
+        requested.kind === "PERSONAL" &&
+        surface.kind === "PERSONAL" &&
+        surface.ownerUserId === actorUserId &&
+        requested.ownerUserId === actorUserId
+      );
+
+    case "PROJECT":
+      if (requested.kind !== "PROJECT") return false;
+      return (
+        rule.selector === "ANY_AUTHORIZED" ||
+        (surface.kind === "PROJECT" &&
+          requested.projectId === surface.projectId)
+      );
+
+    case "DIRECT_CHAT":
+      return (
+        requested.kind === "DIRECT_CHAT" &&
+        surface.kind === "DIRECT_CHAT" &&
+        requested.directConversationId === surface.directConversationId
+      );
+  }
+}
+
+export function isExternalProviderClassificationAllowed(
+  classification: string,
+): boolean {
+  return (
+    classification === "PUBLIC" ||
+    classification === "INTERNAL" ||
+    classification === "PRIVATE"
+  );
 }
 
 function isExternalTarget(target: ContextInvocationTargetKind): boolean {

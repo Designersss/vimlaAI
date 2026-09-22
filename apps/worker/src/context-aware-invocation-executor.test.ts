@@ -11,6 +11,13 @@ import type {
   InvocationExecutorRegistry,
 } from "./orchestration.js";
 
+const persistedVimlaInvocation = {
+  targetKind: "VIMLA",
+  targetModelSlug: null,
+  targetAgentId: null,
+  plan: { userId: "user-1" },
+};
+
 const input: InvocationExecutionInput = {
   planId: "plan-1",
   invocationId: "invocation-1",
@@ -26,11 +33,10 @@ const input: InvocationExecutionInput = {
 
 describe("ContextAwareInvocationExecutorRegistry", () => {
   it("delegates only after the invocation context passes authorization", async () => {
-    const findFirst = vi.fn().mockResolvedValue({
-      plan: { userId: "user-1" },
-    });
+    const findFirst = vi.fn().mockResolvedValue(persistedVimlaInvocation);
     const resolveForInvocation = vi.fn().mockResolvedValue({
       fingerprint: "sha256:allowed",
+      manifest: { surfaceKind: "PERSONAL" },
     });
     const execute = vi.fn().mockResolvedValue({
       status: "COMPLETED" as const,
@@ -59,9 +65,7 @@ describe("ContextAwareInvocationExecutorRegistry", () => {
     const registry = new ContextAwareInvocationExecutorRegistry(
       {
         invocation: {
-          findFirst: vi.fn().mockResolvedValue({
-            plan: { userId: "user-1" },
-          }),
+          findFirst: vi.fn().mockResolvedValue(persistedVimlaInvocation),
         },
       } as unknown as PrismaClient,
       { execute } satisfies InvocationExecutorRegistry,
@@ -82,14 +86,68 @@ describe("ContextAwareInvocationExecutorRegistry", () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
+  it("rejects a queue target that does not match the persisted invocation", async () => {
+    const execute = vi.fn();
+    const resolveForInvocation = vi.fn();
+    const registry = new ContextAwareInvocationExecutorRegistry(
+      {
+        invocation: {
+          findFirst: vi.fn().mockResolvedValue(persistedVimlaInvocation),
+        },
+      } as unknown as PrismaClient,
+      { execute } satisfies InvocationExecutorRegistry,
+      { resolveForInvocation } as unknown as ContextBundleService,
+    );
+
+    await expect(
+      registry.execute({
+        ...input,
+        target: {
+          kind: "AI_MODEL",
+          modelSlug: "gpt-5-6-luna",
+          agentId: null,
+        },
+      }),
+    ).resolves.toEqual({
+      status: "FAILED",
+      errorCode: "CONTEXT_POLICY_TARGET_MISMATCH",
+      retryable: false,
+    });
+    expect(resolveForInvocation).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
+  });
+
+  it("does not let the personal Vimla executor run on a shared surface", async () => {
+    const execute = vi.fn();
+    const registry = new ContextAwareInvocationExecutorRegistry(
+      {
+        invocation: {
+          findFirst: vi.fn().mockResolvedValue(persistedVimlaInvocation),
+        },
+      } as unknown as PrismaClient,
+      { execute } satisfies InvocationExecutorRegistry,
+      {
+        resolveForInvocation: vi.fn().mockResolvedValue({
+          fingerprint: "sha256:shared",
+          manifest: { surfaceKind: "DIRECT_CHAT" },
+        }),
+      } as unknown as ContextBundleService,
+    );
+
+    await expect(registry.execute(input)).resolves.toEqual({
+      status: "FAILED",
+      errorCode: "CONTEXT_POLICY_EXECUTOR_SURFACE_UNSUPPORTED",
+      retryable: false,
+    });
+    expect(execute).not.toHaveBeenCalled();
+  });
+
   it("fails closed on malformed policy context", async () => {
     const execute = vi.fn();
     const registry = new ContextAwareInvocationExecutorRegistry(
       {
         invocation: {
-          findFirst: vi.fn().mockResolvedValue({
-            plan: { userId: "user-1" },
-          }),
+          findFirst: vi.fn().mockResolvedValue(persistedVimlaInvocation),
         },
       } as unknown as PrismaClient,
       { execute } satisfies InvocationExecutorRegistry,
