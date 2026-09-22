@@ -42,7 +42,7 @@ describe("semantic plan execution policy", () => {
       approvalPolicy: "AUTO",
     });
     expect(() => applySemanticPlanExecutionPolicy(evaluator)).toThrow(
-      /Evaluator execution is not available/,
+      /evaluator execution is not available/i,
     );
 
     const image = basePlan({
