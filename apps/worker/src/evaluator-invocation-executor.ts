@@ -22,6 +22,9 @@ import type {
   InvocationExecutorRegistry,
 } from "./orchestration.js";
 
+const MAX_EVALUATION_CRITERIA = 32;
+const MAX_EVALUATION_SUMMARY_LENGTH = 2_000;
+
 type EvaluatorInputArtifact = {
   inputName: string;
   value: Prisma.JsonValue;
@@ -296,10 +299,14 @@ export class EvaluatorInvocationExecutor {
 }
 
 function parseCriteria(value: Prisma.JsonValue): AcceptanceCriteria[] {
-  if (!Array.isArray(value)) {
+  if (
+    !Array.isArray(value) ||
+    value.length === 0 ||
+    value.length > MAX_EVALUATION_CRITERIA
+  ) {
     throw new EvaluatorContractError(
       "EVALUATOR_CONTRACT_INVALID",
-      "Acceptance criteria must be an array",
+      "Acceptance criteria must be a non-empty bounded array",
     );
   }
   return value.map((item) => acceptanceCriteriaSchema.parse(item));
@@ -408,6 +415,17 @@ function validateAiEvaluation(
       "AI evaluator returned an invalid result envelope",
     );
   }
+  if (
+    result.criteriaResults.length !== criteria.length ||
+    result.criteriaResults.length > MAX_EVALUATION_CRITERIA ||
+    !validOptionalSummary(result.summary)
+  ) {
+    throw new EvaluatorContractError(
+      "AI_EVALUATOR_RESULT_INVALID",
+      "AI evaluator returned an invalid bounded result",
+    );
+  }
+
   const expectedIds = new Set(criteria.map((criterion) => criterion.id));
   const seen = new Set<string>();
   for (const item of result.criteriaResults) {
@@ -415,7 +433,8 @@ function validateAiEvaluation(
       !expectedIds.has(item.criterionId) ||
       seen.has(item.criterionId) ||
       (item.outcome !== "PASS" && item.outcome !== "FAIL") ||
-      !validConfidence(item.confidence)
+      !validConfidence(item.confidence) ||
+      !validOptionalSummary(item.summary)
     ) {
       throw new EvaluatorContractError(
         "AI_EVALUATOR_RESULT_INVALID",
@@ -510,6 +529,15 @@ function validConfidence(value: number): boolean {
   return Number.isFinite(value) && value >= 0 && value <= 1;
 }
 
+function validOptionalSummary(value: unknown): boolean {
+  return (
+    value === undefined ||
+    value === null ||
+    (typeof value === "string" &&
+      value.length <= MAX_EVALUATION_SUMMARY_LENGTH)
+  );
+}
+
 function normalizeEvaluation(result: EvaluationResult): EvaluationResult {
   return {
     mode: result.mode,
@@ -549,7 +577,10 @@ function evaluationFromStored(input: {
     ) ||
     (input.outcome !== "PASS" && input.outcome !== "FAIL") ||
     !validConfidence(input.confidence) ||
-    !Array.isArray(input.criteriaResults)
+    !validOptionalSummary(input.summary) ||
+    !Array.isArray(input.criteriaResults) ||
+    input.criteriaResults.length === 0 ||
+    input.criteriaResults.length > MAX_EVALUATION_CRITERIA
   ) {
     throw new EvaluatorContractError(
       "EVALUATOR_PERSISTED_RESULT_INVALID",
@@ -566,7 +597,7 @@ function evaluationFromStored(input: {
       (raw.outcome !== "PASS" && raw.outcome !== "FAIL") ||
       typeof raw.confidence !== "number" ||
       !validConfidence(raw.confidence) ||
-      (raw.summary !== null && typeof raw.summary !== "string")
+      !validOptionalSummary(raw.summary)
     ) {
       throw new EvaluatorContractError(
         "EVALUATOR_PERSISTED_RESULT_INVALID",
