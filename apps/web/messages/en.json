@@ -529,6 +529,7 @@
     "outcome": "Outcome: {outcome}",
     "durationMs": "{milliseconds} ms",
     "durationSeconds": "{seconds} s",
+    "evaluationCriteria": "Acceptance criteria",
     "evaluationPass": "Pass",
     "evaluationFail": "Needs changes",
     "evaluationResult": "Evaluation: {outcome} · confidence {confidence}%"
