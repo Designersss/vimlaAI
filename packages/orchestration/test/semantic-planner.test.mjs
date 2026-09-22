@@ -547,7 +547,7 @@ test("supports evaluator proposal nodes without granting model/provider authorit
           id: "evaluate",
           purpose: "Evaluate the generated draft",
           targetHint: { kind: "EVALUATOR" },
-          outputs: [],
+          outputs: [{ name: "evaluation", artifactType: "JSON" }],
           acceptanceCriteria: [
             {
               id: "quality",
