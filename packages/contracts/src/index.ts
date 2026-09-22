@@ -315,6 +315,7 @@ export {
   workflowAcceptanceCriteriaSchema,
   workflowEvaluationCriterionResultSchema,
   workflowEvaluationSchema,
+  workflowGraphKeySchema,
   workflowArtifactSummarySchema,
   workflowArtifactTypeSchema,
   workflowDependencyConditionSchema,
