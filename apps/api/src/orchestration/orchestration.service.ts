@@ -892,9 +892,6 @@ export class OrchestrationService {
       if (!plan) {
         throw new NotFoundException("Execution plan not found");
       }
-      if (plan.status !== "RUNNING") {
-        throw new ConflictException("Execution plan is not running");
-      }
 
       const invocationId = invocationDbId(id, validatedInvocationId);
       const invocation = plan.invocations.find(
@@ -926,6 +923,9 @@ export class OrchestrationService {
           );
         }
         return toView(plan);
+      }
+      if (plan.status !== "RUNNING") {
+        throw new ConflictException("Execution plan is not running");
       }
       if (invocation.status !== "WAITING_APPROVAL") {
         throw new ConflictException(

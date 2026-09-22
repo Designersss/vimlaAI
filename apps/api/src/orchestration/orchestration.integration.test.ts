@@ -574,6 +574,11 @@ describe("execution plan API", () => {
       version: 1,
     });
 
+    await prisma.executionPlan.update({
+      where: { id: planId },
+      data: { status: "COMPLETED", completedAt: new Date() },
+    });
+
     const replay = await app.inject({
       method: "POST",
       url: `/v1/execution-plans/${planId}/evaluations/review/resolve`,
@@ -585,6 +590,7 @@ describe("execution plan API", () => {
       },
     });
     expect(replay.statusCode).toBe(200);
+    expect(replay.json().status).toBe("COMPLETED");
     expect(replay.json().invocations[0].latestRun.id).toBe(
       review.latestRun.id,
     );
