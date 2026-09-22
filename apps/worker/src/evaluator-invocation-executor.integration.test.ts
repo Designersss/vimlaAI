@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { ArtifactService } from "@vimla/artifacts";
-import { createPrismaClient, type PrismaClient } from "@vimla/database";
+import { createPrismaClient, type Prisma, type PrismaClient } from "@vimla/database";
 import type { EvaluationResult } from "@vimla/orchestration";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
@@ -190,8 +190,8 @@ async function seedEvaluator(
   prisma: PrismaClient,
   input: {
     mode: "DETERMINISTIC" | "AI_EVALUATOR";
-    criterion: Record<string, unknown>;
-    artifactValue: Record<string, unknown>;
+    criterion: Prisma.InputJsonObject;
+    artifactValue: Prisma.InputJsonObject;
   },
 ): Promise<SeededEvaluator> {
   const suffix = randomUUID();
