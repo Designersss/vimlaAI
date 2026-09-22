@@ -370,10 +370,20 @@ export class ArtifactService {
     actorUserId: string;
     targetInvocationId: string;
   }): Promise<readonly ResolvedArtifactInput[]> {
+    return this.resolveInputBindingsInTransaction(this.prisma, input);
+  }
+
+  async resolveInputBindingsInTransaction(
+    tx: Pick<Prisma.TransactionClient, "invocation" | "artifact">,
+    input: {
+      actorUserId: string;
+      targetInvocationId: string;
+    },
+  ): Promise<readonly ResolvedArtifactInput[]> {
     validateIdentifier(input.actorUserId, "actorUserId");
     validateIdentifier(input.targetInvocationId, "targetInvocationId");
 
-    const target = await this.prisma.invocation.findUnique({
+    const target = await tx.invocation.findUnique({
       where: { id: input.targetInvocationId },
       include: {
         plan: { select: { id: true, userId: true } },
@@ -415,7 +425,7 @@ export class ArtifactService {
         }
         inputNames.add(binding.inputName);
 
-        const artifact = await this.prisma.artifact.findUnique({
+        const artifact = await tx.artifact.findUnique({
           where: {
             creatorInvocationId_outputName: {
               creatorInvocationId: dependency.fromInvocationId,
