@@ -194,6 +194,17 @@ export function validateExecutionPlanGraph(
           `Evaluator ${invocation.id} must declare one JSON output and at least one acceptance criterion`,
         );
       }
+      const criterionIds = new Set<string>();
+      for (const criterion of invocation.acceptanceCriteria) {
+        if (criterionIds.has(criterion.id)) {
+          throw new GraphValidationError(
+            "INVALID_EVALUATOR",
+            `Evaluator ${invocation.id} declares duplicate acceptance criterion ${criterion.id}`,
+          );
+        }
+        criterionIds.add(criterion.id);
+      }
+
       const modes = new Set(
         invocation.acceptanceCriteria.map((criterion) => criterion.mode),
       );
