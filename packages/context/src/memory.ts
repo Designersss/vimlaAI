@@ -165,6 +165,7 @@ export class MemoryService {
   constructor(
     private readonly db: PrismaClient,
     private readonly projectWriteAuthorizer?: MemoryProjectWriteAuthorizer,
+    private readonly maxActivePersonalItems = 1_000,
   ) {}
 
   async rememberPersonal(input: {
@@ -367,53 +368,70 @@ export class MemoryService {
     input: { limit: number; cursor?: string },
   ): Promise<MemoryListPage> {
     const now = new Date();
-    const cursor = input.cursor
+    let scanCursor = input.cursor
       ? decodeCursor(input.cursor)
       : null;
-    const rows = await this.db.memoryItem.findMany({
-      where: {
-        ownerUserId: actorUserId,
-        scopeKind: "PERSONAL",
-        state: "ACTIVE",
-        invalidatedAt: null,
-        AND: [
-          {
-            OR: [
-              { expiresAt: null },
-              { expiresAt: { gt: now } },
-            ],
-          },
-          ...(cursor
-            ? [
-                {
-                  OR: [
-                    { validFrom: { lt: cursor.validFrom } },
-                    {
-                      validFrom: cursor.validFrom,
-                      id: { lt: cursor.id },
-                    },
-                  ],
-                },
-              ]
-            : []),
-        ],
-      },
-      include: { sourceRefs: true },
-      orderBy: [{ validFrom: "desc" }, { id: "desc" }],
-      take: input.limit + 1,
-    });
-
     const visible: MemoryView[] = [];
-    for (const row of rows) {
-      if (visible.length >= input.limit) break;
-      if (!(await ensureMemoryCurrent(this.db, row))) continue;
-      visible.push(toMemoryView(row));
+    const batchSize = Math.max(50, Math.min(200, input.limit * 3));
+
+    while (visible.length <= input.limit) {
+      const rows = await this.db.memoryItem.findMany({
+        where: {
+          ownerUserId: actorUserId,
+          scopeKind: "PERSONAL",
+          state: "ACTIVE",
+          invalidatedAt: null,
+          AND: [
+            {
+              OR: [
+                { expiresAt: null },
+                { expiresAt: { gt: now } },
+              ],
+            },
+            ...(scanCursor
+              ? [
+                  {
+                    OR: [
+                      { validFrom: { lt: scanCursor.validFrom } },
+                      {
+                        validFrom: scanCursor.validFrom,
+                        id: { lt: scanCursor.id },
+                      },
+                    ],
+                  },
+                ]
+              : []),
+          ],
+        },
+        include: { sourceRefs: true },
+        orderBy: [{ validFrom: "desc" }, { id: "desc" }],
+        take: batchSize,
+      });
+      if (rows.length === 0) break;
+
+      for (const row of rows) {
+        if (await ensureMemoryCurrent(this.db, row)) {
+          visible.push(toMemoryView(row));
+          if (visible.length > input.limit) break;
+        }
+      }
+      if (visible.length > input.limit || rows.length < batchSize) {
+        break;
+      }
+      const lastRaw = rows.at(-1);
+      if (!lastRaw) break;
+      scanCursor = {
+        validFrom: lastRaw.validFrom,
+        id: lastRaw.id,
+      };
     }
-    const last = visible.at(-1);
+
+    const items = visible.slice(0, input.limit);
+    const last = items.at(-1);
     return {
-      items: visible,
+      items,
       nextCursor:
-        rows.length > input.limit && last
+        visible.length > input.limit && last
           ? encodeCursor(last.validFrom, last.id)
           : null,
     };
@@ -477,7 +495,7 @@ export class MemoryService {
 
       await tx.$queryRaw<Array<{ lock: string }>>(Prisma.sql`
         SELECT pg_advisory_xact_lock(
-          hashtext(${hashText(scope.scopeKey + "\n" + slotKey)})
+          hashtext(${hashText("memory-scope\n" + scope.scopeKey)})
         )::text AS "lock"
       `);
       const active = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
@@ -508,6 +526,30 @@ export class MemoryService {
           },
           include: { sourceRefs: true },
         });
+      }
+
+      if (
+        !existing &&
+        scope.kind === "PERSONAL"
+      ) {
+        const activeCount = await tx.memoryItem.count({
+          where: {
+            ownerUserId: input.actorUserId,
+            scopeKind: "PERSONAL",
+            state: "ACTIVE",
+            invalidatedAt: null,
+            OR: [
+              { expiresAt: null },
+              { expiresAt: { gt: new Date() } },
+            ],
+          },
+        });
+        if (activeCount >= this.maxActivePersonalItems) {
+          throw new MemoryError(
+            "CONFLICT",
+            "Personal Memory storage limit reached",
+          );
+        }
       }
 
       if (
