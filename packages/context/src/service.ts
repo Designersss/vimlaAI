@@ -6,7 +6,8 @@ import {
   ContextNotFoundError,
   ContextValidationError,
 } from "./errors.js";
-import { fingerprintContextItem, fingerprintContextSnapshot } from "./fingerprint.js";\nimport { ContextRetrievalService } from "./retrieval.js";
+import { fingerprintContextItem, fingerprintContextSnapshot } from "./fingerprint.js";
+import { ContextRetrievalService } from "./retrieval.js";
 import type {
   ContextAccessCheck,
   ContextAccessVerifier,
@@ -21,7 +22,6 @@ import type {
 } from "./types.js";
 
 const MAX_SNAPSHOT_ITEMS = 128;
-const RECENT_MESSAGE_LIMIT = 20;
 
 type SnapshotRow = Prisma.ContextSnapshotGetPayload<{
   include: { items: true };
