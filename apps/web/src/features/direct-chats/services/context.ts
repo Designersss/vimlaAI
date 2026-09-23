@@ -127,3 +127,35 @@ function lexicalScore(value: string, terms: ReadonlySet<string>): number {
   }
   return score;
 }
+
+
+export function boundDirectChatContextBefore(
+  prepared: PreparedDirectChatContext,
+  sourceCreatedAt: string,
+  actorUserId: string,
+): PreparedDirectChatContext {
+  const sourceTime = Date.parse(sourceCreatedAt);
+  if (!Number.isFinite(sourceTime)) {
+    return {
+      contextBundle: operatorContextBundleSchema.parse({ messages: [] }),
+      ownIncluded: false,
+      peerIncluded: false,
+    };
+  }
+  const messages = prepared.contextBundle.messages.filter(
+    (message) => {
+      const sentAt = Date.parse(message.sentAt);
+      return Number.isFinite(sentAt) && sentAt < sourceTime;
+    },
+  );
+  const contextBundle = operatorContextBundleSchema.parse({ messages });
+  return {
+    contextBundle,
+    ownIncluded: messages.some(
+      (message) => message.senderUserId === actorUserId,
+    ),
+    peerIncluded: messages.some(
+      (message) => message.senderUserId !== actorUserId,
+    ),
+  };
+}
