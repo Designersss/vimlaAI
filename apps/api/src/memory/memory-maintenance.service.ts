@@ -21,6 +21,8 @@ import { PrismaService } from "../persistence/prisma.service.js";
 import { MemoryFacade } from "./memory.facade.js";
 
 const RECEIPT_RECLAIM_MS = 5 * 60_000;
+const RECEIPT_RETENTION_MS = 30 * 24 * 60 * 60_000;
+const MAX_RECEIPT_ATTEMPTS = 5;
 const MAX_TAIL_SCAN = 1_024;
 const MAX_SEGMENT_SCAN = 256;
 
@@ -63,10 +65,12 @@ export class MemoryMaintenanceService {
             { status: "QUEUED" },
             {
               status: "PENDING",
+              attemptCount: { lt: MAX_RECEIPT_ATTEMPTS },
               updatedAt: { lte: cutoff },
             },
             {
               status: "FAILED",
+              attemptCount: { lt: MAX_RECEIPT_ATTEMPTS },
               updatedAt: { lte: cutoff },
             },
           ],
@@ -149,6 +153,16 @@ export class MemoryMaintenanceService {
         correlationId: `memory-reconcile:${receipt.id}`,
       });
     }
+
+    const retentionCutoff = new Date(
+      Date.now() - RECEIPT_RETENTION_MS,
+    );
+    await this.db.memoryExtractionReceipt.deleteMany({
+      where: {
+        status: { in: ["COMPLETED", "SKIPPED", "FAILED"] },
+        updatedAt: { lte: retentionCutoff },
+      },
+    });
 
     return receipts.length;
   }
@@ -433,6 +447,7 @@ export class MemoryMaintenanceService {
           sourceId: input.sourceId,
           sourceVersion: input.sourceVersion,
           status: "PENDING",
+          attemptCount: 1,
         },
       });
       return true;
@@ -462,10 +477,12 @@ export class MemoryMaintenanceService {
             { status: "QUEUED" },
             {
               status: "PENDING",
+              attemptCount: { lt: MAX_RECEIPT_ATTEMPTS },
               updatedAt: { lte: cutoff },
             },
             {
               status: "FAILED",
+              attemptCount: { lt: MAX_RECEIPT_ATTEMPTS },
               updatedAt: { lte: cutoff },
             },
           ],
@@ -473,6 +490,7 @@ export class MemoryMaintenanceService {
         data: {
           status: "PENDING",
           errorCode: null,
+          attemptCount: { increment: 1 },
         },
       });
     return reclaimed.count === 1;
