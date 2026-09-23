@@ -4,7 +4,7 @@ import {
   ContextNotFoundError,
   ContextValidationError,
 } from "./errors.js";
-import type { ContextSourceScope } from "./policy.js";
+import {\n  isKnownContextClassification,\n  type ContextSourceScope,\n} from "./policy.js";
 import type {
   ContextClassification,
   ContextSnapshotItemInput,
@@ -882,6 +882,40 @@ function normalizeDerivedProviderCandidate(
       "Derived context providers cannot claim source-of-truth authority",
     );
   }
+  if (
+    !isKnownContextClassification(
+      candidateValue.item.classification,
+    )
+  ) {
+    throw new ContextValidationError(
+      "Derived context provider classification is invalid",
+    );
+  }
+  if (
+    !Number.isFinite(candidateValue.lexicalScore) ||
+    candidateValue.lexicalScore < 0 ||
+    candidateValue.lexicalScore > 1
+  ) {
+    throw new ContextValidationError(
+      "Derived context provider relevance score is invalid",
+    );
+  }
+  if (
+    candidateValue.reason.trim().length === 0 ||
+    candidateValue.reason.length > 512
+  ) {
+    throw new ContextValidationError(
+      "Derived context provider selection reason is invalid",
+    );
+  }
+  if (
+    candidateValue.occurredAt !== null &&
+    !Number.isFinite(Date.parse(candidateValue.occurredAt))
+  ) {
+    throw new ContextValidationError(
+      "Derived context provider timestamp is invalid",
+    );
+  }
   if (candidateValue.sourceScope.kind === "DIRECT_CHAT") {
     throw new ContextValidationError(
       "Server retrieval providers cannot contribute Direct Chat context",
@@ -905,6 +939,7 @@ function normalizeDerivedProviderCandidate(
   return candidate({
     ...candidateValue,
     estimatedTokens: undefined,
+    rawHistoryTokens: undefined,
   });
 }
 
