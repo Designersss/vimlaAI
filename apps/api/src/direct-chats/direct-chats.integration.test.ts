@@ -20,6 +20,10 @@ import {
   type WireEnvelope,
 } from "@vimla/e2ee";
 import { seedVimlaAiModels } from "@vimla/ai";
+import {
+  ContextAccessDeniedError,
+  ContextSnapshotService,
+} from "@vimla/context";
 import type { MessageMentionInput } from "@vimla/contracts";
 import { seedVimlaPlans } from "@vimla/billing";
 import { loadApiConfig } from "@vimla/config/server";
@@ -570,6 +574,73 @@ describe("direct chats API", () => {
     expect(JSON.stringify(snapshot?.items)).toContain("peer allowed history");
     expect(snapshot?.items.some((item) => item.sourceType === "MEMORY")).toBe(false);
 
+    await expect(
+      new ContextSnapshotService(db).assertSourceAccess({
+        actorUserId: alice.id,
+        sourceType: "E2EE_DISCLOSURE",
+        sourceId: peerAllowed.id,
+      }),
+    ).rejects.toBeInstanceOf(ContextAccessDeniedError);
+
+    await expect(
+      db.contextSnapshot.create({
+        data: {
+          version: 1,
+          fingerprint: "invalid:no-owner",
+        },
+      }),
+    ).rejects.toThrow();
+
+    const constraintConversation = await db.conversation.create({
+      data: {
+        userId: alice.id,
+        kind: "CHAT",
+        title: "constraint-test",
+      },
+    });
+    const constraintMessage = await db.message.create({
+      data: {
+        conversationId: constraintConversation.id,
+        role: "USER",
+        content: "constraint test",
+        status: "COMPLETE",
+      },
+    });
+    const constraintPlan = await db.executionPlan.create({
+      data: {
+        messageId: constraintMessage.id,
+        userId: alice.id,
+        conversationId: constraintConversation.id,
+        schemaVersion: 1,
+        planHash: randomUUID(),
+        goal: "constraint test",
+        status: "PLANNED",
+        maxParallelism: 1,
+      },
+    });
+    const personalOperator = await app.inject({
+      method: "POST",
+      url: "/v1/operator/runs",
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: {
+        clientRequestId: randomUUID(),
+        content: "hello",
+        invocationScope: "PERSONAL",
+      },
+    });
+    expect(personalOperator.statusCode).toBe(201);
+    await expect(
+      db.contextSnapshot.create({
+        data: {
+          planId: constraintPlan.id,
+          operatorRunId: personalOperator.json().id,
+          version: 1,
+          fingerprint: "invalid:two-owners",
+        },
+      }),
+    ).rejects.toThrow();
+
     const encryptedRows = await db.directMessage.findMany({
       where: { id: { in: [peerAllowed.id, allowed.source.id] } },
       include: { envelopes: true },
@@ -650,6 +721,88 @@ describe("direct chats API", () => {
     });
     expect(spoofTime.statusCode).toBe(400);
 
+    const futureSource = await sendInvoke("@Vimla provenance future");
+    const futureHistoryResponse = await sendPlain(
+      app,
+      nikita,
+      nikitaDevice,
+      chat.id,
+      "HUMAN",
+      "future history must not be accepted",
+    );
+    expect(futureHistoryResponse.statusCode).toBe(201);
+    const futureHistory = futureHistoryResponse.json() as {
+      id: string;
+      createdAt: string;
+    };
+    const futureClaim = await app.inject({
+      method: "POST",
+      url: "/v1/operator/runs",
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: {
+        clientRequestId: randomUUID(),
+        content: "@Vimla provenance future",
+        invocationScope: "DIRECT_CHAT",
+        directConversationId: chat.id,
+        directSourceMessageId: futureSource.id,
+        contextBundle: {
+          messages: [
+            {
+              messageId: futureHistory.id,
+              senderUserId: nikita.id,
+              sentAt: futureHistory.createdAt,
+              text: "future history must not be accepted",
+            },
+          ],
+        },
+      },
+    });
+    expect(futureClaim.statusCode).toBe(400);
+
+    const equalHistoryResponse = await sendPlain(
+      app,
+      nikita,
+      nikitaDevice,
+      chat.id,
+      "HUMAN",
+      "same timestamp must fail closed",
+    );
+    expect(equalHistoryResponse.statusCode).toBe(201);
+    const equalHistory = equalHistoryResponse.json() as {
+      id: string;
+      createdAt: string;
+    };
+    const equalSource = await sendInvoke("@Vimla provenance equal time");
+    await db.directMessage.update({
+      where: { id: equalHistory.id },
+      data: { createdAt: new Date(equalSource.createdAt) },
+    });
+    const equalTimeClaim = await app.inject({
+      method: "POST",
+      url: "/v1/operator/runs",
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: {
+        clientRequestId: randomUUID(),
+        content: "@Vimla provenance equal time",
+        invocationScope: "DIRECT_CHAT",
+        directConversationId: chat.id,
+        directSourceMessageId: equalSource.id,
+        contextBundle: {
+          messages: [
+            {
+              messageId: equalHistory.id,
+              senderUserId: nikita.id,
+              sentAt: equalSource.createdAt,
+              text: "same timestamp must fail closed",
+            },
+          ],
+        },
+      },
+    });
+    expect(equalTimeClaim.statusCode).toBe(400);
+
     const otherChat = await createChat(app, alice.cookies, oscar.email);
     const otherHistoryResponse = await sendPlain(
       app,
@@ -727,6 +880,44 @@ describe("direct chats API", () => {
     });
     expect(oscarTasks.json().items).toHaveLength(0);
 
+    const privateNote = await app.inject({
+      method: "POST",
+      url: "/v1/workspace/notes",
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: {
+        title: "PRIVATE DIRECT CHAT MUST NOT SEE THIS",
+        contentMarkdown: "private-workspace-secret",
+      },
+    });
+    expect(privateNote.statusCode).toBe(201);
+    const noWorkspaceLeak = await runDirect("@Vimla delete note");
+    expect(noWorkspaceLeak.response.statusCode).toBe(201);
+    expect(noWorkspaceLeak.response.json().actions).toEqual([]);
+    const noWorkspaceLeakRun = await db.operatorRun.findUniqueOrThrow({
+      where: { id: noWorkspaceLeak.response.json().id },
+      select: { plannerOutput: true },
+    });
+    expect(noWorkspaceLeakRun.plannerOutput).not.toContain(
+      privateNote.json().id,
+    );
+    expect(noWorkspaceLeakRun.plannerOutput).not.toContain(
+      "PRIVATE DIRECT CHAT MUST NOT SEE THIS",
+    );
+
+    const blockedPersonalTool = await runDirect(
+      `@Vimla delete note ${privateNote.json().id}`,
+    );
+    expect(blockedPersonalTool.response.statusCode).toBe(201);
+    expect(blockedPersonalTool.response.json().status).toBe("FAILED");
+    const stillPrivateNote = await app.inject({
+      method: "GET",
+      url: `/v1/workspace/notes/${privateNote.json().id}`,
+      headers: { origin },
+      cookies: alice.cookies,
+    });
+    expect(stillPrivateNote.statusCode).toBe(200);
+
     const injectedSource = await sendInvoke(
       "@Vimla, кто победил в гран-при 2026?",
     );
@@ -781,6 +972,102 @@ describe("direct chats API", () => {
       cookies: oscar.cookies,
     });
     expect(oscarTasksAfter.json().items).toHaveLength(0);
+
+    const recovery = await runDirect(
+      "@Vimla recovery context",
+      {
+        messages: [
+          {
+            messageId: peerAllowed.id,
+            senderUserId: nikita.id,
+            sentAt: peerAllowed.createdAt,
+            text: "peer allowed history",
+          },
+        ],
+      },
+    );
+    expect(recovery.response.statusCode).toBe(201);
+    await db.operatorRun.update({
+      where: { id: recovery.response.json().id },
+      data: {
+        status: "EXECUTING",
+        errorCode: null,
+        publicMessage: null,
+      },
+    });
+    await db.operatorRunStep.deleteMany({
+      where: { runId: recovery.response.json().id },
+    });
+    await db.operatorRunStep.create({
+      data: {
+        runId: recovery.response.json().id,
+        sequence: 0,
+        toolName: "tasks.create",
+        status: "PENDING",
+        inputJson: { title: "MUST NOT EXECUTE AFTER REVOKE" },
+        publicKind: "task",
+        publicTitle: "MUST NOT EXECUTE AFTER REVOKE",
+        publicDetail: null,
+        publicHrefPath: "/work/tasks",
+        idempotencyKey: "recovery-revoked-context",
+      },
+    });
+    await app.inject({
+      method: "PATCH",
+      url: `/v1/direct-chats/${chat.id}/privacy`,
+      headers: jsonHeaders(),
+      cookies: nikita.cookies,
+      payload: { shareOwnHistoryWithVimla: false },
+    });
+    const revokedReplay = await app.inject({
+      method: "POST",
+      url: "/v1/operator/runs",
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: recovery.payload,
+    });
+    expect(revokedReplay.statusCode).toBe(201);
+    expect(revokedReplay.json().status).toBe("FAILED");
+    expect(revokedReplay.json().errorCode).toBe(
+      "direct_chat_context_revoked",
+    );
+    const tasksAfterRevoke = await app.inject({
+      method: "GET",
+      url: "/v1/workspace/tasks",
+      headers: { origin },
+      cookies: alice.cookies,
+    });
+    expect(JSON.stringify(tasksAfterRevoke.json())).not.toContain(
+      "MUST NOT EXECUTE AFTER REVOKE",
+    );
+
+    await db.operatorRun.update({
+      where: { id: noWorkspaceLeak.response.json().id },
+      data: {
+        status: "AWAITING_CLARIFICATION",
+        clarificationQuestion: "clarify",
+      },
+    });
+    const beforeContinue = await db.operatorRun.findUniqueOrThrow({
+      where: { id: noWorkspaceLeak.response.json().id },
+      select: { userText: true },
+    });
+    const directContinue = await app.inject({
+      method: "POST",
+      url: `/v1/operator/runs/${noWorkspaceLeak.response.json().id}/continue`,
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: {
+        clientRequestId: randomUUID(),
+        content: "hidden plaintext continuation",
+      },
+    });
+    expect(directContinue.statusCode).toBe(400);
+    const afterContinue = await db.operatorRun.findUniqueOrThrow({
+      where: { id: noWorkspaceLeak.response.json().id },
+      select: { userText: true },
+    });
+    expect(afterContinue.userText).toBe(beforeContinue.userText);
   });
 });
 
