@@ -1295,9 +1295,16 @@ async function sourceRefCurrent(
     case "E2EE_USER_DISCLOSURE":
       return true;
     case "MESSAGE": {
+      if (
+        ref.sourceScopeKind !== "CONVERSATION" ||
+        !ref.sourceScopeId
+      ) {
+        return false;
+      }
       const row = await db.message.findFirst({
         where: {
           id: ref.sourceId,
+          conversationId: ref.sourceScopeId,
           conversation: { userId: memory.ownerUserId },
         },
         select: { updatedAt: true },
@@ -1311,6 +1318,12 @@ async function sourceRefCurrent(
       );
     }
     case "WORKSPACE_OBJECT": {
+      if (
+        ref.sourceScopeKind !== "PERSONAL" ||
+        ref.sourceScopeId !== memory.ownerUserId
+      ) {
+        return false;
+      }
       const row = await db.workspaceObject.findFirst({
         where: {
           id: ref.sourceId,
@@ -1328,6 +1341,12 @@ async function sourceRefCurrent(
       );
     }
     case "PROJECT": {
+      if (
+        ref.sourceScopeKind !== "PROJECT" ||
+        ref.sourceScopeId !== ref.sourceId
+      ) {
+        return false;
+      }
       const projectScoped =
         memory.scopeKind === "PROJECT" &&
         memory.projectId === ref.sourceId;
@@ -1361,7 +1380,47 @@ async function sourceRefCurrent(
       );
     }
     case "ARTIFACT": {
-      if (!ref.sourceVersion) return false;
+      if (
+        ref.sourceScopeKind !== "PERSONAL" ||
+        ref.sourceScopeId !== memory.ownerUserId ||
+        !ref.sourceVersion
+      ) {
+        return false;
+      }
+      const artifact = await db.artifact.findFirst({
+        where: {
+          id: ref.sourceId,
+          OR: [
+            {
+              creatorInvocation: {
+                plan: { userId: memory.ownerUserId },
+              },
+            },
+            {
+              accessGrants: {
+                some: {
+                  granteeUserId: memory.ownerUserId,
+                  permission: "READ",
+                  revokedAt: null,
+                },
+              },
+            },
+          ],
+        },
+        select: {
+          versions: {
+            select: { id: true },
+            orderBy: { version: "desc" },
+            take: 1,
+          },
+        },
+      });
+      if (
+        !artifact ||
+        artifact.versions[0]?.id !== ref.sourceVersion
+      ) {
+        return false;
+      }
       try {
         return await new ArtifactService(db).canReadVersion({
           actorUserId: memory.ownerUserId,
