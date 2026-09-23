@@ -571,6 +571,7 @@ describe("projects API", () => {
         slotKey: "member write",
         content: "Member must not write Project Memory",
         origin: "USER_EXPLICIT",
+        userConfirmed: true,
         sourceRefs: [
           {
             provenance: "USER_EXPLICIT",
@@ -624,6 +625,7 @@ describe("projects API", () => {
         slotKey: "locked write",
         content: "Locked project must stay read-only",
         origin: "USER_EXPLICIT",
+        userConfirmed: true,
         sourceRefs: [
           {
             provenance: "USER_EXPLICIT",
