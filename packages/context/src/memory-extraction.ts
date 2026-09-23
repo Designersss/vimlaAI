@@ -1,7 +1,7 @@
 import {
   MemoryError,
-  MemoryService,
   type MemoryCandidateInput,
+  type MemoryService,
   type MemoryView,
 } from "./memory.js";
 import { containsSensitiveContextData } from "./packer.js";
