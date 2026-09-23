@@ -416,6 +416,8 @@ describe("ExternalAiInvocationExecutor", () => {
 
     expect(result).toEqual({ status: "COMPLETED", outcome: "PASS" });
     const providerContent = provider.lastRequest?.messages[0]?.content ?? "";
+    expect(providerContent).toContain("PURPOSE:");
+    expect(providerContent).toContain("CONTEXT_SAFETY:");
     expect(providerContent).toContain("AUTHORIZED_CONTEXT:");
     expect(providerContent).toContain(
       "The Zephyr release decision is violet.",
