@@ -267,6 +267,89 @@ describe("memory API", () => {
     });
   });
 
+  it("creates Project Memory only through an explicit authorized project write", async () => {
+    const owner = await registerVerifiedUser(
+      app,
+      "memory-project-owner",
+    );
+    const outsider = await registerVerifiedUser(
+      app,
+      "memory-project-outsider",
+    );
+    const db = app.get(PrismaService).client;
+    const project = await db.project.create({
+      data: {
+        ownerUserId: owner.id,
+        name: "Memory Project",
+        members: {
+          create: {
+            userId: owner.id,
+            role: "OWNER",
+          },
+        },
+      },
+    });
+
+    const created = await app.inject({
+      method: "POST",
+      url: `/v1/memory/projects/${project.id}`,
+      headers: jsonHeaders(),
+      cookies: owner.cookies,
+      payload: {
+        type: "PROJECT_DECISION",
+        slotKey: "launch region",
+        content: "Launch in Europe",
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    const memory = created.json() as {
+      id: string;
+      scopeKind: string;
+      projectId: string | null;
+      origin: string;
+    };
+    expect(memory).toMatchObject({
+      scopeKind: "PROJECT",
+      projectId: project.id,
+      origin: "USER_EXPLICIT",
+    });
+
+    const persisted = await db.memoryItem.findUniqueOrThrow({
+      where: { id: memory.id },
+      include: { sourceRefs: true },
+    });
+    expect(persisted.projectId).toBe(project.id);
+    expect(persisted.sourceRefs).toHaveLength(1);
+    expect(persisted.sourceRefs[0]).toMatchObject({
+      provenance: "USER_EXPLICIT",
+      sourceType: "USER_EXPLICIT",
+      sourceScopeKind: "PERSONAL",
+      sourceScopeId: owner.id,
+    });
+
+    const denied = await app.inject({
+      method: "POST",
+      url: `/v1/memory/projects/${project.id}`,
+      headers: jsonHeaders(),
+      cookies: outsider.cookies,
+      payload: {
+        type: "PROJECT_FACT",
+        slotKey: "stolen project fact",
+        content: "Must not persist",
+      },
+    });
+    expect(denied.statusCode).toBe(403);
+    expect(errorCode(denied)).toBe("forbidden");
+    expect(
+      await db.memoryItem.count({
+        where: {
+          ownerUserId: outsider.id,
+          projectId: project.id,
+        },
+      }),
+    ).toBe(0);
+  });
+
   it("promotes exactly one explicit E2EE fact with disclosure provenance and no hidden authority", async () => {
     const actor = await registerVerifiedUser(
       app,
