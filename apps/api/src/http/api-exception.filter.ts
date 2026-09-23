@@ -287,6 +287,7 @@ function memoryCodeToApi(code: MemoryErrorCode): ApiErrorCode {
     case "FORBIDDEN":
       return "forbidden";
     case "CONFLICT":
+    case "STORAGE_LIMIT":
       return "conflict";
     case "SENSITIVE_CONTENT":
       return "memory_sensitive_content";
