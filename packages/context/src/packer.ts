@@ -3,6 +3,9 @@ import { shouldUseCompactedState } from "./budget.js";
 import type {
   ContextInvocationTargetKind,
 } from "./policy.js";
+import {
+  estimateConservativeTokens,
+} from "./token-estimate.js";
 import type {
   ContextSnapshotItemView,
   ContextSourceType,
@@ -223,11 +226,10 @@ export function estimateItemTokens(item: ContextSnapshotItemView): number {
     return Math.max(1, Math.ceil(retrieval.estimatedTokens));
   }
 
-  const serialized = JSON.stringify(stripRetrievalMetadata(item.metadata));
-  return Math.max(
-    1,
-    new TextEncoder().encode(serialized).byteLength,
+  const serialized = JSON.stringify(
+    stripRetrievalMetadata(item.metadata),
   );
+  return estimateConservativeTokens(serialized);
 }
 
 function compareCandidates(
