@@ -489,18 +489,44 @@ async function validateCompactionSources(
         where: {
           id: ref.sourceId,
           invalidatedAt: null,
+          OR: [
+            { ownerUserId: actorUserId },
+            {
+              project: {
+                OR: [
+                  { ownerUserId: actorUserId },
+                  {
+                    members: {
+                      some: { userId: actorUserId },
+                    },
+                  },
+                ],
+              },
+            },
+          ],
         },
         select: {
           version: true,
           ownerUserId: true,
+          scopeKind: true,
           projectId: true,
           conversationId: true,
           threadId: true,
         },
       });
+    const sourceScopeId =
+      source?.scopeKind === "PROJECT"
+        ? source.projectId
+        : source?.scopeKind === "CONVERSATION"
+          ? source.conversationId
+          : source?.scopeKind === "THREAD"
+            ? source.threadId
+            : null;
     if (
       !source ||
-      String(source.version) !== ref.sourceVersion
+      String(source.version) !== ref.sourceVersion ||
+      source.scopeKind !== ref.sourceScopeKind ||
+      sourceScopeId !== ref.sourceScopeId
     ) {
       throw new MemoryError(
         "VALIDATION_ERROR",
