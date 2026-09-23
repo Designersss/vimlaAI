@@ -192,6 +192,7 @@ export const memoryExtractionCandidateSchema = z
     slotKey: z.string().trim().min(1).max(MEMORY_LIMITS.slotKeyMax),
     content: z.string().trim().min(1).max(MEMORY_LIMITS.contentMax),
     confidence: z.number().min(0).max(1),
+    sensitivity: memorySensitivitySchema,
     transient: z.boolean().default(false),
   })
   .strict();
