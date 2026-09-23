@@ -50,6 +50,30 @@ describe("action policy", () => {
       ),
     ).toThrow(OperatorError);
   });
+
+  it("keeps Direct Chat on a minimal side-effect capability set", () => {
+    expect(() =>
+      evaluatePlanPolicy(
+        [{ tool: "notes.list", args: {} }],
+        8,
+        "DIRECT_CHAT",
+      ),
+    ).toThrow(OperatorError);
+    expect(() =>
+      evaluatePlanPolicy(
+        [{ tool: "tasks.update", args: { id: "11111111-1111-4111-8111-111111111111", title: "x" } }],
+        8,
+        "DIRECT_CHAT",
+      ),
+    ).toThrow(OperatorError);
+    expect(() =>
+      evaluatePlanPolicy(
+        [{ tool: "tasks.create", args: { title: "Safe scoped task" } }],
+        8,
+        "DIRECT_CHAT",
+      ),
+    ).not.toThrow();
+  });
 });
 
 describe("step preparation", () => {
@@ -60,6 +84,15 @@ describe("step preparation", () => {
     expect(steps[0]?.args).not.toHaveProperty("userId");
     expect(steps[0]?.card.title).toBe("Buy tickets");
     expect(steps[0]?.confirmationRequired).toBe(false);
+  });
+
+  it("rejects personal read tools while preparing Direct Chat steps", () => {
+    expect(() =>
+      prepareSteps(
+        [{ tool: "notes.list", args: {} }],
+        "DIRECT_CHAT",
+      ),
+    ).toThrow(OperatorError);
   });
 });
 
