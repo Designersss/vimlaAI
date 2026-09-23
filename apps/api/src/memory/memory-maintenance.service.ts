@@ -552,10 +552,36 @@ export class MemoryMaintenanceService {
           targetModelSlug: null,
         }),
       ]);
-    return internalBudget.compactedStateTriggerTokens <=
-      externalBudget.compactedStateTriggerTokens
-      ? internalBudget
-      : externalBudget;
+    return {
+      contextWindowTokens: Math.min(
+        internalBudget.contextWindowTokens,
+        externalBudget.contextWindowTokens,
+      ),
+      outputReserveTokens: Math.max(
+        internalBudget.outputReserveTokens,
+        externalBudget.outputReserveTokens,
+      ),
+      systemToolReserveTokens: Math.max(
+        internalBudget.systemToolReserveTokens,
+        externalBudget.systemToolReserveTokens,
+      ),
+      artifactReserveTokens: Math.max(
+        internalBudget.artifactReserveTokens,
+        externalBudget.artifactReserveTokens,
+      ),
+      safetyMarginTokens: Math.max(
+        internalBudget.safetyMarginTokens,
+        externalBudget.safetyMarginTokens,
+      ),
+      effectiveHistoryBudgetTokens: Math.min(
+        internalBudget.effectiveHistoryBudgetTokens,
+        externalBudget.effectiveHistoryBudgetTokens,
+      ),
+      compactedStateTriggerTokens: Math.min(
+        internalBudget.compactedStateTriggerTokens,
+        externalBudget.compactedStateTriggerTokens,
+      ),
+    };
   }
 
   private async conversationPressure(
