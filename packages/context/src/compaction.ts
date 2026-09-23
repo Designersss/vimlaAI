@@ -741,7 +741,7 @@ async function resolveCompactionPressureTokens(
     const rows = await tx.$queryRaw<Array<{ byteCount: bigint }>>(
       Prisma.sql`
         SELECT
-          COALESCE(SUM(OCTET_LENGTH("content")), 0)::bigint
+          COALESCE(SUM(GREATEST(OCTET_LENGTH("content"), 1)), 0)::bigint
             AS "byteCount"
         FROM "message"
         WHERE "conversationId"=${scope.conversationId}
