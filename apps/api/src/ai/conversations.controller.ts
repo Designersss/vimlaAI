@@ -38,6 +38,7 @@ import { ChatMentionRoutingService } from "./chat-mention-routing.service.js";
 import { TextChatService } from "./text-chat.service.js";
 import { buildOperatorRunView } from "../operator/view.js";
 import { OrchestrationService } from "../orchestration/orchestration.service.js";
+import { MemoryMaintenanceService } from "../memory/memory-maintenance.service.js";
 
 @Controller("v1/conversations")
 @SensitiveArea()
@@ -47,6 +48,8 @@ export class ConversationsController {
     @Inject(TextChatService) private readonly chat: TextChatService,
     @Inject(ChatMentionRoutingService) private readonly routing: ChatMentionRoutingService,
     @Inject(OrchestrationService) private readonly orchestration: OrchestrationService,
+    @Inject(MemoryMaintenanceService)
+    private readonly memoryMaintenance: MemoryMaintenanceService,
     @Inject(API_CONFIG) private readonly config: ApiRuntimeConfig,
   ) {}
 
@@ -157,6 +160,11 @@ export class ConversationsController {
           clientRequestId: parsed.data.clientRequestId,
           resolvedMentions,
         });
+        await this.memoryMaintenance.observeAiRequestUserMessage({
+          userId: user.id,
+          clientRequestId: parsed.data.clientRequestId,
+          correlationId: String(request.id),
+        });
         return;
       }
 
@@ -230,6 +238,11 @@ export class ConversationsController {
           }),
         );
       }
+      await this.memoryMaintenance.observeConversationMessage({
+        userId: user.id,
+        messageId: result.messageId,
+        correlationId: String(request.id),
+      });
     } catch (error: unknown) {
       const payload = publicStreamError(error, String(request.id));
       if (!response.writableEnded) {
