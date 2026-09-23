@@ -21,6 +21,8 @@ import {
 import {
   MemoryRetrievalProvider,
 } from "./memory-retrieval.js";
+import { ContextRetrievalService } from "./retrieval.js";
+import { ContextSnapshotService } from "./service.js";
 import {
   MemoryError,
   MemoryService,
@@ -373,6 +375,71 @@ describe("durable memory context graph", () => {
         })
       )?.state,
     ).toBe("INVALIDATED");
+  });
+
+  it("integrates current durable memory into immutable ContextSnapshot retrieval as DERIVED evidence", async () => {
+    const owner = await user("snapshot-memory-owner");
+    const service = new MemoryService(db);
+    const remembered = await service.rememberPersonal({
+      actorUserId: owner,
+      type: "USER_PREFERENCE",
+      slotKey: "answer style",
+      content: "Prefers concise technical answers",
+    });
+    const current = await message(
+      owner,
+      "What is my answer style preference?",
+    );
+    const planId = randomUUID();
+    await db.executionPlan.create({
+      data: {
+        id: planId,
+        messageId: current.row.id,
+        userId: owner,
+        conversationId: current.conversation.id,
+        schemaVersion: 1,
+        version: 1,
+        planHash: "planning:pending:v1",
+        goal: "Use durable preference",
+        status: "PLANNING",
+        maxParallelism: 1,
+      },
+    });
+
+    const snapshots = new ContextSnapshotService(
+      db,
+      undefined,
+      new ContextRetrievalService(db, [
+        new MemoryRetrievalProvider(db),
+      ]),
+    );
+    const snapshot = await snapshots.createForExecutionPlan({
+      actorUserId: owner,
+      planId,
+    });
+    const memoryItem = snapshot.items.find(
+      (item) => item.sourceId === remembered.id,
+    );
+    expect(memoryItem?.sourceType).toBe("MEMORY");
+    expect(memoryItem?.metadata).toMatchObject({
+      content: "Prefers concise technical answers",
+      retrieval: {
+        sourceKind: "PERSONAL_MEMORY",
+        authority: "DERIVED",
+      },
+    });
+    await expect(
+      snapshots.resolveForPlan(owner, planId),
+    ).resolves.toMatchObject({ id: snapshot.id });
+
+    await service.invalidatePersonal(
+      owner,
+      remembered.id,
+      "TEST_INVALIDATION",
+    );
+    await expect(
+      snapshots.resolveForPlan(owner, planId),
+    ).rejects.toThrow();
   });
 
   it("keeps project memory audience-isolated and invalidates personal project-derived memory after access revoke", async () => {
