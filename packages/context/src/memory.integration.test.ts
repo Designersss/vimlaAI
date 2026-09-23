@@ -67,6 +67,30 @@ async function message(
   return { conversation, row };
 }
 
+function projectWriteAuthorizer() {
+  return {
+    canWriteProject: async (input: {
+      actorUserId: string;
+      projectId: string;
+    }): Promise<boolean> => {
+      const membership = await db.projectMember.findUnique({
+        where: {
+          projectId_userId: {
+            projectId: input.projectId,
+            userId: input.actorUserId,
+          },
+        },
+        select: { role: true },
+      });
+      return (
+        membership?.role === "OWNER" ||
+        membership?.role === "ADMIN"
+      );
+    },
+  };
+}
+
+
 const compactBudget: ContextBudget = {
   contextWindowTokens: 100,
   outputReserveTokens: 10,
@@ -204,7 +228,10 @@ describe("durable memory context graph", () => {
     );
 
     const concurrentOwner = await user("concurrent-owner");
-    const service = new MemoryService(db);
+    const service = new MemoryService(
+      db,
+      projectWriteAuthorizer(),
+    );
     const [left, right] = await Promise.all([
       service.ingestCandidate({
         actorUserId: concurrentOwner,
@@ -445,13 +472,17 @@ describe("durable memory context graph", () => {
   it("keeps project memory audience-isolated and invalidates personal project-derived memory after access revoke", async () => {
     const owner = await user("project-owner");
     const member = await user("project-member");
+    const viewer = await user("project-viewer");
     const outsider = await user("project-outsider");
     const project = await db.project.create({
       data: {
         ownerUserId: owner,
         name: "Memory Project",
         members: {
-          create: { userId: member, role: "MEMBER" },
+          create: [
+            { userId: member, role: "ADMIN" },
+            { userId: viewer, role: "MEMBER" },
+          ],
         },
       },
     });
@@ -501,7 +532,7 @@ describe("durable memory context graph", () => {
     expect(outsiderHits).toEqual([]);
 
     const memberAuthoredProjectMemory =
-      await new MemoryService(db).ingestCandidate({
+      await service.ingestCandidate({
         actorUserId: member,
         scope: { kind: "PROJECT", projectId: project.id },
         type: "PROJECT_DECISION",
@@ -519,6 +550,27 @@ describe("durable memory context graph", () => {
           },
         ],
       });
+
+    await expect(
+      service.ingestCandidate({
+        actorUserId: viewer,
+        scope: { kind: "PROJECT", projectId: project.id },
+        type: "PROJECT_FACT",
+        slotKey: "viewer-forbidden",
+        content: "Member must not mutate Project Memory",
+        origin: "USER_EXPLICIT",
+        sourceRefs: [
+          {
+            provenance: "USER_EXPLICIT",
+            sourceType: "PROJECT",
+            sourceId: project.id,
+            sourceVersion: project.updatedAt.toISOString(),
+            sourceScopeKind: "PROJECT",
+            sourceScopeId: project.id,
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
 
     const personalFromProject =
       await new MemoryService(db).ingestCandidate({
@@ -652,18 +704,18 @@ describe("durable memory context graph", () => {
     ).rejects.toBeInstanceOf(MemoryError);
   });
 
-  it("versions compacted state only after the effective budget threshold and invalidates it when raw provenance changes", async () => {
+  it("versions incremental compacted state from authoritative pressure and recursively invalidates stale raw provenance", async () => {
     const owner = await user("compaction-owner");
     const first = await message(
       owner,
-      "Old history alpha",
+      "Old history alpha with enough content.",
     );
     const secondRow = await db.message.create({
       data: {
         conversationId: first.conversation.id,
         role: "ASSISTANT",
         status: "COMPLETE",
-        content: "Old history beta",
+        content: "Old history beta with enough content.",
       },
     });
     const service = new CompactedStateService(db);
@@ -673,7 +725,7 @@ describe("durable memory context graph", () => {
         sourceId: first.row.id,
         sourceVersion:
           first.row.updatedAt.toISOString(),
-        occurredAt: first.row.createdAt,
+        occurredAt: new Date(0),
         sourceScopeKind: "CONVERSATION" as const,
         sourceScopeId: first.conversation.id,
       },
@@ -681,7 +733,7 @@ describe("durable memory context graph", () => {
         sourceType: "MESSAGE" as const,
         sourceId: secondRow.id,
         sourceVersion: secondRow.updatedAt.toISOString(),
-        occurredAt: secondRow.createdAt,
+        occurredAt: new Date(0),
         sourceScopeKind: "CONVERSATION" as const,
         sourceScopeId: first.conversation.id,
       },
@@ -694,12 +746,15 @@ describe("durable memory context graph", () => {
           kind: "CONVERSATION",
           conversationId: first.conversation.id,
         },
-        classification: "PRIVATE",
+        classification: "PUBLIC",
         content: "Too early summary",
         sourceRefs: refs,
-        budget: compactBudget,
-        inputTokenEstimate: 10,
-        outputTokenEstimate: 5,
+        budget: {
+          ...compactBudget,
+          compactedStateTriggerTokens: 10_000,
+        },
+        inputTokenEstimate: 999_999,
+        outputTokenEstimate: 999_999,
       }),
     ).rejects.toBeInstanceOf(MemoryError);
 
@@ -709,32 +764,59 @@ describe("durable memory context graph", () => {
         kind: "CONVERSATION",
         conversationId: first.conversation.id,
       },
-      classification: "PRIVATE",
+      classification: "PUBLIC",
       content: "Alpha and beta summary",
       sourceRefs: refs,
       budget: compactBudget,
-      inputTokenEstimate: 30,
-      outputTokenEstimate: 8,
+      inputTokenEstimate: 1,
+      outputTokenEstimate: 1,
     });
     expect(v1.version).toBe(1);
+    expect(v1.classification).toBe("PRIVATE");
     expect(v1.coveredFromSourceId).toBe(first.row.id);
     expect(v1.coveredToSourceId).toBe(secondRow.id);
     expect(v1.sourceCount).toBe(2);
 
+    const thirdRow = await db.message.create({
+      data: {
+        conversationId: first.conversation.id,
+        role: "USER",
+        status: "COMPLETE",
+        content: "New older segment gamma with enough content.",
+      },
+    });
     const v2 = await service.refresh({
       actorUserId: owner,
       scope: {
         kind: "CONVERSATION",
         conversationId: first.conversation.id,
       },
-      classification: "PRIVATE",
-      content: "Refined alpha and beta summary",
-      sourceRefs: refs,
+      classification: "PUBLIC",
+      content: "Alpha beta and gamma summary",
+      sourceRefs: [
+        {
+          sourceType: "COMPACTED_STATE",
+          sourceId: v1.id,
+          sourceVersion: String(v1.version),
+          occurredAt: new Date(0),
+          sourceScopeKind: "CONVERSATION",
+          sourceScopeId: first.conversation.id,
+        },
+        {
+          sourceType: "MESSAGE",
+          sourceId: thirdRow.id,
+          sourceVersion: thirdRow.updatedAt.toISOString(),
+          occurredAt: new Date(0),
+          sourceScopeKind: "CONVERSATION",
+          sourceScopeId: first.conversation.id,
+        },
+      ],
       budget: compactBudget,
-      inputTokenEstimate: 30,
-      outputTokenEstimate: 9,
     });
     expect(v2.version).toBe(2);
+    expect(v2.sourceCount).toBe(3);
+    expect(v2.coveredFromSourceId).toBe(first.row.id);
+    expect(v2.coveredToSourceId).toBe(thirdRow.id);
     expect(
       (
         await db.compactedContextState.findUnique({
@@ -742,10 +824,16 @@ describe("durable memory context graph", () => {
         })
       )?.invalidationReason,
     ).toBe("SUPERSEDED");
+    await expect(
+      canReadCompactedState(db, owner, v2.id),
+    ).resolves.toBe(true);
 
     await db.message.update({
-      where: { id: secondRow.id },
-      data: { content: "Edited raw history" },
+      where: { id: first.row.id },
+      data: {
+        content: "Edited raw history",
+        updatedAt: new Date(Date.now() + 1_000),
+      },
     });
     expect(
       await canReadCompactedState(db, owner, v2.id),
@@ -758,4 +846,331 @@ describe("durable memory context graph", () => {
       )?.invalidationReason,
     ).toBe("SOURCE_STALE_OR_INACCESSIBLE");
   });
+
+  it("rejects missing versions and forged scopes while preventing classification downgrade", async () => {
+    const owner = await user("provenance-owner");
+    const source = await message(
+      owner,
+      "I prefer source-backed technical answers.",
+    );
+    const service = new MemoryService(db);
+
+    await expect(
+      service.ingestCandidate({
+        actorUserId: owner,
+        scope: { kind: "PERSONAL" },
+        type: "USER_PREFERENCE",
+        slotKey: "version-required",
+        content: "Prefers technical answers",
+        classification: "PUBLIC",
+        origin: "AUTO_EXTRACTION",
+        sourceRefs: [
+          {
+            provenance: "AUTO_EXTRACTION",
+            sourceType: "MESSAGE",
+            sourceId: source.row.id,
+            sourceScopeKind: "CONVERSATION",
+            sourceScopeId: source.conversation.id,
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+
+    await expect(
+      service.ingestCandidate({
+        actorUserId: owner,
+        scope: { kind: "PERSONAL" },
+        type: "USER_PREFERENCE",
+        slotKey: "forged-scope",
+        content: "Prefers technical answers",
+        origin: "AUTO_EXTRACTION",
+        sourceRefs: [
+          {
+            provenance: "AUTO_EXTRACTION",
+            sourceType: "MESSAGE",
+            sourceId: source.row.id,
+            sourceVersion:
+              source.row.updatedAt.toISOString(),
+            sourceScopeKind: "PROJECT",
+            sourceScopeId: randomUUID(),
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+
+    const stored = await service.ingestCandidate({
+      actorUserId: owner,
+      scope: { kind: "PERSONAL" },
+      type: "USER_PREFERENCE",
+      slotKey: "classification",
+      content: "Prefers technical answers",
+      classification: "PUBLIC",
+      origin: "AUTO_EXTRACTION",
+      sourceRefs: [
+        {
+          provenance: "AUTO_EXTRACTION",
+          sourceType: "MESSAGE",
+          sourceId: source.row.id,
+          sourceVersion:
+            source.row.updatedAt.toISOString(),
+          sourceScopeKind: "CONVERSATION",
+          sourceScopeId: source.conversation.id,
+        },
+      ],
+    });
+    expect(stored.classification).toBe("PRIVATE");
+
+    const updatedSource = await db.message.update({
+      where: { id: source.row.id },
+      data: {
+        content:
+          "I still prefer source-backed technical answers.",
+        updatedAt: new Date(Date.now() + 1_000),
+      },
+    });
+    const refreshed = await service.ingestCandidate({
+      actorUserId: owner,
+      scope: { kind: "PERSONAL" },
+      type: "USER_PREFERENCE",
+      slotKey: "classification",
+      content: "Prefers technical answers",
+      classification: "PUBLIC",
+      origin: "AUTO_EXTRACTION",
+      sourceRefs: [
+        {
+          provenance: "AUTO_EXTRACTION",
+          sourceType: "MESSAGE",
+          sourceId: source.row.id,
+          sourceVersion:
+            updatedSource.updatedAt.toISOString(),
+          sourceScopeKind: "CONVERSATION",
+          sourceScopeId: source.conversation.id,
+        },
+      ],
+    });
+    expect(refreshed.id).toBe(stored.id);
+    expect(
+      (
+        await db.memorySourceRef.findFirstOrThrow({
+          where: {
+            memoryId: stored.id,
+            sourceId: source.row.id,
+          },
+        })
+      ).sourceVersion,
+    ).toBe(updatedSource.updatedAt.toISOString());
+    await expect(
+      canReadMemoryItem(db, owner, stored.id),
+    ).resolves.toBe(true);
+  });
+
+  it("turns explicit confirmation into independent truth and redacts the whole deleted lineage", async () => {
+    const owner = await user("confirmation-owner");
+    const source = await message(
+      owner,
+      "I prefer concise answers.",
+    );
+    const service = new MemoryService(db);
+    const inferred = await service.ingestCandidate({
+      actorUserId: owner,
+      scope: { kind: "PERSONAL" },
+      type: "USER_PREFERENCE",
+      slotKey: "answer style",
+      content: "Prefers concise answers",
+      origin: "AUTO_EXTRACTION",
+      sourceRefs: [
+        {
+          provenance: "AUTO_EXTRACTION",
+          sourceType: "MESSAGE",
+          sourceId: source.row.id,
+          sourceVersion:
+            source.row.updatedAt.toISOString(),
+          sourceScopeKind: "CONVERSATION",
+          sourceScopeId: source.conversation.id,
+        },
+      ],
+    });
+    const confirmed = await service.rememberPersonal({
+      actorUserId: owner,
+      type: "USER_PREFERENCE",
+      slotKey: "answer style",
+      content: "Prefers concise answers",
+    });
+    expect(confirmed.id).not.toBe(inferred.id);
+    expect(confirmed.origin).toBe("USER_EXPLICIT");
+
+    await db.message.update({
+      where: { id: source.row.id },
+      data: {
+        content: "Source was edited later.",
+        updatedAt: new Date(Date.now() + 2_000),
+      },
+    });
+    await expect(
+      canReadMemoryItem(db, owner, confirmed.id),
+    ).resolves.toBe(true);
+
+    const expiresAt = new Date(Date.now() + 86_400_000);
+    const corrected = await service.correctPersonal(
+      owner,
+      confirmed.id,
+      {
+        content: "Prefers concise answers",
+        expiresAt,
+      },
+    );
+    expect(corrected.id).not.toBe(confirmed.id);
+    expect(corrected.expiresAt).toBe(
+      expiresAt.toISOString(),
+    );
+
+    await service.invalidatePersonal(owner, corrected.id);
+    const lineage = await db.memoryItem.findMany({
+      where: {
+        id: {
+          in: [inferred.id, confirmed.id, corrected.id],
+        },
+      },
+    });
+    expect(lineage).toHaveLength(3);
+    for (const row of lineage) {
+      expect(row.content).toBe("");
+      expect(row.slotKey).toBe(`deleted:${row.id}`);
+    }
+    expect(
+      lineage.find((row) => row.id === corrected.id)?.state,
+    ).toBe("INVALIDATED");
+    await expect(
+      service.getPersonal(owner, corrected.id),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+  });
+
+  it("paginates through stale rows and enforces the active personal storage cap", async () => {
+    const owner = await user("pagination-owner");
+    const service = new MemoryService(db);
+    const older = await service.rememberPersonal({
+      actorUserId: owner,
+      type: "USER_FACT",
+      slotKey: "older-valid",
+      content: "Older valid fact",
+    });
+    const source = await message(
+      owner,
+      "Newest source-backed fact",
+    );
+    const newest = await service.ingestCandidate({
+      actorUserId: owner,
+      scope: { kind: "PERSONAL" },
+      type: "USER_FACT",
+      slotKey: "newest-stale",
+      content: "Newest source-backed fact",
+      origin: "AUTO_EXTRACTION",
+      validFrom: new Date(Date.now() + 5_000),
+      sourceRefs: [
+        {
+          provenance: "AUTO_EXTRACTION",
+          sourceType: "MESSAGE",
+          sourceId: source.row.id,
+          sourceVersion:
+            source.row.updatedAt.toISOString(),
+          sourceScopeKind: "CONVERSATION",
+          sourceScopeId: source.conversation.id,
+        },
+      ],
+    });
+    await db.message.update({
+      where: { id: source.row.id },
+      data: {
+        content: "Changed",
+        updatedAt: new Date(Date.now() + 6_000),
+      },
+    });
+    const page = await service.listPersonal(owner, {
+      limit: 1,
+    });
+    expect(page.items.map((item) => item.id)).toEqual([
+      older.id,
+    ]);
+    expect(
+      (
+        await db.memoryItem.findUnique({
+          where: { id: newest.id },
+        })
+      )?.state,
+    ).toBe("INVALIDATED");
+
+    const cappedOwner = await user("capped-owner");
+    const capped = new MemoryService(
+      db,
+      undefined,
+      1,
+    );
+    await capped.rememberPersonal({
+      actorUserId: cappedOwner,
+      type: "USER_FACT",
+      slotKey: "one",
+      content: "First fact",
+    });
+    await expect(
+      capped.rememberPersonal({
+        actorUserId: cappedOwner,
+        type: "USER_GOAL",
+        slotKey: "two",
+        content: "Second fact",
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+
+  it("fails closed for THREAD memory and rejects forged compaction message scopes", async () => {
+    const owner = await user("thread-owner");
+    const memory = new MemoryService(db);
+    await expect(
+      memory.ingestCandidate({
+        actorUserId: owner,
+        scope: { kind: "THREAD", threadId: randomUUID() },
+        type: "THREAD_STATE",
+        slotKey: "state",
+        content: "Must wait for PR-18",
+        origin: "USER_EXPLICIT",
+        sourceRefs: [
+          {
+            provenance: "USER_EXPLICIT",
+            sourceType: "USER_EXPLICIT",
+            sourceId: randomUUID(),
+            sourceScopeKind: "PERSONAL",
+            sourceScopeId: owner,
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: "DISABLED" });
+
+    const source = await message(
+      owner,
+      "Long enough raw history for forged compaction scope.",
+    );
+    await expect(
+      new CompactedStateService(db).refresh({
+        actorUserId: owner,
+        scope: {
+          kind: "CONVERSATION",
+          conversationId: source.conversation.id,
+        },
+        classification: "PUBLIC",
+        content: "Summary",
+        sourceRefs: [
+          {
+            sourceType: "MESSAGE",
+            sourceId: source.row.id,
+            sourceVersion:
+              source.row.updatedAt.toISOString(),
+            occurredAt: new Date(0),
+            sourceScopeKind: "PROJECT",
+            sourceScopeId: randomUUID(),
+          },
+        ],
+        budget: compactBudget,
+      }),
+    ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+  });
+
 });
