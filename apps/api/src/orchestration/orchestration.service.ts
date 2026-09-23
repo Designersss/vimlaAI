@@ -18,7 +18,9 @@ import {
   ContextConflictError,
   ContextNotFoundError,
   ContextSnapshotService,
+  CompactedStateRetrievalProvider,
   ContextRetrievalService,
+  MemoryRetrievalProvider,
   SemanticSearchService,
   type ContextSnapshotView,
 } from "@vimla/context";
@@ -1097,8 +1099,22 @@ export class OrchestrationService {
         this.prisma.client, new InternalHttpEmbeddingProvider(this.config.embeddings),
         { warn: (fields, message) => Logger.warn({ ...fields, message }, "SemanticRetrieval") },
       ) : undefined;
-      const context = new ContextSnapshotService(this.prisma.client, undefined,
-        new ContextRetrievalService(this.prisma.client, [], {}, semantic));
+      const derivedProviders = this.config.memoryEnabled
+        ? [
+            new MemoryRetrievalProvider(this.prisma.client),
+            new CompactedStateRetrievalProvider(this.prisma.client),
+          ]
+        : [];
+      const context = new ContextSnapshotService(
+        this.prisma.client,
+        undefined,
+        new ContextRetrievalService(
+          this.prisma.client,
+          derivedProviders,
+          {},
+          semantic,
+        ),
+      );
       await context.createForExecutionPlan({
         actorUserId: userId,
         planId,
