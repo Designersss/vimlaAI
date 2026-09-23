@@ -486,6 +486,7 @@ describe("Context retrieval v1", () => {
               authority: "DERIVED" as const,
               occurredAt: "2026-09-20T00:00:00.000Z",
               estimatedTokens: 1,
+              rawHistoryTokens: 999_999,
             },
           ]),
       },
@@ -510,6 +511,7 @@ describe("Context retrieval v1", () => {
       },
     });
     expect(provenance?.estimatedTokens).not.toBe(1);
+    expect(provenance?.rawHistoryTokens).toBeUndefined();
 
     const escalating = new ContextRetrievalService(prisma, [
       {
