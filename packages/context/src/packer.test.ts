@@ -172,15 +172,47 @@ describe("ContextPacker", () => {
           estimatedTokens: 40,
           lexicalScore: 0.9,
         }),
+        item(
+          "retrieved-token",
+          "MESSAGE",
+          "Authorization: Bearer abcdefghijklmnopqrstuvwxyz123456",
+          {
+            sourceKind: "CROSS_CONVERSATION",
+            authority: "RAW",
+            estimatedTokens: 40,
+            lexicalScore: 0.8,
+          },
+        ),
+        item(
+          "retrieved-card",
+          "MESSAGE",
+          "card number: 4111 1111 1111 1111",
+          {
+            sourceKind: "CROSS_CONVERSATION",
+            authority: "RAW",
+            estimatedTokens: 40,
+            lexicalScore: 0.7,
+          },
+        ),
       ],
     });
 
     expect(result.selections.map(({ item: selected }) => selected.id)).toContain("user");
     expect(result.selections.map(({ item: selected }) => selected.id)).not.toContain("retrieved");
+    expect(result.selections.map(({ item: selected }) => selected.id)).not.toContain("retrieved-token");
+    expect(result.selections.map(({ item: selected }) => selected.id)).not.toContain("retrieved-card");
     expect(result.exclusions).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           item: expect.objectContaining({ id: "retrieved" }),
+          reason: "SENSITIVE_DATA_FILTERED",
+        }),
+        expect.objectContaining({
+          item: expect.objectContaining({ id: "retrieved-token" }),
+          reason: "SENSITIVE_DATA_FILTERED",
+        }),
+        expect.objectContaining({
+          item: expect.objectContaining({ id: "retrieved-card" }),
           reason: "SENSITIVE_DATA_FILTERED",
         }),
       ]),
