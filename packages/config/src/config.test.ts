@@ -69,6 +69,8 @@ describe("loadApiConfig", () => {
     expect(config.projectsMutationLimitPerMinute).toBe(60);
     expect(config.projectsInviteTtlDays).toBe(7);
     expect(config.memoryEnabled).toBe(false);
+    expect(config.memoryMutationLimitPerMinute).toBe(30);
+    expect(config.memoryMaxActivePersonalItems).toBe(1_000);
     expect(config.directChatsEnabled).toBe(false);
     expect(config.directChatsMutationLimitPerMinute).toBe(60);
     expect(config.aiTextProvider).toBe("mock");
