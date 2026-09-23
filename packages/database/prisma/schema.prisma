@@ -56,6 +56,7 @@ model User {
   adminPrincipal       AdminPrincipal?
   memoryItems          MemoryItem[]             @relation("MemoryOwner")
   compactedStates      CompactedContextState[]  @relation("CompactedStateOwner")
+  memoryExtractionReceipts MemoryExtractionReceipt[] @relation("MemoryExtractionOwner")
 
   @@unique([email])
   @@unique([phoneNumber])
