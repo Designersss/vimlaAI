@@ -19,6 +19,10 @@ const SENSITIVE_WRITE_TOOLS = new Set<OperatorToolName>([
   "notifications.updatePreferences",
 ]);
 
+const DIRECT_CHAT_ALLOWED_TOOLS = new Set<OperatorToolName>([
+  "tasks.create",
+]);
+
 export function isRegisteredTool(name: string): name is OperatorToolName {
   return (operatorToolNames as readonly string[]).includes(name);
 }
@@ -39,6 +43,7 @@ export function toolRequiresConfirmation(name: OperatorToolName, args: Record<st
 export function evaluatePlanPolicy(
   commands: readonly ParsedCommand[],
   maxTools = OPERATOR_RUNTIME_LIMITS.maxToolsPerRun,
+  invocationScope: "PERSONAL" | "DIRECT_CHAT" = "PERSONAL",
 ): { confirmationRequired: boolean } {
   if (commands.length > maxTools) {
     throw new OperatorError("PLAN_INVALID", "Plan exceeds the tool execution bound");
@@ -50,6 +55,15 @@ export function evaluatePlanPolicy(
     }
     if (!isRegisteredTool(command.tool)) {
       throw new OperatorError("TOOL_DENIED", "Unknown operator tool");
+    }
+    if (
+      invocationScope === "DIRECT_CHAT" &&
+      !DIRECT_CHAT_ALLOWED_TOOLS.has(command.tool)
+    ) {
+      throw new OperatorError(
+        "TOOL_DENIED",
+        "This tool is not available from a Direct Chat",
+      );
     }
     const schema = operatorToolInputSchemas[command.tool];
     const parsed = schema.safeParse(command.args);
