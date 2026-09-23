@@ -1,4 +1,4 @@
-import type { Prisma, PrismaClient } from "@vimla/database";
+import { Prisma, type PrismaClient } from "@vimla/database";
 import {
   ContextConflictError,
   ContextNotFoundError,
@@ -258,8 +258,14 @@ export class ContextRetrievalService {
     });
 
     const recentIds = recentMessages.map((message) => message.id);
-    const [olderCurrent, crossConversation, workspace, projects, artifacts] =
-      await Promise.all([
+    const [
+      olderCurrent,
+      crossConversation,
+      workspace,
+      projects,
+      artifacts,
+      rawHistoryRows,
+    ] = await Promise.all([
         this.db.message.findMany({
           where: {
             conversationId: sourceMessage.conversation.id,
@@ -435,15 +441,21 @@ export class ContextRetrievalService {
           orderBy: [{ createdAt: "desc" }, { id: "asc" }],
           take: this.options.artifactScanLimit,
         }),
+        this.db.$queryRaw<Array<{ characterCount: bigint }>>(
+          Prisma.sql`
+            SELECT
+              COALESCE(SUM(CHAR_LENGTH("content")), 0)::bigint AS "characterCount"
+            FROM "message"
+            WHERE "conversationId" = ${sourceMessage.conversation.id}
+              AND "id" <> ${sourceMessage.id}
+              AND "status" = 'COMPLETE'
+              AND "createdAt" <= ${sourceMessage.createdAt}
+          `,
+        ),
       ]);
 
-    const scannedRawHistoryTokens = [
-      ...recentMessages,
-      ...olderCurrent,
-    ].reduce(
-      (total, message) =>
-        total + estimateTokens(message.content),
-      0,
+    const rawHistoryTokens = estimateTokensFromCharacterCount(
+      rawHistoryRows[0]?.characterCount ?? 0n,
     );
 
     const candidates: ContextCandidate[] = [
@@ -499,7 +511,7 @@ export class ContextRetrievalService {
         authority: "AUTHORITATIVE",
         occurredAt:
           sourceMessage.conversation.updatedAt.toISOString(),
-        rawHistoryTokens: scannedRawHistoryTokens,
+        rawHistoryTokens,
       }),
       candidate({
         item: {
@@ -1274,6 +1286,17 @@ function strongCrossSurfaceMatch(
 
 function estimateTokens(value: string): number {
   return Math.max(1, Math.ceil(value.length / 4));
+}
+
+function estimateTokensFromCharacterCount(
+  characterCount: bigint,
+): number {
+  if (characterCount <= 0n) return 0;
+  const bounded =
+    characterCount > BigInt(Number.MAX_SAFE_INTEGER)
+      ? Number.MAX_SAFE_INTEGER
+      : Number(characterCount);
+  return Math.max(1, Math.ceil(bounded / 4));
 }
 
 function roundScore(value: number): number {
