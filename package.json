@@ -37,7 +37,7 @@
       "unrs-resolver"
     ],
     "overrides": {
-      "fastify@<5.12.1": "5.12.1"
+      "fastify@<5.12.5": "5.12.5"
     }
   },
   "devDependencies": {

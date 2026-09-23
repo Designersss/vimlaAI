@@ -34,7 +34,7 @@
     "@vimla/shared": "workspace:*",
     "@vimla/workspace": "workspace:*",
     "better-auth": "^1.7.3",
-    "fastify": "^5.12.1",
+    "fastify": "^5.12.5",
     "ioredis": "^5.7.0",
     "nestjs-pino": "^4.4.0",
     "pino": "^9.9.0",

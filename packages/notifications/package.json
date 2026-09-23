@@ -21,11 +21,10 @@
     "@vimla/contracts": "workspace:*",
     "@vimla/database": "workspace:*",
     "@vimla/shared": "workspace:*",
-    "nodemailer": "^9.1.1"
+    "nodemailer": "^10.0.10"
   },
   "devDependencies": {
     "@types/node": "^24.3.1",
-    "@types/nodemailer": "^6.4.17",
     "eslint": "^9.35.0",
     "typescript": "^5.9.2",
     "vitest": "^3.2.4"
