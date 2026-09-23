@@ -240,6 +240,7 @@ describe("durable memory context graph", () => {
         slotKey: "primary goal",
         content: "Ship version A",
         origin: "USER_EXPLICIT",
+        userConfirmed: true,
         sourceRefs: [
           {
             provenance: "USER_EXPLICIT",
@@ -257,6 +258,7 @@ describe("durable memory context graph", () => {
         slotKey: "primary goal",
         content: "Ship version B",
         origin: "USER_EXPLICIT",
+        userConfirmed: true,
         sourceRefs: [
           {
             provenance: "USER_EXPLICIT",
@@ -544,6 +546,7 @@ describe("durable memory context graph", () => {
       slotKey: "launch region",
       content: "Launch region is EU",
       origin: "USER_EXPLICIT",
+      userConfirmed: true,
       sourceRefs: [
         {
           provenance: "USER_EXPLICIT",
@@ -589,6 +592,7 @@ describe("durable memory context graph", () => {
         slotKey: "member-authored decision",
         content: "The project decision remains with the project",
         origin: "USER_EXPLICIT",
+        userConfirmed: true,
         sourceRefs: [
           {
             provenance: "USER_EXPLICIT",
@@ -609,6 +613,7 @@ describe("durable memory context graph", () => {
         slotKey: "viewer-forbidden",
         content: "Member must not mutate Project Memory",
         origin: "USER_EXPLICIT",
+        userConfirmed: true,
         sourceRefs: [
           {
             provenance: "USER_EXPLICIT",
@@ -1471,6 +1476,7 @@ describe("durable memory context graph", () => {
         slotKey: "state",
         content: "Must wait for PR-18",
         origin: "USER_EXPLICIT",
+        userConfirmed: true,
         sourceRefs: [
           {
             provenance: "USER_EXPLICIT",
