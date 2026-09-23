@@ -24,7 +24,11 @@ import {
   isBillingError,
   type BillingEngine,
 } from "@vimla/billing";
-import { isExternalProviderClassificationAllowed } from "@vimla/context";
+import {
+  isExternalProviderClassificationAllowed,
+  renderContextBundleItems,
+  type ContextSnapshotItemView,
+} from "@vimla/context";
 import { Prisma, type PrismaClient } from "@vimla/database";
 import {
   resolveAiExecutionBudget,
@@ -185,6 +189,7 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
         input.invocationId,
         invocation.purpose,
         input.contextBundle?.artifacts,
+        input.contextBundle?.items,
       );
       const history = await this.loadTurnHistory(input.invocationId);
 
@@ -735,6 +740,7 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
     invocationId: string,
     purpose: string,
     authorizedBindings?: readonly ResolvedArtifactInput[],
+    authorizedContextItems?: readonly ContextSnapshotItemView[],
   ): Promise<ProviderChatMessage[]> {
     const bindings =
       authorizedBindings ??
@@ -767,16 +773,18 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
       );
     }
 
-    const content = inputs.length === 0
-      ? purpose
-      : [
-          purpose,
-          "",
-          "DEPENDENCY_ARTIFACTS:",
-          ...inputs,
-        ].join("\n");
+    const packedContext = renderContextBundleItems(
+      authorizedContextItems ?? [],
+    );
+    const sections: string[] = [purpose];
+    if (packedContext) {
+      sections.push("", "AUTHORIZED_CONTEXT:", packedContext);
+    }
+    if (inputs.length > 0) {
+      sections.push("", "DEPENDENCY_ARTIFACTS:", ...inputs);
+    }
 
-    return [{ role: "user", content }];
+    return [{ role: "user", content: sections.join("\n") }];
   }
 
   private async resolveModel(
