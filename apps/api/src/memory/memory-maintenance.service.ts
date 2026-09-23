@@ -3,6 +3,7 @@ import {
   CompactedStateService,
   ContextBudgetService,
   MemoryExtractionPipeline,
+  estimateConservativeTokens as estimateTokens,
   shouldUseCompactedState,
   type ContextBudget,
 } from "@vimla/context";
@@ -708,11 +709,4 @@ function extractionErrorCode(error: unknown): string {
     return "MODEL_OUTPUT_INVALID";
   }
   return "MODEL_UNAVAILABLE";
-}
-
-function estimateTokens(value: string): number {
-  return Math.max(
-    1,
-    new TextEncoder().encode(value).byteLength,
-  );
 }
