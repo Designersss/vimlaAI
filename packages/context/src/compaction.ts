@@ -180,16 +180,23 @@ export class CompactedStateRetrievalProvider
   async retrieve(
     input: ContextRetrievalProviderInput,
   ): Promise<readonly ContextCandidate[]> {
-    const rows = await this.db.compactedContextState.findMany({
-      where: {
-        invalidatedAt: null,
-        OR: [
-          {
+    const [conversationState, projectStates] =
+      await Promise.all([
+        this.db.compactedContextState.findFirst({
+          where: {
+            invalidatedAt: null,
             scopeKind: "CONVERSATION",
             ownerUserId: input.actorUserId,
             conversationId: input.conversationId,
           },
-          {
+          orderBy: [
+            { validFrom: "desc" },
+            { version: "desc" },
+          ],
+        }),
+        this.db.compactedContextState.findMany({
+          where: {
+            invalidatedAt: null,
             scopeKind: "PROJECT",
             project: {
               OR: [
@@ -202,14 +209,17 @@ export class CompactedStateRetrievalProvider
               ],
             },
           },
-        ],
-      },
-      orderBy: [
-        { validFrom: "desc" },
-        { version: "desc" },
-      ],
-      take: 16,
-    });
+          orderBy: [
+            { validFrom: "desc" },
+            { version: "desc" },
+          ],
+          take: 15,
+        }),
+      ]);
+    const rows = [
+      ...(conversationState ? [conversationState] : []),
+      ...projectStates,
+    ];
 
     const candidates: ContextCandidate[] = [];
     for (const row of rows) {
