@@ -10,7 +10,16 @@ import {
   ContextNotFoundError,
   ContextValidationError,
 } from "./errors.js";
-import {\n  CONTEXT_PACKING_VERSION,\n  ContextBudgetService,\n  type ContextBudget,\n} from "./budget.js";\nimport { canonicalJson } from "./fingerprint.js";\nimport {\n  packContextItems,\n  type ContextPackingExclusionReason,\n} from "./packer.js";
+import {
+  CONTEXT_PACKING_VERSION,
+  ContextBudgetService,
+  type ContextBudget,
+} from "./budget.js";
+import { canonicalJson } from "./fingerprint.js";
+import {
+  packContextItems,
+  type ContextPackingExclusionReason,
+} from "./packer.js";
 import {
   CONTEXT_POLICY_VERSION,
   evaluateContextPolicy,
