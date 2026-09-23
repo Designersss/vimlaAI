@@ -166,6 +166,7 @@ CREATE TABLE "memory_extraction_receipt" (
   "sourceVersion" TEXT NOT NULL,
   "status" TEXT NOT NULL DEFAULT 'PENDING',
   "candidateCount" INTEGER NOT NULL DEFAULT 0,
+  "attemptCount" INTEGER NOT NULL DEFAULT 0,
   "errorCode" TEXT,
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "updatedAt" TIMESTAMP(3) NOT NULL,
@@ -175,7 +176,9 @@ CREATE TABLE "memory_extraction_receipt" (
   CONSTRAINT "memory_extraction_receipt_status_check"
     CHECK ("status" IN ('QUEUED','PENDING','COMPLETED','FAILED','SKIPPED')),
   CONSTRAINT "memory_extraction_receipt_candidate_count_check"
-    CHECK ("candidateCount">=0)
+    CHECK ("candidateCount">=0),
+  CONSTRAINT "memory_extraction_receipt_attempt_count_check"
+    CHECK ("attemptCount">=0 AND "attemptCount"<=5)
 );
 CREATE UNIQUE INDEX "memory_extraction_receipt_source_key"
   ON "memory_extraction_receipt"("sourceType","sourceId","sourceVersion");
