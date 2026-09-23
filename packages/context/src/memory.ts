@@ -454,7 +454,7 @@ export class MemoryService {
 
       await tx.$queryRaw(Prisma.sql`
         SELECT pg_advisory_xact_lock(
-          hashtext(${scope.scopeKey + "\u0000" + slotKey})
+          hashtext(${hashText(scope.scopeKey + "\n" + slotKey)})
         )
       `);
       const active = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
@@ -487,6 +487,21 @@ export class MemoryService {
         existing.contentHash === contentHash &&
         existing.type === input.type
       ) {
+        if (input.sourceRefs.length > 0) {
+          await tx.memorySourceRef.createMany({
+            data: input.sourceRefs.map((ref) => ({
+              memoryId: existing.id,
+              provenance: ref.provenance,
+              sourceType: ref.sourceType,
+              sourceId: ref.sourceId,
+              sourceVersion: ref.sourceVersion ?? null,
+              sourceScopeKind: ref.sourceScopeKind,
+              sourceScopeId: ref.sourceScopeId ?? null,
+              disclosedAt: ref.disclosedAt ?? null,
+            })),
+            skipDuplicates: true,
+          });
+        }
         const refreshed = await tx.memoryItem.update({
           where: { id: existing.id },
           data: {
@@ -494,6 +509,10 @@ export class MemoryService {
               input.userConfirmed === true
                 ? new Date()
                 : existing.userConfirmedAt,
+            userCorrectedAt:
+              input.userCorrected === true
+                ? new Date()
+                : existing.userCorrectedAt,
             quality: Math.max(existing.quality, quality),
             confidence: Math.max(existing.confidence, confidence),
           },
