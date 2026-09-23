@@ -63,6 +63,85 @@ export class MemoryRetrievalProvider
       scopeClause,
     ];
     const lexicalTerms = queryTerms.slice(0, 16);
+    const priorityScope: Prisma.MemoryItemWhereInput = {
+      OR: [
+        {
+          scopeKind: "CONVERSATION",
+          ownerUserId: input.actorUserId,
+          conversationId: input.conversationId,
+        },
+        ...(input.currentProjectId
+          ? [
+              {
+                scopeKind: "PROJECT" as const,
+                projectId: input.currentProjectId,
+                project: {
+                  OR: [
+                    { ownerUserId: input.actorUserId },
+                    {
+                      members: {
+                        some: { userId: input.actorUserId },
+                      },
+                    },
+                  ],
+                },
+              },
+            ]
+          : []),
+      ],
+    };
+    const lexicalFilter: Prisma.MemoryItemWhereInput =
+      lexicalTerms.length === 0
+        ? { id: "__no_lexical_terms__" }
+        : {
+            OR: lexicalTerms.flatMap((term) => [
+              {
+                slotKey: {
+                  contains: term,
+                  mode: "insensitive" as const,
+                },
+              },
+              {
+                content: {
+                  contains: term,
+                  mode: "insensitive" as const,
+                },
+              },
+              {
+                type: {
+                  contains: term,
+                  mode: "insensitive" as const,
+                },
+              },
+            ]),
+          };
+    const priorityRows =
+      lexicalTerms.length === 0
+        ? []
+        : await this.db.memoryItem.findMany({
+            where: {
+              state: "ACTIVE",
+              invalidatedAt: null,
+              AND: [
+                {
+                  OR: [
+                    { expiresAt: null },
+                    { expiresAt: { gt: now } },
+                  ],
+                },
+                priorityScope,
+                lexicalFilter,
+              ],
+            },
+            include: { sourceRefs: true },
+            orderBy: [
+              { userCorrectedAt: "desc" },
+              { userConfirmedAt: "desc" },
+              { validFrom: "desc" },
+              { id: "desc" },
+            ],
+            take: MAX_SCAN,
+          });
     const relevantRows =
       lexicalTerms.length === 0
         ? []
@@ -72,28 +151,7 @@ export class MemoryRetrievalProvider
               invalidatedAt: null,
               AND: [
                 ...activeClauses,
-                {
-                  OR: lexicalTerms.flatMap((term) => [
-                    {
-                      slotKey: {
-                        contains: term,
-                        mode: "insensitive" as const,
-                      },
-                    },
-                    {
-                      content: {
-                        contains: term,
-                        mode: "insensitive" as const,
-                      },
-                    },
-                    {
-                      type: {
-                        contains: term,
-                        mode: "insensitive" as const,
-                      },
-                    },
-                  ]),
-                },
+                lexicalFilter,
               ],
             },
             include: { sourceRefs: true },
@@ -121,7 +179,7 @@ export class MemoryRetrievalProvider
         take: FALLBACK_CONFIRMED * 4,
       });
     const byId = new Map(
-      [...relevantRows, ...confirmedRows].map((row) => [
+      [...priorityRows, ...relevantRows, ...confirmedRows].map((row) => [
         row.id,
         row,
       ]),
@@ -294,7 +352,7 @@ function tokens(value: string): string[] {
     .toLocaleLowerCase()
     .split(/[^\p{L}\p{N}_-]+/u)
     .map((token) => token.trim())
-    .filter((token) => token.length >= 3)
+    .filter((token) => token.length >= 2)
     .slice(0, 256);
 }
 
