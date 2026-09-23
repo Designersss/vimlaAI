@@ -1,4 +1,7 @@
-import {\n  containsSensitiveContextData,\n  type ContextSnapshotView,\n} from "@vimla/context";
+import {
+  containsSensitiveContextData,
+  type ContextSnapshotView,
+} from "@vimla/context";
 import type { SemanticPlannerContextItem } from "@vimla/orchestration";
 
 const SAFE_METADATA_KEYS: Record<string, readonly string[]> = {
