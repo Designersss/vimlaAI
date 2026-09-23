@@ -276,6 +276,60 @@ describe("memory maintenance runtime", () => {
     expect(calls).toBe(1);
   });
 
+  it("never sends secret-like source content to the automatic extraction model", async () => {
+    const userId = await createUser("runtime-secret-source");
+    const conversationId = await createConversation(userId);
+    const source = await createMessage({
+      conversationId,
+      content:
+        "api_key = sk-abcdefghijklmnopqrstuvwxyz123456",
+    });
+
+    let called = false;
+    const model: SemanticPlannerModel = {
+      complete: () => {
+        called = true;
+        return Promise.resolve(
+          JSON.stringify({ candidates: [] }),
+        );
+      },
+    };
+    const prisma = prismaService();
+    const maintenance = new MemoryMaintenanceService(
+      prisma,
+      new MemoryFacade(prisma, config),
+      config,
+      model,
+    );
+
+    await maintenance.observeConversationMessage({
+      userId,
+      messageId: source.id,
+      correlationId: "runtime-secret-source",
+    });
+
+    expect(called).toBe(false);
+    expect(
+      await db.memoryItem.count({
+        where: { ownerUserId: userId },
+      }),
+    ).toBe(0);
+    expect(
+      await db.memoryExtractionReceipt.findUniqueOrThrow({
+        where: {
+          sourceType_sourceId_sourceVersion: {
+            sourceType: "MESSAGE",
+            sourceId: source.id,
+            sourceVersion: source.updatedAt.toISOString(),
+          },
+        },
+      }),
+    ).toMatchObject({
+      status: "COMPLETED",
+      candidateCount: 0,
+    });
+  });
+
   it("fails extraction closed on invalid model output without breaking the source message", async () => {
     const userId = await createUser("runtime-invalid");
     const conversationId =
