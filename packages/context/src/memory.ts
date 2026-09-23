@@ -157,6 +157,7 @@ export class MemoryService {
     private readonly db: PrismaClient,
     private readonly projectWriteAuthorizer?: MemoryProjectWriteAuthorizer,
     private readonly maxActivePersonalItems = 1_000,
+    private readonly maxActiveProjectItems = 2_000,
   ) {}
 
   async rememberPersonal(input: {
@@ -611,6 +612,29 @@ export class MemoryService {
           throw new MemoryError(
             "CONFLICT",
             "Personal Memory storage limit reached",
+          );
+        }
+      }
+
+      if (
+        !existing &&
+        scope.kind === "PROJECT"
+      ) {
+        const activeCount = await tx.memoryItem.count({
+          where: {
+            scopeKey: scope.scopeKey,
+            state: "ACTIVE",
+            invalidatedAt: null,
+            OR: [
+              { expiresAt: null },
+              { expiresAt: { gt: new Date() } },
+            ],
+          },
+        });
+        if (activeCount >= this.maxActiveProjectItems) {
+          throw new MemoryError(
+            "CONFLICT",
+            "Project Memory storage limit reached",
           );
         }
       }
