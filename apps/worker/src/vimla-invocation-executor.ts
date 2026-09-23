@@ -6,7 +6,10 @@ import {
   ArtifactValidationError,
   type ResolvedArtifactInput,
 } from "@vimla/artifacts";
-import { renderContextBundleItems } from "@vimla/context";
+import {
+  renderContextBundleItems,
+  type ContextSnapshotItemView,
+} from "@vimla/context";
 import { type Prisma, type PrismaClient } from "@vimla/database";
 import { NotificationPlatformError, NotificationPreferenceService } from "@vimla/notifications";
 import {
@@ -135,14 +138,24 @@ export class VimlaInvocationExecutor implements InvocationExecutorRegistry {
 
     try {
       const profile = await this.loadProfile(invocation.plan.userId);
-      const snapshotContext = this.toolContext(this.prisma, {
-        userId: invocation.plan.userId,
-        conversationId: invocation.plan.conversationId,
-        messageId: invocation.plan.messageId,
-        locale: profile.locale,
-        timezone: profile.timezone,
-      });
-      const snapshot = await loadWorkspaceSnapshot(snapshotContext);
+      const snapshot = input.contextBundle
+        ? workspaceSnapshotFromContextBundle(
+            input.contextBundle.items,
+            profile,
+          )
+        : await loadWorkspaceSnapshot(
+            this.toolContext(this.prisma, {
+              userId: invocation.plan.userId,
+              conversationId: invocation.plan.conversationId,
+              messageId: invocation.plan.messageId,
+              locale: profile.locale,
+              timezone: profile.timezone,
+            }),
+          );
+      const plannerLocale = parseVimlaLocale(
+        snapshot.locale,
+        profile.locale,
+      );
       const dependencyContext = await this.buildDependencyContext(
         invocation.plan.userId,
         input.invocationId,
@@ -153,10 +166,12 @@ export class VimlaInvocationExecutor implements InvocationExecutorRegistry {
       );
       const plannerContext = [packedContext, dependencyContext]
         .filter((value): value is string => Boolean(value))
-        .join("\n\n");
+        .join("
+
+");
       const planned = await this.planner.plan({
         userText: invocation.purpose,
-        locale: profile.locale,
+        locale: plannerLocale,
         snapshot,
         dependencyContext: plannerContext || null,
       });
@@ -317,11 +332,14 @@ export class VimlaInvocationExecutor implements InvocationExecutorRegistry {
           `type=${binding.expectedType}`,
           `sourceInvocationId=${binding.sourceInvocationId}`,
           `value=${value}`,
-        ].join("\n"),
+        ].join("
+"),
       );
     }
 
-    const context = parts.join("\n\n");
+    const context = parts.join("
+
+");
     if (new TextEncoder().encode(context).byteLength > 65_536) {
       throw new ArtifactValidationError(
         "Vimla dependency artifact context exceeds the execution bound",
@@ -408,6 +426,105 @@ export class VimlaInvocationExecutor implements InvocationExecutorRegistry {
       emailVerified: user.emailVerified,
     };
   }
+}
+
+function workspaceSnapshotFromContextBundle(
+  items: readonly ContextSnapshotItemView[],
+  fallback: {
+    locale: VimlaLocale;
+    timezone: string | null;
+  },
+): WorkspaceSnapshot {
+  const localeTimezone = items.find(
+    (item) => item.sourceType === "LOCALE_TIMEZONE",
+  );
+  const localeMetadata = asRecord(localeTimezone?.metadata);
+  const locale = parseVimlaLocale(
+    localeMetadata?.locale,
+    fallback.locale,
+  );
+  const timezone =
+    typeof localeMetadata?.timezone === "string"
+      ? localeMetadata.timezone
+      : localeMetadata?.timezone === null
+        ? null
+        : fallback.timezone;
+
+  const snapshot: WorkspaceSnapshot = {
+    locale,
+    timezone,
+    tasks: [],
+    reminders: [],
+    notes: [],
+    lists: [],
+  };
+
+  for (const item of items) {
+    if (item.sourceType !== "WORKSPACE_OBJECT") continue;
+    const metadata = asRecord(item.metadata);
+    if (
+      !metadata ||
+      metadata.deletedAt !== null ||
+      metadata.archivedAt !== null
+    ) {
+      continue;
+    }
+
+    switch (metadata.kind) {
+      case "TASK": {
+        const task = asRecord(metadata.task);
+        if (typeof task?.title !== "string") break;
+        snapshot.tasks.push({
+          id: item.sourceId,
+          kind: "TASK",
+          title: task.title,
+        });
+        break;
+      }
+      case "REMINDER": {
+        const reminder = asRecord(metadata.reminder);
+        if (typeof reminder?.title !== "string") break;
+        snapshot.reminders.push({
+          id: item.sourceId,
+          kind: "REMINDER",
+          title: reminder.title,
+        });
+        break;
+      }
+      case "NOTE": {
+        const note = asRecord(metadata.note);
+        if (typeof note?.title !== "string") break;
+        snapshot.notes.push({
+          id: item.sourceId,
+          kind: "NOTE",
+          title: note.title,
+        });
+        break;
+      }
+      case "LIST": {
+        const list = asRecord(metadata.list);
+        if (typeof list?.title !== "string") break;
+        snapshot.lists.push({
+          id: item.sourceId,
+          kind: "LIST",
+          title: list.title,
+        });
+        break;
+      }
+    }
+  }
+
+  return snapshot;
+}
+
+function asRecord(
+  value: unknown,
+): Record<string, unknown> | null {
+  return typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 }
 
 export function vimlaToolIdempotencyKey(invocationId: string): string {
