@@ -11,6 +11,10 @@ import {
   isKnownContextClassification,
   type ContextSourceScope,
 } from "./policy.js";
+import {
+  conservativeTokensFromByteCount,
+  estimateConservativeTokens as estimateTokens,
+} from "./token-estimate.js";
 import type {
   ContextClassification,
   ContextSnapshotItemInput,
@@ -1475,24 +1479,6 @@ function queryReferencesId(
   id: string,
 ): boolean {
   return id.length > 0 && query.includes(id);
-}
-
-function estimateTokens(value: string): number {
-  // Match @vimla/ai admission safety: one UTF-8 byte is treated as one
-  // conservative token unit so multilingual text is never undercounted.
-  return Math.max(
-    1,
-    new TextEncoder().encode(value).byteLength,
-  );
-}
-
-function conservativeTokensFromByteCount(
-  byteCount: bigint,
-): number {
-  if (byteCount <= 0n) return 0;
-  return byteCount > BigInt(Number.MAX_SAFE_INTEGER)
-    ? Number.MAX_SAFE_INTEGER
-    : Number(byteCount);
 }
 
 function roundScore(value: number): number {
