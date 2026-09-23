@@ -22,6 +22,10 @@ import {
   verifyDirectMessage,
 } from "@vimla/e2ee";
 import type { DirectChatParticipant } from "./assignee.js";
+import {
+  filterOperatorContextBundle,
+  type ContextMessageClaim,
+} from "./consent.js";
 import { toDeviceView } from "./device-service.js";
 import { DirectChatError } from "./errors.js";
 import { directPairKey } from "./pair-key.js";
@@ -307,6 +311,100 @@ export class DirectChatService {
       }
       throw error;
     }
+  }
+
+  async validateOperatorContextDisclosure(
+    actorUserId: string,
+    conversationId: string,
+    sourceMessageId: string,
+    messages: readonly ContextMessageClaim[],
+  ): Promise<{
+    sourceMessageId: string;
+    sourceMessageCreatedAt: string;
+    memberIds: string[];
+    messages: ContextMessageClaim[];
+    ownIncluded: boolean;
+    peerIncluded: boolean;
+    peerDenied: boolean;
+  }> {
+    const consent = await this.consent(actorUserId, conversationId);
+    const source = await this.db.directMessage.findFirst({
+      where: {
+        id: sourceMessageId,
+        conversationId,
+        senderUserId: actorUserId,
+        kind: "OPERATOR_INVOKE",
+      },
+      select: { id: true, createdAt: true },
+    });
+    if (!source) {
+      throw new DirectChatError(
+        "VALIDATION_ERROR",
+        "Direct Chat operator source message is invalid",
+      );
+    }
+
+    const ids = messages.map((message) => message.messageId);
+    if (new Set(ids).size !== ids.length) {
+      throw new DirectChatError(
+        "VALIDATION_ERROR",
+        "Direct Chat context message ids must be unique",
+      );
+    }
+    const rows =
+      ids.length === 0
+        ? []
+        : await this.db.directMessage.findMany({
+            where: {
+              id: { in: ids },
+              conversationId,
+            },
+            select: {
+              id: true,
+              senderUserId: true,
+              kind: true,
+              createdAt: true,
+            },
+          });
+    const rowById = new Map(rows.map((row) => [row.id, row]));
+    const validated = messages.map((message): ContextMessageClaim => {
+      const row = rowById.get(message.messageId);
+      if (
+        !row ||
+        row.kind !== "HUMAN" ||
+        row.senderUserId !== message.senderUserId ||
+        row.createdAt.toISOString() !== message.sentAt ||
+        row.createdAt > source.createdAt
+      ) {
+        throw new DirectChatError(
+          "VALIDATION_ERROR",
+          "Direct Chat context provenance is invalid",
+        );
+      }
+      return {
+        ...message,
+        senderUserId: row.senderUserId,
+        sentAt: row.createdAt.toISOString(),
+      };
+    });
+    validated.sort(
+      (left, right) =>
+        Date.parse(left.sentAt) - Date.parse(right.sentAt) ||
+        left.messageId.localeCompare(right.messageId),
+    );
+
+    const filtered = filterOperatorContextBundle({
+      actorUserId,
+      memberIds: consent.memberIds,
+      consent,
+      messages: validated,
+    });
+    return {
+      sourceMessageId: source.id,
+      sourceMessageCreatedAt: source.createdAt.toISOString(),
+      memberIds: consent.memberIds,
+      ...filtered,
+    };
   }
 
   async participants(actorUserId: string, conversationId: string): Promise<DirectChatParticipant[]> {
