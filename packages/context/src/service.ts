@@ -61,6 +61,21 @@ export class ContextSnapshotService {
     return toView(snapshot);
   }
 
+  async resolveForPlan(
+    actorUserId: string,
+    planId: string,
+  ): Promise<ContextSnapshotView> {
+    const snapshot = await this.getByPlan(actorUserId, planId);
+    for (const item of snapshot.items) {
+      await this.assertSourceAccess({
+        actorUserId,
+        sourceType: item.sourceType,
+        sourceId: item.sourceId,
+      });
+    }
+    return snapshot;
+  }
+
   async resolveForInvocation(input: ResolveInvocationContextInput): Promise<ContextSnapshotView> {
     const invocation = await this.db.invocation.findFirst({
       where: { id: input.invocationId, plan: { userId: input.actorUserId } },
@@ -70,15 +85,10 @@ export class ContextSnapshotService {
       throw new ContextNotFoundError("Invocation not found");
     }
 
-    const snapshot = await this.getByPlan(input.actorUserId, invocation.planId);
-    for (const item of snapshot.items) {
-      await this.assertSourceAccess({
-        actorUserId: input.actorUserId,
-        sourceType: item.sourceType,
-        sourceId: item.sourceId,
-      });
-    }
-    return snapshot;
+    return this.resolveForPlan(
+      input.actorUserId,
+      invocation.planId,
+    );
   }
 
   async assertSourceAccess(check: ContextAccessCheck): Promise<void> {
