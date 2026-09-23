@@ -700,7 +700,8 @@ export class ContextRetrievalService {
           lexicalScore: score,
           directReference,
           currentSurface: directReference,
-          currentProject: false,
+          currentProject:
+            project.id === input.currentProjectId,,
           authority: "AUTHORITATIVE",
           occurredAt: object.updatedAt.toISOString(),
           stale: object.archivedAt !== null,
@@ -739,7 +740,8 @@ export class ContextRetrievalService {
           lexicalScore: score,
           directReference,
           currentSurface: false,
-          currentProject: false,
+          currentProject:
+            project.id === input.currentProjectId,,
           authority: "AUTHORITATIVE",
           occurredAt: project.updatedAt.toISOString(),
         }),
