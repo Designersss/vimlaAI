@@ -1361,7 +1361,9 @@ function errorCodeOf(error: unknown): string {
     return error.code.toLowerCase();
   }
   if (error instanceof OperatorError) {
-    return error.code.toLowerCase();
+    return error.code === "CONTEXT_REVOKED"
+      ? "direct_chat_context_revoked"
+      : error.code.toLowerCase();
   }
   return "internal_error";
 }
