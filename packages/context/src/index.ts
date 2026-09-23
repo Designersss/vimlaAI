@@ -21,3 +21,5 @@ export * from "./memory.js";
 export * from "./memory-retrieval.js";
 
 export * from "./compaction.js";
+
+export * from "./memory-extraction.js";
