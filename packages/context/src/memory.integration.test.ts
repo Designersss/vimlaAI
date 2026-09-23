@@ -297,6 +297,28 @@ describe("durable memory context graph", () => {
         actorUserId: owner,
         scope: { kind: "PERSONAL" },
         type: "USER_FACT",
+        slotKey: "medical",
+        content: "Has a long-term medical condition",
+        sensitivity: "SENSITIVE",
+        confidence: 0.99,
+        sourceRefs: [
+          {
+            provenance: "AUTO_EXTRACTION",
+            sourceType: "MESSAGE",
+            sourceId: source.row.id,
+            sourceVersion: source.row.updatedAt.toISOString(),
+            sourceScopeKind: "CONVERSATION",
+            sourceScopeId: source.conversation.id,
+          },
+        ],
+      }),
+    ).toEqual({ kind: "SKIPPED", reason: "SENSITIVE" });
+
+    expect(
+      await extraction.process({
+        actorUserId: owner,
+        scope: { kind: "PERSONAL" },
+        type: "USER_FACT",
         slotKey: "temporary",
         content: "temporary one-off request",
         transient: true,
@@ -656,6 +678,178 @@ describe("durable memory context graph", () => {
         memberAuthoredProjectMemory.id,
       ),
     ).toBe(true);
+  });
+
+  it("keeps same-content automatic memory current while any bounded supporting source remains current", async () => {
+    const owner = await user("multi-source-owner");
+    const service = new MemoryService(db);
+    const first = await message(owner, "I prefer concise output.");
+    const second = await message(owner, "I prefer concise output.");
+
+    const stored = await service.ingestCandidate({
+      actorUserId: owner,
+      scope: { kind: "PERSONAL" },
+      type: "USER_PREFERENCE",
+      slotKey: "output style",
+      content: "Prefers concise output",
+      origin: "AUTO_EXTRACTION",
+      sourceRefs: [
+        {
+          provenance: "AUTO_EXTRACTION",
+          sourceType: "MESSAGE",
+          sourceId: first.row.id,
+          sourceVersion: first.row.updatedAt.toISOString(),
+          sourceScopeKind: "CONVERSATION",
+          sourceScopeId: first.conversation.id,
+        },
+      ],
+    });
+    const refreshed = await service.ingestCandidate({
+      actorUserId: owner,
+      scope: { kind: "PERSONAL" },
+      type: "USER_PREFERENCE",
+      slotKey: "output style",
+      content: "Prefers concise output",
+      origin: "AUTO_EXTRACTION",
+      sourceRefs: [
+        {
+          provenance: "AUTO_EXTRACTION",
+          sourceType: "MESSAGE",
+          sourceId: second.row.id,
+          sourceVersion: second.row.updatedAt.toISOString(),
+          sourceScopeKind: "CONVERSATION",
+          sourceScopeId: second.conversation.id,
+        },
+      ],
+    });
+    expect(refreshed.id).toBe(stored.id);
+    expect(
+      await db.memorySourceRef.count({
+        where: { memoryId: stored.id },
+      }),
+    ).toBe(2);
+
+    await db.message.update({
+      where: { id: first.row.id },
+      data: {
+        content: "Edited first supporting source",
+        updatedAt: new Date(Date.now() + 1_000),
+      },
+    });
+    await expect(
+      canReadMemoryItem(db, owner, stored.id),
+    ).resolves.toBe(true);
+
+    await db.message.update({
+      where: { id: second.row.id },
+      data: {
+        content: "Edited second supporting source",
+        updatedAt: new Date(Date.now() + 2_000),
+      },
+    });
+    await expect(
+      canReadMemoryItem(db, owner, stored.id),
+    ).resolves.toBe(false);
+  });
+
+  it("rejects cross-conversation Memory and L2 provenance even for the same owner", async () => {
+    const owner = await user("conversation-scope-owner");
+    const target = await db.conversation.create({
+      data: { userId: owner, kind: "CHAT" },
+    });
+    const foreign = await message(
+      owner,
+      "Source belongs to a different conversation.",
+    );
+    const memory = new MemoryService(db);
+
+    await expect(
+      memory.ingestCandidate({
+        actorUserId: owner,
+        scope: {
+          kind: "CONVERSATION",
+          conversationId: target.id,
+        },
+        type: "CONVERSATION_STATE",
+        slotKey: "state",
+        content: "Must not cross conversations",
+        origin: "AUTO_EXTRACTION",
+        sourceRefs: [
+          {
+            provenance: "AUTO_EXTRACTION",
+            sourceType: "MESSAGE",
+            sourceId: foreign.row.id,
+            sourceVersion: foreign.row.updatedAt.toISOString(),
+            sourceScopeKind: "CONVERSATION",
+            sourceScopeId: foreign.conversation.id,
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+    await expect(
+      new CompactedStateService(db).refresh({
+        actorUserId: owner,
+        scope: {
+          kind: "CONVERSATION",
+          conversationId: target.id,
+        },
+        classification: "PRIVATE",
+        content: "Must not cross conversations",
+        sourceRefs: [
+          {
+            sourceType: "MESSAGE",
+            sourceId: foreign.row.id,
+            sourceVersion: foreign.row.updatedAt.toISOString(),
+            occurredAt: foreign.row.createdAt,
+            sourceScopeKind: "CONVERSATION",
+            sourceScopeId: foreign.conversation.id,
+          },
+        ],
+        budget: compactBudget,
+      }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("marks authorized current-project Memory as current-project derived context", async () => {
+    const owner = await user("current-project-owner");
+    const project = await db.project.create({
+      data: {
+        ownerUserId: owner,
+        name: "Current Project",
+        members: {
+          create: {
+            userId: owner,
+            role: "OWNER",
+          },
+        },
+      },
+    });
+    const memory = await new MemoryService(
+      db,
+      projectWriteAuthorizer(),
+    ).rememberProject({
+      actorUserId: owner,
+      projectId: project.id,
+      type: "PROJECT_FACT",
+      slotKey: "launch region",
+      content: "Launch region is Europe",
+    });
+
+    const hits = await new MemoryRetrievalProvider(db).retrieve({
+      actorUserId: owner,
+      planId: randomUUID(),
+      query: "launch region",
+      conversationId: randomUUID(),
+      sourceMessageId: randomUUID(),
+      sourceMessageCreatedAt: new Date().toISOString(),
+      currentProjectId: project.id,
+    });
+    const hit = hits.find(
+      (candidate) => candidate.item.sourceId === memory.id,
+    );
+    expect(hit?.currentProject).toBe(true);
+    expect(hit?.sourceKind).toBe("PROJECT_MEMORY");
   });
 
   it("promotes only an explicit E2EE fact with disclosure provenance", async () => {
