@@ -318,6 +318,30 @@ describe("durable memory context graph", () => {
         actorUserId: owner,
         scope: { kind: "PERSONAL" },
         type: "USER_FACT",
+        slotKey: "weak inference",
+        content: "Possibly a durable fact",
+        confidence: 0.6,
+        sourceRefs: [
+          {
+            provenance: "AUTO_EXTRACTION",
+            sourceType: "MESSAGE",
+            sourceId: source.row.id,
+            sourceVersion: source.row.updatedAt.toISOString(),
+            sourceScopeKind: "CONVERSATION",
+            sourceScopeId: source.conversation.id,
+          },
+        ],
+      }),
+    ).toEqual({
+      kind: "SKIPPED",
+      reason: "LOW_CONFIDENCE",
+    });
+
+    expect(
+      await extraction.process({
+        actorUserId: owner,
+        scope: { kind: "PERSONAL" },
+        type: "USER_FACT",
         slotKey: "credential",
         content:
           "api_key=sk-super-sensitive-credential-value-123456789",
