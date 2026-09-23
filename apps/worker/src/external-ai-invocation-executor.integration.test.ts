@@ -292,6 +292,7 @@ describe("ExternalAiInvocationExecutor", () => {
           },
         ],
         denials: [],
+        packingExclusions: [],
         artifactDenials: [],
       },
       items: [],
@@ -369,6 +370,7 @@ describe("ExternalAiInvocationExecutor", () => {
         ],
         allowedArtifacts: [],
         denials: [],
+        packingExclusions: [],
         artifactDenials: [],
       },
       items: [
