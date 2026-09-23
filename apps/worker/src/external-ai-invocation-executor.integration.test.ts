@@ -189,6 +189,84 @@ describe("ExternalAiInvocationExecutor", () => {
     ).toBe(0);
   });
 
+  it("never sends a sensitive PRIVATE dependency artifact to an external provider", async () => {
+    const seeded = await seedInvocation(prisma, {
+      targetKind: "AI_MODEL",
+      targetModelSlug: "gpt-5-6-luna",
+      purpose: "Use private dependency",
+      fund: true,
+    });
+    const sourceInvocationId = randomUUID();
+    await prisma.invocation.create({
+      data: {
+        id: sourceInvocationId,
+        planId: seeded.planId,
+        sequence: 1,
+        purpose: "Produce sensitive input",
+        targetKind: "VIMLA",
+        targetModelSlug: null,
+        targetAgentId: null,
+        outputDeclarations: [{ name: "result", artifactType: "TEXT" }],
+        acceptanceCriteria: [],
+        riskClass: "READ_ONLY",
+        approvalPolicy: "AUTO",
+        failurePolicy: "FAIL_PLAN",
+        joinPolicy: "ALL_REQUIRED",
+        status: "COMPLETED",
+      },
+    });
+    await prisma.invocationDependency.create({
+      data: {
+        id: randomUUID(),
+        planId: seeded.planId,
+        fromInvocationId: sourceInvocationId,
+        toInvocationId: seeded.invocationId,
+        conditionKind: "DATA",
+        conditionOutcome: "",
+        inputBindings: [
+          {
+            inputName: "privateInput",
+            sourceOutputName: "result",
+            expectedArtifactType: "TEXT",
+          },
+        ],
+      },
+    });
+    await new ArtifactService(prisma).createArtifact({
+      actorUserId: seeded.userId,
+      creatorInvocationId: sourceInvocationId,
+      outputName: "result",
+      type: "TEXT",
+      classification: "PRIVATE",
+      content: {
+        kind: "INLINE_JSON",
+        value: {
+          text: "access_token: abcdefghijklmnopqrstuvwxyz123456",
+        },
+      },
+    });
+
+    const provider = new MockAiProvider();
+    const executor = createExecutor(prisma, provider);
+    await expect(
+      executor.execute(
+        executionInput(seeded, {
+          kind: "AI_MODEL",
+          modelSlug: "gpt-5-6-luna",
+          agentId: null,
+        }),
+      ),
+    ).resolves.toEqual({
+      status: "FAILED",
+      errorCode: "AI_ARTIFACT_SENSITIVE_DATA_DENIED",
+      retryable: false,
+    });
+    expect(provider.callCount).toBe(0);
+    expect(
+      await prisma.aiRequest.count({ where: { userId: seeded.userId } }),
+    ).toBe(0);
+  });
+
   it("uses the exact artifact version frozen in ContextBundle even when a newer version exists", async () => {
     const seeded = await seedInvocation(prisma, {
       targetKind: "AI_MODEL",
