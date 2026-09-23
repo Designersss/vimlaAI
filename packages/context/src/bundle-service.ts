@@ -44,7 +44,6 @@ const MAX_AUDIENCE_PARTICIPANTS = 64;
 
 export type ContextBundleDenialReason =
   | ContextPolicyDenialReason
-  | ContextPackingExclusionReason
   | "INVALID_AUDIENCE";
 
 export interface ContextBundleDenialAudit {
@@ -52,6 +51,13 @@ export interface ContextBundleDenialAudit {
   sourceRefHash: string;
   classification: ContextClassification;
   reason: ContextBundleDenialReason;
+}
+
+export interface ContextBundlePackingExclusionAudit {
+  sourceType: ContextSourceType;
+  sourceRefHash: string;
+  classification: ContextClassification;
+  reason: ContextPackingExclusionReason;
 }
 
 export interface ContextBundleArtifactDenialAudit {
@@ -99,6 +105,7 @@ export interface ContextBundleManifest {
     fingerprint: string;
   }>;
   denials: ContextBundleDenialAudit[];
+  packingExclusions: ContextBundlePackingExclusionAudit[];
   artifactDenials: ContextBundleArtifactDenialAudit[];
 }
 
@@ -310,11 +317,14 @@ export class ContextBundleService {
       targetKind,
       budget,
     });
-    for (const exclusion of packed.exclusions) {
-      denials.push(
-        denialFor(exclusion.item, exclusion.reason),
-      );
-    }
+    const packingExclusions = packed.exclusions.map(
+      (exclusion): ContextBundlePackingExclusionAudit => ({
+        sourceType: exclusion.item.sourceType,
+        sourceRefHash: sourceRefHash(exclusion.item),
+        classification: exclusion.item.classification,
+        reason: exclusion.reason,
+      }),
+    );
     const allowedItems = packed.selections.map(
       (selection) => selection.item,
     );
@@ -347,6 +357,7 @@ export class ContextBundleService {
         fingerprint: reference.fingerprint,
       })),
       denials,
+      packingExclusions,
       artifactDenials,
     };
     const fingerprint = bundleFingerprint(manifest);
