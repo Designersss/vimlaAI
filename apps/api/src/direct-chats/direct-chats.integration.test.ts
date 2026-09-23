@@ -783,7 +783,6 @@ describe("direct chats API", () => {
     });
     expect(oscarTasksAfter.json().items).toHaveLength(0);
   });
-  });
 });
 
 interface Harness {
