@@ -54,7 +54,11 @@ import {
   sendDirectMessage,
   updateDirectChatPrivacy,
 } from "../services/api";
-import { savePlaintext } from "../services/crypto-store";
+import {
+  loadConversationPlaintexts,
+  savePlaintext,
+} from "../services/crypto-store";
+import { prepareDirectChatContext } from "../services/context";
 import { decodeDirectPlaintext, encodeDirectPlaintext, type DirectPlaintextPayload } from "../services/payload";
 import { subscribeDirectChatEvents } from "../services/realtime";
 import { decryptMessage, encryptForDevices, ensureLocalDevice } from "../services/session";
@@ -390,26 +394,36 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
     setOperatorBusy(true);
     setError(null);
     try {
-      await postEncrypted(
+      const localPlaintexts = await loadConversationPlaintexts(
+        conversation.id,
+        256,
+      ).catch(() => []);
+      const preparedContext = prepareDirectChatContext({
+        actorUserId: userId,
+        privacy: conversation.privacy,
+        query: text,
+        messages: localPlaintexts,
+      });
+      const sourceMessage = await postEncrypted(
         "OPERATOR_INVOKE",
-        encodeDirectPlaintext({ type: "invoke", text, contextShared: false, peerIncluded: false }),
+        encodeDirectPlaintext({
+          type: "invoke",
+          text,
+          contextShared: preparedContext.contextBundle.messages.length > 0,
+          peerIncluded: preparedContext.peerIncluded,
+        }),
         mentions,
       );
-      const contextBundle = {
-        messages: rows.flatMap((row) => {
-          if (!row.payload || row.payload.type !== "human") return [];
-          const own = row.message.senderUserId === userId;
-          if (own && !conversation.privacy.shareOwnHistoryWithVimla) return [];
-          if (!own && (!conversation.privacy.includePeerHistoryWhenInvoking || !conversation.privacy.peerShareOwnHistoryWithVimla)) return [];
-          return [{ senderUserId: row.message.senderUserId, sentAt: row.message.createdAt, text: row.payload.text }];
-        }),
-      };
+      if (!sourceMessage) return;
       const run = await createOperatorRun({
         clientRequestId: crypto.randomUUID(),
         content: text,
         invocationScope: "DIRECT_CHAT",
         directConversationId: conversation.id,
-        ...(contextBundle.messages.length > 0 ? { contextBundle } : {}),
+        directSourceMessageId: sourceMessage.id,
+        ...(preparedContext.contextBundle.messages.length > 0
+          ? { contextBundle: preparedContext.contextBundle }
+          : {}),
       });
       setPendingRun(run);
       if (run.publicMessage) {
@@ -433,8 +447,12 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
     }
   }
 
-  async function postEncrypted(kind: DirectMessageKind, plaintext: string, mentions: MessageMentionInput[] = []): Promise<void> {
-    if (!conversation || !userId) return;
+  async function postEncrypted(
+    kind: DirectMessageKind,
+    plaintext: string,
+    mentions: MessageMentionInput[] = [],
+  ): Promise<DirectMessageView | null> {
+    if (!conversation || !userId) return null;
     setSending(true);
     try {
       const latest = await reloadConversation();
@@ -465,8 +483,10 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
       setRows((current) => mergeDecryptedRows(current, [
         { message: created, payload: decodeDirectPlaintext(kind, plaintext) },
       ]));
+      return created;
     } catch (caught: unknown) {
       setError(caught instanceof DirectChatsApiError ? caught.code : "internal_error");
+      return null;
     } finally {
       setSending(false);
     }
