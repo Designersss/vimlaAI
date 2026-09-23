@@ -20,6 +20,6 @@ import {
       useFactory: (config: ApiRuntimeConfig) => createSemanticPlannerModel(config),
     },
   ],
-  exports: [OrchestrationService],
+  exports: [OrchestrationService, SEMANTIC_PLANNER_MODEL],
 })
 export class OrchestrationModule {}
