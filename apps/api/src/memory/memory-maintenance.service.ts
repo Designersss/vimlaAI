@@ -198,7 +198,7 @@ export class MemoryMaintenanceService {
         status: "COMPLETE",
         conversation: {
           userId: input.userId,
-          kind: { not: "OPERATOR" },
+          kind: "CHAT",
         },
       },
       select: {
