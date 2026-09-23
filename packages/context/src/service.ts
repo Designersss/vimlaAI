@@ -209,6 +209,18 @@ export class ContextSnapshotService {
             select: { id: true },
           }),
         );
+      case "E2EE_DISCLOSURE":
+        return Boolean(
+          await this.db.directMessage.findFirst({
+            where: {
+              id: check.sourceId,
+              conversation: {
+                members: { some: { userId: check.actorUserId } },
+              },
+            },
+            select: { id: true },
+          }),
+        );
       case "CONVERSATION":
       case "AUDIENCE":
         return Boolean(
@@ -307,6 +319,11 @@ function validateItems(items: readonly ContextSnapshotItemInput[]): void {
 }
 
 function toView(snapshot: SnapshotRow): ContextSnapshotView {
+  if (!snapshot.planId) {
+    throw new ContextValidationError(
+      "Execution-plan context snapshot has an invalid owner",
+    );
+  }
   return {
     id: snapshot.id,
     planId: snapshot.planId,
@@ -337,6 +354,7 @@ function parseSourceType(value: string): ContextSourceType {
     case "USER_MESSAGE":
     case "CONVERSATION":
     case "MESSAGE":
+    case "E2EE_DISCLOSURE":
     case "PARTICIPANT":
     case "PROJECT":
     case "WORKSPACE_OBJECT":
