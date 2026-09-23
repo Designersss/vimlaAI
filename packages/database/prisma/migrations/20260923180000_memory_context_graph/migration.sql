@@ -146,3 +146,32 @@ ALTER TABLE "compacted_context_state" ADD CONSTRAINT "compacted_context_state_pr
   FOREIGN KEY ("projectId") REFERENCES "project"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 ALTER TABLE "compacted_context_state" ADD CONSTRAINT "compacted_context_state_conversationId_fkey"
   FOREIGN KEY ("conversationId") REFERENCES "conversation"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+
+
+CREATE TABLE "memory_extraction_receipt" (
+  "id" TEXT NOT NULL,
+  "ownerUserId" TEXT NOT NULL,
+  "sourceType" TEXT NOT NULL,
+  "sourceId" TEXT NOT NULL,
+  "sourceVersion" TEXT NOT NULL,
+  "status" TEXT NOT NULL DEFAULT 'PENDING',
+  "candidateCount" INTEGER NOT NULL DEFAULT 0,
+  "errorCode" TEXT,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt" TIMESTAMP(3) NOT NULL,
+  CONSTRAINT "memory_extraction_receipt_pkey" PRIMARY KEY ("id"),
+  CONSTRAINT "memory_extraction_receipt_source_type_check"
+    CHECK ("sourceType" IN ('MESSAGE')),
+  CONSTRAINT "memory_extraction_receipt_status_check"
+    CHECK ("status" IN ('PENDING','COMPLETED','FAILED')),
+  CONSTRAINT "memory_extraction_receipt_candidate_count_check"
+    CHECK ("candidateCount">=0)
+);
+CREATE UNIQUE INDEX "memory_extraction_receipt_source_key"
+  ON "memory_extraction_receipt"("sourceType","sourceId","sourceVersion");
+CREATE INDEX "memory_extraction_receipt_owner_status_idx"
+  ON "memory_extraction_receipt"("ownerUserId","status","updatedAt");
+ALTER TABLE "memory_extraction_receipt"
+  ADD CONSTRAINT "memory_extraction_receipt_ownerUserId_fkey"
+  FOREIGN KEY ("ownerUserId") REFERENCES "user"("id")
+  ON DELETE RESTRICT ON UPDATE CASCADE;
