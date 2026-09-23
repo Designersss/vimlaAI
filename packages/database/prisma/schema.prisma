@@ -54,6 +54,8 @@ model User {
   twoFactor            TwoFactor?
   passkeys             Passkey[]
   adminPrincipal       AdminPrincipal?
+  memoryItems          MemoryItem[]             @relation("MemoryOwner")
+  compactedStates      CompactedContextState[]  @relation("CompactedStateOwner")
 
   @@unique([email])
   @@unique([phoneNumber])
@@ -379,6 +381,8 @@ model Conversation {
   sourcedWorkspaceObjects  WorkspaceObject[]
   operatorRuns             OperatorRun[]
   executionPlans           ExecutionPlan[]
+  memoryItems              MemoryItem[]            @relation("ConversationMemory")
+  compactedStates          CompactedContextState[] @relation("ConversationCompactedState")
 
   @@index([userId, updatedAt])
   @@index([userId, kind])
@@ -749,6 +753,8 @@ model Project {
   updatedAt   DateTime        @updatedAt
   members     ProjectMember[]
   invites     ProjectInvite[]
+  memoryItems MemoryItem[]            @relation("ProjectMemory")
+  compactedStates CompactedContextState[] @relation("ProjectCompactedState")
 
   @@index([ownerUserId, createdAt])
   @@map("project")
