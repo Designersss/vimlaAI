@@ -180,7 +180,20 @@ CREATE TABLE "memory_extraction_receipt" (
   CONSTRAINT "memory_extraction_receipt_candidate_count_check"
     CHECK ("candidateCount">=0),
   CONSTRAINT "memory_extraction_receipt_attempt_count_check"
-    CHECK ("attemptCount">=0 AND "attemptCount"<=5)
+    CHECK ("attemptCount">=0 AND "attemptCount"<=5),
+  CONSTRAINT "memory_extraction_receipt_attempt_state_check"
+    CHECK (
+      ("status"='QUEUED' AND "attemptCount"=0)
+      OR ("status"='SKIPPED')
+      OR ("status" IN ('PENDING','COMPLETED','FAILED') AND "attemptCount">=1)
+    ),
+  CONSTRAINT "memory_extraction_receipt_completed_stages_check"
+    CHECK (
+      "status"<>'COMPLETED'
+      OR ("extractedAt" IS NOT NULL AND "compactedAt" IS NOT NULL)
+    ),
+  CONSTRAINT "memory_extraction_receipt_candidate_stage_check"
+    CHECK ("candidateCount"=0 OR "extractedAt" IS NOT NULL)
 );
 CREATE UNIQUE INDEX "memory_extraction_receipt_source_key"
   ON "memory_extraction_receipt"("sourceType","sourceId","sourceVersion");
