@@ -108,6 +108,7 @@ export function loadApiConfig(
     projectsEnabled: parsed.PROJECTS_ENABLED === "true",
     projectsMutationLimitPerMinute: parsed.PROJECTS_MUTATION_LIMIT_PER_MINUTE,
     projectsInviteTtlDays: parsed.PROJECTS_INVITE_TTL_DAYS,
+    memoryEnabled: parsed.MEMORY_ENABLED === "true",
     directChatsEnabled: parsed.DIRECT_CHATS_ENABLED === "true",
     directChatsMutationLimitPerMinute: parsed.DIRECT_CHATS_MUTATION_LIMIT_PER_MINUTE,
     directChatsMaxCiphertextBytes: parsed.DIRECT_CHATS_MAX_CIPHERTEXT_BYTES,
