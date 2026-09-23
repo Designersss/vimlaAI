@@ -67,6 +67,7 @@ export interface ContextRetrievalProviderInput {
   conversationId: string;
   sourceMessageId: string;
   sourceMessageCreatedAt: string;
+  currentProjectId?: string | null;
 }
 
 export interface ContextRetrievalProvider {
@@ -854,6 +855,7 @@ export class ContextRetrievalService {
       sourceMessageId: sourceMessage.id,
       sourceMessageCreatedAt:
         sourceMessage.createdAt.toISOString(),
+      currentProjectId: null,
     };
     if (this.semanticSearch) {
       const semantic = await this.semanticSearch.retrieve(providerInput);
