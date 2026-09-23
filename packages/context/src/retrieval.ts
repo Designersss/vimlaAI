@@ -851,7 +851,9 @@ function candidate(
           currentSurface: input.currentSurface,
           currentProject: input.currentProject,
           authority: input.authority,
-          occurredAt: input.occurredAt,
+          ...(input.occurredAt
+            ? { occurredAt: input.occurredAt }
+            : {}),
           estimatedTokens,
           stale: input.stale === true,
           superseded: input.superseded === true,
