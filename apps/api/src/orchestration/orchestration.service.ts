@@ -12,6 +12,7 @@ import {
   fingerprintResolvedArtifactInputs,
 } from "@vimla/artifacts";
 import {
+  ContextAccessDeniedError,
   ContextConflictError,
   ContextNotFoundError,
   ContextSnapshotService,
@@ -1100,6 +1101,11 @@ export class OrchestrationService {
       }
       if (error instanceof ContextConflictError) {
         throw new ConflictException(error.message);
+      }
+      if (error instanceof ContextAccessDeniedError) {
+        throw new ConflictException(
+          "Context access changed before planning",
+        );
       }
       throw error;
     }
