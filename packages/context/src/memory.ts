@@ -289,15 +289,48 @@ export class MemoryService {
           "Only the current memory item can be deleted",
         );
       }
+      const lineageIds = [current.id];
+      let ancestorId = current.supersedesId;
+      while (ancestorId) {
+        const ancestor = await tx.memoryItem.findUnique({
+          where: { id: ancestorId },
+          select: {
+            id: true,
+            supersedesId: true,
+            ownerUserId: true,
+          },
+        });
+        if (
+          !ancestor ||
+          ancestor.ownerUserId !== actorUserId
+        ) {
+          break;
+        }
+        lineageIds.push(ancestor.id);
+        ancestorId = ancestor.supersedesId;
+      }
+
+      await tx.memoryItem.updateMany({
+        where: { id: { in: lineageIds } },
+        data: {
+          content: "",
+          contentHash: hashText(""),
+        },
+      });
+      for (const id of lineageIds) {
+        await tx.memoryItem.update({
+          where: { id },
+          data: {
+            slotKey: `deleted:${id}`,
+          },
+        });
+      }
       await tx.memoryItem.update({
         where: { id: memoryId },
         data: {
           state: "INVALIDATED",
           invalidatedAt: new Date(),
           invalidationReason: reason,
-          slotKey: `deleted:${memoryId}`,
-          content: "",
-          contentHash: hashText(""),
         },
       });
     });
