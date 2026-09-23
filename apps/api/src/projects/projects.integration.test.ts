@@ -5,6 +5,7 @@ import { loadApiConfig } from "@vimla/config/server";
 import { createPrismaClient } from "@vimla/database";
 import { createVimlaApiApp } from "../create-app.js";
 import { PrismaService } from "../persistence/prisma.service.js";
+import { MemoryFacade } from "../memory/memory.facade.js";
 import { registerUnverifiedUser, registerVerifiedUser } from "../test/identity-helpers.js";
 
 const testDatabaseUrl = process.env.TEST_DATABASE_URL;
@@ -522,6 +523,120 @@ describe("projects API", () => {
       invalidationReason: "PROJECT_DELETED",
     });
     expect(retainedCompacted.invalidatedAt).not.toBeNull();
+  });
+
+
+  it("uses real Project capabilities for Project Memory writes, including MEMBER and PLAN_LOCKED denial", async () => {
+    const owner = await registerVerifiedUser(
+      app,
+      "proj-memory-cap-owner",
+    );
+    const member = await registerVerifiedUser(
+      app,
+      "proj-memory-cap-member",
+    );
+    await buyPro(app, owner.cookies);
+
+    const first = await createProject(
+      app,
+      owner.cookies,
+      "Memory Cap One",
+    );
+    const second = await createProject(
+      app,
+      owner.cookies,
+      "Memory Cap Two",
+    );
+
+    const invite = await inviteMember(
+      app,
+      owner.cookies,
+      first.id,
+      member.email,
+      "MEMBER",
+    );
+    await acceptInvite(app, member.cookies, invite.inviteUrl);
+
+    const prisma = app.get(PrismaService).client;
+    const memory = app.get(MemoryFacade).memory;
+    const firstProject = await prisma.project.findUniqueOrThrow({
+      where: { id: first.id },
+    });
+
+    await expect(
+      memory.ingestCandidate({
+        actorUserId: member.id,
+        scope: { kind: "PROJECT", projectId: first.id },
+        type: "PROJECT_FACT",
+        slotKey: "member write",
+        content: "Member must not write Project Memory",
+        origin: "USER_EXPLICIT",
+        sourceRefs: [
+          {
+            provenance: "USER_EXPLICIT",
+            sourceType: "PROJECT",
+            sourceId: first.id,
+            sourceVersion: firstProject.updatedAt.toISOString(),
+            sourceScopeKind: "PROJECT",
+            sourceScopeId: first.id,
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+    await expireActiveSubscription(app, owner.id);
+
+    const firstView = await app.inject({
+      method: "GET",
+      url: `/v1/projects/${first.id}`,
+      headers: { origin },
+      cookies: owner.cookies,
+    });
+    const secondView = await app.inject({
+      method: "GET",
+      url: `/v1/projects/${second.id}`,
+      headers: { origin },
+      cookies: owner.cookies,
+    });
+    const views = [firstView.json(), secondView.json()] as Array<{
+      id: string;
+      projectState: string;
+    }>;
+    const locked = views.find(
+      (view) => view.projectState === "PLAN_LOCKED",
+    );
+    if (!locked) {
+      throw new Error("expected one plan-locked project");
+    }
+    const lockedProject =
+      await prisma.project.findUniqueOrThrow({
+        where: { id: locked.id },
+      });
+
+    await expect(
+      memory.ingestCandidate({
+        actorUserId: owner.id,
+        scope: {
+          kind: "PROJECT",
+          projectId: lockedProject.id,
+        },
+        type: "PROJECT_STATE",
+        slotKey: "locked write",
+        content: "Locked project must stay read-only",
+        origin: "USER_EXPLICIT",
+        sourceRefs: [
+          {
+            provenance: "USER_EXPLICIT",
+            sourceType: "PROJECT",
+            sourceId: lockedProject.id,
+            sourceVersion:
+              lockedProject.updatedAt.toISOString(),
+            sourceScopeKind: "PROJECT",
+            sourceScopeId: lockedProject.id,
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
 
 });
