@@ -4,6 +4,7 @@ import {
   ArtifactService,
   ArtifactValidationError,
   type ArtifactType,
+  type ResolvedArtifactInput,
 } from "@vimla/artifacts";
 import {
   estimateProviderRequestInputTokens,
@@ -23,6 +24,7 @@ import {
   isBillingError,
   type BillingEngine,
 } from "@vimla/billing";
+import { isExternalProviderClassificationAllowed } from "@vimla/context";
 import { Prisma, type PrismaClient } from "@vimla/database";
 import {
   resolveAiExecutionBudget,
@@ -182,6 +184,7 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
         invocation.plan.userId,
         input.invocationId,
         invocation.purpose,
+        input.contextBundle?.artifacts,
       );
       const history = await this.loadTurnHistory(input.invocationId);
 
@@ -731,13 +734,25 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
     userId: string,
     invocationId: string,
     purpose: string,
+    authorizedBindings?: readonly ResolvedArtifactInput[],
   ): Promise<ProviderChatMessage[]> {
-    const bindings = await this.artifacts.resolveInputBindings({
-      actorUserId: userId,
-      targetInvocationId: invocationId,
-    });
+    const bindings =
+      authorizedBindings ??
+      (await this.artifacts.resolveInputBindings({
+        actorUserId: userId,
+        targetInvocationId: invocationId,
+      }));
     const inputs: string[] = [];
     for (const binding of bindings) {
+      if (
+        !isExternalProviderClassificationAllowed(
+          binding.reference.classification,
+        )
+      ) {
+        throw new ExternalAiTerminalError(
+          "AI_ARTIFACT_CLASSIFICATION_DENIED",
+        );
+      }
       const version = await this.artifacts.readVersion({
         actorUserId: userId,
         artifactVersionId: binding.reference.artifactVersionId,

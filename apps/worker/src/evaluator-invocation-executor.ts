@@ -6,6 +6,7 @@ import {
   type ArtifactContent,
   type ArtifactReference,
   type ReadArtifactVersionResult,
+  type ResolvedArtifactInput,
 } from "@vimla/artifacts";
 import {
   OpenAiCompatibleJsonChatHttpError,
@@ -244,6 +245,7 @@ export class EvaluatorInvocationExecutor {
       const resolved = await this.resolveArtifacts(
         invocation.plan.userId,
         input.invocationId,
+        input.contextBundle?.artifacts,
       );
       if (mode === "AI_EVALUATOR" && resolved.length === 0) {
         return terminal("EVALUATOR_INPUT_MISSING");
@@ -364,6 +366,7 @@ export class EvaluatorInvocationExecutor {
   private async resolveArtifacts(
     userId: string,
     invocationId: string,
+    authorizedBindings?: readonly ResolvedArtifactInput[],
   ): Promise<
     Array<{
       inputName: string;
@@ -371,10 +374,12 @@ export class EvaluatorInvocationExecutor {
       version: ReadArtifactVersionResult;
     }>
   > {
-    const bindings = await this.artifacts.resolveInputBindings({
-      actorUserId: userId,
-      targetInvocationId: invocationId,
-    });
+    const bindings =
+      authorizedBindings ??
+      (await this.artifacts.resolveInputBindings({
+        actorUserId: userId,
+        targetInvocationId: invocationId,
+      }));
     const resolved = [];
     for (const binding of bindings) {
       const version = await this.artifacts.readVersion({

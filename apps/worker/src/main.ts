@@ -13,6 +13,7 @@ import { createCorrelationId } from "@vimla/shared";
 import { Queue, Worker } from "bullmq";
 import { Redis } from "ioredis";
 import pino from "pino";
+import { ContextAwareInvocationExecutorRegistry } from "./context-aware-invocation-executor.js";
 import { closeHttpServer, listenWorkerHealth } from "./health.js";
 import { AiArtifactRecovery } from "./ai-artifact-recovery.js";
 import { createAiReconciler } from "./ai-reconciliation.js";
@@ -317,7 +318,7 @@ async function startOrchestrationRuntime(
   const executionConnection = new Redis(redisUrl, { maxRetriesPerRequest: null });
   const dispatchQueue = new Queue(ORCHESTRATION_DISPATCH_QUEUE_NAME, { connection: queueConnection });
   const executionQueue = new Queue(INVOCATION_EXECUTE_QUEUE_NAME, { connection: queueConnection });
-  const executorRegistry = new ExternalAiAwareInvocationExecutorRegistry(
+  const baseExecutorRegistry = new ExternalAiAwareInvocationExecutorRegistry(
     new ExternalAiInvocationExecutor(
       prisma,
       billingEngine,
@@ -362,6 +363,10 @@ async function startOrchestrationRuntime(
         new FailClosedInvocationExecutorRegistry(),
       ),
     ),
+  );
+  const executorRegistry = new ContextAwareInvocationExecutorRegistry(
+    prisma,
+    baseExecutorRegistry,
   );
   const runtime = new OrchestrationRuntime(
     prisma,

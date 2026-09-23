@@ -11,11 +11,13 @@ import {
   type ProviderChatResult,
   type ProviderStreamEvent,
 } from "@vimla/ai";
+import { ArtifactService } from "@vimla/artifacts";
 import {
   BillingEngine,
   BillingError,
   type BillingPolicy,
 } from "@vimla/billing";
+import type { ContextBundleView } from "@vimla/context";
 import { createPrismaClient, type PrismaClient } from "@vimla/database";
 import {
   ExternalAiInvocationExecutor,
@@ -109,6 +111,205 @@ describe("ExternalAiInvocationExecutor", () => {
     expect(artifact.versions[0]?.contentJson).toEqual({
       text: "Launch note from model",
     });
+  });
+
+  it("never sends a restricted dependency artifact to an external provider", async () => {
+    const seeded = await seedInvocation(prisma, {
+      targetKind: "AI_MODEL",
+      targetModelSlug: "gpt-5-6-luna",
+      purpose: "Use restricted dependency",
+      fund: true,
+    });
+    const sourceInvocationId = randomUUID();
+    await prisma.invocation.create({
+      data: {
+        id: sourceInvocationId,
+        planId: seeded.planId,
+        sequence: 1,
+        purpose: "Produce restricted input",
+        targetKind: "VIMLA",
+        targetModelSlug: null,
+        targetAgentId: null,
+        outputDeclarations: [{ name: "result", artifactType: "TEXT" }],
+        acceptanceCriteria: [],
+        riskClass: "READ_ONLY",
+        approvalPolicy: "AUTO",
+        failurePolicy: "FAIL_PLAN",
+        joinPolicy: "ALL_REQUIRED",
+        status: "COMPLETED",
+      },
+    });
+    await prisma.invocationDependency.create({
+      data: {
+        id: randomUUID(),
+        planId: seeded.planId,
+        fromInvocationId: sourceInvocationId,
+        toInvocationId: seeded.invocationId,
+        conditionKind: "DATA",
+        conditionOutcome: "",
+        inputBindings: [
+          {
+            inputName: "restrictedInput",
+            sourceOutputName: "result",
+            expectedArtifactType: "TEXT",
+          },
+        ],
+      },
+    });
+    await new ArtifactService(prisma).createArtifact({
+      actorUserId: seeded.userId,
+      creatorInvocationId: sourceInvocationId,
+      outputName: "result",
+      type: "TEXT",
+      classification: "RESTRICTED",
+      content: {
+        kind: "INLINE_JSON",
+        value: { text: "must not leave Vimla" },
+      },
+    });
+
+    const provider = new MockAiProvider();
+    const executor = createExecutor(prisma, provider);
+    await expect(
+      executor.execute(
+        executionInput(seeded, {
+          kind: "AI_MODEL",
+          modelSlug: "gpt-5-6-luna",
+          agentId: null,
+        }),
+      ),
+    ).resolves.toEqual({
+      status: "FAILED",
+      errorCode: "AI_ARTIFACT_CLASSIFICATION_DENIED",
+      retryable: false,
+    });
+    expect(provider.callCount).toBe(0);
+    expect(
+      await prisma.aiRequest.count({ where: { userId: seeded.userId } }),
+    ).toBe(0);
+  });
+
+  it("uses the exact artifact version frozen in ContextBundle even when a newer version exists", async () => {
+    const seeded = await seedInvocation(prisma, {
+      targetKind: "AI_MODEL",
+      targetModelSlug: "gpt-5-6-luna",
+      purpose: "Use the frozen dependency version",
+      fund: true,
+    });
+    const sourceInvocationId = randomUUID();
+    await prisma.invocation.create({
+      data: {
+        id: sourceInvocationId,
+        planId: seeded.planId,
+        sequence: 1,
+        purpose: "Produce versioned input",
+        targetKind: "VIMLA",
+        targetModelSlug: null,
+        targetAgentId: null,
+        outputDeclarations: [{ name: "result", artifactType: "TEXT" }],
+        acceptanceCriteria: [],
+        riskClass: "READ_ONLY",
+        approvalPolicy: "AUTO",
+        failurePolicy: "FAIL_PLAN",
+        joinPolicy: "ALL_REQUIRED",
+        status: "COMPLETED",
+      },
+    });
+    const dependency = await prisma.invocationDependency.create({
+      data: {
+        id: randomUUID(),
+        planId: seeded.planId,
+        fromInvocationId: sourceInvocationId,
+        toInvocationId: seeded.invocationId,
+        conditionKind: "DATA",
+        conditionOutcome: "",
+        inputBindings: [
+          {
+            inputName: "candidate",
+            sourceOutputName: "result",
+            expectedArtifactType: "TEXT",
+          },
+        ],
+      },
+    });
+
+    const artifactService = new ArtifactService(prisma);
+    const frozenReference = await artifactService.createArtifact({
+      actorUserId: seeded.userId,
+      creatorInvocationId: sourceInvocationId,
+      outputName: "result",
+      type: "TEXT",
+      classification: "PRIVATE",
+      content: {
+        kind: "INLINE_JSON",
+        value: { text: "frozen-version-one" },
+      },
+    });
+    const latestReference = await artifactService.createVersion({
+      actorUserId: seeded.userId,
+      artifactId: frozenReference.artifactId,
+      expectedCurrentVersion: frozenReference.version,
+      content: {
+        kind: "INLINE_JSON",
+        value: { text: "newer-version-two" },
+      },
+    });
+    expect(latestReference.version).toBe(2);
+
+    const contextBundle: ContextBundleView = {
+      id: "test-frozen-bundle",
+      invocationId: seeded.invocationId,
+      snapshotId: "test-snapshot",
+      fingerprint: "sha256:test-frozen-bundle",
+      manifest: {
+        version: 1,
+        targetKind: "AI_MODEL",
+        surfaceKind: "PERSONAL",
+        surfaceScopeHash: "sha256:test-personal-surface",
+        audienceParticipantCount: 1,
+        allowedItems: [],
+        allowedArtifacts: [
+          {
+            inputName: "candidate",
+            artifactId: frozenReference.artifactId,
+            artifactVersionId: frozenReference.artifactVersionId,
+            classification: "PRIVATE",
+            version: frozenReference.version,
+            fingerprint: frozenReference.fingerprint,
+          },
+        ],
+        denials: [],
+        artifactDenials: [],
+      },
+      items: [],
+      artifacts: [
+        {
+          inputName: "candidate",
+          expectedType: "TEXT",
+          dependencyId: dependency.id,
+          sourceInvocationId,
+          reference: frozenReference,
+        },
+      ],
+      createdAt: new Date().toISOString(),
+    };
+
+    const provider = new MockAiProvider();
+    const executor = createExecutor(prisma, provider);
+    const result = await executor.execute({
+      ...executionInput(seeded, {
+        kind: "AI_MODEL",
+        modelSlug: "gpt-5-6-luna",
+        agentId: null,
+      }),
+      contextBundle,
+    });
+
+    expect(result).toEqual({ status: "COMPLETED", outcome: "PASS" });
+    expect(provider.callCount).toBe(1);
+    const providerContent = provider.lastRequest?.messages[0]?.content ?? "";
+    expect(providerContent).toContain("frozen-version-one");
+    expect(providerContent).not.toContain("newer-version-two");
   });
 
   it("replays a completed invocation without another provider call, reservation, charge, or artifact", async () => {

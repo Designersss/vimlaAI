@@ -293,6 +293,9 @@ importers:
       '@vimla/config':
         specifier: workspace:*
         version: link:../../packages/config
+      '@vimla/context':
+        specifier: workspace:*
+        version: link:../../packages/context
       '@vimla/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
@@ -495,6 +498,9 @@ importers:
 
   packages/context:
     dependencies:
+      '@vimla/artifacts':
+        specifier: workspace:*
+        version: link:../artifacts
       '@vimla/database':
         specifier: workspace:*
         version: link:../database

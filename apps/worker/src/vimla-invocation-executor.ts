@@ -4,6 +4,7 @@ import {
   ArtifactNotFoundError,
   ArtifactService,
   ArtifactValidationError,
+  type ResolvedArtifactInput,
 } from "@vimla/artifacts";
 import { type Prisma, type PrismaClient } from "@vimla/database";
 import { NotificationPlatformError, NotificationPreferenceService } from "@vimla/notifications";
@@ -144,6 +145,7 @@ export class VimlaInvocationExecutor implements InvocationExecutorRegistry {
       const dependencyContext = await this.buildDependencyContext(
         invocation.plan.userId,
         input.invocationId,
+        input.contextBundle?.artifacts,
       );
       const planned = await this.planner.plan({
         userText: invocation.purpose,
@@ -280,11 +282,14 @@ export class VimlaInvocationExecutor implements InvocationExecutorRegistry {
   private async buildDependencyContext(
     userId: string,
     invocationId: string,
+    authorizedBindings?: readonly ResolvedArtifactInput[],
   ): Promise<string | null> {
-    const bindings = await this.artifacts.resolveInputBindings({
-      actorUserId: userId,
-      targetInvocationId: invocationId,
-    });
+    const bindings =
+      authorizedBindings ??
+      (await this.artifacts.resolveInputBindings({
+        actorUserId: userId,
+        targetInvocationId: invocationId,
+      }));
     if (bindings.length === 0) return null;
 
     const parts: string[] = [];
