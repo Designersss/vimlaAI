@@ -53,6 +53,7 @@ export class MemoryFacade {
         },
       },
       config.memoryMaxActivePersonalItems,
+      config.memoryMaxActiveProjectItems,
     );
   }
 
