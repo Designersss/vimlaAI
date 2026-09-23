@@ -433,6 +433,26 @@ describe("durable memory context graph", () => {
     });
     expect(outsiderHits).toEqual([]);
 
+    const memberAuthoredProjectMemory =
+      await new MemoryService(db).ingestCandidate({
+        actorUserId: member,
+        scope: { kind: "PROJECT", projectId: project.id },
+        type: "PROJECT_DECISION",
+        slotKey: "member-authored decision",
+        content: "The project decision remains with the project",
+        origin: "USER_EXPLICIT",
+        sourceRefs: [
+          {
+            provenance: "USER_EXPLICIT",
+            sourceType: "PROJECT",
+            sourceId: project.id,
+            sourceVersion: project.updatedAt.toISOString(),
+            sourceScopeKind: "PROJECT",
+            sourceScopeId: project.id,
+          },
+        ],
+      });
+
     const personalFromProject =
       await new MemoryService(db).ingestCandidate({
         actorUserId: member,
@@ -481,6 +501,13 @@ describe("durable memory context graph", () => {
     ).toBe("INVALIDATED");
     expect(
       await canReadMemoryItem(db, owner, projectMemory.id),
+    ).toBe(true);
+    expect(
+      await canReadMemoryItem(
+        db,
+        owner,
+        memberAuthoredProjectMemory.id,
+      ),
     ).toBe(true);
   });
 
