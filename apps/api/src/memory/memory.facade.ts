@@ -62,6 +62,16 @@ export class MemoryFacade {
     }
   }
 
+  assertProjectMemoryEnabled(): void {
+    this.assertEnabled();
+    if (!this.config.projectsEnabled) {
+      throw new MemoryError(
+        "DISABLED",
+        "Project Memory is disabled",
+      );
+    }
+  }
+
   assertE2eePromotionEnabled(): void {
     this.assertEnabled();
     if (!this.config.directChatsEnabled) {
