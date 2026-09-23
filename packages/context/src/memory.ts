@@ -452,10 +452,10 @@ export class MemoryService {
         input.explicitCrossScopeWrite === true,
       );
 
-      await tx.$queryRaw(Prisma.sql`
+      await tx.$queryRaw<Array<{ lock: string }>>(Prisma.sql`
         SELECT pg_advisory_xact_lock(
           hashtext(${hashText(scope.scopeKey + "\n" + slotKey)})
-        )
+        )::text AS "lock"
       `);
       const active = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
         SELECT "id"
