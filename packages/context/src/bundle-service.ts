@@ -641,6 +641,11 @@ function parseAudience(
 
     case "PROJECT": {
       const projectId = boundedId(metadata.projectId, "audience projectId");
+      if (item.sourceId !== projectId) {
+        throw new ContextValidationError(
+          "Context audience source does not match the project surface",
+        );
+      }
       return {
         kind: "PROJECT",
         participantUserIds,
@@ -653,6 +658,11 @@ function parseAudience(
         metadata.directConversationId,
         "audience directConversationId",
       );
+      if (item.sourceId !== directConversationId) {
+        throw new ContextValidationError(
+          "Context audience source does not match the Direct Chat surface",
+        );
+      }
       return {
         kind: "DIRECT_CHAT",
         participantUserIds,
