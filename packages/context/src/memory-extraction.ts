@@ -74,10 +74,7 @@ export class MemoryExtractionPipeline {
         if (error.code === "SENSITIVE_CONTENT") {
           return { kind: "SKIPPED", reason: "SENSITIVE" };
         }
-        if (
-          error.code === "CONFLICT" &&
-          error.message.includes("storage limit")
-        ) {
+        if (error.code === "STORAGE_LIMIT") {
           return { kind: "SKIPPED", reason: "STORAGE_LIMIT" };
         }
       }
