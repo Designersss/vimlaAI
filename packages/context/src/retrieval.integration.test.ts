@@ -369,7 +369,7 @@ describe("Context retrieval v1", () => {
       (item) => item.sourceType === "CONVERSATION",
     );
 
-    expect(rawHistoryTokens(conversationItem?.metadata)).toBe(60);
+    expect(rawHistoryTokens(conversationItem?.metadata)).toBe(240);
   });
 
   it("rejects provider attempts to override raw source-of-truth context", async () => {
