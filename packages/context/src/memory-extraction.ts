@@ -10,6 +10,7 @@ export type MemoryExtractionSkipReason =
   | "TRANSIENT"
   | "LOW_CONFIDENCE"
   | "SENSITIVE"
+  | "STORAGE_LIMIT"
   | "E2EE_AUTOMATIC_DISABLED";
 
 export type MemoryExtractionResult =
@@ -69,11 +70,16 @@ export class MemoryExtractionPipeline {
       });
       return { kind: "STORED", memory };
     } catch (error: unknown) {
-      if (
-        error instanceof MemoryError &&
-        error.code === "SENSITIVE_CONTENT"
-      ) {
-        return { kind: "SKIPPED", reason: "SENSITIVE" };
+      if (error instanceof MemoryError) {
+        if (error.code === "SENSITIVE_CONTENT") {
+          return { kind: "SKIPPED", reason: "SENSITIVE" };
+        }
+        if (
+          error.code === "CONFLICT" &&
+          error.message.includes("storage limit")
+        ) {
+          return { kind: "SKIPPED", reason: "STORAGE_LIMIT" };
+        }
       }
       throw error;
     }
