@@ -329,6 +329,103 @@ describe("memory API", () => {
       }),
     ).toBe(0);
   });
+
+  it("rate-limits memory mutations per user", async () => {
+    const config = loadApiConfig({
+      ...process.env,
+      MEMORY_ENABLED: "true",
+      MEMORY_MUTATION_LIMIT_PER_MINUTE: "1",
+      MEMORY_MAX_ACTIVE_PERSONAL_ITEMS: "1000",
+    });
+    const isolated = await createVimlaApiApp(config, {
+      quiet: true,
+    });
+    await isolated.init();
+    await isolated.getHttpAdapter().getInstance().ready();
+    try {
+      const user = await registerVerifiedUser(
+        isolated,
+        "memory-rate-limit",
+      );
+      const first = await isolated.inject({
+        method: "POST",
+        url: "/v1/memory",
+        headers: jsonHeaders(),
+        cookies: user.cookies,
+        payload: {
+          type: "USER_FACT",
+          slotKey: "rate-one",
+          content: "First memory mutation",
+        },
+      });
+      expect(first.statusCode).toBe(201);
+
+      const second = await isolated.inject({
+        method: "POST",
+        url: "/v1/memory",
+        headers: jsonHeaders(),
+        cookies: user.cookies,
+        payload: {
+          type: "USER_FACT",
+          slotKey: "rate-two",
+          content: "Second memory mutation",
+        },
+      });
+      expect(second.statusCode).toBe(429);
+      expect(errorCode(second)).toBe("rate_limited");
+    } finally {
+      await isolated.close();
+    }
+  });
+
+  it("enforces the configured active personal memory storage cap", async () => {
+    const config = loadApiConfig({
+      ...process.env,
+      MEMORY_ENABLED: "true",
+      MEMORY_MUTATION_LIMIT_PER_MINUTE: "100",
+      MEMORY_MAX_ACTIVE_PERSONAL_ITEMS: "1",
+    });
+    const isolated = await createVimlaApiApp(config, {
+      quiet: true,
+    });
+    await isolated.init();
+    await isolated.getHttpAdapter().getInstance().ready();
+    try {
+      const user = await registerVerifiedUser(
+        isolated,
+        "memory-storage-cap",
+      );
+      const first = await isolated.inject({
+        method: "POST",
+        url: "/v1/memory",
+        headers: jsonHeaders(),
+        cookies: user.cookies,
+        payload: {
+          type: "USER_FACT",
+          slotKey: "cap-one",
+          content: "First retained fact",
+        },
+      });
+      expect(first.statusCode).toBe(201);
+
+      const second = await isolated.inject({
+        method: "POST",
+        url: "/v1/memory",
+        headers: jsonHeaders(),
+        cookies: user.cookies,
+        payload: {
+          type: "USER_GOAL",
+          slotKey: "cap-two",
+          content: "Second retained fact",
+        },
+      });
+      expect(second.statusCode).toBe(409);
+      expect(errorCode(second)).toBe("conflict");
+    } finally {
+      await isolated.close();
+    }
+  });
+
 });
 
 function jsonHeaders(): Record<string, string> {
