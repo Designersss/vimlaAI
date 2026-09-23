@@ -190,6 +190,25 @@ describe("loadApiConfig", () => {
         SEMANTIC_PLANNER_PROVIDER: "mock",
       }),
     ).toThrow(/SEMANTIC_PLANNER_PROVIDER/);
+
+    expect(() =>
+      loadApiConfig({
+        ...productionBase,
+        MEMORY_ENABLED: "true",
+      }),
+    ).toThrow(/MEMORY_ENABLED/);
+
+    const memoryReady = loadApiConfig({
+      ...productionBase,
+      MEMORY_ENABLED: "true",
+      SEMANTIC_PLANNER_BASE_URL:
+        "http://127.0.0.1:11434/v1",
+      SEMANTIC_PLANNER_MODEL: "qwen-memory",
+    });
+    expect(memoryReady.memoryEnabled).toBe(true);
+    expect(memoryReady.semanticPlannerProvider).toBe(
+      "internal-http",
+    );
   });
 
   it("requires a ProxyAPI key when AI is enabled in production", () => {
