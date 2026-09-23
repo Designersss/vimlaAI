@@ -12,6 +12,7 @@ import { isWorkspaceError, type WorkspaceErrorCode } from "@vimla/workspace";
 import { isOperatorError, type OperatorErrorCode } from "@vimla/operator";
 import { isProjectError, type ProjectErrorCode } from "@vimla/projects";
 import { isDirectChatError, type DirectChatErrorCode } from "@vimla/direct-chats";
+import { isMemoryError, type MemoryErrorCode } from "@vimla/context";
 import { isNotificationPlatformError, type NotificationPlatformError } from "@vimla/notifications";
 import {
   apiErrorResponseSchema,
@@ -83,6 +84,19 @@ export class ApiExceptionFilter implements ExceptionFilter {
         apiErrorResponseSchema.parse({
           error: {
             code: directChatCodeToApi(exception.code),
+            message: exception.message,
+            requestId,
+          },
+        }),
+      );
+      return;
+    }
+
+    if (isMemoryError(exception)) {
+      void response.status(exception.httpStatus).send(
+        apiErrorResponseSchema.parse({
+          error: {
+            code: memoryCodeToApi(exception.code),
             message: exception.message,
             requestId,
           },
@@ -259,6 +273,25 @@ function projectCodeToApi(code: ProjectErrorCode): ApiErrorCode {
       return "project_invite_email_mismatch";
     case "ROLE_FORBIDDEN":
       return "project_role_forbidden";
+    default:
+      return "internal_error";
+  }
+}
+
+function memoryCodeToApi(code: MemoryErrorCode): ApiErrorCode {
+  switch (code) {
+    case "NOT_FOUND":
+      return "not_found";
+    case "DISABLED":
+      return "memory_disabled";
+    case "FORBIDDEN":
+      return "forbidden";
+    case "CONFLICT":
+      return "conflict";
+    case "SENSITIVE_CONTENT":
+      return "memory_sensitive_content";
+    case "VALIDATION_ERROR":
+      return "validation_error";
     default:
       return "internal_error";
   }
