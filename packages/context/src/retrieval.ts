@@ -195,6 +195,7 @@ export class ContextRetrievalService {
   async retrieveForExecutionPlan(input: {
     actorUserId: string;
     planId: string;
+    currentProjectId?: string | null;
   }): Promise<ContextCandidateSet> {
     const plan = await this.db.executionPlan.findFirst({
       where: {
@@ -859,7 +860,7 @@ export class ContextRetrievalService {
       sourceMessageId: sourceMessage.id,
       sourceMessageCreatedAt:
         sourceMessage.createdAt.toISOString(),
-      currentProjectId: null,
+      currentProjectId: input.currentProjectId ?? null,
     };
     if (this.semanticSearch) {
       const semantic = await this.semanticSearch.retrieve(providerInput);
