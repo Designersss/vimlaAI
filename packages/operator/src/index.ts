@@ -1,6 +1,9 @@
 export { OperatorError, isOperatorError, type OperatorErrorCode } from "./errors.js";
 export { OPERATOR_RUNTIME_LIMITS, PLANNER_MARKER } from "./limits.js";
-export { parsePlannerOutput } from "./planner-parse.js";
+export {
+  parsePlannerOutput,
+  selectDirectChatPlannerOutput,
+} from "./planner-parse.js";
 export { buildPlannerPrompt } from "./planner-prompt.js";
 export { evaluatePlanPolicy, isRegisteredTool, parseToolArgs, toolRequiresConfirmation } from "./policy.js";
 export { executeStep, prepareSteps } from "./executor.js";
