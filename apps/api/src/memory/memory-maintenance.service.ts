@@ -168,37 +168,6 @@ export class MemoryMaintenanceService {
     return receipts.length;
   }
 
-  async observeAiRequestUserMessage(input: {
-    userId: string;
-    clientRequestId: string;
-    correlationId: string;
-  }): Promise<void> {
-    if (!this.config.memoryEnabled) return;
-    const request = await this.db.aiRequest.findUnique({
-      where: {
-        userId_clientRequestId: {
-          userId: input.userId,
-          clientRequestId: input.clientRequestId,
-        },
-      },
-      select: {
-        messages: {
-          where: { role: "USER" },
-          select: { id: true },
-          orderBy: { createdAt: "asc" },
-          take: 1,
-        },
-      },
-    });
-    const messageId = request?.messages[0]?.id;
-    if (!messageId) return;
-    await this.observeConversationMessage({
-      userId: input.userId,
-      messageId,
-      correlationId: input.correlationId,
-    });
-  }
-
   async observeConversationMessage(input: {
     userId: string;
     messageId: string;
