@@ -158,7 +158,10 @@ export class MemoryRetrievalProvider
           currentSurface:
             row.scopeKind === "CONVERSATION" &&
             row.conversationId === input.conversationId,
-          currentProject: false,
+          currentProject:
+            row.scopeKind === "PROJECT" &&
+            row.projectId !== null &&
+            row.projectId === input.currentProjectId,
           authority: "DERIVED",
           occurredAt: row.validFrom.toISOString(),
           estimatedTokens: estimateTokens(row.content),
