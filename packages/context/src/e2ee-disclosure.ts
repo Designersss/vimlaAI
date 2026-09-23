@@ -68,7 +68,7 @@ export async function loadDirectOperatorContextSnapshot(
       operatorRunId,
       operatorRun: { userId: actorUserId },
     },
-    include: { items: true },
+    include: { items: { orderBy: { sequence: "asc" } } },
   });
   if (!snapshot) return null;
 
