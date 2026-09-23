@@ -620,42 +620,60 @@ export class TextChatService {
     | { kind: "replay"; aiRequestId: string; messageId: string; text: string }
   > {
     try {
-      const created = await this.prisma.aiRequest.create({
-        data: {
-          userId: input.userId,
-          conversationId: input.conversationId,
-          modelId: input.model.id,
-          priceVersionId: input.model.priceVersionId,
-          clientRequestId: input.body.clientRequestId,
-          provider: input.model.provider,
-          providerModelId: input.model.providerModelId,
-          status: "CREATED",
-          financialStatus: "NONE",
-          estimatedInputTokens: 0,
-          maxOutputTokens: 1,
-          estimatedCostMicroRub: 0n,
+      const created = await this.prisma.$transaction(
+        async (tx) => {
+          const request = await tx.aiRequest.create({
+            data: {
+              userId: input.userId,
+              conversationId: input.conversationId,
+              modelId: input.model.id,
+              priceVersionId: input.model.priceVersionId,
+              clientRequestId: input.body.clientRequestId,
+              provider: input.model.provider,
+              providerModelId: input.model.providerModelId,
+              status: "CREATED",
+              financialStatus: "NONE",
+              estimatedInputTokens: 0,
+              maxOutputTokens: 1,
+              estimatedCostMicroRub: 0n,
+            },
+          });
+
+          if (input.persistUserMessage !== false) {
+            const message = await tx.message.create({
+              data: {
+                conversationId: input.conversationId,
+                role: "USER",
+                content: input.body.content,
+                status: "COMPLETE",
+                aiRequestId: request.id,
+              },
+            });
+
+            if (this.config.memoryEnabled) {
+              await tx.memoryExtractionReceipt.create({
+                data: {
+                  ownerUserId: input.userId,
+                  sourceType: "MESSAGE",
+                  sourceId: message.id,
+                  sourceVersion: message.updatedAt.toISOString(),
+                  status: "QUEUED",
+                },
+              });
+            }
+
+            await tx.conversation.update({
+              where: { id: input.conversationId },
+              data: {
+                updatedAt: new Date(),
+                title: titleFrom(input.body.content),
+              },
+            });
+          }
+
+          return request;
         },
-      });
-
-      if (input.persistUserMessage !== false) {
-        await this.prisma.message.create({
-          data: {
-            conversationId: input.conversationId,
-            role: "USER",
-            content: input.body.content,
-            status: "COMPLETE",
-            aiRequestId: created.id,
-          },
-        });
-
-        await this.prisma.conversation.update({
-          where: { id: input.conversationId },
-          data: {
-            updatedAt: new Date(),
-            title: titleFrom(input.body.content),
-          },
-        });
-      }
+      );
 
       return { kind: "new", aiRequestId: created.id };
     } catch (error: unknown) {
