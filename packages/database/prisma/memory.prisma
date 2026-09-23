@@ -7,9 +7,9 @@ model MemoryItem {
   scopeKind         String
   scopeKey          String
   projectId         String?
-  project           Project? @relation("ProjectMemory", fields: [projectId], references: [id], onDelete: Cascade)
+  project           Project? @relation("ProjectMemory", fields: [projectId], references: [id], onDelete: SetNull)
   conversationId    String?
-  conversation      Conversation? @relation("ConversationMemory", fields: [conversationId], references: [id], onDelete: Cascade)
+  conversation      Conversation? @relation("ConversationMemory", fields: [conversationId], references: [id], onDelete: SetNull)
   threadId          String?
   type              String
   slotKey           String
@@ -69,9 +69,9 @@ model CompactedContextState {
   scopeKind          String
   scopeKey           String
   projectId          String?
-  project            Project? @relation("ProjectCompactedState", fields: [projectId], references: [id], onDelete: Cascade)
+  project            Project? @relation("ProjectCompactedState", fields: [projectId], references: [id], onDelete: SetNull)
   conversationId     String?
-  conversation       Conversation? @relation("ConversationCompactedState", fields: [conversationId], references: [id], onDelete: Cascade)
+  conversation       Conversation? @relation("ConversationCompactedState", fields: [conversationId], references: [id], onDelete: SetNull)
   threadId           String?
   version            Int
   classification     String
