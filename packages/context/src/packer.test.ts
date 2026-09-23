@@ -66,17 +66,18 @@ describe("ContextPacker", () => {
           authority: "RAW",
           estimatedTokens: 40,
         }),
-        item("raw-1", "MESSAGE", "large recent history one", {
-          sourceKind: "L1_RAW",
+        item("conversation", "CONVERSATION", "long conversation", {
+          sourceKind: "IMMEDIATE",
           currentSurface: true,
-          authority: "RAW",
-          estimatedTokens: 500,
+          authority: "AUTHORITATIVE",
+          estimatedTokens: 30,
+          rawHistoryTokens: 950,
         }),
-        item("raw-2", "MESSAGE", "large recent history two", {
+        item("raw-1", "MESSAGE", "small selected raw tail", {
           sourceKind: "L1_RAW",
           currentSurface: true,
           authority: "RAW",
-          estimatedTokens: 450,
+          estimatedTokens: 200,
         }),
         item("l2", "COMPACTED_STATE", "compacted older state", {
           sourceKind: "L2_COMPACTED",
@@ -275,6 +276,7 @@ function item(
     sourceKind: string;
     authority: "AUTHORITATIVE" | "RAW" | "DERIVED";
     estimatedTokens: number;
+    rawHistoryTokens?: number;
     lexicalScore?: number;
     currentSurface?: boolean;
     currentProject?: boolean;
@@ -297,6 +299,9 @@ function item(
         sourceKind: retrieval.sourceKind,
         authority: retrieval.authority,
         estimatedTokens: retrieval.estimatedTokens,
+        ...(retrieval.rawHistoryTokens !== undefined
+          ? { rawHistoryTokens: retrieval.rawHistoryTokens }
+          : {}),
         lexicalScore: retrieval.lexicalScore ?? 0,
         currentSurface: retrieval.currentSurface ?? false,
         currentProject: retrieval.currentProject ?? false,
