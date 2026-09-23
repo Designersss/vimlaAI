@@ -378,6 +378,73 @@ describe("memory maintenance runtime", () => {
     });
   });
 
+  it("redacts secret-like raw history before sending L2 compaction prompts", async () => {
+    const userId = await createUser("runtime-compaction-redaction");
+    const conversationId = await createConversation(userId);
+    const secret = "sk-abcdefghijklmnopqrstuvwxyz123456";
+    const history = [];
+    for (let index = 0; index < 12; index += 1) {
+      history.push(
+        await createMessage({
+          conversationId,
+          role: index % 2 === 0 ? "USER" : "ASSISTANT",
+          content:
+            index === 1
+              ? `api_key = ${secret} ` + "s".repeat(900)
+              : `safe-${index} ` + "x".repeat(900),
+        }),
+      );
+    }
+    const source = history[10];
+    if (!source) {
+      throw new Error("expected compaction trigger source");
+    }
+
+    let compactionPrompt = "";
+    const model: SemanticPlannerModel = {
+      complete: ({ prompt }) => {
+        if (prompt.startsWith("You extract durable personal memory")) {
+          return Promise.resolve(
+            JSON.stringify({ candidates: [] }),
+          );
+        }
+        compactionPrompt = prompt;
+        return Promise.resolve(
+          JSON.stringify({
+            summary: "Safe compacted state",
+          }),
+        );
+      },
+    };
+    const prisma = prismaService();
+    const maintenance = new MemoryMaintenanceService(
+      prisma,
+      new MemoryFacade(prisma, config),
+      config,
+      model,
+    );
+
+    await maintenance.observeConversationMessage({
+      userId,
+      messageId: source.id,
+      correlationId: "runtime-compaction-redaction",
+    });
+
+    expect(compactionPrompt).toContain(
+      "[SENSITIVE_DATA_REDACTED]",
+    );
+    expect(compactionPrompt).not.toContain(secret);
+    expect(
+      await db.compactedContextState.count({
+        where: {
+          ownerUserId: userId,
+          conversationId,
+          invalidatedAt: null,
+        },
+      }),
+    ).toBe(1);
+  });
+
   it("builds incremental L2 state from previous summary plus older raw segments while retaining raw history", async () => {
     const userId = await createUser("runtime-compaction");
     const conversationId =
