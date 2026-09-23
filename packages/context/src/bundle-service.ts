@@ -213,6 +213,7 @@ export class ContextBundleService {
           (await this.everyAudienceMemberCanReadSource(
             audience,
             item,
+            input.actorUserId,
           ));
         const decision = evaluateContextPolicy({
           actorUserId: input.actorUserId,
@@ -439,8 +440,10 @@ export class ContextBundleService {
   private async everyAudienceMemberCanReadSource(
     audience: ContextAudienceDescriptor,
     item: ContextSnapshotItemView,
+    alreadyCheckedActorUserId: string,
   ): Promise<boolean> {
     for (const userId of audience.participantUserIds) {
+      if (userId === alreadyCheckedActorUserId) continue;
       if (!(await this.canReadSource(userId, item))) {
         return false;
       }
