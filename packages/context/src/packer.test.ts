@@ -247,12 +247,11 @@ describe("ContextPacker", () => {
       targetKind: "VIMLA",
       budget: SMALL_BUDGET,
       items: [
-        item("global-memory", "MEMORY", "old project status", {
+        item("global-memory", "MEMORY", "remembered project status", {
           sourceKind: "PERSONAL_MEMORY",
           authority: "DERIVED",
           estimatedTokens: 80,
           lexicalScore: 0.95,
-          stale: true,
         }),
         item("current-project", "PROJECT", "current project status", {
           sourceKind: "PROJECT_OBJECT",
@@ -272,6 +271,7 @@ describe("ContextPacker", () => {
     });
 
     expect(result.selections[0]?.item.id).toBe("current-project");
+    expect(result.selections.map(({ item: selected }) => selected.id)).toContain("global-memory");
     expect(result.selections.map(({ item: selected }) => selected.id)).not.toContain("superseded");
     expect(result.exclusions).toEqual(
       expect.arrayContaining([
