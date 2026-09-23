@@ -438,6 +438,13 @@ function containsSensitiveData(item: ContextSnapshotItemView): boolean {
     /\b["']?(?:password|passwd|пароль)["']?\s*[:=]\s*["']?\S{4,}/i,
     /\b["']?(?:api[_ -]?key|secret|client[_ -]?secret)["']?\s*[:=]\s*["']?\S{6,}/i,
     /\b["']?(?:otp|one[- ]time code|одноразов(?:ый|ого) код)["']?\s*[:=]\s*["']?\d{4,10}\b/i,
+    /\b(?:authorization\s*:\s*)?bearer\s+[A-Za-z0-9._~+\/-]{12,}/i,
+    /\b["']?(?:access[_ -]?token|refresh[_ -]?token|auth[_ -]?token)["']?\s*[:=]\s*["']?[A-Za-z0-9._~+\/-]{8,}/i,
+    /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/,
+    /\bgh[pousr]_[A-Za-z0-9]{20,}\b/,
+    /\bsk-[A-Za-z0-9_-]{20,}\b/,
+    /\b["']?(?:card[_ -]?(?:number|no)|номер\s+карты|pan)["']?\s*[:=]\s*["']?(?:\d[ -]?){13,19}\b/i,
+    /\b["']?(?:cvv|cvc|security[_ -]?code|код\s+безопасности)["']?\s*[:=]\s*["']?\d{3,4}\b/i,
   ].some((pattern) => pattern.test(text));
 }
 
