@@ -77,7 +77,7 @@ A candidate is skipped when it is:
 - secret-like (password, private key, API key, OTP, bearer/access token, payment-card/CVV material, and related patterns);
 - sourced from Direct Chat / E2EE context.
 
-The extraction prompt explicitly classifies health/medical, religion, political affiliation, union membership, sexual/intimate, criminal/legal, biometric, precise-location, and financial-account facts as `SENSITIVE`; automatic retention rejects them. Sensitive/secret checks are also enforced after model output, so prompt compliance is not the only boundary.
+The extraction contract requires the included/internal model to classify health/medical, religion, political affiliation, union membership, sexual/intimate, criminal/legal, biometric, precise-location, and financial-account facts as `SENSITIVE`; automatic retention rejects any candidate carrying that classification. Independently, deterministic secret-pattern checks reject credentials, private keys, OTPs, bearer/access tokens, and payment-card/CVV material after model output.
 
 Automatic candidates require source provenance. Same-content automatic facts retain at most 32 independent supporting MESSAGE refs; one stale source does not invalidate a fact while another supporting source is still current. Updating/deleting/revoking all supporting sources makes the Memory item ineligible and lazily invalidates it before retrieval.
 
