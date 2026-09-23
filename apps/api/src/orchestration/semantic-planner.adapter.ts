@@ -28,8 +28,25 @@ export function createSemanticPlannerModel(
 
   if (config.appEnv === "local" || config.appEnv === "test") {
     return {
-      complete: ({ prompt }) =>
-        Promise.resolve(mockSemanticWorkflowPlannerResponse(prompt)),
+      complete: ({ prompt }) => {
+        if (prompt.startsWith("You extract durable personal memory")) {
+          return Promise.resolve(JSON.stringify({ candidates: [] }));
+        }
+        if (
+          prompt.startsWith(
+            "Create the next loss-minimizing compacted conversation state",
+          )
+        ) {
+          return Promise.resolve(
+            JSON.stringify({
+              summary: "Local/test compacted conversation state",
+            }),
+          );
+        }
+        return Promise.resolve(
+          mockSemanticWorkflowPlannerResponse(prompt),
+        );
+      },
     };
   }
 
