@@ -374,7 +374,7 @@ export class DirectChatService {
         row.kind !== "HUMAN" ||
         row.senderUserId !== message.senderUserId ||
         row.createdAt.toISOString() !== message.sentAt ||
-        row.createdAt > source.createdAt
+        row.createdAt >= source.createdAt
       ) {
         throw new DirectChatError(
           "VALIDATION_ERROR",
