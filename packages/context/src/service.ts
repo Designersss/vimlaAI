@@ -6,7 +6,7 @@ import {
   ContextNotFoundError,
   ContextValidationError,
 } from "./errors.js";
-import { fingerprintContextItem, fingerprintContextSnapshot } from "./fingerprint.js";
+import { fingerprintContextItem, fingerprintContextSnapshot } from "./fingerprint.js";\nimport { ContextRetrievalService } from "./retrieval.js";
 import type {
   ContextAccessCheck,
   ContextAccessVerifier,
@@ -28,10 +28,16 @@ type SnapshotRow = Prisma.ContextSnapshotGetPayload<{
 }>;
 
 export class ContextSnapshotService {
+  private readonly retrieval: ContextRetrievalService;
+
   constructor(
     private readonly db: PrismaClient,
     private readonly accessVerifier?: ContextAccessVerifier,
-  ) {}
+    retrievalService?: ContextRetrievalService,
+  ) {
+    this.retrieval =
+      retrievalService ?? new ContextRetrievalService(db);
+  }
 
   async createForExecutionPlan(input: CreateExecutionPlanSnapshotInput): Promise<ContextSnapshotView> {
     const existing = await this.findOwnedSnapshot(input.actorUserId, input.planId);
@@ -164,172 +170,14 @@ export class ContextSnapshotService {
     actorUserId: string,
     planId: string,
   ): Promise<ContextSnapshotItemInput[]> {
-    const plan = await this.db.executionPlan.findFirst({
-      where: { id: planId, userId: actorUserId },
-      select: {
-        status: true,
-        message: {
-          select: {
-            id: true,
-            role: true,
-            content: true,
-            status: true,
-            createdAt: true,
-            updatedAt: true,
-            conversation: {
-              select: {
-                id: true,
-                title: true,
-                kind: true,
-                createdAt: true,
-                updatedAt: true,
-              },
-            },
-          },
-        },
-        user: {
-          select: {
-            id: true,
-            name: true,
-            updatedAt: true,
-            preference: {
-              select: { locale: true, timezone: true, updatedAt: true },
-            },
-          },
-        },
-      },
-    });
-    if (!plan) {
-      throw new ContextNotFoundError("Execution plan not found");
-    }
-    if (plan.status !== "PLANNING" && plan.status !== "PLANNED") {
-      throw new ContextConflictError("Context snapshot must be frozen before execution starts");
-    }
-
-    const sourceMessage = plan.message;
-    const recentMessages = await this.db.message.findMany({
-      where: {
-        conversationId: sourceMessage.conversation.id,
-        id: { not: sourceMessage.id },
-        status: "COMPLETE",
-        createdAt: { lte: sourceMessage.createdAt },
-      },
-      select: {
-        id: true,
-        role: true,
-        content: true,
-        status: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-      take: RECENT_MESSAGE_LIMIT,
-    });
-
-    const workspaceObjects = await this.db.workspaceObject.findMany({
-      where: {
-        sourceMessageId: sourceMessage.id,
-        personalOwnerUserId: actorUserId,
-      },
-      select: {
-        id: true,
-        kind: true,
-        scopeType: true,
-        archivedAt: true,
-        deletedAt: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-      orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-    });
-
-    const items: ContextSnapshotItemInput[] = [
-      {
-        sourceType: "USER_MESSAGE",
-        sourceId: sourceMessage.id,
-        sourceVersion: sourceMessage.updatedAt.toISOString(),
-        classification: "PRIVATE",
-        contentRef: `vimla://messages/${sourceMessage.id}`,
-        metadata: {
-          role: sourceMessage.role,
-          content: sourceMessage.content,
-          status: sourceMessage.status,
-          createdAt: sourceMessage.createdAt.toISOString(),
-        },
-      },
-      {
-        sourceType: "CONVERSATION",
-        sourceId: sourceMessage.conversation.id,
-        sourceVersion: sourceMessage.conversation.updatedAt.toISOString(),
-        classification: "PRIVATE",
-        contentRef: `vimla://conversations/${sourceMessage.conversation.id}`,
-        metadata: {
-          title: sourceMessage.conversation.title,
-          kind: sourceMessage.conversation.kind,
-          createdAt: sourceMessage.conversation.createdAt.toISOString(),
-        },
-      },
-      ...recentMessages.reverse().map(
-        (message): ContextSnapshotItemInput => ({
-          sourceType: "MESSAGE",
-          sourceId: message.id,
-          sourceVersion: message.updatedAt.toISOString(),
-          classification: "PRIVATE",
-          contentRef: `vimla://messages/${message.id}`,
-          metadata: {
-            role: message.role,
-            content: message.content,
-            status: message.status,
-            createdAt: message.createdAt.toISOString(),
-          },
-        }),
-      ),
-      {
-        sourceType: "PARTICIPANT",
-        sourceId: plan.user.id,
-        sourceVersion: plan.user.updatedAt.toISOString(),
-        classification: "PRIVATE",
-        contentRef: `vimla://users/${plan.user.id}`,
-        metadata: { name: plan.user.name },
-      },
-      {
-        sourceType: "LOCALE_TIMEZONE",
-        sourceId: plan.user.id,
-        sourceVersion: (plan.user.preference?.updatedAt ?? plan.user.updatedAt).toISOString(),
-        classification: "PRIVATE",
-        metadata: {
-          locale: plan.user.preference?.locale ?? null,
-          timezone: plan.user.preference?.timezone ?? null,
-        },
-      },
-      {
-        sourceType: "AUDIENCE",
-        sourceId: sourceMessage.conversation.id,
-        sourceVersion: sourceMessage.conversation.updatedAt.toISOString(),
-        classification: "PRIVATE",
-        metadata: {
-          kind: "PERSONAL",
-          participantUserIds: [actorUserId],
-        },
-      },
-      ...workspaceObjects.map(
-        (object): ContextSnapshotItemInput => ({
-          sourceType: "WORKSPACE_OBJECT",
-          sourceId: object.id,
-          sourceVersion: object.updatedAt.toISOString(),
-          classification: "PRIVATE",
-          contentRef: `vimla://workspace/${object.id}`,
-          metadata: {
-            kind: object.kind,
-            scopeType: object.scopeType,
-            archivedAt: object.archivedAt?.toISOString() ?? null,
-            deletedAt: object.deletedAt?.toISOString() ?? null,
-            createdAt: object.createdAt.toISOString(),
-          },
-        }),
-      ),
-    ];
-
+    const candidateSet =
+      await this.retrieval.retrieveForExecutionPlan({
+        actorUserId,
+        planId,
+      });
+    const items = candidateSet.candidates.map(
+      (candidate) => candidate.item,
+    );
     validateItems(items);
     return items;
   }
@@ -386,7 +234,36 @@ export class ContextSnapshotService {
             select: { id: true },
           }),
         );
+      case "ARTIFACT":
+        return Boolean(
+          await this.db.artifact.findFirst({
+            where: {
+              id: check.sourceId,
+              OR: [
+                {
+                  creatorInvocation: {
+                    plan: { userId: check.actorUserId },
+                  },
+                },
+                {
+                  accessGrants: {
+                    some: {
+                      granteeUserId: check.actorUserId,
+                      permission: "READ",
+                      revokedAt: null,
+                    },
+                  },
+                },
+              ],
+            },
+            select: { id: true },
+          }),
+        );
       case "ATTACHMENT":
+      case "FILE_METADATA":
+      case "COMPACTED_STATE":
+      case "MEMORY":
+      case "ENTITY":
         return false;
     }
   }
@@ -454,6 +331,11 @@ function parseSourceType(value: string): ContextSourceType {
     case "PROJECT":
     case "WORKSPACE_OBJECT":
     case "ATTACHMENT":
+    case "FILE_METADATA":
+    case "ARTIFACT":
+    case "COMPACTED_STATE":
+    case "MEMORY":
+    case "ENTITY":
     case "LOCALE_TIMEZONE":
     case "AUDIENCE":
       return value;
