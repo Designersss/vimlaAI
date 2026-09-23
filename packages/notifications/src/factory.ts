@@ -79,5 +79,7 @@ function createSmtpTransport(config: SmtpEmailConfig) {
     },
     connectionTimeout: 10_000,
     socketTimeout: 10_000,
+    disableFileAccess: true,
+    disableUrlAccess: true,
   });
 }

@@ -35,7 +35,10 @@
       "msgpackr-extract",
       "prisma",
       "unrs-resolver"
-    ]
+    ],
+    "overrides": {
+      "fastify@<5.12.1": "5.12.1"
+    }
   },
   "devDependencies": {
     "@eslint/js": "^9.35.0",

@@ -421,6 +421,60 @@ describe("semantic retrieval on real PostgreSQL/pgvector", () => {
     });
   });
 
+  it("uses database time for concurrency admission when a worker clock runs ahead", async () => {
+    const owner = await user();
+    const first = await message(owner, "first leased source");
+    const second = await message(owner, "second leased source");
+    const pending = await message(owner, "pending source");
+    await index("MESSAGE", first.id);
+    await index("MESSAGE", second.id);
+    const keys = ["MESSAGE:" + first.id, "MESSAGE:" + second.id];
+    await db.$executeRaw(Prisma.sql`UPDATE semantic_source SET status='RUNNING',
+      "leaseToken"='active-worker',"leaseUntil"=CURRENT_TIMESTAMP+interval '60 seconds'
+      WHERE id IN (${Prisma.join(keys)})`);
+    calls.length = 0;
+    const now = Date.now();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(now + 120000);
+    try {
+      expect(await indexer.runBatch(1, "MESSAGE:" + pending.id)).toBe(0);
+      expect(calls).toHaveLength(0);
+    } finally {
+      vi.useRealTimers();
+      await db.semanticSource.updateMany({
+        where: { id: { in: keys } },
+        data: { leaseUntil: new Date(0) },
+      });
+    }
+  });
+
+  it("does not commit an expired lease when a worker clock runs behind", async () => {
+    const owner = await user();
+    const msg = await message(owner, "expired inference result");
+    const key = "MESSAGE:" + msg.id;
+    const delayed: EmbeddingProvider = {
+      ...provider,
+      embed: async ({ texts }) => {
+        await db.$executeRaw`UPDATE semantic_source SET "leaseUntil"=CURRENT_TIMESTAMP-interval '1 second' WHERE id=${key}`;
+        return texts.map(() => [1, 0, 0]);
+      },
+    };
+    const now = Date.now();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(now - 120000);
+    try {
+      await new SemanticIndexer(db, delayed).runBatch(1, key);
+      expect(await countChunks(key)).toBe(0);
+      expect(
+        (await db.semanticSource.findUnique({ where: { id: key } }))?.status,
+      ).toBe("RUNNING");
+    } finally {
+      vi.useRealTimers();
+    }
+    await index("MESSAGE", msg.id);
+    expect(await countChunks(key)).toBe(1);
+  });
+
   it("keeps semantically rediscovered recent messages in the L1 raw tail", async () => {
     const owner = await user();
     const p = await plan(owner);

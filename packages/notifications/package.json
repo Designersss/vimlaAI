@@ -21,7 +21,7 @@
     "@vimla/contracts": "workspace:*",
     "@vimla/database": "workspace:*",
     "@vimla/shared": "workspace:*",
-    "nodemailer": "^6.9.16"
+    "nodemailer": "^9.1.1"
   },
   "devDependencies": {
     "@types/node": "^24.3.1",

@@ -96,10 +96,10 @@ export class SemanticIndexer {
   private async claim(sourceKey?: string): Promise<SemanticSource | null> {
     return this.db.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(152315, 1)`;
-      const active = await tx.semanticSource.count({
-        where: { status: "RUNNING", leaseUntil: { gt: new Date() } },
-      });
-      if (active >= 2) return null;
+      const active = await tx.$queryRaw<{ count: number }[]>`
+        SELECT count(*)::integer AS count FROM semantic_source
+        WHERE status='RUNNING' AND "leaseUntil">CURRENT_TIMESTAMP`;
+      if ((active[0]?.count ?? 2) >= 2) return null;
       const rows = await tx.$queryRaw<SemanticSource[]>(Prisma.sql`
         UPDATE semantic_source SET status='RUNNING', "leaseToken"=${randomUUID()},
           "leaseUntil"=CURRENT_TIMESTAMP+interval '90 seconds', attempts=attempts+1
@@ -174,17 +174,13 @@ export class SemanticIndexer {
         return;
       }
       await this.db.$transaction(async (tx) => {
-        const acquired = await tx.semanticSource.updateMany({
-          where: { ...this.owned(job), leaseUntil: { gt: new Date() } },
-          data: {
-            status: "READY",
-            fingerprint: doc.fingerprint,
-            leaseToken: null,
-            leaseUntil: null,
-            errorCode: null,
-          },
-        });
-        if (!acquired.count) return;
+        // Leases are issued by PostgreSQL; process clock skew must never extend them.
+        const acquired = await tx.$executeRaw(Prisma.sql`
+          UPDATE semantic_source SET status='READY',fingerprint=${doc.fingerprint},
+            "leaseToken"=NULL,"leaseUntil"=NULL,"errorCode"=NULL
+          WHERE id=${job.id} AND revision=${job.revision} AND generation=${this.generation}
+            AND status='RUNNING' AND "leaseToken"=${job.leaseToken} AND "leaseUntil">CURRENT_TIMESTAMP`);
+        if (!acquired) return;
         await tx.semanticChunk.deleteMany({ where: { sourceKey: job.id } });
         for (const [ordinal, text] of chunks.entries()) {
           await tx.$executeRaw(Prisma.sql`INSERT INTO semantic_chunk (id,"sourceKey",ordinal,fingerprint,embedding)
