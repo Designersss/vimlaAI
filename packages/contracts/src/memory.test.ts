@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   correctPersonalMemorySchema,
   createPersonalMemorySchema,
+  createProjectMemorySchema,
   listMemoriesQuerySchema,
+  memoryExtractionModelOutputSchema,
   promoteE2eeMemorySchema,
 } from "./memory.js";
 
@@ -57,6 +59,53 @@ describe("memory contracts", () => {
       correctPersonalMemorySchema.safeParse({
         content: "corrected",
         scopeKind: "PROJECT",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("requires explicit sensitivity for automatic extraction candidates", () => {
+    expect(
+      memoryExtractionModelOutputSchema.safeParse({
+        candidates: [
+          {
+            type: "USER_PREFERENCE",
+            slotKey: "answer style",
+            content: "Prefers concise answers",
+            confidence: 0.9,
+            sensitivity: "NORMAL",
+            transient: false,
+          },
+        ],
+      }).success,
+    ).toBe(true);
+    expect(
+      memoryExtractionModelOutputSchema.safeParse({
+        candidates: [
+          {
+            type: "USER_PREFERENCE",
+            slotKey: "answer style",
+            content: "Prefers concise answers",
+            confidence: 0.9,
+            transient: false,
+          },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("accepts only project-scoped memory types for explicit project writes", () => {
+    expect(
+      createProjectMemorySchema.safeParse({
+        type: "PROJECT_DECISION",
+        slotKey: "launch",
+        content: "Launch in October",
+      }).success,
+    ).toBe(true);
+    expect(
+      createProjectMemorySchema.safeParse({
+        type: "USER_PREFERENCE",
+        slotKey: "theme",
+        content: "Dark",
       }).success,
     ).toBe(false);
   });
