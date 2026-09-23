@@ -573,6 +573,7 @@ function contextBundleWithMessage(
       ],
       allowedArtifacts: [],
       denials: [],
+      packingExclusions: [],
       artifactDenials: [],
     },
     items: [
