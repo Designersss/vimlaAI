@@ -1047,8 +1047,18 @@ async function sourceRefCurrent(
       );
     }
     case "PROJECT": {
-      const row = await db.project.findUnique({
-        where: { id: ref.sourceId },
+      const row = await db.project.findFirst({
+        where: {
+          id: ref.sourceId,
+          OR: [
+            { ownerUserId: memoryOwnerUserId },
+            {
+              members: {
+                some: { userId: memoryOwnerUserId },
+              },
+            },
+          ],
+        },
         select: { updatedAt: true },
       });
       return Boolean(
@@ -1156,14 +1166,25 @@ function validateCandidate(
       "Sensitive memory must be RESTRICTED",
     );
   }
-  if (
-    input.origin === "AUTO_EXTRACTION" &&
-    input.sourceRefs.length === 0
-  ) {
-    throw new MemoryError(
-      "VALIDATION_ERROR",
-      "Automatic memory requires source provenance",
-    );
+  if (input.origin === "AUTO_EXTRACTION") {
+    if (input.sourceRefs.length === 0) {
+      throw new MemoryError(
+        "VALIDATION_ERROR",
+        "Automatic memory requires source provenance",
+      );
+    }
+    if (
+      input.sourceRefs.some(
+        (ref) =>
+          ref.sourceScopeKind === "DIRECT_CHAT" ||
+          ref.sourceType === "E2EE_USER_DISCLOSURE",
+      )
+    ) {
+      throw new MemoryError(
+        "FORBIDDEN",
+        "Direct Chat context cannot be automatically promoted to Memory",
+      );
+    }
   }
 }
 
