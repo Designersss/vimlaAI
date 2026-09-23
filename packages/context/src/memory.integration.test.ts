@@ -1416,6 +1416,50 @@ describe("durable memory context graph", () => {
     ).rejects.toMatchObject({ code: "CONFLICT" });
   });
 
+  it("skips automatic extraction at the Personal Memory cap instead of retrying it as an outage", async () => {
+    const owner = await user("automatic-cap-owner");
+    const source = await message(
+      owner,
+      "A second durable fact after the storage cap.",
+    );
+    const memory = new MemoryService(
+      db,
+      undefined,
+      1,
+    );
+    await memory.rememberPersonal({
+      actorUserId: owner,
+      type: "USER_FACT",
+      slotKey: "first",
+      content: "First stored fact",
+    });
+    const extraction = new MemoryExtractionPipeline(memory);
+    await expect(
+      extraction.process({
+        actorUserId: owner,
+        scope: { kind: "PERSONAL" },
+        type: "USER_FACT",
+        slotKey: "second",
+        content: "Second automatic fact",
+        confidence: 0.95,
+        sensitivity: "NORMAL",
+        sourceRefs: [
+          {
+            provenance: "AUTO_EXTRACTION",
+            sourceType: "MESSAGE",
+            sourceId: source.row.id,
+            sourceVersion: source.row.updatedAt.toISOString(),
+            sourceScopeKind: "CONVERSATION",
+            sourceScopeId: source.conversation.id,
+          },
+        ],
+      }),
+    ).resolves.toEqual({
+      kind: "SKIPPED",
+      reason: "STORAGE_LIMIT",
+    });
+  });
+
   it("fails closed for THREAD memory and rejects forged compaction message scopes", async () => {
     const owner = await user("thread-owner");
     const memory = new MemoryService(db);
