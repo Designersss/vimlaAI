@@ -219,6 +219,29 @@ describe("ContextPacker", () => {
     );
   });
 
+  it("filters retrieved secrets for Vimla model context as well", () => {
+    const result = packContextItems({
+      targetKind: "VIMLA",
+      budget: SMALL_BUDGET,
+      items: [
+        item("retrieved-secret", "MESSAGE", "api_key: super-secret-history-value", {
+          sourceKind: "CROSS_CONVERSATION",
+          authority: "RAW",
+          estimatedTokens: 40,
+          lexicalScore: 0.9,
+        }),
+      ],
+    });
+
+    expect(result.selections).toEqual([]);
+    expect(result.exclusions).toEqual([
+      expect.objectContaining({
+        item: expect.objectContaining({ id: "retrieved-secret" }),
+        reason: "SENSITIVE_DATA_FILTERED",
+      }),
+    ]);
+  });
+
   it("drops superseded derived memory and boosts current-project authoritative facts", () => {
     const result = packContextItems({
       targetKind: "VIMLA",
