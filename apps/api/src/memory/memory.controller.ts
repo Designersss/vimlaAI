@@ -15,6 +15,7 @@ import type { AuthenticatedUser } from "@vimla/auth";
 import {
   correctPersonalMemorySchema,
   createPersonalMemorySchema,
+  createProjectMemorySchema,
   listMemoriesQuerySchema,
   memoriesResponseSchema,
   memoryViewSchema,
@@ -75,6 +76,33 @@ export class MemoryController {
     });
     this.memory.logMutation(
       "memory.create",
+      user.id,
+      created.id,
+    );
+    return memoryViewSchema.parse(created);
+  }
+
+  @Post("projects/:projectId")
+  @HttpCode(201)
+  async createProject(
+    @AuthUser() user: AuthenticatedUser,
+    @Param("projectId") projectId: string,
+    @Body() body: unknown,
+  ): Promise<MemoryView> {
+    this.memory.assertEnabled();
+    const input = createProjectMemorySchema.parse(body);
+    const created = await this.memory.memory.rememberProject({
+      actorUserId: user.id,
+      projectId,
+      type: input.type,
+      slotKey: input.slotKey,
+      content: input.content,
+      expiresAt: input.expiresAt
+        ? new Date(input.expiresAt)
+        : null,
+    });
+    this.memory.logMutation(
+      "memory.project_create",
       user.id,
       created.id,
     );
