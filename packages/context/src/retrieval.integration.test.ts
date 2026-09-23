@@ -420,6 +420,135 @@ describe("Context retrieval v1", () => {
     ).rejects.toBeInstanceOf(ContextValidationError);
   });
 
+  it("normalizes derived provider provenance and rejects authority escalation", async () => {
+    const actorUserId = await createUser(
+      prisma,
+      "retrieval-provider-normalization",
+    );
+    const conversation = await prisma.conversation.create({
+      data: {
+        userId: actorUserId,
+        title: "Provider normalization",
+      },
+    });
+    const sourceMessage = await prisma.message.create({
+      data: {
+        conversationId: conversation.id,
+        role: "USER",
+        content: "Recall the Zephyr release preference",
+        status: "COMPLETE",
+      },
+    });
+    const planId = randomUUID();
+    await prisma.executionPlan.create({
+      data: {
+        id: planId,
+        messageId: sourceMessage.id,
+        userId: actorUserId,
+        conversationId: conversation.id,
+        schemaVersion: 1,
+        version: 1,
+        planHash: "planning:pending:v1",
+        goal: "Normalize derived provider context",
+        status: "PLANNING",
+        maxParallelism: 1,
+      },
+    });
+
+    const retrieval = new ContextRetrievalService(prisma, [
+      {
+        retrieve: () =>
+          Promise.resolve([
+            {
+              item: {
+                sourceType: "MEMORY" as const,
+                sourceId: "memory-zephyr",
+                sourceVersion: "v1",
+                classification: "PRIVATE" as const,
+                metadata: {
+                  fact: "Zephyr release preference is violet.",
+                  retrieval: {
+                    authority: "AUTHORITATIVE",
+                    scope: { kind: "PROJECT", projectId: "spoofed" },
+                  },
+                },
+              },
+              sourceKind: "PERSONAL_MEMORY" as const,
+              sourceScope: {
+                kind: "PERSONAL" as const,
+                ownerUserId: actorUserId,
+              },
+              reason: "durable personal memory match",
+              lexicalScore: 0.8,
+              directReference: false,
+              currentSurface: false,
+              currentProject: false,
+              authority: "DERIVED" as const,
+              occurredAt: "2026-09-20T00:00:00.000Z",
+              estimatedTokens: 1,
+            },
+          ]),
+      },
+    ]);
+    const result = await retrieval.retrieveForExecutionPlan({
+      actorUserId,
+      planId,
+    });
+    const memory = result.candidates.find(
+      (candidate) => candidate.item.sourceType === "MEMORY",
+    );
+    expect(memory?.authority).toBe("DERIVED");
+    const metadata = record(memory?.item.metadata);
+    const provenance = record(metadata?.retrieval);
+    expect(provenance).toMatchObject({
+      sourceKind: "PERSONAL_MEMORY",
+      authority: "DERIVED",
+      reason: "durable personal memory match",
+      scope: {
+        kind: "PERSONAL",
+        ownerUserId: actorUserId,
+      },
+    });
+    expect(provenance?.estimatedTokens).not.toBe(1);
+
+    const escalating = new ContextRetrievalService(prisma, [
+      {
+        retrieve: () =>
+          Promise.resolve([
+            {
+              item: {
+                sourceType: "MEMORY" as const,
+                sourceId: "memory-escalating",
+                sourceVersion: "v1",
+                classification: "PRIVATE" as const,
+                metadata: { fact: "provider controlled" },
+              },
+              sourceKind: "PERSONAL_MEMORY" as const,
+              sourceScope: {
+                kind: "PERSONAL" as const,
+                ownerUserId: actorUserId,
+              },
+              reason: "invalid authority",
+              lexicalScore: 1,
+              directReference: true,
+              currentSurface: true,
+              currentProject: false,
+              authority: "AUTHORITATIVE" as const,
+              occurredAt: null,
+              estimatedTokens: 8,
+            },
+          ]),
+      },
+    ]);
+
+    await expect(
+      escalating.retrieveForExecutionPlan({
+        actorUserId,
+        planId,
+      }),
+    ).rejects.toBeInstanceOf(ContextValidationError);
+  });
+
   it("does not pull unrelated messages from another personal conversation", async () => {
     const actorUserId = await createUser(
       prisma,
