@@ -587,6 +587,8 @@ describe("memory maintenance runtime", () => {
       });
     expect(failed.status).toBe("FAILED");
     expect(failed.attemptCount).toBe(1);
+    expect(failed.extractedAt).not.toBeNull();
+    expect(failed.compactedAt).toBeNull();
     expect(
       await db.memoryItem.count({
         where: {
@@ -614,6 +616,8 @@ describe("memory maintenance runtime", () => {
       });
     expect(completed.status).toBe("COMPLETED");
     expect(completed.attemptCount).toBe(2);
+    expect(completed.extractedAt).not.toBeNull();
+    expect(completed.compactedAt).not.toBeNull();
     expect(
       await db.memoryItem.count({
         where: {
@@ -631,7 +635,7 @@ describe("memory maintenance runtime", () => {
         },
       }),
     ).toBe(1);
-    expect(extractionCalls).toBe(2);
+    expect(extractionCalls).toBe(1);
     expect(compactionCalls).toBe(2);
   });
 
