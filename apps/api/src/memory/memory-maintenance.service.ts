@@ -49,6 +49,110 @@ export class MemoryMaintenanceService {
     );
   }
 
+  async reconcilePending(limit = 32): Promise<number> {
+    if (!this.config.memoryEnabled) return 0;
+
+    const cutoff = new Date(
+      Date.now() - RECEIPT_RECLAIM_MS,
+    );
+    const receipts =
+      await this.db.memoryExtractionReceipt.findMany({
+        where: {
+          sourceType: "MESSAGE",
+          OR: [
+            { status: "QUEUED" },
+            {
+              status: "PENDING",
+              updatedAt: { lte: cutoff },
+            },
+            {
+              status: "FAILED",
+              updatedAt: { lte: cutoff },
+            },
+          ],
+        },
+        orderBy: [
+          { updatedAt: "asc" },
+          { id: "asc" },
+        ],
+        take: Math.max(1, Math.min(100, limit)),
+      });
+
+    for (const receipt of receipts) {
+      const source = await this.db.message.findFirst({
+        where: {
+          id: receipt.sourceId,
+          role: "USER",
+          status: "COMPLETE",
+          conversation: {
+            userId: receipt.ownerUserId,
+            kind: { not: "OPERATOR" },
+          },
+        },
+        select: {
+          id: true,
+          updatedAt: true,
+        },
+      });
+
+      if (!source) {
+        await this.db.memoryExtractionReceipt.updateMany({
+          where: {
+            id: receipt.id,
+            status: { not: "COMPLETED" },
+          },
+          data: {
+            status: "SKIPPED",
+            errorCode: "SOURCE_NOT_FOUND",
+          },
+        });
+        continue;
+      }
+
+      const currentVersion = source.updatedAt.toISOString();
+      if (currentVersion !== receipt.sourceVersion) {
+        await this.db.$transaction(async (tx) => {
+          await tx.memoryExtractionReceipt.updateMany({
+            where: {
+              id: receipt.id,
+              status: { not: "COMPLETED" },
+            },
+            data: {
+              status: "SKIPPED",
+              errorCode: "SOURCE_VERSION_CHANGED",
+            },
+          });
+          await tx.memoryExtractionReceipt.upsert({
+            where: {
+              sourceType_sourceId_sourceVersion: {
+                sourceType: "MESSAGE",
+                sourceId: source.id,
+                sourceVersion: currentVersion,
+              },
+            },
+            create: {
+              ownerUserId: receipt.ownerUserId,
+              sourceType: "MESSAGE",
+              sourceId: source.id,
+              sourceVersion: currentVersion,
+              status: "QUEUED",
+            },
+            update: {},
+          });
+        });
+        continue;
+      }
+
+      await this.observeConversationMessage({
+        userId: receipt.ownerUserId,
+        messageId: receipt.sourceId,
+        correlationId: `memory-reconcile:${receipt.id}`,
+      });
+    }
+
+    return receipts.length;
+  }
+
   async observeAiRequestUserMessage(input: {
     userId: string;
     clientRequestId: string;
@@ -349,8 +453,17 @@ export class MemoryMaintenanceService {
           sourceType: "MESSAGE",
           sourceId: input.sourceId,
           sourceVersion: input.sourceVersion,
-          status: { in: ["PENDING", "FAILED"] },
-          updatedAt: { lte: cutoff },
+          OR: [
+            { status: "QUEUED" },
+            {
+              status: "PENDING",
+              updatedAt: { lte: cutoff },
+            },
+            {
+              status: "FAILED",
+              updatedAt: { lte: cutoff },
+            },
+          ],
         },
         data: {
           status: "PENDING",
