@@ -6,6 +6,7 @@ import {
   ContextAccessDeniedError,
   ContextBundleService,
   ContextSnapshotService,
+  ContextValidationError,
 } from "./index.js";
 
 const testDatabaseUrl = process.env.TEST_DATABASE_URL;
@@ -188,6 +189,69 @@ describe("ContextBundleService", () => {
         invocationId: firstInvocationId,
       }),
     ).rejects.toBeInstanceOf(ContextAccessDeniedError);
+  });
+
+  it("rejects a shared audience descriptor whose source does not match its surface id", async () => {
+    const actorUserId = await createUser(prisma, "audience-source-actor");
+    const peerUserId = await createUser(prisma, "audience-source-peer");
+    const personalConversation = await prisma.conversation.create({
+      data: { userId: actorUserId, title: "Audience source integrity" },
+    });
+    const sourceMessage = await prisma.message.create({
+      data: {
+        conversationId: personalConversation.id,
+        role: "USER",
+        content: "Use shared context",
+        status: "COMPLETE",
+      },
+    });
+    const { planId, invocationIds } = await createPlan(
+      prisma,
+      actorUserId,
+      personalConversation.id,
+      sourceMessage.id,
+      1,
+    );
+    const invocationId = invocationIds[0];
+    if (!invocationId) {
+      throw new Error("Expected one audience-integrity invocation");
+    }
+
+    const directConversation = await prisma.directConversation.create({
+      data: {
+        pairKey: `audience-source:${randomUUID()}`,
+        members: {
+          create: [
+            { userId: actorUserId },
+            { userId: peerUserId },
+          ],
+        },
+      },
+    });
+
+    await snapshots.create({
+      actorUserId,
+      planId,
+      items: [
+        {
+          sourceType: "AUDIENCE",
+          sourceId: personalConversation.id,
+          classification: "PRIVATE",
+          metadata: {
+            kind: "DIRECT_CHAT",
+            directConversationId: directConversation.id,
+            participantUserIds: [actorUserId, peerUserId],
+          },
+        },
+      ],
+    });
+
+    await expect(
+      bundles.resolveForInvocation({
+        actorUserId,
+        invocationId,
+      }),
+    ).rejects.toBeInstanceOf(ContextValidationError);
   });
 
   it("includes only audience-readable dependency artifacts and re-checks grants between invocations", async () => {
