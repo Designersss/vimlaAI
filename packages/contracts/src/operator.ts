@@ -107,6 +107,7 @@ export const createOperatorRunSchema = z
     conversationId: z.string().min(1).max(64).optional(),
     invocationScope: operatorInvocationScopeSchema.optional(),
     directConversationId: z.string().uuid().optional(),
+    directSourceMessageId: z.string().uuid().optional(),
     contextBundle: operatorContextBundleSchema.optional(),
   })
   .strict()
@@ -119,11 +120,25 @@ export const createOperatorRunSchema = z
         message: "directConversationId is required for Direct Chat operator runs",
       });
     }
+    if (scope === "DIRECT_CHAT" && !value.directSourceMessageId) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["directSourceMessageId"],
+        message: "directSourceMessageId is required for Direct Chat operator runs",
+      });
+    }
     if (scope === "PERSONAL" && value.directConversationId) {
       ctx.addIssue({
         code: "custom",
         path: ["directConversationId"],
         message: "directConversationId is not allowed for personal operator runs",
+      });
+    }
+    if (scope === "PERSONAL" && value.directSourceMessageId) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["directSourceMessageId"],
+        message: "directSourceMessageId is not allowed for personal operator runs",
       });
     }
     if (scope === "PERSONAL" && value.contextBundle) {

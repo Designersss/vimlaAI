@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { mockOperatorPlannerResponse } from "@vimla/ai";
+import {
+  freezeDirectOperatorContextSnapshot,
+  loadDirectOperatorContextSnapshot,
+} from "@vimla/context";
 import type { Prisma } from "@vimla/database";
 import {
   confirmOperatorRunSchema,
@@ -18,13 +22,17 @@ import {
   loadWorkspaceSnapshot,
   parsePlannerOutput,
   prepareSteps,
+  selectDirectChatPlannerOutput,
   sanitizePublicText,
   type OperatorToolContext,
   type PreparedStep,
   type SafeProfile,
   type TaskOwnerResolution,
 } from "@vimla/operator";
-import { filterOperatorContextBundle, resolveDirectChatAssignee } from "@vimla/direct-chats";
+import {
+  DirectChatError,
+  resolveDirectChatAssignee,
+} from "@vimla/direct-chats";
 import {
   ListService,
   NoteService,
@@ -93,6 +101,10 @@ export class OperatorService {
     const run = await this.loadOwnedRun(userId, runId);
     let confirmationToken: string | null = null;
     if (run.status === "AWAITING_CONFIRMATION") {
+      const contextFailure = await this.failIfDirectChatContextRevoked(run);
+      if (contextFailure) {
+        return contextFailure;
+      }
       confirmationToken = await this.rotateConfirmationToken(run.id);
     }
     return this.toView(run, confirmationToken);
@@ -119,7 +131,13 @@ export class OperatorService {
 
     const conversation = await this.resolveConversation(userId, scope === "DIRECT_CHAT" ? undefined : input.conversationId);
     const locale = await this.userLocale(userId);
-    const scoped = await this.resolveDirectChatScope(userId, scope, input.directConversationId, input.contextBundle);
+    const scoped = await this.resolveDirectChatScope(
+      userId,
+      scope,
+      input.directConversationId,
+      input.directSourceMessageId,
+      input.contextBundle,
+    );
 
     try {
       const run = await this.prisma.$transaction(async (tx) => {
@@ -136,8 +154,19 @@ export class OperatorService {
           userMessageId = userMessage.id;
         }
 
-        return tx.operatorRun.create({
+        if (scope === "DIRECT_CHAT" && scoped.directConversationId) {
+          await this.assertDirectChatDisclosureConsentTx(
+            tx,
+            scoped.directConversationId,
+            userId,
+            scoped.messages,
+          );
+        }
+
+        const runId = randomUUID();
+        const created = await tx.operatorRun.create({
           data: {
+            id: runId,
             userId,
             conversationId: conversation.id,
             userMessageId,
@@ -154,6 +183,23 @@ export class OperatorService {
           },
           include: { steps: { orderBy: { sequence: "asc" } } },
         });
+        if (
+          scope === "DIRECT_CHAT" &&
+          scoped.directConversationId &&
+          scoped.sourceMessageId &&
+          scoped.sourceMessageCreatedAt
+        ) {
+          await freezeDirectOperatorContextSnapshot(tx, {
+            operatorRunId: runId,
+            actorUserId: userId,
+            directConversationId: scoped.directConversationId,
+            sourceMessageId: scoped.sourceMessageId,
+            sourceMessageCreatedAt: scoped.sourceMessageCreatedAt,
+            userText: input.content,
+            messages: scoped.messages,
+          });
+        }
+        return created;
       });
       return await this.planAndMaybeExecute(run, correlationId, null, scoped.untrustedContext);
     } catch (error: unknown) {
@@ -173,11 +219,25 @@ export class OperatorService {
   async confirmRun(userId: string, runId: string, body: unknown, correlationId: string): Promise<OperatorRunView> {
     this.assertEnabled();
     const input = confirmOperatorRunSchema.parse(body);
+    const current = await this.loadOwnedRun(userId, runId);
+    if (
+      current.status === "AWAITING_CONFIRMATION" ||
+      current.status === "EXECUTING"
+    ) {
+      const contextFailure = await this.failIfDirectChatContextRevoked(current);
+      if (contextFailure) {
+        return contextFailure;
+      }
+    }
     const run = await this.acceptConfirmation(userId, runId, input.confirmationToken);
     if (run.status === "SUCCEEDED" || run.status === "PARTIAL" || run.status === "CANCELED" || run.status === "FAILED") {
       return this.toView(run, null);
     }
     if (run.status === "EXECUTING") {
+      const contextFailure = await this.failIfDirectChatContextRevoked(run);
+      if (contextFailure) {
+        return contextFailure;
+      }
       const context = await this.toolContext(run);
       const executed = await this.executePersistedSteps(run.id, context, correlationId);
       if (executed.status === "CLARIFY") {
@@ -247,6 +307,13 @@ export class OperatorService {
   ): Promise<OperatorRunView> {
     this.assertEnabled();
     const input = continueOperatorRunSchema.parse(body);
+    const existing = await this.loadOwnedRun(userId, runId);
+    if (existing.invocationScope === "DIRECT_CHAT") {
+      throw new OperatorError(
+        "VALIDATION_ERROR",
+        "Direct Chat clarification requires a new encrypted @Vimla invocation",
+      );
+    }
 
     const prepared = await this.prisma.$transaction(async (tx) => {
       const claimed = await tx.operatorRun.updateMany({
@@ -324,16 +391,55 @@ export class OperatorService {
     untrustedContext: string | null = null,
   ): Promise<OperatorRunView> {
     const context = await this.toolContext(run);
-    const snapshot = await loadWorkspaceSnapshot(context);
+    const snapshot =
+      run.invocationScope === "DIRECT_CHAT"
+        ? {
+            timezone: context.timezone,
+            locale: context.locale,
+            tasks: [],
+            reminders: [],
+            notes: [],
+            lists: [],
+          }
+        : await loadWorkspaceSnapshot(context);
+    let effectiveUntrustedContext = untrustedContext;
+    if (run.invocationScope === "DIRECT_CHAT") {
+      try {
+        effectiveUntrustedContext =
+          await this.loadFrozenDirectChatContext(run);
+      } catch (error: unknown) {
+        if (
+          error instanceof OperatorError &&
+          error.code === "CONTEXT_REVOKED"
+        ) {
+          return this.failDirectChatContextRevoked(run);
+        }
+        throw error;
+      }
+    }
+    const invocationScope =
+      run.invocationScope === "DIRECT_CHAT" ? "DIRECT_CHAT" : "PERSONAL";
     const prompt = buildPlannerPrompt({
       userText: run.userText,
       locale: run.locale,
       snapshot,
       previousClarification,
-      invocationScope: run.invocationScope === "DIRECT_CHAT" ? "DIRECT_CHAT" : "PERSONAL",
+      invocationScope,
       participantNames: context.invocation.participantNames,
-      untrustedContext,
+      untrustedContext: effectiveUntrustedContext,
     });
+    const trustedPrompt =
+      invocationScope === "DIRECT_CHAT"
+        ? buildPlannerPrompt({
+            userText: run.userText,
+            locale: run.locale,
+            snapshot,
+            previousClarification,
+            invocationScope,
+            participantNames: context.invocation.participantNames,
+            untrustedContext: null,
+          })
+        : prompt;
 
     let plannerOutput = run.plannerOutput;
     if (!plannerOutput) {
@@ -346,9 +452,17 @@ export class OperatorService {
       }
 
       const plannerClientRequestId = run.plannerClientRequestId ?? randomUUID();
-      const proposedPlannerOutput = mockOperatorPlannerResponse([
-        { content: prompt },
+      const trustedPlannerOutput = mockOperatorPlannerResponse([
+        { content: trustedPrompt },
       ]);
+      const proposedPlannerOutput =
+        invocationScope === "DIRECT_CHAT" &&
+        effectiveUntrustedContext
+          ? selectDirectChatPlannerOutput(
+              trustedPlannerOutput,
+              mockOperatorPlannerResponse([{ content: prompt }]),
+            )
+          : trustedPlannerOutput;
       const published = await this.prisma.operatorRun.updateMany({
         where: {
           id: run.id,
@@ -391,7 +505,10 @@ export class OperatorService {
 
     let steps: PreparedStep[];
     try {
-      steps = prepareSteps(plan.commands).slice(0, this.config.operatorMaxToolsPerRun);
+      steps = prepareSteps(
+        plan.commands,
+        run.invocationScope === "DIRECT_CHAT" ? "DIRECT_CHAT" : "PERSONAL",
+      ).slice(0, this.config.operatorMaxToolsPerRun);
     } catch (error: unknown) {
       if (error instanceof OperatorError) {
         return this.failRun(run.id, "operator_plan_invalid", plan.userMessage);
@@ -506,6 +623,20 @@ export class OperatorService {
             return { kind: "skipped" as const };
           }
 
+          await this.assertDirectChatExecutionConsentTx(
+            tx,
+            runId,
+            context,
+          );
+          if (
+            context.invocation.scope === "DIRECT_CHAT" &&
+            step.toolName !== "tasks.create"
+          ) {
+            throw new OperatorError(
+              "TOOL_DENIED",
+              "This persisted tool is not available from a Direct Chat",
+            );
+          }
           const args = asRecord(step.inputJson);
           const txContext = this.transactionalToolContext(context, tx);
           const result = await executeStep(step.toolName, args, txContext);
@@ -647,9 +778,28 @@ export class OperatorService {
     status: "SUCCEEDED" | "PARTIAL" | "FAILED",
     confirmationToken: string | null,
   ): Promise<OperatorRunView> {
+    const failedStep =
+      status === "FAILED"
+        ? await this.prisma.operatorRunStep.findFirst({
+            where: {
+              runId,
+              status: "FAILED",
+              errorCode: { not: null },
+            },
+            orderBy: { sequence: "asc" },
+            select: { errorCode: true },
+          })
+        : null;
     const updated = await this.prisma.operatorRun.update({
       where: { id: runId },
-      data: { status, publicMessage: sanitizePublicText(publicMessage, 2_000), errorCode: status === "FAILED" ? "operator_plan_invalid" : null },
+      data: {
+        status,
+        publicMessage: sanitizePublicText(publicMessage, 2_000),
+        errorCode:
+          status === "FAILED"
+            ? failedStep?.errorCode ?? "operator_plan_invalid"
+            : null,
+      },
       include: { steps: { orderBy: { sequence: "asc" } } },
     });
     await this.persistAssistant(updated, updated.publicMessage ?? publicMessage);
@@ -684,7 +834,13 @@ export class OperatorService {
   private async failRun(runId: string, errorCode: string, message: string): Promise<OperatorRunView> {
     const updated = await this.prisma.operatorRun.update({
       where: { id: runId },
-      data: { status: "FAILED", errorCode, publicMessage: sanitizePublicText(message, 2_000) },
+      data: {
+        status: "FAILED",
+        errorCode,
+        publicMessage: sanitizePublicText(message, 2_000),
+        confirmationTokenHash: null,
+        confirmationExpiresAt: null,
+      },
       include: { steps: { orderBy: { sequence: "asc" } } },
     });
     await this.persistAssistant(updated, updated.publicMessage ?? message);
@@ -825,43 +981,290 @@ export class OperatorService {
     userId: string,
     scope: "PERSONAL" | "DIRECT_CHAT",
     directConversationId: string | undefined,
-    contextBundle: { messages: Array<{ senderUserId: string; sentAt: string; text: string }> } | undefined,
+    directSourceMessageId: string | undefined,
+    contextBundle:
+      | {
+          messages: Array<{
+            messageId: string;
+            senderUserId: string;
+            sentAt: string;
+            text: string;
+          }>;
+        }
+      | undefined,
   ): Promise<{
     directConversationId: string | null;
+    sourceMessageId: string | null;
+    sourceMessageCreatedAt: string | null;
+    messages: Array<{
+      messageId: string;
+      senderUserId: string;
+      sentAt: string;
+      text: string;
+    }>;
     ownIncluded: boolean;
     peerIncluded: boolean;
     peerDenied: boolean;
     untrustedContext: string | null;
   }> {
-    if (scope !== "DIRECT_CHAT" || !directConversationId) {
+    if (scope !== "DIRECT_CHAT") {
       return {
         directConversationId: null,
+        sourceMessageId: null,
+        sourceMessageCreatedAt: null,
+        messages: [],
         ownIncluded: false,
         peerIncluded: false,
         peerDenied: false,
         untrustedContext: null,
       };
     }
-    const consent = await this.directChats.chats.consent(userId, directConversationId);
-    const filtered = filterOperatorContextBundle({
-      actorUserId: userId,
-      memberIds: consent.memberIds,
-      consent,
-      messages: contextBundle?.messages ?? [],
-    });
-    const untrustedContext =
-      filtered.messages.length === 0
-        ? null
-        : filtered.messages
-            .map((message) => `${message.senderUserId === userId ? "self" : "peer"} at ${message.sentAt}: ${message.text}`)
-            .join("\n");
+    if (!directConversationId || !directSourceMessageId) {
+      throw new OperatorError(
+        "VALIDATION_ERROR",
+        "Direct Chat invocation provenance is required",
+      );
+    }
+    const disclosure =
+      await this.directChats.chats.validateOperatorContextDisclosure(
+        userId,
+        directConversationId,
+        directSourceMessageId,
+        contextBundle?.messages ?? [],
+      );
     return {
       directConversationId,
-      ownIncluded: filtered.ownIncluded,
-      peerIncluded: filtered.peerIncluded,
-      peerDenied: filtered.peerDenied,
-      untrustedContext,
+      sourceMessageId: disclosure.sourceMessageId,
+      sourceMessageCreatedAt: disclosure.sourceMessageCreatedAt,
+      messages: disclosure.messages,
+      ownIncluded: disclosure.ownIncluded,
+      peerIncluded: disclosure.peerIncluded,
+      peerDenied: disclosure.peerDenied,
+      untrustedContext: this.formatDirectChatContext(
+        userId,
+        disclosure.messages,
+      ),
     };
+  }
+
+  private async loadFrozenDirectChatContext(
+    run: RunRecord,
+  ): Promise<string | null> {
+    if (
+      run.invocationScope !== "DIRECT_CHAT" ||
+      !run.directConversationId
+    ) {
+      return null;
+    }
+    const frozen = await loadDirectOperatorContextSnapshot(
+      this.prisma,
+      run.userId,
+      run.id,
+    );
+    if (!frozen) {
+      throw new OperatorError(
+        "CONTEXT_REVOKED",
+        "Direct Chat context snapshot is unavailable",
+      );
+    }
+    let disclosure;
+    try {
+      disclosure =
+        await this.directChats.chats.validateOperatorContextDisclosure(
+          run.userId,
+          run.directConversationId,
+          frozen.sourceMessageId,
+          frozen.messages,
+        );
+    } catch (error: unknown) {
+      if (error instanceof DirectChatError) {
+        throw new OperatorError(
+          "CONTEXT_REVOKED",
+          "Direct Chat context is no longer authorized",
+        );
+      }
+      throw error;
+    }
+    const authorizedIds = new Set(
+      disclosure.messages.map((message) => message.messageId),
+    );
+    if (
+      disclosure.sourceMessageCreatedAt !==
+        frozen.sourceMessageCreatedAt ||
+      disclosure.messages.length !== frozen.messages.length ||
+      frozen.messages.some(
+        (message) => !authorizedIds.has(message.messageId),
+      )
+    ) {
+      throw new OperatorError(
+        "CONTEXT_REVOKED",
+        "Direct Chat context permission changed",
+      );
+    }
+    return this.formatDirectChatContext(run.userId, disclosure.messages);
+  }
+
+  private async failIfDirectChatContextRevoked(
+    run: RunRecord,
+  ): Promise<OperatorRunView | null> {
+    if (run.invocationScope !== "DIRECT_CHAT") {
+      return null;
+    }
+    try {
+      await this.loadFrozenDirectChatContext(run);
+      return null;
+    } catch (error: unknown) {
+      if (
+        error instanceof OperatorError &&
+        error.code === "CONTEXT_REVOKED"
+      ) {
+        return this.failDirectChatContextRevoked(run);
+      }
+      throw error;
+    }
+  }
+
+  private async failDirectChatContextRevoked(
+    run: RunRecord,
+  ): Promise<OperatorRunView> {
+    await this.prisma.operatorRunStep.updateMany({
+      where: {
+        runId: run.id,
+        status: {
+          in: ["PENDING", "NEEDS_CONFIRMATION", "CONFIRMED"],
+        },
+      },
+      data: {
+        status: "FAILED",
+        errorCode: "direct_chat_context_revoked",
+      },
+    });
+    return this.failRun(
+      run.id,
+      "direct_chat_context_revoked",
+      "Direct Chat context permission changed. Invoke @Vimla again.",
+    );
+  }
+
+  private async assertDirectChatExecutionConsentTx(
+    tx: Prisma.TransactionClient,
+    runId: string,
+    context: OperatorToolContext,
+  ): Promise<void> {
+    if (context.invocation.scope !== "DIRECT_CHAT") {
+      return;
+    }
+    const directConversationId = context.invocation.directConversationId;
+    if (!directConversationId) {
+      throw new OperatorError(
+        "CONTEXT_REVOKED",
+        "Direct Chat context is unavailable",
+      );
+    }
+
+    const snapshot = await tx.contextSnapshot.findUnique({
+      where: { operatorRunId: runId },
+      include: { items: { orderBy: { sequence: "asc" } } },
+    });
+    if (!snapshot) {
+      throw new OperatorError(
+        "CONTEXT_REVOKED",
+        "Direct Chat context snapshot is unavailable",
+      );
+    }
+    const messages: Array<{ senderUserId: string }> = [];
+    for (const item of snapshot.items) {
+      if (item.sourceType !== "E2EE_DISCLOSURE") continue;
+      const metadata = asRecord(item.metadata);
+      if (metadata.disclosureKind !== "L1_RAW") continue;
+      const senderUserId =
+        typeof metadata.senderUserId === "string"
+          ? metadata.senderUserId
+          : null;
+      if (!senderUserId) {
+        throw new OperatorError(
+          "CONTEXT_REVOKED",
+          "Direct Chat context provenance is invalid",
+        );
+      }
+      messages.push({ senderUserId });
+    }
+    await this.assertDirectChatDisclosureConsentTx(
+      tx,
+      directConversationId,
+      context.actor.userId,
+      messages,
+    );
+  }
+
+  private async assertDirectChatDisclosureConsentTx(
+    tx: Prisma.TransactionClient,
+    directConversationId: string,
+    actorUserId: string,
+    messages: readonly { senderUserId: string }[],
+  ): Promise<void> {
+    await tx.$queryRaw<Array<{ id: string }>>`
+      SELECT "id"
+      FROM "direct_conversation_member"
+      WHERE "conversationId" = ${directConversationId}
+      ORDER BY "id"
+      FOR SHARE
+    `;
+    const members = await tx.directConversationMember.findMany({
+      where: { conversationId: directConversationId },
+      select: {
+        userId: true,
+        shareOwnHistoryWithVimla: true,
+        includePeerHistoryWhenInvoking: true,
+      },
+    });
+    const mine = members.find((member) => member.userId === actorUserId);
+    const peer = members.find((member) => member.userId !== actorUserId);
+    if (!mine || !peer) {
+      throw new OperatorError(
+        "CONTEXT_REVOKED",
+        "Direct Chat membership changed",
+      );
+    }
+
+    for (const message of messages) {
+      if (message.senderUserId === actorUserId) {
+        if (!mine.shareOwnHistoryWithVimla) {
+          throw new OperatorError(
+            "CONTEXT_REVOKED",
+            "Direct Chat self-history consent was revoked",
+          );
+        }
+        continue;
+      }
+      if (
+        message.senderUserId !== peer.userId ||
+        !mine.includePeerHistoryWhenInvoking ||
+        !peer.shareOwnHistoryWithVimla
+      ) {
+        throw new OperatorError(
+          "CONTEXT_REVOKED",
+          "Direct Chat peer-history consent was revoked",
+        );
+      }
+    }
+  }
+
+  private formatDirectChatContext(
+    userId: string,
+    messages: readonly {
+      senderUserId: string;
+      sentAt: string;
+      text: string;
+    }[],
+  ): string | null {
+    if (messages.length === 0) return null;
+    return messages
+      .map(
+        (message) =>
+          `${message.senderUserId === userId ? "self" : "peer"} at ${message.sentAt}: ${message.text}`,
+      )
+      .join("\n");
   }
 
   private async getSafeProfile(userId: string): Promise<SafeProfile> {
@@ -966,6 +1369,10 @@ export class OperatorService {
       return this.finishRun(run.id, executed.publicMessage, executed.status, null);
     }
     if (run.status === "AWAITING_CONFIRMATION") {
+      const contextFailure = await this.failIfDirectChatContextRevoked(run);
+      if (contextFailure) {
+        return contextFailure;
+      }
       const token = await this.rotateConfirmationToken(run.id);
       return this.toView(run, token);
     }
@@ -1000,7 +1407,9 @@ function errorCodeOf(error: unknown): string {
     return error.code.toLowerCase();
   }
   if (error instanceof OperatorError) {
-    return error.code.toLowerCase();
+    return error.code === "CONTEXT_REVOKED"
+      ? "direct_chat_context_revoked"
+      : error.code.toLowerCase();
   }
   return "internal_error";
 }

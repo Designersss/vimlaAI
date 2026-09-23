@@ -64,14 +64,19 @@ Multi-device evolution is laid out: fan-out to every active device, per-device r
 When the user mentions `@Vimla` in a Direct Chat:
 
 1. The client decrypts only the messages it already has locally.
-2. It may attach a bounded `contextBundle` (max 16 messages, 4k chars each).
-3. The server re-filters using membership + both consent flags. Peer history requires **both** `shareOwnHistoryWithVimla` (peer) and `includePeerHistoryWhenInvoking` (actor).
-4. Allowed context is formatted as untrusted `self`/`peer` lines for the planner. It is not persisted, not written to Direct Chat tables, and not logged.
-5. Without consent, `@Vimla` remains callable and receives the command text only.
+2. It may attach a bounded `contextBundle` (max 16 messages, 4k chars each, 32k aggregate characters). Every disclosed history entry references the concrete encrypted `DirectMessage.id` already stored by the server.
+3. The server binds each claim to authoritative Direct Chat metadata (conversation, sender, kind and timestamp), rejects spoofed/cross-chat/future claims, then re-filters using membership + both consent flags. Peer history requires **both** `shareOwnHistoryWithVimla` (peer) and `includePeerHistoryWhenInvoking` (actor).
+4. Allowed plaintext is frozen only into the immutable execution-owned `ContextSnapshot` for that `OperatorRun`, with `E2EE_CLIENT_DISCLOSURE` provenance. It is not written into Direct Chat message storage, the semantic index, general Memory, or logs. Replay/replanning re-checks current membership and consent before reusing the frozen disclosure.
+5. The server cannot cryptographically prove that client-disclosed plaintext equals ciphertext without possessing decryption material, so disclosed text remains untrusted data and never grants authority. Server-authoritative message metadata prevents a caller from spoofing which participant/message/time the disclosure is attributed to.
+6. Direct Chat planning uses an empty personal-workspace snapshot: private Tasks/Reminders/Notes/Lists are not placed in the same planner prompt as peer-controlled chat context.
+7. Direct Chat tool capability is intentionally minimal: only `tasks.create` is accepted, with assignees resolved against current chat membership. The same allowlist is re-applied to persisted steps during recovery, so an older/stale plan cannot regain personal tools. Action authority is derived from a planner pass over the trusted current `USER_REQUEST` without E2EE history; contextual E2EE history may refine answer-only output but cannot introduce or alter side-effect commands.
+8. Before planning/replanning and before recovery/confirmation, the frozen disclosure is re-validated against current consent. Immediately before every tool side effect, the execution transaction locks the current Direct Chat privacy rows and re-checks the consent required by the frozen history, closing the revoke/execute TOCTOU window.
+9. If required consent is revoked, the run fails closed with `direct_chat_context_revoked`, pending/confirmed steps are failed, and confirmation material is cleared.
+10. Without consent, `@Vimla` remains callable and receives the command text only.
 
 UI distinguishes E2EE human messages, `@Vimla` invoke, context-shared vs denied, AI response, and operator action cards.
 
-Prompt injection in chat content cannot set `userId`, expand membership, or read the peer’s Notes/Lists/Reminders. Tools still run as the authenticated actor (or a membership-resolved assignee for `tasks.create` only).
+Prompt injection in chat content cannot set `userId`, expand membership, read the actor's private workspace snapshot, or invoke personal Notes/Lists/Reminders tools from a Direct Chat. Tools still run as the authenticated actor (or a membership-resolved assignee for `tasks.create` only).
 
 ## 5. Cross-user task assignment
 
@@ -106,7 +111,7 @@ Disabled → `direct_chats_disabled` (503).
 
 ## 7. Security tests
 
-Covered: lifecycle, ciphertext-not-plaintext in PostgreSQL, tamper rejection, two-party decrypt, IDOR, sender spoof, unread/pagination, flag off, `@Vimla` general answer, context deny/allow, self task, peer task, third user denied, prompt injection does not extend permissions, responsive Direct Chat UI.
+Covered: lifecycle, ciphertext-not-plaintext in PostgreSQL, tamper rejection, two-party decrypt, IDOR, sender/timestamp/cross-chat/future provenance spoof rejection, unread/pagination, flag off, `@Vimla` general answer, context deny/allow, self task, peer task, third user denied, Direct Chat personal-tool denial, private-workspace snapshot isolation, peer/actor consent revocation during recovery, fail-closed generic E2EE context access, exact ContextSnapshot ownership DB constraints, hidden Direct Chat clarification-continuation rejection, prompt injection does not extend permissions, responsive Direct Chat UI.
 
 ## 8. Quality gates
 
@@ -117,7 +122,8 @@ Lint, typecheck, unit, integration, e2e, and build for the touched packages/apps
 - New device cannot decrypt old Direct Chat history.
 - Revoked/compromised device may decrypt envelopes it already obtained.
 - Operator command plaintext lives on `OperatorRun.userText` for the planner/executor (not in Direct Chat storage, not in ordinary logs).
-- Context bundle is ephemeral in memory during the run; a crash before planning drops it (fail closed: no persisted chat history on the server).
+- Normal Direct Chat history remains ciphertext-only on the server. A user-approved invocation may persist only its bounded disclosed plaintext subset in that execution's immutable `ContextSnapshot` so retries/crash recovery do not require a plaintext chat archive.
+- PR-16 does not enable automatic Direct Chat memory extraction. `E2EE_USER_DISCLOSURE` is the reserved provenance boundary for an explicit user-approved fact. The durable Memory record, lifecycle, retrieval and promotion endpoint are implemented with PR-17 because that is where Memory persistence exists; ordinary Direct Chat conversation never promotes itself.
 - No sealed-sender / metadata-hiding transport. No post-compromise recovery beyond Double Ratchet forward secrecy for later messages.
 - No QR/safety-number identity verification UX in this phase (TOFU on first prekey bundle).
 - Self-sent copies are kept in the client plaintext cache; the initiator ratchet cannot decrypt its own envelope.

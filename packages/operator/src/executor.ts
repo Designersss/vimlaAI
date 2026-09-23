@@ -3,6 +3,7 @@ import { WorkspaceError } from "@vimla/workspace";
 import { NotificationPlatformError } from "@vimla/notifications";
 import { OperatorError } from "./errors.js";
 import { evaluatePlanPolicy, isRegisteredTool, parseToolArgs, toolRequiresConfirmation } from "./policy.js";
+import { OPERATOR_RUNTIME_LIMITS } from "./limits.js";
 import { sanitizePublicText } from "./public-text.js";
 import type { OperatorToolName } from "./tools/schemas.js";
 import type { OperatorToolContext, ParsedCommand, PreparedStep, ToolHandlerResult } from "./types.js";
@@ -25,8 +26,15 @@ function card(
   return { kind, operation, title, detail, status, hrefPath };
 }
 
-export function prepareSteps(commands: readonly ParsedCommand[]): PreparedStep[] {
-  evaluatePlanPolicy(commands);
+export function prepareSteps(
+  commands: readonly ParsedCommand[],
+  invocationScope: "PERSONAL" | "DIRECT_CHAT" = "PERSONAL",
+): PreparedStep[] {
+  evaluatePlanPolicy(
+    commands,
+    OPERATOR_RUNTIME_LIMITS.maxToolsPerRun,
+    invocationScope,
+  );
   return commands.map((command, index) => {
     if (!isRegisteredTool(command.tool)) {
       throw new OperatorError("TOOL_DENIED", "Unknown operator tool");

@@ -13,3 +13,5 @@ export * from "./semantic-index.js";
 export * from "./semantic-search.js";
 export * from "./semantic-sources.js";
 export * from "./semantic-text.js";
+
+export * from "./e2ee-disclosure.js";

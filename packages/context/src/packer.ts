@@ -375,6 +375,7 @@ function defaultSourceKind(sourceType: ContextSourceType): string {
     case "LOCALE_TIMEZONE":
       return "IMMEDIATE";
     case "MESSAGE":
+    case "E2EE_DISCLOSURE":
       return "L1_RAW";
     case "WORKSPACE_OBJECT":
       return "WORKSPACE_OBJECT";

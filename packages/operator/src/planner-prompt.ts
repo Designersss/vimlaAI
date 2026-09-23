@@ -40,7 +40,13 @@ export function buildPlannerPrompt(input: {
   participantNames?: readonly string[];
   untrustedContext?: string | null;
 }): string {
-  const catalog = operatorToolNames.map((name) => `- ${name}: ${TOOL_HELP[name]}`).join("\n");
+  const availableTools =
+    input.invocationScope === "DIRECT_CHAT"
+      ? operatorToolNames.filter((name) => name === "tasks.create")
+      : operatorToolNames;
+  const catalog = availableTools
+    .map((name) => `- ${name}: ${TOOL_HELP[name]}`)
+    .join("\n");
   const snapshot = JSON.stringify(
     {
       timezone: input.snapshot.timezone,

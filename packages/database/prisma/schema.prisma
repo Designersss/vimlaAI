@@ -978,6 +978,7 @@ model OperatorRun {
   contextOwnIncluded       Boolean  @default(false)
   contextPeerIncluded      Boolean  @default(false)
   contextPeerDenied        Boolean  @default(false)
+  contextSnapshot          ContextSnapshot?
   createdAt                DateTime @default(now())
   updatedAt                DateTime @updatedAt
   steps                    OperatorRunStep[]
@@ -1248,10 +1249,12 @@ model InvocationRun {
 }
 
 model ContextSnapshot {
-  id           String        @id @default(uuid())
-  planId       String        @unique
-  plan         ExecutionPlan @relation(fields: [planId], references: [id], onDelete: Restrict)
-  version      Int           @default(1)
+  id            String         @id @default(uuid())
+  planId        String?        @unique
+  plan          ExecutionPlan? @relation(fields: [planId], references: [id], onDelete: Restrict)
+  operatorRunId String?        @unique
+  operatorRun   OperatorRun?   @relation(fields: [operatorRunId], references: [id], onDelete: Restrict)
+  version       Int            @default(1)
   fingerprint  String
   createdAt    DateTime      @default(now())
   items        ContextSnapshotItem[]

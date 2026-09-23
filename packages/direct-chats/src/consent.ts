@@ -5,6 +5,7 @@ export interface DirectChatConsent {
 }
 
 export interface ContextMessageClaim {
+  messageId: string;
   senderUserId: string;
   sentAt: string;
   text: string;

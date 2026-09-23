@@ -74,7 +74,15 @@ export async function createOperatorRun(input: {
   conversationId?: string;
   invocationScope?: "PERSONAL" | "DIRECT_CHAT";
   directConversationId?: string;
-  contextBundle?: { messages: Array<{ senderUserId: string; sentAt: string; text: string }> };
+  directSourceMessageId?: string;
+  contextBundle?: {
+    messages: Array<{
+      messageId: string;
+      senderUserId: string;
+      sentAt: string;
+      text: string;
+    }>;
+  };
 }): Promise<OperatorRunView> {
   const body = createOperatorRunSchema.parse(input);
   const response = await fetch(`${publicWebConfig.apiBaseUrl}/v1/operator/runs`, {

@@ -92,6 +92,11 @@ export class ContextSnapshotService {
   }
 
   async assertSourceAccess(check: ContextAccessCheck): Promise<void> {
+    if (check.sourceType === "E2EE_DISCLOSURE") {
+      throw new ContextAccessDeniedError(
+        "E2EE disclosure requires the specialized Direct Chat consent gate",
+      );
+    }
     if (await this.hasBuiltInAccess(check)) {
       return;
     }
@@ -209,6 +214,10 @@ export class ContextSnapshotService {
             select: { id: true },
           }),
         );
+      case "E2EE_DISCLOSURE":
+        // Execution-owned E2EE disclosures require the specialized
+        // membership + consent gate. Generic snapshot access must fail closed.
+        return false;
       case "CONVERSATION":
       case "AUDIENCE":
         return Boolean(
@@ -307,6 +316,11 @@ function validateItems(items: readonly ContextSnapshotItemInput[]): void {
 }
 
 function toView(snapshot: SnapshotRow): ContextSnapshotView {
+  if (!snapshot.planId) {
+    throw new ContextValidationError(
+      "Execution-plan context snapshot has an invalid owner",
+    );
+  }
   return {
     id: snapshot.id,
     planId: snapshot.planId,
@@ -337,6 +351,7 @@ function parseSourceType(value: string): ContextSourceType {
     case "USER_MESSAGE":
     case "CONVERSATION":
     case "MESSAGE":
+    case "E2EE_DISCLOSURE":
     case "PARTICIPANT":
     case "PROJECT":
     case "WORKSPACE_OBJECT":

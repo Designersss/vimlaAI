@@ -11,6 +11,7 @@ export const DIRECT_CHAT_LIMITS = {
   pageLimitMax: 50,
   contextMessagesMax: 16,
   contextTextMax: 4_000,
+  contextCharsMax: 32_000,
   prekeysMax: 32,
   deviceLabelMax: 80,
   peerEmailMax: 254,
@@ -238,6 +239,7 @@ export type CryptoDevicesResponse = z.infer<typeof cryptoDevicesResponseSchema>;
 
 export const operatorContextMessageSchema = z
   .object({
+    messageId: z.string().uuid(),
     senderUserId: z.string().min(1).max(64),
     sentAt: z.string().datetime({ offset: true }),
     text: z.string().trim().min(1).max(DIRECT_CHAT_LIMITS.contextTextMax),
@@ -248,5 +250,27 @@ export const operatorContextBundleSchema = z
   .object({
     messages: z.array(operatorContextMessageSchema).max(DIRECT_CHAT_LIMITS.contextMessagesMax),
   })
-  .strict();
+  .strict()
+  .superRefine((value, ctx) => {
+    const messageIds = new Set<string>();
+    let aggregateChars = 0;
+    value.messages.forEach((message, index) => {
+      if (messageIds.has(message.messageId)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["messages", index, "messageId"],
+          message: "Direct Chat context message ids must be unique",
+        });
+      }
+      messageIds.add(message.messageId);
+      aggregateChars += message.text.length;
+    });
+    if (aggregateChars > DIRECT_CHAT_LIMITS.contextCharsMax) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["messages"],
+        message: "Direct Chat context is too large",
+      });
+    }
+  });
 export type OperatorContextBundle = z.infer<typeof operatorContextBundleSchema>;

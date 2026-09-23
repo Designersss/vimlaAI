@@ -25,8 +25,18 @@ describe("direct chat identity helpers", () => {
 
   it("keeps peer history out of @Vimla without both consents", () => {
     const messages = [
-      { senderUserId: "a", sentAt: "2026-09-11T00:00:00.000Z", text: "mine" },
-      { senderUserId: "n", sentAt: "2026-09-11T00:01:00.000Z", text: "peer secret" },
+      {
+        messageId: "11111111-1111-4111-8111-111111111111",
+        senderUserId: "a",
+        sentAt: "2026-09-11T00:00:00.000Z",
+        text: "mine",
+      },
+      {
+        messageId: "22222222-2222-4222-8222-222222222222",
+        senderUserId: "n",
+        sentAt: "2026-09-11T00:01:00.000Z",
+        text: "peer secret",
+      },
     ];
     const denied = filterOperatorContextBundle({
       actorUserId: "a",

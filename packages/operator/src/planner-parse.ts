@@ -59,3 +59,33 @@ function extractJsonObject(raw: string): string {
 }
 
 export const plannerJsonGuard = z.string().min(1);
+
+
+export function selectDirectChatPlannerOutput(
+  trustedRaw: string,
+  contextualRaw: string,
+): string {
+  let trusted: PlannerPlan;
+  try {
+    trusted = parsePlannerOutput(trustedRaw);
+  } catch {
+    return trustedRaw;
+  }
+  if (trusted.intent !== "answer" || trusted.commands.length !== 0) {
+    return trustedRaw;
+  }
+
+  try {
+    const contextual = parsePlannerOutput(contextualRaw);
+    if (
+      contextual.intent === "answer" &&
+      contextual.commands.length === 0
+    ) {
+      return contextualRaw;
+    }
+  } catch {
+    // Untrusted context must never turn an otherwise valid trusted plan
+    // into an executable or invalid authority decision.
+  }
+  return trustedRaw;
+}

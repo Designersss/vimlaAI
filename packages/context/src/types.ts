@@ -4,6 +4,7 @@ export type ContextSourceType =
   | "USER_MESSAGE"
   | "CONVERSATION"
   | "MESSAGE"
+  | "E2EE_DISCLOSURE"
   | "PARTICIPANT"
   | "PROJECT"
   | "WORKSPACE_OBJECT"
