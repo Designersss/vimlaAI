@@ -153,6 +153,15 @@ export class OperatorService {
           userMessageId = userMessage.id;
         }
 
+        if (scope === "DIRECT_CHAT" && scoped.directConversationId) {
+          await this.assertDirectChatDisclosureConsentTx(
+            tx,
+            scoped.directConversationId,
+            userId,
+            scoped.messages,
+          );
+        }
+
         const runId = randomUUID();
         const created = await tx.operatorRun.create({
           data: {
@@ -1130,6 +1139,47 @@ export class OperatorService {
       );
     }
 
+    const snapshot = await tx.contextSnapshot.findUnique({
+      where: { operatorRunId: runId },
+      include: { items: { orderBy: { sequence: "asc" } } },
+    });
+    if (!snapshot) {
+      throw new OperatorError(
+        "CONTEXT_REVOKED",
+        "Direct Chat context snapshot is unavailable",
+      );
+    }
+    const messages: Array<{ senderUserId: string }> = [];
+    for (const item of snapshot.items) {
+      if (item.sourceType !== "E2EE_DISCLOSURE") continue;
+      const metadata = asRecord(item.metadata);
+      if (metadata.disclosureKind !== "L1_RAW") continue;
+      const senderUserId =
+        typeof metadata.senderUserId === "string"
+          ? metadata.senderUserId
+          : null;
+      if (!senderUserId) {
+        throw new OperatorError(
+          "CONTEXT_REVOKED",
+          "Direct Chat context provenance is invalid",
+        );
+      }
+      messages.push({ senderUserId });
+    }
+    await this.assertDirectChatDisclosureConsentTx(
+      tx,
+      directConversationId,
+      context.actor.userId,
+      messages,
+    );
+  }
+
+  private async assertDirectChatDisclosureConsentTx(
+    tx: Prisma.TransactionClient,
+    directConversationId: string,
+    actorUserId: string,
+    messages: readonly { senderUserId: string }[],
+  ): Promise<void> {
     await tx.$queryRaw<Array<{ id: string }>>`
       SELECT "id"
       FROM "direct_conversation_member"
@@ -1145,12 +1195,8 @@ export class OperatorService {
         includePeerHistoryWhenInvoking: true,
       },
     });
-    const mine = members.find(
-      (member) => member.userId === context.actor.userId,
-    );
-    const peer = members.find(
-      (member) => member.userId !== context.actor.userId,
-    );
+    const mine = members.find((member) => member.userId === actorUserId);
+    const peer = members.find((member) => member.userId !== actorUserId);
     if (!mine || !peer) {
       throw new OperatorError(
         "CONTEXT_REVOKED",
@@ -1158,31 +1204,8 @@ export class OperatorService {
       );
     }
 
-    const snapshot = await tx.contextSnapshot.findUnique({
-      where: { operatorRunId: runId },
-      include: { items: { orderBy: { sequence: "asc" } } },
-    });
-    if (!snapshot) {
-      throw new OperatorError(
-        "CONTEXT_REVOKED",
-        "Direct Chat context snapshot is unavailable",
-      );
-    }
-    for (const item of snapshot.items) {
-      if (item.sourceType !== "E2EE_DISCLOSURE") continue;
-      const metadata = asRecord(item.metadata);
-      if (metadata.disclosureKind !== "L1_RAW") continue;
-      const senderUserId =
-        typeof metadata.senderUserId === "string"
-          ? metadata.senderUserId
-          : null;
-      if (!senderUserId) {
-        throw new OperatorError(
-          "CONTEXT_REVOKED",
-          "Direct Chat context provenance is invalid",
-        );
-      }
-      if (senderUserId === context.actor.userId) {
+    for (const message of messages) {
+      if (message.senderUserId === actorUserId) {
         if (!mine.shareOwnHistoryWithVimla) {
           throw new OperatorError(
             "CONTEXT_REVOKED",
@@ -1192,7 +1215,7 @@ export class OperatorService {
         continue;
       }
       if (
-        senderUserId !== peer.userId ||
+        message.senderUserId !== peer.userId ||
         !mine.includePeerHistoryWhenInvoking ||
         !peer.shareOwnHistoryWithVimla
       ) {
