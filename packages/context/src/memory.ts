@@ -881,8 +881,8 @@ async function assertSourceRefsValid(
   targetScope: NormalizedScope,
   refs: readonly MemorySourceRefInput[],
   explicitCrossScopeWrite: boolean,
-): Promise<void> {
-  if (refs.length === 0) return;
+): Promise<MemoryClassification> {
+  if (refs.length === 0) return "PUBLIC";
   if (refs.length > 32) {
     throw new MemoryError(
       "VALIDATION_ERROR",
@@ -890,12 +890,18 @@ async function assertSourceRefsValid(
     );
   }
 
+  let classification: MemoryClassification = "PUBLIC";
   for (const ref of refs) {
+    const resolved = await assertSourceRefValid(
+      tx,
+      actorUserId,
+      ref,
+    );
     if (
       targetScope.kind === "PROJECT" &&
       !(
-        ref.sourceScopeKind === "PROJECT" &&
-        ref.sourceScopeId === targetScope.projectId
+        resolved.scopeKind === "PROJECT" &&
+        resolved.scopeId === targetScope.projectId
       ) &&
       !explicitCrossScopeWrite
     ) {
@@ -904,29 +910,46 @@ async function assertSourceRefsValid(
         "Project memory requires an explicit cross-scope write",
       );
     }
-    await assertSourceRefValid(
-      tx,
-      actorUserId,
-      ref,
+    classification = strongerClassification(
+      classification,
+      resolved.classification,
     );
   }
+  return classification;
 }
 
 async function assertSourceRefValid(
   tx: Prisma.TransactionClient,
   actorUserId: string,
   ref: MemorySourceRefInput,
-): Promise<void> {
+): Promise<{
+  classification: MemoryClassification;
+  scopeKind: MemoryScopeKind | "DIRECT_CHAT";
+  scopeId: string | null;
+}> {
   switch (ref.sourceType) {
     case "USER_EXPLICIT":
-      return;
+      assertClaimedScope(
+        ref,
+        "PERSONAL",
+        actorUserId,
+        "Explicit memory",
+      );
+      return {
+        classification: "PRIVATE",
+        scopeKind: "PERSONAL",
+        scopeId: actorUserId,
+      };
     case "USER_CORRECTION": {
       const row = await tx.memoryItem.findFirst({
         where: {
           id: ref.sourceId,
           ownerUserId: actorUserId,
         },
-        select: { id: true },
+        select: {
+          id: true,
+          classification: true,
+        },
       });
       if (!row) {
         throw new MemoryError(
@@ -934,7 +957,19 @@ async function assertSourceRefValid(
           "Correction source is invalid",
         );
       }
-      return;
+      assertClaimedScope(
+        ref,
+        "PERSONAL",
+        actorUserId,
+        "Correction memory",
+      );
+      return {
+        classification: parseClassification(
+          row.classification,
+        ),
+        scopeKind: "PERSONAL",
+        scopeId: actorUserId,
+      };
     }
     case "MESSAGE": {
       const row = await tx.message.findFirst({
@@ -959,16 +994,17 @@ async function assertSourceRefValid(
           "Message memory source is stale or inaccessible",
         );
       }
-      if (
-        ref.sourceScopeKind === "CONVERSATION" &&
-        ref.sourceScopeId !== row.conversationId
-      ) {
-        throw new MemoryError(
-          "VALIDATION_ERROR",
-          "Message memory source scope is invalid",
-        );
-      }
-      return;
+      assertClaimedScope(
+        ref,
+        "CONVERSATION",
+        row.conversationId,
+        "Message memory",
+      );
+      return {
+        classification: "PRIVATE",
+        scopeKind: "CONVERSATION",
+        scopeId: row.conversationId,
+      };
     }
     case "WORKSPACE_OBJECT": {
       const row = await tx.workspaceObject.findFirst({
@@ -991,7 +1027,17 @@ async function assertSourceRefValid(
           "Workspace memory source is stale or inaccessible",
         );
       }
-      return;
+      assertClaimedScope(
+        ref,
+        "PERSONAL",
+        actorUserId,
+        "Workspace memory",
+      );
+      return {
+        classification: "PRIVATE",
+        scopeKind: "PERSONAL",
+        scopeId: actorUserId,
+      };
     }
     case "PROJECT": {
       const row = await tx.project.findFirst({
@@ -999,10 +1045,17 @@ async function assertSourceRefValid(
           id: ref.sourceId,
           OR: [
             { ownerUserId: actorUserId },
-            { members: { some: { userId: actorUserId } } },
+            {
+              members: {
+                some: { userId: actorUserId },
+              },
+            },
           ],
         },
-        select: { updatedAt: true },
+        select: {
+          id: true,
+          updatedAt: true,
+        },
       });
       if (
         !row ||
@@ -1016,7 +1069,17 @@ async function assertSourceRefValid(
           "Project memory source is stale or inaccessible",
         );
       }
-      return;
+      assertClaimedScope(
+        ref,
+        "PROJECT",
+        row.id,
+        "Project memory",
+      );
+      return {
+        classification: "INTERNAL",
+        scopeKind: "PROJECT",
+        scopeId: row.id,
+      };
     }
     case "ARTIFACT": {
       const row = await tx.artifact.findFirst({
@@ -1041,6 +1104,7 @@ async function assertSourceRefValid(
         },
         select: {
           id: true,
+          classification: true,
           versions: {
             select: { id: true },
             orderBy: { version: "desc" },
@@ -1050,30 +1114,42 @@ async function assertSourceRefValid(
       });
       if (
         !row ||
-        (ref.sourceVersion &&
-          row.versions[0]?.id !== ref.sourceVersion)
+        !ref.sourceVersion ||
+        row.versions[0]?.id !== ref.sourceVersion
       ) {
         throw new MemoryError(
           "VALIDATION_ERROR",
           "Artifact memory source is stale or inaccessible",
         );
       }
-      return;
+      assertClaimedScope(
+        ref,
+        "PERSONAL",
+        actorUserId,
+        "Artifact memory",
+      );
+      return {
+        classification: parseClassification(
+          row.classification,
+        ),
+        scopeKind: "PERSONAL",
+        scopeId: actorUserId,
+      };
     }
     case "E2EE_USER_DISCLOSURE": {
       const row = await tx.directMessage.findFirst({
         where: {
           id: ref.sourceId,
-          ...(ref.sourceScopeId
-            ? { conversationId: ref.sourceScopeId }
-            : {}),
           conversation: {
             members: {
               some: { userId: actorUserId },
             },
           },
         },
-        select: { createdAt: true },
+        select: {
+          conversationId: true,
+          createdAt: true,
+        },
       });
       if (
         !row ||
@@ -1087,8 +1163,35 @@ async function assertSourceRefValid(
           "E2EE disclosure provenance is invalid",
         );
       }
-      return;
+      assertClaimedScope(
+        ref,
+        "DIRECT_CHAT",
+        row.conversationId,
+        "E2EE disclosure",
+      );
+      return {
+        classification: "PRIVATE",
+        scopeKind: "DIRECT_CHAT",
+        scopeId: row.conversationId,
+      };
     }
+  }
+}
+
+function assertClaimedScope(
+  ref: MemorySourceRefInput,
+  expectedKind: MemoryScopeKind | "DIRECT_CHAT",
+  expectedId: string,
+  label: string,
+): void {
+  if (
+    ref.sourceScopeKind !== expectedKind ||
+    ref.sourceScopeId !== expectedId
+  ) {
+    throw new MemoryError(
+      "VALIDATION_ERROR",
+      `${label} source scope is invalid`,
+    );
   }
 }
 
@@ -1401,7 +1504,24 @@ function versionMatches(
   expected: string | null | undefined,
   actual: string,
 ): boolean {
-  return !expected || expected === actual;
+  return (
+    typeof expected === "string" &&
+    expected.length > 0 &&
+    expected === actual
+  );
+}
+
+function strongerClassification(
+  left: MemoryClassification,
+  right: MemoryClassification,
+): MemoryClassification {
+  const rank: Record<MemoryClassification, number> = {
+    PUBLIC: 0,
+    INTERNAL: 1,
+    PRIVATE: 2,
+    RESTRICTED: 3,
+  };
+  return rank[left] >= rank[right] ? left : right;
 }
 
 function parseScopeKind(value: string): MemoryScopeKind {
