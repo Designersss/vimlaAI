@@ -464,8 +464,10 @@ function workspaceSnapshotFromContextBundle(
     const metadata = asRecord(item.metadata);
     if (
       !metadata ||
-      metadata.deletedAt !== null ||
-      metadata.archivedAt !== null
+      (metadata.deletedAt !== undefined &&
+        metadata.deletedAt !== null) ||
+      (metadata.archivedAt !== undefined &&
+        metadata.archivedAt !== null)
     ) {
       continue;
     }
