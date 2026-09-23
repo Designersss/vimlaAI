@@ -22,6 +22,7 @@ import {
   loadWorkspaceSnapshot,
   parsePlannerOutput,
   prepareSteps,
+  selectDirectChatPlannerOutput,
   sanitizePublicText,
   type OperatorToolContext,
   type PreparedStep,
@@ -416,15 +417,29 @@ export class OperatorService {
         throw error;
       }
     }
+    const invocationScope =
+      run.invocationScope === "DIRECT_CHAT" ? "DIRECT_CHAT" : "PERSONAL";
     const prompt = buildPlannerPrompt({
       userText: run.userText,
       locale: run.locale,
       snapshot,
       previousClarification,
-      invocationScope: run.invocationScope === "DIRECT_CHAT" ? "DIRECT_CHAT" : "PERSONAL",
+      invocationScope,
       participantNames: context.invocation.participantNames,
       untrustedContext: effectiveUntrustedContext,
     });
+    const trustedPrompt =
+      invocationScope === "DIRECT_CHAT"
+        ? buildPlannerPrompt({
+            userText: run.userText,
+            locale: run.locale,
+            snapshot,
+            previousClarification,
+            invocationScope,
+            participantNames: context.invocation.participantNames,
+            untrustedContext: null,
+          })
+        : prompt;
 
     let plannerOutput = run.plannerOutput;
     if (!plannerOutput) {
@@ -437,9 +452,17 @@ export class OperatorService {
       }
 
       const plannerClientRequestId = run.plannerClientRequestId ?? randomUUID();
-      const proposedPlannerOutput = mockOperatorPlannerResponse([
-        { content: prompt },
+      const trustedPlannerOutput = mockOperatorPlannerResponse([
+        { content: trustedPrompt },
       ]);
+      const proposedPlannerOutput =
+        invocationScope === "DIRECT_CHAT" &&
+        effectiveUntrustedContext
+          ? selectDirectChatPlannerOutput(
+              trustedPlannerOutput,
+              mockOperatorPlannerResponse([{ content: prompt }]),
+            )
+          : trustedPlannerOutput;
       const published = await this.prisma.operatorRun.updateMany({
         where: {
           id: run.id,
