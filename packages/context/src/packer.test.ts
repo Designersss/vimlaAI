@@ -228,6 +228,54 @@ describe("ContextPacker", () => {
     );
   });
 
+  it("does not let one oversized non-immediate source defeat source diversity", () => {
+    const result = packContextItems({
+      targetKind: "VIMLA",
+      budget: {
+        ...SMALL_BUDGET,
+        effectiveHistoryBudgetTokens: 700,
+        compactedStateTriggerTokens: 650,
+      },
+      maxSourceShare: 0.5,
+      items: [
+        item("user", "USER_MESSAGE", "current request", {
+          sourceKind: "IMMEDIATE",
+          currentSurface: true,
+          authority: "RAW",
+          estimatedTokens: 50,
+        }),
+        item("oversized-raw", "MESSAGE", "very large raw message", {
+          sourceKind: "L1_RAW",
+          currentSurface: true,
+          authority: "RAW",
+          estimatedTokens: 600,
+          lexicalScore: 1,
+        }),
+        item("workspace", "WORKSPACE_OBJECT", "authoritative task", {
+          sourceKind: "WORKSPACE_OBJECT",
+          authority: "AUTHORITATIVE",
+          estimatedTokens: 120,
+          lexicalScore: 0.5,
+        }),
+      ],
+    });
+
+    expect(
+      result.selections.map(({ item: selected }) => selected.id),
+    ).toContain("workspace");
+    expect(
+      result.selections.map(({ item: selected }) => selected.id),
+    ).not.toContain("oversized-raw");
+    expect(result.exclusions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          item: expect.objectContaining({ id: "oversized-raw" }),
+          reason: "SOURCE_CONTRIBUTION_CAPPED",
+        }),
+      ]),
+    );
+  });
+
   it("deduplicates semantically identical candidates deterministically", () => {
     const first = item(
       "first",
