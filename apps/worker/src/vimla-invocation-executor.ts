@@ -434,8 +434,14 @@ function workspaceSnapshotFromContextBundle(
     (item) => item.sourceType === "LOCALE_TIMEZONE",
   );
   const localeMetadata = asRecord(localeTimezone?.metadata);
+  const localeValue =
+    typeof localeMetadata?.locale === "string"
+      ? localeMetadata.locale
+      : localeMetadata?.locale === null
+        ? null
+        : undefined;
   const locale = parseVimlaLocale(
-    localeMetadata?.locale,
+    localeValue,
     fallback.locale,
   );
   const timezone =
