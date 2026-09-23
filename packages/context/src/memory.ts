@@ -76,7 +76,7 @@ export interface MemoryCandidateInput {
   expiresAt?: Date | null;
   origin: MemoryOrigin;
   sourceRefs: readonly MemorySourceRefInput[];
-  explicitCrossScopeWrite?: boolean;
+  explicitProjectWrite?: { projectId: string };
   userConfirmed?: boolean;
   userCorrected?: boolean;
   expectedCurrentId?: string;
@@ -218,7 +218,7 @@ export class MemoryService {
       quality: 1,
       expiresAt: input.expiresAt,
       userConfirmed: true,
-      explicitCrossScopeWrite: true,
+      explicitProjectWrite: { projectId: input.projectId },
       sourceRefs: [
         {
           provenance: "USER_EXPLICIT",
@@ -549,7 +549,7 @@ export class MemoryService {
           input.actorUserId,
           scope,
           input.sourceRefs,
-          input.explicitCrossScopeWrite === true,
+          input.explicitProjectWrite?.projectId ?? null,
         );
       const classification = strongerClassification(
         requestedClassification,
@@ -1037,7 +1037,7 @@ async function assertSourceRefsValid(
   actorUserId: string,
   targetScope: NormalizedScope,
   refs: readonly MemorySourceRefInput[],
-  explicitCrossScopeWrite: boolean,
+  explicitProjectWriteId: string | null,
 ): Promise<MemoryClassification> {
   if (refs.length === 0) return "PUBLIC";
   if (refs.length > MAX_MEMORY_SOURCE_REFS) {
@@ -1072,7 +1072,7 @@ async function assertSourceRefsValid(
         resolved.scopeKind === "PROJECT" &&
         resolved.scopeId === targetScope.projectId
       ) &&
-      !explicitCrossScopeWrite
+      explicitProjectWriteId !== targetScope.projectId
     ) {
       throw new MemoryError(
         "FORBIDDEN",
