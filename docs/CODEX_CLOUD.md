@@ -121,3 +121,12 @@ If GitHub CI fails despite a green Codex run, compare the exact environment and 
 ## Network access
 
 Setup scripts may use internet access to install dependencies. Agent-phase internet access should stay off unless a task genuinely requires it. Normal Vimla tests must use mock/test providers and must not depend on live AI, email, or payment services.
+
+## PR-15 vector extension
+
+Semantic retrieval migrations require pgvector 0.8.2+ in PostgreSQL 16 even when
+inference is disabled. Compose and CI use `pgvector/pgvector:0.8.2-pg16`.
+Native PostgreSQL installations must install pgvector binaries before migration.
+CI uses controlled test embedding providers only; leave `EMBEDDING_PROVIDER`
+disabled in browser regression runs. See `docs/SEMANTIC_RETRIEVAL.md` for the
+source lifecycle, included-inference contract and rollout requirements.

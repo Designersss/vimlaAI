@@ -13,6 +13,7 @@ datasource db {
 // Monetary columns must use BIGINT microRUB (1 RUB = 1_000_000 microRUB).
 
 model User {
+  semanticSources SemanticSource[]
   id                   String          @id
   name                 String
   email                String
@@ -738,6 +739,7 @@ model AdminSecurityEvent {
 // Phase 8: Projects + collaboration. Entitlement lock state is computed from owner/member
 // plans and ProjectMember.lastOpenedAt; it is never stored as a durable project status.
 model Project {
+  semanticSources SemanticSource[]
   id          String          @id @default(uuid())
   ownerUserId String
   owner       User            @relation("ProjectOwner", fields: [ownerUserId], references: [id], onDelete: Restrict)

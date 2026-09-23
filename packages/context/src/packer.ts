@@ -54,6 +54,7 @@ type RetrievalMetadata = {
   sourceKind: string;
   reason: string | null;
   lexicalScore: number;
+  hybridScore: number;
   directReference: boolean;
   currentSurface: boolean;
   currentProject: boolean;
@@ -243,7 +244,7 @@ function compareCandidates(
     compareBoolean(a.currentProject, b.currentProject),
     authorityRank(b.authority) - authorityRank(a.authority),
     sourcePriority(a.sourceKind) - sourcePriority(b.sourceKind),
-    b.lexicalScore - a.lexicalScore,
+    b.hybridScore - a.hybridScore,
     compareBoolean(!a.stale, !b.stale),
     compareDateDesc(a.occurredAt, b.occurredAt),
     left.sequence - right.sequence,
@@ -339,6 +340,7 @@ function retrievalMetadata(
     reason:
       typeof retrieval?.reason === "string" ? retrieval.reason : null,
     lexicalScore: finiteNumber(retrieval?.lexicalScore, 0),
+    hybridScore: finiteNumber(retrieval?.hybridScore, finiteNumber(retrieval?.lexicalScore, 0)),
     directReference: retrieval?.directReference === true,
     currentSurface:
       retrieval?.currentSurface === true ||

@@ -1,4 +1,5 @@
-import { MockAiProvider, VimlaAiGateway } from "@vimla/ai";
+import { SemanticIndexer } from "@vimla/context";
+import { InternalHttpEmbeddingProvider, MockAiProvider, VimlaAiGateway } from "@vimla/ai";
 import type { BillingEngine } from "@vimla/billing";
 import type { WorkerConfig } from "@vimla/config";
 import { loadWorkerConfig } from "@vimla/config/server";
@@ -115,6 +116,19 @@ async function bootstrap(): Promise<void> {
       logger.error(fields, message);
     },
   };
+  const embeddingIndexer = config.embeddings
+    ? new SemanticIndexer(prisma, new InternalHttpEmbeddingProvider(config.embeddings), billingLogger)
+    : undefined;
+  let embeddingRun: Promise<unknown> | undefined;
+  const runEmbeddings = (): void => {
+    if (!embeddingIndexer || embeddingRun) return;
+    embeddingRun = embeddingIndexer.runBatch().then(
+      count => { if (count) logger.info({ count }, "semantic.index.batch"); },
+      () => logger.warn({ code: "SEMANTIC_WORKER_UNAVAILABLE" }, "Semantic worker will retry"),
+    ).finally(() => { embeddingRun = undefined; });
+  };
+  const embeddingTimer = embeddingIndexer ? setInterval(runEmbeddings, 30_000) : undefined;
+  runEmbeddings();
   const billingEngine = createWorkerBillingEngine(prisma, config, billingLogger);
   const payments = createWorkerPaymentService(prisma, config, billingLogger, billingEngine);
   const aiReconciler = createAiReconciler(prisma, billingEngine, billingLogger);
@@ -275,6 +289,8 @@ async function bootstrap(): Promise<void> {
   const shutdown = async (signal: string): Promise<void> => {
     logger.info({ signal }, "worker shutting down");
     clearInterval(paymentTimer);
+    if (embeddingTimer) clearInterval(embeddingTimer);
+    await embeddingRun;
     clearInterval(aiReconciliationTimer);
     if (orchestrationResources) {
       clearInterval(orchestrationResources.reconcileTimer);

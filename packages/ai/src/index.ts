@@ -70,3 +70,5 @@ export type {
   ProviderToolCall,
   ProviderToolDefinition,
 } from "./types.js";
+
+export * from "./embeddings.js";
