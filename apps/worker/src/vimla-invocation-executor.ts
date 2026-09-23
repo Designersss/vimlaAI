@@ -166,9 +166,7 @@ export class VimlaInvocationExecutor implements InvocationExecutorRegistry {
       );
       const plannerContext = [packedContext, dependencyContext]
         .filter((value): value is string => Boolean(value))
-        .join("
-
-");
+        .join("\n\n");
       const planned = await this.planner.plan({
         userText: invocation.purpose,
         locale: plannerLocale,
