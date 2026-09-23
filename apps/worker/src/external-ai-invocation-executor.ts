@@ -25,6 +25,7 @@ import {
   type BillingEngine,
 } from "@vimla/billing";
 import {
+  containsSensitiveContextData,
   isExternalProviderClassificationAllowed,
   renderContextBundleItems,
   type ContextSnapshotItemView,
@@ -766,6 +767,11 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
       if (version.content.kind !== "INLINE_JSON") {
         throw new ArtifactBindingError(
           `AI input ${JSON.stringify(binding.inputName)} is not inline content`,
+        );
+      }
+      if (containsSensitiveContextData(version.content.value)) {
+        throw new ExternalAiTerminalError(
+          "AI_ARTIFACT_SENSITIVE_DATA_DENIED",
         );
       }
       inputs.push(
