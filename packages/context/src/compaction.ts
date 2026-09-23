@@ -607,6 +607,18 @@ async function resolveCompactionSources(
     }
 
     if (
+      targetScope.kind === "CONVERSATION" &&
+      !(
+        item.sourceScopeKind === "CONVERSATION" &&
+        item.sourceScopeId === targetScope.conversationId
+      )
+    ) {
+      throw new MemoryError(
+        "FORBIDDEN",
+        "Conversation compaction sources must belong to the target conversation",
+      );
+    }
+    if (
       targetScope.kind === "PROJECT" &&
       !(
         item.sourceScopeKind === "PROJECT" &&
