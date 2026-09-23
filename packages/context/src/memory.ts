@@ -354,18 +354,27 @@ export class MemoryService {
         scopeKind: "PERSONAL",
         state: "ACTIVE",
         invalidatedAt: null,
-        OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
-        ...(cursor
-          ? {
-              OR: [
-                { validFrom: { lt: cursor.validFrom } },
+        AND: [
+          {
+            OR: [
+              { expiresAt: null },
+              { expiresAt: { gt: now } },
+            ],
+          },
+          ...(cursor
+            ? [
                 {
-                  validFrom: cursor.validFrom,
-                  id: { lt: cursor.id },
+                  OR: [
+                    { validFrom: { lt: cursor.validFrom } },
+                    {
+                      validFrom: cursor.validFrom,
+                      id: { lt: cursor.id },
+                    },
+                  ],
                 },
-              ],
-            }
-          : {}),
+              ]
+            : []),
+        ],
       },
       include: { sourceRefs: true },
       orderBy: [{ validFrom: "desc" }, { id: "desc" }],
@@ -437,6 +446,11 @@ export class MemoryService {
         input.explicitCrossScopeWrite === true,
       );
 
+      await tx.$queryRaw(Prisma.sql`
+        SELECT pg_advisory_xact_lock(
+          hashtext(${scope.scopeKey + "\u0000" + slotKey})
+        )
+      `);
       const active = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
         SELECT "id"
         FROM "memory_item"
