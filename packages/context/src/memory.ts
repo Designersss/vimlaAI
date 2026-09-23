@@ -41,6 +41,13 @@ export type MemoryClassification =
   | "RESTRICTED";
 export type MemorySensitivity = "NORMAL" | "SENSITIVE";
 
+export interface MemoryProjectWriteAuthorizer {
+  canWriteProject(input: {
+    actorUserId: string;
+    projectId: string;
+  }): Promise<boolean>;
+}
+
 export type MemoryScope =
   | { kind: "PERSONAL" }
   | { kind: "PROJECT"; projectId: string }
@@ -155,7 +162,10 @@ type MemoryRow = Prisma.MemoryItemGetPayload<{
 }>;
 
 export class MemoryService {
-  constructor(private readonly db: PrismaClient) {}
+  constructor(
+    private readonly db: PrismaClient,
+    private readonly projectWriteAuthorizer?: MemoryProjectWriteAuthorizer,
+  ) {}
 
   async rememberPersonal(input: {
     actorUserId: string;
@@ -208,7 +218,10 @@ export class MemoryService {
       },
       include: { sourceRefs: true },
     });
-    if (!current) {
+    if (
+      !current ||
+      !(await ensureMemoryCurrent(this.db, current))
+    ) {
       throw new MemoryError("NOT_FOUND", "Memory item not found");
     }
 
@@ -281,6 +294,9 @@ export class MemoryService {
           state: "INVALIDATED",
           invalidatedAt: new Date(),
           invalidationReason: reason,
+          slotKey: `deleted:${memoryId}`,
+          content: "",
+          contentHash: hashText(""),
         },
       });
     });
@@ -432,7 +448,8 @@ export class MemoryService {
     const contentHash = hashText(content);
     const validFrom = input.validFrom ?? new Date();
     const expiresAt = input.expiresAt ?? null;
-    const classification = input.classification ?? "PRIVATE";
+    const requestedClassification =
+      input.classification ?? "PRIVATE";
     const sensitivity = input.sensitivity ?? "NORMAL";
     const confidence = input.confidence ?? 0.8;
     const quality = input.quality ?? 0.8;
@@ -443,13 +460,19 @@ export class MemoryService {
         input.actorUserId,
         scope,
         input.type,
+        this.projectWriteAuthorizer,
       );
-      await assertSourceRefsValid(
-        tx,
-        input.actorUserId,
-        scope,
-        input.sourceRefs,
-        input.explicitCrossScopeWrite === true,
+      const sourceClassification =
+        await assertSourceRefsValid(
+          tx,
+          input.actorUserId,
+          scope,
+          input.sourceRefs,
+          input.explicitCrossScopeWrite === true,
+        );
+      const classification = strongerClassification(
+        requestedClassification,
+        sourceClassification,
       );
 
       await tx.$queryRaw<Array<{ lock: string }>>(Prisma.sql`
@@ -465,12 +488,27 @@ export class MemoryService {
           AND "state"='ACTIVE'
         FOR UPDATE
       `);
-      const existing = active[0]
+      let existing = active[0]
         ? await tx.memoryItem.findUnique({
             where: { id: active[0].id },
             include: { sourceRefs: true },
           })
         : null;
+      const existingExpired =
+        existing?.expiresAt !== null &&
+        existing?.expiresAt !== undefined &&
+        existing.expiresAt <= new Date();
+      if (existing && existingExpired) {
+        existing = await tx.memoryItem.update({
+          where: { id: existing.id },
+          data: {
+            state: "INVALIDATED",
+            invalidatedAt: new Date(),
+            invalidationReason: "EXPIRED",
+          },
+          include: { sourceRefs: true },
+        });
+      }
 
       if (
         input.expectedCurrentId &&
@@ -484,12 +522,24 @@ export class MemoryService {
 
       if (
         existing &&
+        !existingExpired &&
+        existing.state === "ACTIVE" &&
+        input.origin === "AUTO_EXTRACTION" &&
+        existing.origin === "AUTO_EXTRACTION" &&
         existing.contentHash === contentHash &&
         existing.type === input.type
       ) {
-        if (input.sourceRefs.length > 0) {
-          await tx.memorySourceRef.createMany({
-            data: input.sourceRefs.map((ref) => ({
+        for (const ref of input.sourceRefs) {
+          await tx.memorySourceRef.upsert({
+            where: {
+              memoryId_provenance_sourceType_sourceId: {
+                memoryId: existing.id,
+                provenance: ref.provenance,
+                sourceType: ref.sourceType,
+                sourceId: ref.sourceId,
+              },
+            },
+            create: {
               memoryId: existing.id,
               provenance: ref.provenance,
               sourceType: ref.sourceType,
@@ -498,21 +548,26 @@ export class MemoryService {
               sourceScopeKind: ref.sourceScopeKind,
               sourceScopeId: ref.sourceScopeId ?? null,
               disclosedAt: ref.disclosedAt ?? null,
-            })),
-            skipDuplicates: true,
+            },
+            update: {
+              sourceVersion: ref.sourceVersion ?? null,
+              sourceScopeKind: ref.sourceScopeKind,
+              sourceScopeId: ref.sourceScopeId ?? null,
+              disclosedAt: ref.disclosedAt ?? null,
+            },
           });
         }
         const refreshed = await tx.memoryItem.update({
           where: { id: existing.id },
           data: {
-            userConfirmedAt:
-              input.userConfirmed === true
-                ? new Date()
-                : existing.userConfirmedAt,
-            userCorrectedAt:
-              input.userCorrected === true
-                ? new Date()
-                : existing.userCorrectedAt,
+            classification: strongerClassification(
+              parseClassification(existing.classification),
+              classification,
+            ),
+            expiresAt:
+              input.expiresAt === undefined
+                ? existing.expiresAt
+                : input.expiresAt,
             quality: Math.max(existing.quality, quality),
             confidence: Math.max(existing.confidence, confidence),
           },
@@ -523,6 +578,8 @@ export class MemoryService {
 
       if (
         existing &&
+        !existingExpired &&
+        existing.state === "ACTIVE" &&
         input.origin === "AUTO_EXTRACTION" &&
         (existing.userConfirmedAt ||
           existing.userCorrectedAt ||
@@ -535,13 +592,19 @@ export class MemoryService {
 
       if (
         existing &&
+        !existingExpired &&
+        existing.state === "ACTIVE" &&
         input.origin === "AUTO_EXTRACTION" &&
         existing.validFrom > validFrom
       ) {
         return existing;
       }
 
-      if (existing) {
+      if (
+        existing &&
+        !existingExpired &&
+        existing.state === "ACTIVE"
+      ) {
         await tx.memoryItem.update({
           where: { id: existing.id },
           data: { state: "SUPERSEDED" },
@@ -755,6 +818,7 @@ async function assertScopeWritable(
   actorUserId: string,
   scope: NormalizedScope,
   type: MemoryType,
+  projectWriteAuthorizer?: MemoryProjectWriteAuthorizer,
 ): Promise<void> {
   assertTypeMatchesScope(scope.kind, type);
   switch (scope.kind) {
@@ -792,6 +856,18 @@ async function assertScopeWritable(
         throw new MemoryError(
           "NOT_FOUND",
           "Project memory scope not found",
+        );
+      }
+      if (
+        !projectWriteAuthorizer ||
+        !(await projectWriteAuthorizer.canWriteProject({
+          actorUserId,
+          projectId: project.id,
+        }))
+      ) {
+        throw new MemoryError(
+          "FORBIDDEN",
+          "Project Memory write is not allowed",
         );
       }
       return;
