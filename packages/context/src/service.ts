@@ -92,6 +92,11 @@ export class ContextSnapshotService {
   }
 
   async assertSourceAccess(check: ContextAccessCheck): Promise<void> {
+    if (check.sourceType === "E2EE_DISCLOSURE") {
+      throw new ContextAccessDeniedError(
+        "E2EE disclosure requires the specialized Direct Chat consent gate",
+      );
+    }
     if (await this.hasBuiltInAccess(check)) {
       return;
     }
