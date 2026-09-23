@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger } from "@nestjs/common";
 import {
   CompactedStateService,
   ContextBudgetService,
+  containsSensitiveContextData,
   MemoryExtractionPipeline,
   estimateConservativeTokens as estimateTokens,
   shouldUseCompactedState,
@@ -236,10 +237,14 @@ export class MemoryMaintenanceService {
 
     if (!extracted) {
       try {
-        stored = await this.extractMessage({
-          ...input,
-          source,
-        });
+        stored = containsSensitiveContextData({
+          content: source.content,
+        })
+          ? 0
+          : await this.extractMessage({
+              ...input,
+              source,
+            });
         const marked =
           await this.db.memoryExtractionReceipt.updateMany({
             where: {
@@ -429,7 +434,11 @@ export class MemoryMaintenanceService {
           previous?.content ?? null,
           raw.map((message) => ({
             role: message.role,
-            content: message.content,
+            content: containsSensitiveContextData({
+              content: message.content,
+            })
+              ? "[SENSITIVE_DATA_REDACTED]"
+              : message.content,
           })),
         ),
         correlationId:
