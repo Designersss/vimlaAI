@@ -8,6 +8,11 @@ export type ContextSourceType =
   | "PROJECT"
   | "WORKSPACE_OBJECT"
   | "ATTACHMENT"
+  | "FILE_METADATA"
+  | "ARTIFACT"
+  | "COMPACTED_STATE"
+  | "MEMORY"
+  | "ENTITY"
   | "LOCALE_TIMEZONE"
   | "AUDIENCE";
 
