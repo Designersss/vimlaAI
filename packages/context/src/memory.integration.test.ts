@@ -1375,7 +1375,7 @@ describe("durable memory context graph", () => {
         slotKey: "two",
         content: "Second fact",
       }),
-    ).rejects.toMatchObject({ code: "CONFLICT" });
+    ).rejects.toMatchObject({ code: "STORAGE_LIMIT" });
   });
 
   it("enforces the active Project Memory storage cap inside the shared project scope", async () => {
