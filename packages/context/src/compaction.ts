@@ -305,8 +305,7 @@ async function compactedScopeReadable(
           })),
       );
     case "THREAD":
-      return row.ownerUserId === actorUserId &&
-        Boolean(row.threadId);
+      return false;
     case "PROJECT":
       return Boolean(
         row.projectId &&
