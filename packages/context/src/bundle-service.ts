@@ -320,7 +320,9 @@ export class ContextBundleService {
     const packingExclusions = packed.exclusions.map(
       (exclusion): ContextBundlePackingExclusionAudit => ({
         sourceType: exclusion.item.sourceType,
-        sourceRefHash: sourceRefHash(exclusion.item),
+        sourceRefHash: hashValue(
+          `${exclusion.item.sourceType}:${exclusion.item.sourceId}`,
+        ),
         classification: exclusion.item.classification,
         reason: exclusion.reason,
       }),
