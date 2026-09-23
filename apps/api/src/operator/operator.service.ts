@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { mockOperatorPlannerResponse } from "@vimla/ai";
+import {
+  freezeDirectOperatorContextSnapshot,
+  loadDirectOperatorContextSnapshot,
+} from "@vimla/context";
 import type { Prisma } from "@vimla/database";
 import {
   confirmOperatorRunSchema,
@@ -24,7 +28,7 @@ import {
   type SafeProfile,
   type TaskOwnerResolution,
 } from "@vimla/operator";
-import { filterOperatorContextBundle, resolveDirectChatAssignee } from "@vimla/direct-chats";
+import { resolveDirectChatAssignee } from "@vimla/direct-chats";
 import {
   ListService,
   NoteService,
@@ -119,7 +123,13 @@ export class OperatorService {
 
     const conversation = await this.resolveConversation(userId, scope === "DIRECT_CHAT" ? undefined : input.conversationId);
     const locale = await this.userLocale(userId);
-    const scoped = await this.resolveDirectChatScope(userId, scope, input.directConversationId, input.contextBundle);
+    const scoped = await this.resolveDirectChatScope(
+      userId,
+      scope,
+      input.directConversationId,
+      input.directSourceMessageId,
+      input.contextBundle,
+    );
 
     try {
       const run = await this.prisma.$transaction(async (tx) => {
@@ -136,8 +146,10 @@ export class OperatorService {
           userMessageId = userMessage.id;
         }
 
-        return tx.operatorRun.create({
+        const runId = randomUUID();
+        const created = await tx.operatorRun.create({
           data: {
+            id: runId,
             userId,
             conversationId: conversation.id,
             userMessageId,
@@ -154,6 +166,23 @@ export class OperatorService {
           },
           include: { steps: { orderBy: { sequence: "asc" } } },
         });
+        if (
+          scope === "DIRECT_CHAT" &&
+          scoped.directConversationId &&
+          scoped.sourceMessageId &&
+          scoped.sourceMessageCreatedAt
+        ) {
+          await freezeDirectOperatorContextSnapshot(tx, {
+            operatorRunId: runId,
+            actorUserId: userId,
+            directConversationId: scoped.directConversationId,
+            sourceMessageId: scoped.sourceMessageId,
+            sourceMessageCreatedAt: scoped.sourceMessageCreatedAt,
+            userText: input.content,
+            messages: scoped.messages,
+          });
+        }
+        return created;
       });
       return await this.planAndMaybeExecute(run, correlationId, null, scoped.untrustedContext);
     } catch (error: unknown) {
@@ -325,6 +354,8 @@ export class OperatorService {
   ): Promise<OperatorRunView> {
     const context = await this.toolContext(run);
     const snapshot = await loadWorkspaceSnapshot(context);
+    const effectiveUntrustedContext =
+      untrustedContext ?? (await this.loadFrozenDirectChatContext(run));
     const prompt = buildPlannerPrompt({
       userText: run.userText,
       locale: run.locale,
@@ -332,7 +363,7 @@ export class OperatorService {
       previousClarification,
       invocationScope: run.invocationScope === "DIRECT_CHAT" ? "DIRECT_CHAT" : "PERSONAL",
       participantNames: context.invocation.participantNames,
-      untrustedContext,
+      untrustedContext: effectiveUntrustedContext,
     });
 
     let plannerOutput = run.plannerOutput;
@@ -825,43 +856,114 @@ export class OperatorService {
     userId: string,
     scope: "PERSONAL" | "DIRECT_CHAT",
     directConversationId: string | undefined,
-    contextBundle: { messages: Array<{ senderUserId: string; sentAt: string; text: string }> } | undefined,
+    directSourceMessageId: string | undefined,
+    contextBundle:
+      | {
+          messages: Array<{
+            messageId: string;
+            senderUserId: string;
+            sentAt: string;
+            text: string;
+          }>;
+        }
+      | undefined,
   ): Promise<{
     directConversationId: string | null;
+    sourceMessageId: string | null;
+    sourceMessageCreatedAt: string | null;
+    messages: Array<{
+      messageId: string;
+      senderUserId: string;
+      sentAt: string;
+      text: string;
+    }>;
     ownIncluded: boolean;
     peerIncluded: boolean;
     peerDenied: boolean;
     untrustedContext: string | null;
   }> {
-    if (scope !== "DIRECT_CHAT" || !directConversationId) {
+    if (scope !== "DIRECT_CHAT") {
       return {
         directConversationId: null,
+        sourceMessageId: null,
+        sourceMessageCreatedAt: null,
+        messages: [],
         ownIncluded: false,
         peerIncluded: false,
         peerDenied: false,
         untrustedContext: null,
       };
     }
-    const consent = await this.directChats.chats.consent(userId, directConversationId);
-    const filtered = filterOperatorContextBundle({
-      actorUserId: userId,
-      memberIds: consent.memberIds,
-      consent,
-      messages: contextBundle?.messages ?? [],
-    });
-    const untrustedContext =
-      filtered.messages.length === 0
-        ? null
-        : filtered.messages
-            .map((message) => `${message.senderUserId === userId ? "self" : "peer"} at ${message.sentAt}: ${message.text}`)
-            .join("\n");
+    if (!directConversationId || !directSourceMessageId) {
+      throw new OperatorError(
+        "VALIDATION_ERROR",
+        "Direct Chat invocation provenance is required",
+      );
+    }
+    const disclosure =
+      await this.directChats.chats.validateOperatorContextDisclosure(
+        userId,
+        directConversationId,
+        directSourceMessageId,
+        contextBundle?.messages ?? [],
+      );
     return {
       directConversationId,
-      ownIncluded: filtered.ownIncluded,
-      peerIncluded: filtered.peerIncluded,
-      peerDenied: filtered.peerDenied,
-      untrustedContext,
+      sourceMessageId: disclosure.sourceMessageId,
+      sourceMessageCreatedAt: disclosure.sourceMessageCreatedAt,
+      messages: disclosure.messages,
+      ownIncluded: disclosure.ownIncluded,
+      peerIncluded: disclosure.peerIncluded,
+      peerDenied: disclosure.peerDenied,
+      untrustedContext: this.formatDirectChatContext(
+        userId,
+        disclosure.messages,
+      ),
     };
+  }
+
+  private async loadFrozenDirectChatContext(
+    run: RunRecord,
+  ): Promise<string | null> {
+    if (
+      run.invocationScope !== "DIRECT_CHAT" ||
+      !run.directConversationId
+    ) {
+      return null;
+    }
+    const frozen = await loadDirectOperatorContextSnapshot(
+      this.prisma,
+      run.userId,
+      run.id,
+    );
+    if (!frozen) {
+      return null;
+    }
+    const disclosure =
+      await this.directChats.chats.validateOperatorContextDisclosure(
+        run.userId,
+        run.directConversationId,
+        frozen.sourceMessageId,
+        frozen.messages,
+      );
+    return this.formatDirectChatContext(run.userId, disclosure.messages);
+  }
+
+  private formatDirectChatContext(
+    userId: string,
+    messages: readonly {
+      senderUserId: string;
+      sentAt: string;
+      text: string;
+    }[],
+  ): string | null {
+    if (messages.length === 0) return null;
+    return messages
+      .map(
+        (message) =>
+          `${message.senderUserId === userId ? "self" : "peer"} at ${message.sentAt}: ${message.text}`,
+      )
+      .join("\n");
   }
 
   private async getSafeProfile(userId: string): Promise<SafeProfile> {
