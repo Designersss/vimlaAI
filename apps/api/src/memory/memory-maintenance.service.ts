@@ -3,6 +3,7 @@ import {
   CompactedStateService,
   ContextBudgetService,
   containsSensitiveContextData,
+  MemoryError,
   MemoryExtractionPipeline,
   estimateConservativeTokens as estimateTokens,
   shouldUseCompactedState,
@@ -448,7 +449,8 @@ export class MemoryMaintenanceService {
       parseStrictJson(rawModel),
     );
 
-    await this.compaction.refresh({
+    try {
+      await this.compaction.refresh({
         actorUserId: input.userId,
         scope: {
           kind: "CONVERSATION",
@@ -485,6 +487,15 @@ export class MemoryMaintenanceService {
         ],
         budget,
       });
+    } catch (error: unknown) {
+      if (
+        error instanceof MemoryError &&
+        error.code === "SENSITIVE_CONTENT"
+      ) {
+        return;
+      }
+      throw error;
+    }
   }
 
   private async claimExtractionReceipt(input: {
