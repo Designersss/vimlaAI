@@ -1572,6 +1572,48 @@ async function invalidateIfActive(
 function validateCandidate(
   input: MemoryCandidateInput,
 ): void {
+  if (
+    input.sourceRefs.some(
+      (ref) => ref.provenance !== input.origin,
+    )
+  ) {
+    throw new MemoryError(
+      "VALIDATION_ERROR",
+      "Memory source provenance must match memory origin",
+    );
+  }
+  if (
+    input.origin === "AUTO_EXTRACTION" &&
+    (input.userConfirmed === true ||
+      input.userCorrected === true)
+  ) {
+    throw new MemoryError(
+      "VALIDATION_ERROR",
+      "Automatic memory cannot grant itself user authority",
+    );
+  }
+  if (
+    (input.origin === "USER_EXPLICIT" ||
+      input.origin === "E2EE_USER_DISCLOSURE") &&
+    input.userConfirmed !== true
+  ) {
+    throw new MemoryError(
+      "VALIDATION_ERROR",
+      "Explicit memory requires user confirmation",
+    );
+  }
+  if (
+    input.origin === "USER_CORRECTION" &&
+    !(
+      input.userConfirmed === true &&
+      input.userCorrected === true
+    )
+  ) {
+    throw new MemoryError(
+      "VALIDATION_ERROR",
+      "User correction requires confirmed correction markers",
+    );
+  }
   if (!MEMORY_TYPES.includes(input.type)) {
     throw new MemoryError(
       "VALIDATION_ERROR",
