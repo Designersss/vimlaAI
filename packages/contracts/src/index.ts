@@ -353,7 +353,13 @@ export {
 } from "./workflows.js";
 
 export {
+  MEMORY_CLASSIFICATIONS,
   MEMORY_LIMITS,
+  MEMORY_ORIGINS,
+  MEMORY_SCOPE_KINDS,
+  MEMORY_SENSITIVITIES,
+  MEMORY_STATES,
+  MEMORY_TYPES,
   correctPersonalMemorySchema,
   createPersonalMemorySchema,
   listMemoriesQuerySchema,
