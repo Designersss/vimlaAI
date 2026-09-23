@@ -42,6 +42,17 @@ export const personalMemoryTypeSchema = z.enum([
 ]);
 export type PersonalMemoryType = z.infer<typeof personalMemoryTypeSchema>;
 
+export const projectMemoryTypeSchema = z.enum([
+  "PROJECT_FACT",
+  "PROJECT_DECISION",
+  "PROJECT_STATE",
+  "DECISION",
+  "ENTITY_RELATION",
+]);
+export type ProjectMemoryType = z.infer<
+  typeof projectMemoryTypeSchema
+>;
+
 export const MEMORY_CLASSIFICATIONS = [
   "PUBLIC",
   "INTERNAL",
@@ -94,6 +105,18 @@ export const createPersonalMemorySchema = z
   .strict();
 export type CreatePersonalMemory = z.infer<
   typeof createPersonalMemorySchema
+>;
+
+export const createProjectMemorySchema = z
+  .object({
+    type: projectMemoryTypeSchema,
+    slotKey: z.string().trim().min(1).max(MEMORY_LIMITS.slotKeyMax),
+    content: z.string().trim().min(1).max(MEMORY_LIMITS.contentMax),
+    expiresAt: optionalDateTimeSchema,
+  })
+  .strict();
+export type CreateProjectMemory = z.infer<
+  typeof createProjectMemorySchema
 >;
 
 export const correctPersonalMemorySchema = z
