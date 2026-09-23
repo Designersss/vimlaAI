@@ -195,6 +195,87 @@ describe("memory maintenance runtime", () => {
     ).toBe(1);
   });
 
+  it("reconciles a durable queued receipt after the request that stored the message has finished", async () => {
+    const userId = await createUser("runtime-queued");
+    const conversationId = await createConversation(userId);
+    const source = await createMessage({
+      conversationId,
+      content: "I prefer durable queued maintenance.",
+    });
+    await db.memoryExtractionReceipt.create({
+      data: {
+        ownerUserId: userId,
+        sourceType: "MESSAGE",
+        sourceId: source.id,
+        sourceVersion: source.updatedAt.toISOString(),
+        status: "QUEUED",
+      },
+    });
+
+    let calls = 0;
+    const model: SemanticPlannerModel = {
+      complete: ({ prompt }) => {
+        calls += 1;
+        if (prompt.startsWith("You extract durable personal memory")) {
+          return Promise.resolve(
+            JSON.stringify({
+              candidates: [
+                {
+                  type: "USER_PREFERENCE",
+                  slotKey: "maintenance mode",
+                  content: "Prefers durable queued maintenance",
+                  confidence: 0.95,
+                  sensitivity: "NORMAL",
+                  transient: false,
+                },
+              ],
+            }),
+          );
+        }
+        return Promise.resolve(
+          JSON.stringify({ summary: "queued summary" }),
+        );
+      },
+    };
+
+    const prisma = prismaService();
+    const maintenance = new MemoryMaintenanceService(
+      prisma,
+      new MemoryFacade(prisma, config),
+      config,
+      model,
+    );
+
+    await expect(
+      maintenance.reconcilePending(10),
+    ).resolves.toBe(1);
+
+    expect(
+      await db.memoryItem.findFirst({
+        where: {
+          ownerUserId: userId,
+          slotKey: "maintenance mode",
+        },
+      }),
+    ).not.toBeNull();
+    expect(
+      await db.memoryExtractionReceipt.findUniqueOrThrow({
+        where: {
+          sourceType_sourceId_sourceVersion: {
+            sourceType: "MESSAGE",
+            sourceId: source.id,
+            sourceVersion: source.updatedAt.toISOString(),
+          },
+        },
+      }),
+    ).toMatchObject({
+      status: "COMPLETED",
+      attemptCount: 1,
+      candidateCount: 1,
+    });
+    expect(calls).toBe(1);
+  });
+
   it("fails extraction closed on invalid model output without breaking the source message", async () => {
     const userId = await createUser("runtime-invalid");
     const conversationId =
