@@ -330,14 +330,11 @@ export class VimlaInvocationExecutor implements InvocationExecutorRegistry {
           `type=${binding.expectedType}`,
           `sourceInvocationId=${binding.sourceInvocationId}`,
           `value=${value}`,
-        ].join("
-"),
+        ].join("\n"),
       );
     }
 
-    const context = parts.join("
-
-");
+    const context = parts.join("\n\n");
     if (new TextEncoder().encode(context).byteLength > 65_536) {
       throw new ArtifactValidationError(
         "Vimla dependency artifact context exceeds the execution bound",
