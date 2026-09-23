@@ -214,6 +214,20 @@ describe("VimlaInvocationExecutor", () => {
     });
     const executor = new VimlaInvocationExecutor(prisma, planner, "en");
     const internalOwnerId = "internal-owner-" + randomUUID();
+    await prisma.workspaceObject.create({
+      data: {
+        kind: "TASK",
+        scopeType: "PERSONAL",
+        personalOwnerUserId: seeded.userId,
+        createdByUserId: seeded.userId,
+        task: {
+          create: {
+            title: "Live task created after context freeze",
+            status: "TODO",
+          },
+        },
+      },
+    });
 
     await expect(
       executor.execute({
@@ -237,6 +251,7 @@ describe("VimlaInvocationExecutor", () => {
     expect(planner.input?.dependencyContext).not.toContain(
       "retrieval reason",
     );
+    expect(planner.input?.snapshot.tasks).toEqual([]);
   });
 
   it("fails closed when a write-class Vimla invocation cannot be resolved to a tool action", async () => {
