@@ -287,9 +287,13 @@ describe("memory maintenance runtime", () => {
       model,
     );
 
+    const firstTrigger = firstBatch[8];
+    if (!firstTrigger) {
+      throw new Error("expected first compaction trigger message");
+    }
     await maintenance.observeConversationMessage({
       userId,
-      messageId: firstBatch[8].id,
+      messageId: firstTrigger.id,
       correlationId: "runtime-compact-v1",
     });
     const v1 =
@@ -315,9 +319,13 @@ describe("memory maintenance runtime", () => {
         }),
       );
     }
+    const secondTrigger = secondBatch[8];
+    if (!secondTrigger) {
+      throw new Error("expected second compaction trigger message");
+    }
     await maintenance.observeConversationMessage({
       userId,
-      messageId: secondBatch[8].id,
+      messageId: secondTrigger.id,
       correlationId: "runtime-compact-v2",
     });
 
