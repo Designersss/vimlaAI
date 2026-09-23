@@ -7,6 +7,8 @@ import {
   ContextValidationError,
 } from "./errors.js";
 import { fingerprintContextItem, fingerprintContextSnapshot } from "./fingerprint.js";
+import { canReadCompactedState } from "./compaction.js";
+import { canReadMemoryItem } from "./memory.js";
 import { ContextRetrievalService } from "./retrieval.js";
 import type {
   ContextAccessCheck,
@@ -278,10 +280,20 @@ export class ContextSnapshotService {
             select: { id: true },
           }),
         );
+      case "COMPACTED_STATE":
+        return canReadCompactedState(
+          this.db,
+          check.actorUserId,
+          check.sourceId,
+        );
+      case "MEMORY":
+        return canReadMemoryItem(
+          this.db,
+          check.actorUserId,
+          check.sourceId,
+        );
       case "ATTACHMENT":
       case "FILE_METADATA":
-      case "COMPACTED_STATE":
-      case "MEMORY":
       case "ENTITY":
         return false;
     }
