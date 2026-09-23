@@ -448,6 +448,141 @@ describe("memory maintenance runtime", () => {
     expect(extractionCalls).toBe(2);
   });
 
+  it("retries failed compaction from the durable receipt without duplicating extracted Memory", async () => {
+    const userId = await createUser("runtime-compaction-retry");
+    const conversationId = await createConversation(userId);
+    const history = [];
+    for (let index = 0; index < 12; index += 1) {
+      history.push(
+        await createMessage({
+          conversationId,
+          role: index % 2 === 0 ? "USER" : "ASSISTANT",
+          content:
+            `retry-history-${index} ` + "r".repeat(900),
+        }),
+      );
+    }
+    const source = history[10];
+    if (!source) {
+      throw new Error("expected retry trigger message");
+    }
+    await db.memoryExtractionReceipt.create({
+      data: {
+        ownerUserId: userId,
+        sourceType: "MESSAGE",
+        sourceId: source.id,
+        sourceVersion: source.updatedAt.toISOString(),
+        status: "QUEUED",
+      },
+    });
+
+    let extractionCalls = 0;
+    let compactionCalls = 0;
+    const model: SemanticPlannerModel = {
+      complete: ({ prompt }) => {
+        if (prompt.startsWith("You extract durable personal memory")) {
+          extractionCalls += 1;
+          return Promise.resolve(
+            JSON.stringify({
+              candidates: [
+                {
+                  type: "USER_PREFERENCE",
+                  slotKey: "retry style",
+                  content: "Prefers durable retry semantics",
+                  confidence: 0.95,
+                  sensitivity: "NORMAL",
+                  transient: false,
+                },
+              ],
+            }),
+          );
+        }
+        compactionCalls += 1;
+        if (compactionCalls === 1) {
+          return Promise.reject(
+            new Error("simulated compaction outage"),
+          );
+        }
+        return Promise.resolve(
+          JSON.stringify({
+            summary: "Recovered compacted state",
+          }),
+        );
+      },
+    };
+    const prisma = prismaService();
+    const maintenance = new MemoryMaintenanceService(
+      prisma,
+      new MemoryFacade(prisma, config),
+      config,
+      model,
+    );
+
+    await maintenance.observeConversationMessage({
+      userId,
+      messageId: source.id,
+      correlationId: "runtime-compaction-fail",
+    });
+    const failed =
+      await db.memoryExtractionReceipt.findUniqueOrThrow({
+        where: {
+          sourceType_sourceId_sourceVersion: {
+            sourceType: "MESSAGE",
+            sourceId: source.id,
+            sourceVersion: source.updatedAt.toISOString(),
+          },
+        },
+      });
+    expect(failed.status).toBe("FAILED");
+    expect(failed.attemptCount).toBe(1);
+    expect(
+      await db.memoryItem.count({
+        where: {
+          ownerUserId: userId,
+          slotKey: "retry style",
+        },
+      }),
+    ).toBe(1);
+
+    await db.memoryExtractionReceipt.update({
+      where: { id: failed.id },
+      data: {
+        updatedAt: new Date(Date.now() - 10 * 60_000),
+      },
+    });
+    await maintenance.observeConversationMessage({
+      userId,
+      messageId: source.id,
+      correlationId: "runtime-compaction-retry",
+    });
+
+    const completed =
+      await db.memoryExtractionReceipt.findUniqueOrThrow({
+        where: { id: failed.id },
+      });
+    expect(completed.status).toBe("COMPLETED");
+    expect(completed.attemptCount).toBe(2);
+    expect(
+      await db.memoryItem.count({
+        where: {
+          ownerUserId: userId,
+          slotKey: "retry style",
+        },
+      }),
+    ).toBe(1);
+    expect(
+      await db.compactedContextState.count({
+        where: {
+          ownerUserId: userId,
+          conversationId,
+          invalidatedAt: null,
+        },
+      }),
+    ).toBe(1);
+    expect(extractionCalls).toBe(2);
+    expect(compactionCalls).toBe(2);
+  });
+
   it("never treats Direct Chat rows as automatic memory sources", async () => {
     const userId = await createUser("runtime-direct");
     const peerId = await createUser("runtime-direct-peer");
