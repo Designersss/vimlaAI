@@ -206,9 +206,14 @@ export class OperatorService {
     this.assertEnabled();
     const input = confirmOperatorRunSchema.parse(body);
     const current = await this.loadOwnedRun(userId, runId);
-    const contextFailure = await this.failIfDirectChatContextRevoked(current);
-    if (contextFailure) {
-      return contextFailure;
+    if (
+      current.status === "AWAITING_CONFIRMATION" ||
+      current.status === "EXECUTING"
+    ) {
+      const contextFailure = await this.failIfDirectChatContextRevoked(current);
+      if (contextFailure) {
+        return contextFailure;
+      }
     }
     const run = await this.acceptConfirmation(userId, runId, input.confirmationToken);
     if (run.status === "SUCCEEDED" || run.status === "PARTIAL" || run.status === "CANCELED" || run.status === "FAILED") {
@@ -580,6 +585,15 @@ export class OperatorService {
             runId,
             context,
           );
+          if (
+            context.invocation.scope === "DIRECT_CHAT" &&
+            step.toolName !== "tasks.create"
+          ) {
+            throw new OperatorError(
+              "TOOL_DENIED",
+              "This persisted tool is not available from a Direct Chat",
+            );
+          }
           const args = asRecord(step.inputJson);
           const txContext = this.transactionalToolContext(context, tx);
           const result = await executeStep(step.toolName, args, txContext);
