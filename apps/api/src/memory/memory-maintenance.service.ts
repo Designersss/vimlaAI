@@ -233,15 +233,27 @@ export class MemoryMaintenanceService {
     });
     if (!claimed) return;
 
+    let stored = 0;
+    let failure: unknown = null;
     try {
-      const stored = await this.extractMessage({
+      stored = await this.extractMessage({
         ...input,
         source,
       });
+    } catch (error: unknown) {
+      failure = error;
+    }
+
+    try {
       await this.compactConversation({
         ...input,
         conversationId: source.conversationId,
       });
+    } catch (error: unknown) {
+      failure ??= error;
+    }
+
+    if (failure === null) {
       await this.db.memoryExtractionReceipt.updateMany({
         where: {
           ownerUserId: input.userId,
@@ -256,27 +268,29 @@ export class MemoryMaintenanceService {
           errorCode: null,
         },
       });
-    } catch (error: unknown) {
-      await this.db.memoryExtractionReceipt.updateMany({
-        where: {
-          ownerUserId: input.userId,
-          sourceType: "MESSAGE",
-          sourceId: source.id,
-          sourceVersion,
-          status: "PENDING",
-        },
-        data: {
-          status: "FAILED",
-          errorCode: extractionErrorCode(error),
-        },
-      });
-      this.logger.warn({
-        msg: "memory.maintenance.failed",
-        userId: input.userId,
-        messageId: source.id,
-        reason: extractionErrorCode(error),
-      });
+      return;
     }
+
+    await this.db.memoryExtractionReceipt.updateMany({
+      where: {
+        ownerUserId: input.userId,
+        sourceType: "MESSAGE",
+        sourceId: source.id,
+        sourceVersion,
+        status: "PENDING",
+      },
+      data: {
+        status: "FAILED",
+        candidateCount: stored,
+        errorCode: extractionErrorCode(failure),
+      },
+    });
+    this.logger.warn({
+      msg: "memory.maintenance.failed",
+      userId: input.userId,
+      messageId: source.id,
+      reason: extractionErrorCode(failure),
+    });
   }
 
   private async extractMessage(input: {
