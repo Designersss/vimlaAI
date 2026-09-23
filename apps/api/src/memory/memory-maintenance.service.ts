@@ -260,6 +260,11 @@ export class MemoryMaintenanceService {
           content: candidate.content,
           confidence: candidate.confidence,
           quality: candidate.confidence,
+          sensitivity: candidate.sensitivity,
+          classification:
+            candidate.sensitivity === "SENSITIVE"
+              ? "RESTRICTED"
+              : "PRIVATE",
           transient: candidate.transient,
           sourceRefs: [
             {
@@ -637,10 +642,12 @@ function buildExtractionPrompt(content: string): string {
   return [
     "You extract durable personal memory from one user-authored message.",
     "Return strict JSON only.",
-    "Schema: {\"candidates\":[{\"type\":\"USER_FACT|USER_PREFERENCE|USER_GOAL|USER_RELATIONSHIP\",\"slotKey\":\"stable short key\",\"content\":\"normalized durable fact\",\"confidence\":0.0,\"transient\":false}]}",
+    "Schema: {\"candidates\":[{\"type\":\"USER_FACT|USER_PREFERENCE|USER_GOAL|USER_RELATIONSHIP\",\"slotKey\":\"stable short key\",\"content\":\"normalized durable fact\",\"confidence\":0.0,\"sensitivity\":\"NORMAL|SENSITIVE\",\"transient\":false}]}",
     "Rules:",
     "- only explicit or strongly supported durable information",
     "- do not store one-off requests, temporary instructions, credentials, secrets, OTPs, payment data, or access tokens",
+    "- mark health/medical, religion, political affiliation, union membership, sexual/intimate, criminal/legal, biometric, precise-location, and financial-account facts as SENSITIVE",
+    "- SENSITIVE candidates are retention-denied and will be discarded",
     "- do not invent facts",
     "- at most 8 candidates",
     "USER_MESSAGE:",
