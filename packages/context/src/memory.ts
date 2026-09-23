@@ -835,7 +835,7 @@ async function memoryScopeReadable(
         }),
       );
     case "THREAD":
-      return row.ownerUserId === actorUserId && Boolean(row.threadId);
+      return false;
     case "PROJECT":
       if (!row.projectId) return false;
       return Boolean(
@@ -865,8 +865,12 @@ async function assertScopeWritable(
   assertTypeMatchesScope(scope.kind, type);
   switch (scope.kind) {
     case "PERSONAL":
-    case "THREAD":
       return;
+    case "THREAD":
+      throw new MemoryError(
+        "DISABLED",
+        "Thread Memory requires the PR-18 thread authority model",
+      );
     case "CONVERSATION": {
       const conversation = await tx.conversation.findFirst({
         where: {
