@@ -14,12 +14,14 @@ A frozen `ContextSnapshot` may contain a Memory reference, but access and source
 
 ## 2. Memory scopes and types
 
-Supported scopes:
+Schema scopes:
 
 - `PERSONAL`
 - `PROJECT`
 - `CONVERSATION`
 - `THREAD`
+
+`THREAD` is reserved in the PR-17 data model but remains fail-closed at runtime until PR-18 supplies thread authority/ACL semantics.
 
 Initial types:
 
@@ -44,13 +46,17 @@ old ACTIVE item
 
 User-confirmed, user-corrected, explicit, and E2EE-promoted memory cannot be silently replaced by automatic inference. A later automatic candidate for that slot returns the existing confirmed/corrected truth.
 
-Personal Memory API:
+Memory API:
 
 - `GET /v1/memory`
 - `GET /v1/memory/:id`
 - `POST /v1/memory`
 - `PATCH /v1/memory/:id`
 - `DELETE /v1/memory/:id`
+- `POST /v1/memory/projects/:projectId` — explicit authorized Project Memory write
+- `POST /v1/memory/e2ee-promotions` — explicit E2EE fact promotion
+
+Private-chat automatic extraction writes only Personal Memory. Project Memory is never mutated merely because a private message mentions a project; the project endpoint is an explicit cross-scope action and still re-checks current Project write capability.
 
 Delete is logical invalidation, not physical destruction of audit history. Invalidated/superseded/expired records are excluded from future retrieval.
 
@@ -58,24 +64,32 @@ The entire surface is fail-closed behind `MEMORY_ENABLED=false` by default.
 
 ## 4. Automatic extraction policy
 
-PR-17 provides a conservative extraction pipeline for already-proposed candidates. It does not hard-code natural-language keywords and does not promote every message.
+PR-17 runs automatic extraction as durable background maintenance for persisted non-E2EE USER messages. Message persistence atomically creates a PostgreSQL `MemoryExtractionReceipt` with `QUEUED` state; a reconciler claims/retries receipts idempotently, so process failure after the user request cannot silently lose the maintenance intent.
+
+Candidate generation uses the included/internal semantic-model boundary, never the paid external-model billing path. The local/test adapter has deterministic Memory/compaction responses so the real module wiring is testable.
 
 A candidate is skipped when it is:
 
 - marked transient / one-off;
 - below the minimum confidence threshold;
 - secret-like (password, private key, API key, OTP, bearer/access token, payment-card/CVV material, and related patterns);
+- marked `SENSITIVE` by the extraction contract;
+- secret-like (password, private key, API key, OTP, bearer/access token, payment-card/CVV material, and related patterns);
 - sourced from Direct Chat / E2EE context.
 
-Automatic candidates require source provenance. Updating/deleting/revoking the source makes dependent memory ineligible and lazily invalidates it before retrieval.
+The extraction prompt explicitly classifies health/medical, religion, political affiliation, union membership, sexual/intimate, criminal/legal, biometric, precise-location, and financial-account facts as `SENSITIVE`; automatic retention rejects them. Sensitive/secret checks are also enforced after model output, so prompt compliance is not the only boundary.
 
-Production background/model candidate generation is deliberately separate from this persistence/policy boundary; PR-17 does not add a second paid or hidden model call.
+Automatic candidates require source provenance. Same-content automatic facts retain at most 32 independent supporting MESSAGE refs; one stale source does not invalidate a fact while another supporting source is still current. Updating/deleting/revoking all supporting sources makes the Memory item ineligible and lazily invalidates it before retrieval.
+
+Receipt retries are bounded to five attempts. Completed/skipped/terminal failed maintenance receipts are technical coordination data and are pruned after 30 days; Memory/L2 provenance history is not pruned by this housekeeping.
 
 ## 5. Project isolation and cross-scope writes
 
 Project Memory is readable only by current project audiences.
 
-A source that is already project-scoped may write Project Memory. A personal/private source cannot mutate Project Memory merely because it mentions a project: that requires an explicit authorized cross-scope write.
+A source that is already project-scoped may write Project Memory. A personal/private source cannot mutate Project Memory merely because it mentions a project: that requires an explicit authorized cross-scope write bound to the exact target `projectId`. A generic boolean bypass is not accepted.
+
+Conversation-scoped Memory and L2 are equally strict: every MESSAGE/compacted source contributing to a Conversation target must belong to that exact conversation. Same-user cross-conversation provenance is rejected rather than silently contaminating the target scope.
 
 If project membership is revoked:
 
@@ -105,7 +119,9 @@ This is Mode B from PR-16/PR-17. It does not index the rest of the Direct Chat, 
 
 Compaction is versioned derived state, separate from durable facts.
 
-A refresh is accepted only when raw-history token usage meets the effective executor/model `compactedStateTriggerTokens`. There is no primary “every N messages” rule.
+A refresh is accepted only when conservative raw-history token usage meets the effective executor/model `compactedStateTriggerTokens`. There is no primary “every N messages” rule.
+
+PR-17 uses one shared conservative budget unit: one UTF-8 byte is counted as one token unit. This deliberately overestimates many real tokenizers so admission/compaction cannot undercount multilingual input; it is not presented as an exact provider tokenizer.
 
 Each state preserves:
 
@@ -128,8 +144,12 @@ When `MEMORY_ENABLED=true`, orchestration adds two derived providers to the exis
 
 Providers can only contribute existing allowed derived source types, with `authority=DERIVED`. Core Context code reattaches retrieval metadata and applies ContextPolicy, audience checks, classification rules, source contribution caps, token budgets, and deduplication.
 
+Memory retrieval filters for lexical relevance before its bounded result window, so a large set of newer unrelated rows cannot hide an older relevant fact. L2 retrieval always reserves the current-conversation state separately from authorized Project states. Provider input also carries an optional `currentProjectId`; when a Project surface supplies it, Project Memory/L2 are marked `currentProject` and receive the existing current-project ranking boost. Private-chat surfaces intentionally pass no current project.
+
 Memory does not get automatic semantic-vector indexing in PR-17; semantic retrieval remains source-based and E2EE exclusions from PR-15/PR-16 remain unchanged.
 
 ## 9. Rollout
 
 Keep `MEMORY_ENABLED=false` until the PR-17 migration is deployed and validation is green. Enabling Memory affects future snapshot construction; already frozen snapshots remain immutable.
+
+When enabled, request handlers only persist the user message and durable maintenance receipt. Extraction/compaction model calls happen in the reconciler and never delay SSE completion. PostgreSQL remains the maintenance source of truth; the reconciler is coordination/execution only.
