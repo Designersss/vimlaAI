@@ -394,11 +394,18 @@ export class OperatorService {
         : await loadWorkspaceSnapshot(context);
     let effectiveUntrustedContext = untrustedContext;
     if (run.invocationScope === "DIRECT_CHAT") {
-      const contextFailure = await this.failIfDirectChatContextRevoked(run);
-      if (contextFailure) {
-        return contextFailure;
+      try {
+        effectiveUntrustedContext =
+          await this.loadFrozenDirectChatContext(run);
+      } catch (error: unknown) {
+        if (
+          error instanceof OperatorError &&
+          error.code === "CONTEXT_REVOKED"
+        ) {
+          return this.failDirectChatContextRevoked(run);
+        }
+        throw error;
       }
-      effectiveUntrustedContext = await this.loadFrozenDirectChatContext(run);
     }
     const prompt = buildPlannerPrompt({
       userText: run.userText,
@@ -1060,26 +1067,32 @@ export class OperatorService {
         error instanceof OperatorError &&
         error.code === "CONTEXT_REVOKED"
       ) {
-        await this.prisma.operatorRunStep.updateMany({
-          where: {
-            runId: run.id,
-            status: {
-              in: ["PENDING", "NEEDS_CONFIRMATION", "CONFIRMED"],
-            },
-          },
-          data: {
-            status: "FAILED",
-            errorCode: "direct_chat_context_revoked",
-          },
-        });
-        return this.failRun(
-          run.id,
-          "direct_chat_context_revoked",
-          "Direct Chat context permission changed. Invoke @Vimla again.",
-        );
+        return this.failDirectChatContextRevoked(run);
       }
       throw error;
     }
+  }
+
+  private async failDirectChatContextRevoked(
+    run: RunRecord,
+  ): Promise<OperatorRunView> {
+    await this.prisma.operatorRunStep.updateMany({
+      where: {
+        runId: run.id,
+        status: {
+          in: ["PENDING", "NEEDS_CONFIRMATION", "CONFIRMED"],
+        },
+      },
+      data: {
+        status: "FAILED",
+        errorCode: "direct_chat_context_revoked",
+      },
+    });
+    return this.failRun(
+      run.id,
+      "direct_chat_context_revoked",
+      "Direct Chat context permission changed. Invoke @Vimla again.",
+    );
   }
 
   private async assertDirectChatExecutionConsentTx(
