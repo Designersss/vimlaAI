@@ -6,6 +6,7 @@ import {
   ArtifactValidationError,
   type ResolvedArtifactInput,
 } from "@vimla/artifacts";
+import { renderContextBundleItems } from "@vimla/context";
 import { type Prisma, type PrismaClient } from "@vimla/database";
 import { NotificationPlatformError, NotificationPreferenceService } from "@vimla/notifications";
 import {
@@ -147,11 +148,17 @@ export class VimlaInvocationExecutor implements InvocationExecutorRegistry {
         input.invocationId,
         input.contextBundle?.artifacts,
       );
+      const packedContext = renderContextBundleItems(
+        input.contextBundle?.items ?? [],
+      );
+      const plannerContext = [packedContext, dependencyContext]
+        .filter((value): value is string => Boolean(value))
+        .join("\n\n");
       const planned = await this.planner.plan({
         userText: invocation.purpose,
         locale: profile.locale,
         snapshot,
-        dependencyContext,
+        dependencyContext: plannerContext || null,
       });
 
       if (planned.intent === "answer") {
