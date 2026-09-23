@@ -159,7 +159,6 @@ export function packContextItems(
     const currentGroupUsage = sourceUsage.get(group) ?? 0;
     if (
       enforceSourceCap &&
-      currentGroupUsage > 0 &&
       currentGroupUsage + estimatedTokens > sourceCap
     ) {
       exclusions.push({
@@ -195,7 +194,7 @@ export function packContextItems(
     }
   }
   for (const item of bestPerGroup.values()) {
-    trySelect(item, false);
+    trySelect(item, true);
   }
 
   for (const item of nonMandatory) {
@@ -477,7 +476,13 @@ function collectStrings(
     if (
       key === "retrieval" ||
       key.endsWith("Id") ||
-      key === "fingerprint"
+      key === "fingerprint" ||
+      key === "createdAt" ||
+      key === "updatedAt" ||
+      key === "archivedAt" ||
+      key === "deletedAt" ||
+      key === "completedAt" ||
+      key === "pinnedAt"
     ) {
       continue;
     }
