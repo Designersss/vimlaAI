@@ -41,6 +41,7 @@ export interface ContextCandidate {
   authority: ContextSourceAuthority;
   occurredAt: string | null;
   estimatedTokens: number;
+  rawHistoryTokens?: number;
   stale?: boolean;
   superseded?: boolean;
 }
@@ -81,7 +82,7 @@ export interface ContextRetrievalOptions {
 
 const DEFAULTS = {
   l1RawLimit: 24,
-  olderHistoryScanLimit: 240,
+  olderHistoryScanLimit: 512,
   crossConversationScanLimit: 320,
   relevantHistoryLimit: 12,
   workspaceScanLimit: 100,
@@ -436,6 +437,15 @@ export class ContextRetrievalService {
         }),
       ]);
 
+    const scannedRawHistoryTokens = [
+      ...recentMessages,
+      ...olderCurrent,
+    ].reduce(
+      (total, message) =>
+        total + estimateTokens(message.content),
+      0,
+    );
+
     const candidates: ContextCandidate[] = [
       candidate({
         item: {
@@ -489,6 +499,7 @@ export class ContextRetrievalService {
         authority: "AUTHORITATIVE",
         occurredAt:
           sourceMessage.conversation.updatedAt.toISOString(),
+        rawHistoryTokens: scannedRawHistoryTokens,
       }),
       candidate({
         item: {
@@ -853,6 +864,9 @@ function candidate(
           authority: input.authority,
           ...(input.occurredAt
             ? { occurredAt: input.occurredAt }
+            : {}),
+          ...(input.rawHistoryTokens !== undefined
+            ? { rawHistoryTokens: input.rawHistoryTokens }
             : {}),
           estimatedTokens,
           stale: input.stale === true,
