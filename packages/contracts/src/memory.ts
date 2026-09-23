@@ -7,15 +7,16 @@ export const MEMORY_LIMITS = {
   cursorMax: 512,
 } as const;
 
-export const memoryScopeKindSchema = z.enum([
+export const MEMORY_SCOPE_KINDS = [
   "PERSONAL",
   "PROJECT",
   "CONVERSATION",
   "THREAD",
-]);
+] as const;
+export const memoryScopeKindSchema = z.enum(MEMORY_SCOPE_KINDS);
 export type MemoryScopeKind = z.infer<typeof memoryScopeKindSchema>;
 
-export const memoryTypeSchema = z.enum([
+export const MEMORY_TYPES = [
   "USER_FACT",
   "USER_PREFERENCE",
   "USER_GOAL",
@@ -27,7 +28,8 @@ export const memoryTypeSchema = z.enum([
   "THREAD_STATE",
   "DECISION",
   "ENTITY_RELATION",
-]);
+] as const;
+export const memoryTypeSchema = z.enum(MEMORY_TYPES);
 export type MemoryType = z.infer<typeof memoryTypeSchema>;
 
 export const personalMemoryTypeSchema = z.enum([
@@ -40,33 +42,41 @@ export const personalMemoryTypeSchema = z.enum([
 ]);
 export type PersonalMemoryType = z.infer<typeof personalMemoryTypeSchema>;
 
-export const memoryClassificationSchema = z.enum([
+export const MEMORY_CLASSIFICATIONS = [
   "PUBLIC",
   "INTERNAL",
   "PRIVATE",
   "RESTRICTED",
-]);
+] as const;
+export const memoryClassificationSchema = z.enum(
+  MEMORY_CLASSIFICATIONS,
+);
 export type MemoryClassification = z.infer<typeof memoryClassificationSchema>;
 
-export const memorySensitivitySchema = z.enum([
+export const MEMORY_SENSITIVITIES = [
   "NORMAL",
   "SENSITIVE",
-]);
+] as const;
+export const memorySensitivitySchema = z.enum(
+  MEMORY_SENSITIVITIES,
+);
 export type MemorySensitivity = z.infer<typeof memorySensitivitySchema>;
 
-export const memoryOriginSchema = z.enum([
+export const MEMORY_ORIGINS = [
   "AUTO_EXTRACTION",
   "USER_EXPLICIT",
   "USER_CORRECTION",
   "E2EE_USER_DISCLOSURE",
-]);
+] as const;
+export const memoryOriginSchema = z.enum(MEMORY_ORIGINS);
 export type MemoryOrigin = z.infer<typeof memoryOriginSchema>;
 
-export const memoryStateSchema = z.enum([
+export const MEMORY_STATES = [
   "ACTIVE",
   "SUPERSEDED",
   "INVALIDATED",
-]);
+] as const;
+export const memoryStateSchema = z.enum(MEMORY_STATES);
 export type MemoryState = z.infer<typeof memoryStateSchema>;
 
 const optionalDateTimeSchema = z
