@@ -28,10 +28,16 @@ import { OriginGuard } from "../auth/origin.guard.js";
 import { SensitiveArea } from "../auth/sensitive-area.js";
 import { SensitiveAreaGuard } from "../auth/sensitive-area.guard.js";
 import { MemoryFacade } from "./memory.facade.js";
+import { MemoryRateLimitGuard } from "./memory-rate-limit.guard.js";
 
 @Controller("v1/memory")
 @SensitiveArea()
-@UseGuards(AuthGuard, OriginGuard, SensitiveAreaGuard)
+@UseGuards(
+  AuthGuard,
+  OriginGuard,
+  SensitiveAreaGuard,
+  MemoryRateLimitGuard,
+)
 export class MemoryController {
   constructor(
     @Inject(MemoryFacade)
