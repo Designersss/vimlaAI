@@ -263,10 +263,23 @@ describe("ExternalAiInvocationExecutor", () => {
       fingerprint: "sha256:test-frozen-bundle",
       manifest: {
         version: 1,
+        packingVersion: 1,
         targetKind: "AI_MODEL",
         surfaceKind: "PERSONAL",
         surfaceScopeHash: "sha256:test-personal-surface",
         audienceParticipantCount: 1,
+        budget: {
+          contextWindowTokens: 16_384,
+          outputReserveTokens: 4_096,
+          systemToolReserveTokens: 2_048,
+          artifactReserveTokens: 4_096,
+          safetyMarginTokens: 1_310,
+          effectiveHistoryBudgetTokens: 4_834,
+          compactedStateTriggerTokens: 3_867,
+        },
+        usedTokens: 0,
+        rawHistoryTokens: 0,
+        compactedStateRequired: false,
         allowedItems: [],
         allowedArtifacts: [
           {
