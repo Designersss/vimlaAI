@@ -202,6 +202,10 @@ export class ContextBundleService {
           (await this.everyAudienceMemberCanReadScope(
             audience,
             sourceScope,
+          )) &&
+          (await this.everyAudienceMemberCanReadSource(
+            audience,
+            item,
           ));
         const decision = evaluateContextPolicy({
           actorUserId: input.actorUserId,
@@ -417,6 +421,18 @@ export class ContextBundleService {
       actorUserIds: audience.participantUserIds,
       artifactVersionId,
     });
+  }
+
+  private async everyAudienceMemberCanReadSource(
+    audience: ContextAudienceDescriptor,
+    item: ContextSnapshotItemView,
+  ): Promise<boolean> {
+    for (const userId of audience.participantUserIds) {
+      if (!(await this.canReadSource(userId, item))) {
+        return false;
+      }
+    }
+    return true;
   }
 
   private async everyAudienceMemberCanReadScope(
