@@ -498,6 +498,9 @@ importers:
 
   packages/context:
     dependencies:
+      '@vimla/ai':
+        specifier: workspace:*
+        version: link:../ai
       '@vimla/artifacts':
         specifier: workspace:*
         version: link:../artifacts

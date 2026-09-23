@@ -1,3 +1,4 @@
+import type { SemanticSearchService } from "./semantic-search.js";
 import { ArtifactNotFoundError, ArtifactService } from "@vimla/artifacts";
 import { Prisma, type PrismaClient } from "@vimla/database";
 import {
@@ -41,6 +42,8 @@ export interface ContextCandidate {
   sourceScope: ContextSourceScope;
   reason: string;
   lexicalScore: number;
+  semanticScore?: number;
+  hybridScore?: number;
   directReference: boolean;
   currentSurface: boolean;
   currentProject: boolean;
@@ -159,6 +162,7 @@ export class ContextRetrievalService {
     private readonly db: PrismaClient,
     private readonly providers: readonly ContextRetrievalProvider[] = [],
     options: ContextRetrievalOptions = {},
+    private readonly semanticSearch?: SemanticSearchService,
   ) {
     this.artifacts = new ArtifactService(db);
     this.options = {
@@ -851,6 +855,10 @@ export class ContextRetrievalService {
       sourceMessageCreatedAt:
         sourceMessage.createdAt.toISOString(),
     };
+    if (this.semanticSearch) {
+      const semantic = await this.semanticSearch.retrieve(providerInput);
+      candidates.push(...semantic.map(entry => candidate(entry)));
+    }
     for (const provider of this.providers) {
       const provided = await provider.retrieve(providerInput);
       for (const entry of provided) {
@@ -954,6 +962,8 @@ function normalizeDerivedProviderCandidate(
         candidateValue.item.metadata,
       ),
     },
+    semanticScore: undefined,
+    hybridScore: undefined,
     estimatedTokens: undefined,
     rawHistoryTokens: undefined,
   });
@@ -1039,6 +1049,8 @@ function candidate(
           scope: scopeMetadata(input.sourceScope),
           reason: input.reason,
           lexicalScore: roundScore(input.lexicalScore),
+          ...(input.semanticScore !== undefined ? { semanticScore: roundScore(input.semanticScore) } : {}),
+          ...(input.hybridScore !== undefined ? { hybridScore: roundScore(input.hybridScore) } : {}),
           directReference: input.directReference,
           currentSurface: input.currentSurface,
           currentProject: input.currentProject,
@@ -1339,6 +1351,9 @@ function preferCandidate(
   candidateValue: ContextCandidate,
   current: ContextCandidate,
 ): boolean {
+  // Semantic rediscovery must not demote the authoritative recent raw tail.
+  if (current.sourceKind === "L1_RAW") return false;
+  if (candidateValue.sourceKind === "L1_RAW") return true;
   return (
     compareCandidatePriority(candidateValue, current) < 0
   );
@@ -1359,7 +1374,7 @@ function compareCandidatePriority(
       Number(left.currentProject) ||
     authorityRank(right.authority) -
       authorityRank(left.authority) ||
-    right.lexicalScore - left.lexicalScore ||
+    (right.hybridScore ?? right.lexicalScore) - (left.hybridScore ?? left.lexicalScore) ||
     compareDateDesc(left.occurredAt, right.occurredAt) ||
     left.item.sourceType.localeCompare(right.item.sourceType) ||
     left.item.sourceId.localeCompare(right.item.sourceId)

@@ -1,3 +1,4 @@
+import { resolveEmbeddingConfig } from "./embeddings.js";
 import { loadEnvFiles } from "./load-env.js";
 import {
   apiConfigSchema,
@@ -23,6 +24,7 @@ export function loadApiConfig(
 ): ApiConfig {
   const parsed = apiEnvSchema.parse(readEnv(env));
   return apiConfigSchema.parse({
+    embeddings: resolveEmbeddingConfig(parsed),
     nodeEnv: parsed.NODE_ENV,
     appEnv: parsed.APP_ENV,
     logLevel: parsed.LOG_LEVEL,
@@ -204,6 +206,7 @@ export function loadWorkerConfig(
 ): WorkerConfig {
   const parsed = workerEnvSchema.parse(readEnv(env));
   return workerConfigSchema.parse({
+    embeddings: resolveEmbeddingConfig(parsed),
     nodeEnv: parsed.NODE_ENV,
     appEnv: parsed.APP_ENV,
     logLevel: parsed.LOG_LEVEL,

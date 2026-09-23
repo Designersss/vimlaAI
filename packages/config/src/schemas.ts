@@ -1,3 +1,4 @@
+import { embeddingEnvShape, embeddingConfigSchema } from "./embeddings.js";
 import { z } from "zod";
 
 export const nodeEnvSchema = z.enum(["development", "test", "production"]);
@@ -81,6 +82,7 @@ export type PublicAdminConfig = z.infer<typeof publicAdminConfigSchema>;
 
 export const apiEnvSchema = z
   .object({
+    ...embeddingEnvShape,
     NODE_ENV: nodeEnvSchema.default("development"),
     APP_ENV: appEnvSchema.default("local"),
     LOG_LEVEL: logLevelSchema.default("info"),
@@ -430,6 +432,7 @@ export const apiEnvSchema = z
 export type ApiEnv = z.infer<typeof apiEnvSchema>;
 
 export const apiConfigSchema = z.object({
+  embeddings: embeddingConfigSchema.optional(),
   nodeEnv: nodeEnvSchema,
   appEnv: appEnvSchema,
   logLevel: logLevelSchema,
@@ -543,6 +546,7 @@ export type ApiConfig = z.infer<typeof apiConfigSchema>;
 
 export const workerEnvSchema = z
   .object({
+    ...embeddingEnvShape,
     NODE_ENV: nodeEnvSchema.default("development"),
     APP_ENV: appEnvSchema.default("local"),
     LOG_LEVEL: logLevelSchema.default("info"),
@@ -667,6 +671,7 @@ export const workerEnvSchema = z
 export type WorkerEnv = z.infer<typeof workerEnvSchema>;
 
 export const workerConfigSchema = z.object({
+  embeddings: embeddingConfigSchema.optional(),
   nodeEnv: nodeEnvSchema,
   appEnv: appEnvSchema,
   logLevel: logLevelSchema,

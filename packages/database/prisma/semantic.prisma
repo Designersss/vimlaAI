@@ -1,0 +1,56 @@
+// Derived, disposable retrieval index. Source rows and permissions remain authoritative.
+model SemanticSource {
+  id            String   @id
+  kind          String
+  sourceId      String
+  ownerUserId   String
+  ownerUser     User @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
+  projectId     String?
+  project       Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  revision      BigInt   @default(1)
+  generation    String   @default("")
+  status        String   @default("PENDING")
+  attempts      Int      @default(0)
+  availableAt   DateTime @default(now())
+  leaseToken    String?
+  leaseUntil    DateTime?
+  fingerprint   String?
+  errorCode     String?
+  updatedAt     DateTime @default(now())
+  chunks        SemanticChunk[]
+
+  @@unique([kind, sourceId])
+  @@index([status, availableAt])
+  @@index([ownerUserId, generation, status])
+  @@index([projectId, generation, status])
+  @@map("semantic_source")
+}
+model SemanticChunk {
+  id          String @id
+  sourceKey   String
+  source      SemanticSource @relation(fields: [sourceKey], references: [id], onDelete: Cascade)
+  ordinal     Int
+  fingerprint String
+  embedding   Unsupported("vector")
+
+  @@unique([sourceKey, ordinal])
+  @@map("semantic_chunk")
+}
+// Cross-replica admission for included inference. No user content or financial state.
+model SemanticAdmission {
+  key         String @id
+  windowStart DateTime
+  count       Int
+  @@map("semantic_admission")
+}
+model SemanticGeneration {
+  sequence      BigInt @unique @default(autoincrement())
+  id            String @id
+  provider      String
+  model         String
+  modelRevision String
+  dimensions    Int
+  chunkVersion  String
+  createdAt     DateTime @default(now())
+  @@map("semantic_generation")
+}

@@ -15,3 +15,5 @@ export async function pingDatabase(client: PrismaClient): Promise<void> {
 }
 
 export { Prisma, PrismaClient } from "@prisma/client";
+
+export type { SemanticSource } from "@prisma/client";

@@ -1,9 +1,11 @@
+import { InternalHttpEmbeddingProvider } from "@vimla/ai";
 import { createHash, randomUUID } from "node:crypto";
 import {
   BadRequestException,
   ConflictException,
   Inject,
   Injectable,
+  Logger,
   InternalServerErrorException,
   NotFoundException,
 } from "@nestjs/common";
@@ -16,6 +18,8 @@ import {
   ContextConflictError,
   ContextNotFoundError,
   ContextSnapshotService,
+  ContextRetrievalService,
+  SemanticSearchService,
   type ContextSnapshotView,
 } from "@vimla/context";
 import { type Prisma } from "@vimla/database";
@@ -1089,7 +1093,12 @@ export class OrchestrationService {
 
   private async ensureContextSnapshot(userId: string, planId: string): Promise<ContextSnapshotView> {
     try {
-      const context = new ContextSnapshotService(this.prisma.client);
+      const semantic = this.config.embeddings ? new SemanticSearchService(
+        this.prisma.client, new InternalHttpEmbeddingProvider(this.config.embeddings),
+        { warn: (fields, message) => Logger.warn({ ...fields, message }, "SemanticRetrieval") },
+      ) : undefined;
+      const context = new ContextSnapshotService(this.prisma.client, undefined,
+        new ContextRetrievalService(this.prisma.client, [], {}, semantic));
       await context.createForExecutionPlan({
         actorUserId: userId,
         planId,
