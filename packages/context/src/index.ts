@@ -23,3 +23,5 @@ export * from "./memory-retrieval.js";
 export * from "./compaction.js";
 
 export * from "./memory-extraction.js";
+
+export * from "./token-estimate.js";
