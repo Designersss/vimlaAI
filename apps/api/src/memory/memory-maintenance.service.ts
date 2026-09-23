@@ -24,7 +24,6 @@ import { MemoryFacade } from "./memory.facade.js";
 const RECEIPT_RECLAIM_MS = 5 * 60_000;
 const RECEIPT_RETENTION_MS = 30 * 24 * 60 * 60_000;
 const MAX_RECEIPT_ATTEMPTS = 5;
-const MAX_TAIL_SCAN = 1_024;
 const MAX_SEGMENT_SCAN = 256;
 
 @Injectable()
@@ -568,7 +567,7 @@ export class MemoryMaintenanceService {
         Array<{ byteCount: bigint }>
       >(Prisma.sql`
         SELECT
-          COALESCE(SUM(OCTET_LENGTH("message"."content")), 0)::bigint
+          COALESCE(SUM(GREATEST(OCTET_LENGTH("message"."content"), 1)), 0)::bigint
             AS "byteCount"
         FROM "message"
         INNER JOIN "conversation"
@@ -588,36 +587,38 @@ export class MemoryMaintenanceService {
     conversationId: string,
     budget: ContextBudget,
   ): Promise<Set<string>> {
-    const rows = await this.db.message.findMany({
-      where: {
-        conversationId,
-        status: "COMPLETE",
-        conversation: { userId },
-      },
-      select: {
-        id: true,
-        content: true,
-      },
-      orderBy: [
-        { createdAt: "desc" },
-        { id: "desc" },
-      ],
-      take: MAX_TAIL_SCAN,
-    });
     const target = Math.max(
       512,
       Math.floor(
         budget.effectiveHistoryBudgetTokens * 0.35,
       ),
     );
-    const ids = new Set<string>();
-    let used = 0;
-    for (const row of rows) {
-      ids.add(row.id);
-      used += estimateTokens(row.content);
-      if (used >= target) break;
-    }
-    return ids;
+    const rows = await this.db.$queryRaw<
+      Array<{ id: string }>
+    >(Prisma.sql`
+      WITH ordered AS (
+        SELECT
+          "message"."id",
+          GREATEST(OCTET_LENGTH("message"."content"), 1)::bigint
+            AS "tokenUnits",
+          SUM(
+            GREATEST(OCTET_LENGTH("message"."content"), 1)
+          ) OVER (
+            ORDER BY "message"."createdAt" DESC, "message"."id" DESC
+            ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
+          )::bigint AS "cumulativeUnits"
+        FROM "message"
+        INNER JOIN "conversation"
+          ON "conversation"."id"="message"."conversationId"
+        WHERE "message"."conversationId"=${conversationId}
+          AND "conversation"."userId"=${userId}
+          AND "message"."status"='COMPLETE'
+      )
+      SELECT "id"
+      FROM ordered
+      WHERE ("cumulativeUnits" - "tokenUnits") < ${BigInt(target)}
+    `);
+    return new Set(rows.map((row) => row.id));
   }
 
   private async nextCompactionSegment(input: {
