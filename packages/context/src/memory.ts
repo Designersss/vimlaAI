@@ -115,6 +115,7 @@ export type MemoryErrorCode =
   | "FORBIDDEN"
   | "VALIDATION_ERROR"
   | "CONFLICT"
+  | "STORAGE_LIMIT"
   | "SENSITIVE_CONTENT"
   | "DISABLED";
 
@@ -123,6 +124,7 @@ const MEMORY_HTTP_STATUS: Record<MemoryErrorCode, number> = {
   FORBIDDEN: 403,
   VALIDATION_ERROR: 400,
   CONFLICT: 409,
+  STORAGE_LIMIT: 409,
   SENSITIVE_CONTENT: 400,
   DISABLED: 503,
 };
@@ -610,7 +612,7 @@ export class MemoryService {
         });
         if (activeCount >= this.maxActivePersonalItems) {
           throw new MemoryError(
-            "CONFLICT",
+            "STORAGE_LIMIT",
             "Personal Memory storage limit reached",
           );
         }
@@ -633,7 +635,7 @@ export class MemoryService {
         });
         if (activeCount >= this.maxActiveProjectItems) {
           throw new MemoryError(
-            "CONFLICT",
+            "STORAGE_LIMIT",
             "Project Memory storage limit reached",
           );
         }
