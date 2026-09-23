@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createPrismaClient, type PrismaClient } from "@vimla/database";
+import { ContextRetrievalService } from "./retrieval.js";
 import { ContextSnapshotService } from "./service.js";
 
 const testDatabaseUrl = process.env.TEST_DATABASE_URL;
@@ -154,6 +155,73 @@ describe("Context retrieval v1", () => {
     );
   });
 
+  it("derives raw-history pressure from the whole conversation rather than the scan window", async () => {
+    const actorUserId = await createUser(
+      prisma,
+      "retrieval-history-budget",
+    );
+    const conversation = await prisma.conversation.create({
+      data: {
+        userId: actorUserId,
+        title: "Long history",
+      },
+    });
+
+    for (let index = 0; index < 6; index += 1) {
+      await prisma.message.create({
+        data: {
+          conversationId: conversation.id,
+          role: index % 2 === 0 ? "USER" : "ASSISTANT",
+          content: "x".repeat(40),
+          status: "COMPLETE",
+        },
+      });
+    }
+
+    const sourceMessage = await prisma.message.create({
+      data: {
+        conversationId: conversation.id,
+        role: "USER",
+        content: "continue",
+        status: "COMPLETE",
+      },
+    });
+    const planId = randomUUID();
+    await prisma.executionPlan.create({
+      data: {
+        id: planId,
+        messageId: sourceMessage.id,
+        userId: actorUserId,
+        conversationId: conversation.id,
+        schemaVersion: 1,
+        version: 1,
+        planHash: "planning:pending:v1",
+        goal: "Measure full raw history",
+        status: "PLANNING",
+        maxParallelism: 1,
+      },
+    });
+
+    const retrieval = new ContextRetrievalService(prisma, [], {
+      l1RawLimit: 1,
+      olderHistoryScanLimit: 1,
+    });
+    const scopedSnapshots = new ContextSnapshotService(
+      prisma,
+      undefined,
+      retrieval,
+    );
+    const snapshot = await scopedSnapshots.createForExecutionPlan({
+      actorUserId,
+      planId,
+    });
+    const conversationItem = snapshot.items.find(
+      (item) => item.sourceType === "CONVERSATION",
+    );
+
+    expect(rawHistoryTokens(conversationItem?.metadata)).toBe(60);
+  });
+
   it("does not pull unrelated messages from another personal conversation", async () => {
     const actorUserId = await createUser(
       prisma,
@@ -247,4 +315,24 @@ function retrievalKind(metadata: unknown): string | null {
   }
   const value = (retrieval as Record<string, unknown>).sourceKind;
   return typeof value === "string" ? value : null;
+}
+
+function rawHistoryTokens(metadata: unknown): number | null {
+  if (
+    typeof metadata !== "object" ||
+    metadata === null ||
+    Array.isArray(metadata)
+  ) {
+    return null;
+  }
+  const retrieval = (metadata as Record<string, unknown>).retrieval;
+  if (
+    typeof retrieval !== "object" ||
+    retrieval === null ||
+    Array.isArray(retrieval)
+  ) {
+    return null;
+  }
+  const value = (retrieval as Record<string, unknown>).rawHistoryTokens;
+  return typeof value === "number" ? value : null;
 }
