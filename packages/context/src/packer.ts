@@ -223,7 +223,10 @@ export function estimateItemTokens(item: ContextSnapshotItemView): number {
   }
 
   const serialized = JSON.stringify(stripRetrievalMetadata(item.metadata));
-  return Math.max(1, Math.ceil(serialized.length / 4));
+  return Math.max(
+    1,
+    new TextEncoder().encode(serialized).byteLength,
+  );
 }
 
 function compareCandidates(
