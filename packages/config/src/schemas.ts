@@ -218,6 +218,21 @@ export const apiEnvSchema = z
         });
       }
 
+      if (value.MEMORY_ENABLED === "true") {
+        if (
+          value.SEMANTIC_PLANNER_PROVIDER === "mock" ||
+          !value.SEMANTIC_PLANNER_BASE_URL ||
+          !value.SEMANTIC_PLANNER_MODEL
+        ) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["MEMORY_ENABLED"],
+            message:
+              "MEMORY_ENABLED in staging/production requires the configured internal semantic planner",
+          });
+        }
+      }
+
       if (value.AI_TEXT_ENABLED === "true") {
         if (!value.PROXYAPI_API_KEY || value.PROXYAPI_API_KEY.trim().length === 0) {
           ctx.addIssue({
