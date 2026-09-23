@@ -39,6 +39,9 @@ export class MemoryExtractionPipeline {
     if ((proposal.confidence ?? 0.8) < 0.75) {
       return { kind: "SKIPPED", reason: "LOW_CONFIDENCE" };
     }
+    if (proposal.sensitivity === "SENSITIVE") {
+      return { kind: "SKIPPED", reason: "SENSITIVE" };
+    }
     if (
       proposal.sourceRefs.some(
         (ref) =>
