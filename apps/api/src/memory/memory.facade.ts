@@ -1,8 +1,10 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
+import { EffectivePlanResolver } from "@vimla/billing";
 import {
   MemoryError,
   MemoryService,
 } from "@vimla/context";
+import { ProjectService } from "@vimla/projects";
 import { API_CONFIG, type ApiRuntimeConfig } from "../config/api-config.js";
 import { PrismaService } from "../persistence/prisma.service.js";
 
@@ -15,7 +17,43 @@ export class MemoryFacade {
     @Inject(PrismaService) prisma: PrismaService,
     @Inject(API_CONFIG) private readonly config: ApiRuntimeConfig,
   ) {
-    this.memory = new MemoryService(prisma.client);
+    const projects = new ProjectService(
+      prisma.client,
+      new EffectivePlanResolver(prisma.client),
+      {
+        tokenSecret: config.betterAuthSecret,
+        webOrigin: config.webOrigin,
+        inviteTtlDays: config.projectsInviteTtlDays,
+      },
+    );
+    this.memory = new MemoryService(
+      prisma.client,
+      {
+        canWriteProject: async ({
+          actorUserId,
+          projectId,
+        }) => {
+          const user = await prisma.client.user.findUnique({
+            where: { id: actorUserId },
+            select: { email: true },
+          });
+          if (!user) return false;
+          try {
+            const view = await projects.get(
+              {
+                userId: actorUserId,
+                email: user.email,
+              },
+              projectId,
+            );
+            return view.capabilities.canEdit;
+          } catch {
+            return false;
+          }
+        },
+      },
+      config.memoryMaxActivePersonalItems,
+    );
   }
 
   assertEnabled(): void {
