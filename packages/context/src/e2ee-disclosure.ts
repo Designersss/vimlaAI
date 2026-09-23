@@ -1,4 +1,4 @@
-import type { Prisma } from "@vimla/database";
+import { Prisma } from "@vimla/database";
 import { ContextValidationError } from "./errors.js";
 import { fingerprintContextItem, fingerprintContextSnapshot } from "./fingerprint.js";
 import type { ContextSnapshotItemInput } from "./types.js";
