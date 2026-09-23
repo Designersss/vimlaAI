@@ -56,6 +56,8 @@ describe("direct chats API", () => {
     process.env.BETTER_AUTH_URL = process.env.BETTER_AUTH_URL ?? "http://localhost:3001";
     process.env.DIRECT_CHATS_ENABLED = "true";
     process.env.OPERATOR_ENABLED = "true";
+    process.env.OPERATOR_RATE_LIMIT_PER_MINUTE = "200";
+    process.env.DIRECT_CHATS_MUTATION_LIMIT_PER_MINUTE = "500";
     process.env.AI_TEXT_ENABLED = "true";
     process.env.AI_TEXT_PROVIDER = "mock";
 
@@ -475,6 +477,7 @@ describe("direct chats API", () => {
         cookies: alice.cookies,
         payload,
       });
+      expect(response.statusCode).toBe(201);
       return { source, payload, response };
     };
 
