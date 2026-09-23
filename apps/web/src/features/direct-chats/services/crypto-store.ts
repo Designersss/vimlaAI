@@ -1,7 +1,8 @@
 import { bytesToB64, b64ToBytes, type IdentityKeyPair, type SerializedRatchetState } from "@vimla/e2ee";
 
 const DB_NAME = "vimla-direct-e2ee";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
+const PLAINTEXT_CONVERSATION_TIME_INDEX = "conversation-created-at";
 
 export interface StoredDeviceMaterial {
   deviceId: string;
@@ -35,8 +36,18 @@ function openDb(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains("ratchets")) {
         db.createObjectStore("ratchets");
       }
-      if (!db.objectStoreNames.contains("plaintexts")) {
-        db.createObjectStore("plaintexts");
+      const plaintexts = db.objectStoreNames.contains("plaintexts")
+        ? request.transaction?.objectStore("plaintexts")
+        : db.createObjectStore("plaintexts");
+      if (
+        plaintexts &&
+        !plaintexts.indexNames.contains(PLAINTEXT_CONVERSATION_TIME_INDEX)
+      ) {
+        plaintexts.createIndex(
+          PLAINTEXT_CONVERSATION_TIME_INDEX,
+          ["conversationId", "createdAt"],
+          { unique: false },
+        );
       }
     };
     request.onsuccess = () => resolve(request.result);
@@ -107,6 +118,39 @@ export async function loadPlaintext(messageId: string): Promise<StoredPlaintext 
 export async function savePlaintext(row: StoredPlaintext): Promise<void> {
   await withStore("plaintexts", "readwrite", (store) => {
     store.put(row, row.messageId);
+  });
+}
+
+export async function loadConversationPlaintexts(
+  conversationId: string,
+  limit = 256,
+): Promise<StoredPlaintext[]> {
+  const boundedLimit = Math.max(1, Math.min(512, Math.trunc(limit)));
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const rows: StoredPlaintext[] = [];
+    const tx = db.transaction("plaintexts", "readonly");
+    const store = tx.objectStore("plaintexts");
+    const index = store.index(PLAINTEXT_CONVERSATION_TIME_INDEX);
+    const range = IDBKeyRange.bound(
+      [conversationId, ""],
+      [conversationId, "\uffff"],
+    );
+    const request = index.openCursor(range, "prev");
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor || rows.length >= boundedLimit) return;
+      rows.push(cursor.value as StoredPlaintext);
+      cursor.continue();
+    };
+    tx.oncomplete = () => {
+      db.close();
+      resolve(rows);
+    };
+    tx.onerror = () => {
+      db.close();
+      reject(tx.error ?? new Error("IndexedDB transaction failed"));
+    };
   });
 }
 
