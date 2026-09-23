@@ -445,10 +445,10 @@ export class ContextRetrievalService {
           orderBy: [{ createdAt: "desc" }, { id: "asc" }],
           take: this.options.artifactScanLimit,
         }),
-        this.db.$queryRaw<Array<{ characterCount: bigint }>>(
+        this.db.$queryRaw<Array<{ byteCount: bigint }>>(
           Prisma.sql`
             SELECT
-              COALESCE(SUM(CHAR_LENGTH("content")), 0)::bigint AS "characterCount"
+              COALESCE(SUM(OCTET_LENGTH("content")), 0)::bigint AS "byteCount"
             FROM "message"
             WHERE "conversationId" = ${sourceMessage.conversation.id}
               AND "id" <> ${sourceMessage.id}
@@ -458,8 +458,8 @@ export class ContextRetrievalService {
         ),
       ]);
 
-    const rawHistoryTokens = estimateTokensFromCharacterCount(
-      rawHistoryRows[0]?.characterCount ?? 0n,
+    const rawHistoryTokens = conservativeTokensFromByteCount(
+      rawHistoryRows[0]?.byteCount ?? 0n,
     );
 
     const candidates: ContextCandidate[] = [
@@ -1454,18 +1454,21 @@ function queryReferencesId(
 }
 
 function estimateTokens(value: string): number {
-  return Math.max(1, Math.ceil(value.length / 4));
+  // Match @vimla/ai admission safety: one UTF-8 byte is treated as one
+  // conservative token unit so multilingual text is never undercounted.
+  return Math.max(
+    1,
+    new TextEncoder().encode(value).byteLength,
+  );
 }
 
-function estimateTokensFromCharacterCount(
-  characterCount: bigint,
+function conservativeTokensFromByteCount(
+  byteCount: bigint,
 ): number {
-  if (characterCount <= 0n) return 0;
-  const bounded =
-    characterCount > BigInt(Number.MAX_SAFE_INTEGER)
-      ? Number.MAX_SAFE_INTEGER
-      : Number(characterCount);
-  return Math.max(1, Math.ceil(bounded / 4));
+  if (byteCount <= 0n) return 0;
+  return byteCount > BigInt(Number.MAX_SAFE_INTEGER)
+    ? Number.MAX_SAFE_INTEGER
+    : Number(byteCount);
 }
 
 function roundScore(value: number): number {
