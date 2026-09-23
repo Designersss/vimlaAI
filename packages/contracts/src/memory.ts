@@ -169,3 +169,42 @@ export const memoriesResponseSchema = z
 export type MemoriesResponse = z.infer<
   typeof memoriesResponseSchema
 >;
+
+
+export const memoryExtractionCandidateSchema = z
+  .object({
+    type: z.enum([
+      "USER_FACT",
+      "USER_PREFERENCE",
+      "USER_GOAL",
+      "USER_RELATIONSHIP",
+    ]),
+    slotKey: z.string().trim().min(1).max(MEMORY_LIMITS.slotKeyMax),
+    content: z.string().trim().min(1).max(MEMORY_LIMITS.contentMax),
+    confidence: z.number().min(0).max(1),
+    transient: z.boolean().default(false),
+  })
+  .strict();
+export type MemoryExtractionCandidate = z.infer<
+  typeof memoryExtractionCandidateSchema
+>;
+
+export const memoryExtractionModelOutputSchema = z
+  .object({
+    candidates: z
+      .array(memoryExtractionCandidateSchema)
+      .max(8),
+  })
+  .strict();
+export type MemoryExtractionModelOutput = z.infer<
+  typeof memoryExtractionModelOutputSchema
+>;
+
+export const memoryCompactionModelOutputSchema = z
+  .object({
+    summary: z.string().trim().min(1).max(32_000),
+  })
+  .strict();
+export type MemoryCompactionModelOutput = z.infer<
+  typeof memoryCompactionModelOutputSchema
+>;
