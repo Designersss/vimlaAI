@@ -746,9 +746,28 @@ export class OperatorService {
     status: "SUCCEEDED" | "PARTIAL" | "FAILED",
     confirmationToken: string | null,
   ): Promise<OperatorRunView> {
+    const failedStep =
+      status === "FAILED"
+        ? await this.prisma.operatorRunStep.findFirst({
+            where: {
+              runId,
+              status: "FAILED",
+              errorCode: { not: null },
+            },
+            orderBy: { sequence: "asc" },
+            select: { errorCode: true },
+          })
+        : null;
     const updated = await this.prisma.operatorRun.update({
       where: { id: runId },
-      data: { status, publicMessage: sanitizePublicText(publicMessage, 2_000), errorCode: status === "FAILED" ? "operator_plan_invalid" : null },
+      data: {
+        status,
+        publicMessage: sanitizePublicText(publicMessage, 2_000),
+        errorCode:
+          status === "FAILED"
+            ? failedStep?.errorCode ?? "operator_plan_invalid"
+            : null,
+      },
       include: { steps: { orderBy: { sequence: "asc" } } },
     });
     await this.persistAssistant(updated, updated.publicMessage ?? publicMessage);
