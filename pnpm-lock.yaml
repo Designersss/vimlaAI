@@ -507,6 +507,9 @@ importers:
       '@vimla/artifacts':
         specifier: workspace:*
         version: link:../artifacts
+      '@vimla/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       '@vimla/database':
         specifier: workspace:*
         version: link:../database
