@@ -581,6 +581,16 @@ describe("direct chats API", () => {
         sourceId: peerAllowed.id,
       }),
     ).rejects.toBeInstanceOf(ContextAccessDeniedError);
+    await expect(
+      new ContextSnapshotService(
+        db,
+        async () => true,
+      ).assertSourceAccess({
+        actorUserId: alice.id,
+        sourceType: "E2EE_DISCLOSURE",
+        sourceId: peerAllowed.id,
+      }),
+    ).rejects.toBeInstanceOf(ContextAccessDeniedError);
 
     await expect(
       db.contextSnapshot.create({
