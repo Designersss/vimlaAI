@@ -294,7 +294,7 @@ export async function canReadCompactedState(
 }
 
 async function compactedScopeReadable(
-  db: PrismaClient,
+  db: PrismaClient | Prisma.TransactionClient,
   actorUserId: string,
   row: CompactedRow,
 ): Promise<boolean> {
@@ -576,7 +576,7 @@ async function resolveCompactionSources(
         String(source.version) !== ref.sourceVersion ||
         !compactedScopeMatchesRef(source, ref) ||
         !(await compactedScopeReadable(
-          tx as unknown as PrismaClient,
+          tx,
           actorUserId,
           source,
         ))
