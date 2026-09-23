@@ -11,7 +11,10 @@ import type {
   ContextRetrievalProviderInput,
 } from "./retrieval.js";
 import type { ContextSourceScope } from "./policy.js";
-import { MemoryError } from "./memory.js";
+import {
+  MemoryError,
+  type MemoryProjectWriteAuthorizer,
+} from "./memory.js";
 
 export type CompactedScope =
   | { kind: "CONVERSATION"; conversationId: string }
@@ -34,8 +37,8 @@ export interface RefreshCompactedStateInput {
   content: string;
   sourceRefs: readonly CompactedStateSourceRef[];
   budget: ContextBudget;
-  inputTokenEstimate: number;
-  outputTokenEstimate: number;
+  inputTokenEstimate?: number;
+  outputTokenEstimate?: number;
   explicitCrossScopeWrite?: boolean;
 }
 
@@ -43,49 +46,16 @@ type CompactedRow =
   Prisma.CompactedContextStateGetPayload<Record<string, never>>;
 
 export class CompactedStateService {
-  constructor(private readonly db: PrismaClient) {}
+  constructor(
+    private readonly db: PrismaClient,
+    private readonly projectWriteAuthorizer?: MemoryProjectWriteAuthorizer,
+  ) {}
 
   async refresh(
     input: RefreshCompactedStateInput,
   ): Promise<CompactedRow> {
     validateRefreshInput(input);
     const scope = normalizeScope(input.actorUserId, input.scope);
-    if (
-      !shouldUseCompactedState(
-        input.inputTokenEstimate,
-        input.budget,
-      )
-    ) {
-      throw new MemoryError(
-        "CONFLICT",
-        "Compaction is not required by the effective context budget",
-      );
-    }
-
-    const refs = [...input.sourceRefs].sort(
-      (left, right) =>
-        left.occurredAt.getTime() -
-          right.occurredAt.getTime() ||
-        left.sourceId.localeCompare(right.sourceId),
-    );
-    const first = refs[0];
-    const last = refs.at(-1);
-    if (!first || !last) {
-      throw new MemoryError(
-        "VALIDATION_ERROR",
-        "Compaction requires source provenance",
-      );
-    }
-    const sourceFingerprint = hashJson(
-      refs.map((ref) => ({
-        sourceType: ref.sourceType,
-        sourceId: ref.sourceId,
-        sourceVersion: ref.sourceVersion,
-        occurredAt: ref.occurredAt.toISOString(),
-        sourceScopeKind: ref.sourceScopeKind,
-        sourceScopeId: ref.sourceScopeId,
-      })),
-    );
 
     return this.db.$transaction(async (tx) => {
       await tx.$queryRaw<Array<{ lock: string }>>(Prisma.sql`
@@ -97,13 +67,42 @@ export class CompactedStateService {
         tx,
         input.actorUserId,
         scope,
+        this.projectWriteAuthorizer,
       );
-      await validateCompactionSources(
+      const resolved = await resolveCompactionSources(
         tx,
         input.actorUserId,
         scope,
-        refs,
+        input.sourceRefs,
         input.explicitCrossScopeWrite === true,
+      );
+      if (
+        !shouldUseCompactedState(
+          resolved.inputTokenEstimate,
+          input.budget,
+        )
+      ) {
+        throw new MemoryError(
+          "CONFLICT",
+          "Compaction is not required by the effective context budget",
+        );
+      }
+
+      const content = input.content.trim();
+      const outputTokenEstimate = estimateTokens(content);
+      const classification = strongerClassification(
+        input.classification,
+        resolved.classification,
+      );
+      const sourceFingerprint = hashJson(
+        resolved.refs.map((ref) => ({
+          sourceType: ref.sourceType,
+          sourceId: ref.sourceId,
+          sourceVersion: ref.sourceVersion,
+          occurredAt: ref.occurredAt.toISOString(),
+          sourceScopeKind: ref.sourceScopeKind,
+          sourceScopeId: ref.sourceScopeId,
+        })),
       );
 
       const latest =
@@ -113,8 +112,9 @@ export class CompactedStateService {
         });
       if (
         latest &&
+        latest.invalidatedAt === null &&
         latest.sourceFingerprint === sourceFingerprint &&
-        latest.contentHash === hashText(input.content)
+        latest.contentHash === hashText(content)
       ) {
         return latest;
       }
@@ -139,10 +139,10 @@ export class CompactedStateService {
           conversationId: scope.conversationId,
           threadId: scope.threadId,
           version: (latest?.version ?? 0) + 1,
-          classification: input.classification,
-          content: input.content.trim(),
-          contentHash: hashText(input.content),
-          sourceRefs: refs.map((ref) => ({
+          classification,
+          content,
+          contentHash: hashText(content),
+          sourceRefs: resolved.refs.map((ref) => ({
             sourceType: ref.sourceType,
             sourceId: ref.sourceId,
             sourceVersion: ref.sourceVersion,
@@ -151,13 +151,13 @@ export class CompactedStateService {
             sourceScopeId: ref.sourceScopeId,
           })) as Prisma.InputJsonValue,
           sourceFingerprint,
-          coveredFromSourceId: first.sourceId,
-          coveredToSourceId: last.sourceId,
-          coveredFromAt: first.occurredAt,
-          coveredToAt: last.occurredAt,
-          sourceCount: refs.length,
-          inputTokenEstimate: input.inputTokenEstimate,
-          outputTokenEstimate: input.outputTokenEstimate,
+          coveredFromSourceId: resolved.coveredFromSourceId,
+          coveredToSourceId: resolved.coveredToSourceId,
+          coveredFromAt: resolved.coveredFromAt,
+          coveredToAt: resolved.coveredToAt,
+          sourceCount: resolved.sourceCount,
+          inputTokenEstimate: resolved.inputTokenEstimate,
+          outputTokenEstimate,
           validFrom: new Date(),
         },
       });
@@ -334,60 +334,93 @@ async function compactedSourcesCurrent(
   db: PrismaClient,
   row: CompactedRow,
 ): Promise<boolean> {
-  const refs = parseSourceRefs(row.sourceRefs);
-  if (refs.length !== row.sourceCount) return false;
+  return compactedStateLineageCurrent(
+    db,
+    row,
+    new Set<string>(),
+  );
+}
 
-  for (const ref of refs) {
-    if (ref.sourceType === "MESSAGE") {
-      const message = await db.message.findFirst({
-        where: {
-          id: ref.sourceId,
-          ...(ref.sourceScopeKind === "CONVERSATION"
-            ? { conversationId: ref.sourceScopeId }
-            : {}),
-        },
-        select: { updatedAt: true },
-      });
-      if (
-        !message ||
-        message.updatedAt.toISOString() !==
-          ref.sourceVersion
-      ) {
-        return false;
-      }
-      continue;
-    }
-    if (ref.sourceType === "COMPACTED_STATE") {
-      const source =
-        await db.compactedContextState.findUnique({
-          where: { id: ref.sourceId },
-          select: {
-            version: true,
-            invalidatedAt: true,
+async function compactedStateLineageCurrent(
+  db: PrismaClient,
+  row: CompactedRow,
+  visited: Set<string>,
+): Promise<boolean> {
+  if (visited.has(row.id)) return false;
+  visited.add(row.id);
+  try {
+    const refs = parseSourceRefs(row.sourceRefs);
+    if (refs.length === 0) return false;
+
+    for (const ref of refs) {
+      if (ref.sourceType === "MESSAGE") {
+        if (
+          ref.sourceScopeKind !== "CONVERSATION"
+        ) {
+          return false;
+        }
+        const message = await db.message.findFirst({
+          where: {
+            id: ref.sourceId,
+            status: "COMPLETE",
+            conversationId: ref.sourceScopeId,
+            conversation: {
+              userId: row.ownerUserId,
+            },
           },
+          select: { updatedAt: true },
         });
-      if (
-        !source ||
-        source.invalidatedAt ||
-        String(source.version) !== ref.sourceVersion
-      ) {
-        return false;
+        if (
+          !message ||
+          message.updatedAt.toISOString() !==
+            ref.sourceVersion
+        ) {
+          return false;
+        }
+        continue;
       }
-      continue;
+
+      if (ref.sourceType === "COMPACTED_STATE") {
+        const source =
+          await db.compactedContextState.findUnique({
+            where: { id: ref.sourceId },
+          });
+        if (
+          !source ||
+          String(source.version) !== ref.sourceVersion ||
+          !compactedScopeMatchesRef(source, ref) ||
+          (source.invalidatedAt !== null &&
+            source.invalidationReason !== "SUPERSEDED") ||
+          !(await compactedStateLineageCurrent(
+            db,
+            source,
+            visited,
+          ))
+        ) {
+          return false;
+        }
+        continue;
+      }
+      return false;
     }
-    return false;
+    return true;
+  } finally {
+    visited.delete(row.id);
   }
-  return true;
 }
 
 async function assertCompactedScopeWritable(
   tx: Prisma.TransactionClient,
   actorUserId: string,
   scope: NormalizedCompactedScope,
+  projectWriteAuthorizer?: MemoryProjectWriteAuthorizer,
 ): Promise<void> {
   switch (scope.kind) {
     case "THREAD":
-      return;
+      throw new MemoryError(
+        "DISABLED",
+        "Thread compaction requires the PR-18 thread authority model",
+      );
     case "CONVERSATION": {
       const conversation = await tx.conversation.findFirst({
         where: {
@@ -425,17 +458,54 @@ async function assertCompactedScopeWritable(
           "Project compaction scope not found",
         );
       }
+      if (
+        !projectWriteAuthorizer ||
+        !(await projectWriteAuthorizer.canWriteProject({
+          actorUserId,
+          projectId: project.id,
+        }))
+      ) {
+        throw new MemoryError(
+          "FORBIDDEN",
+          "Project compaction write is not allowed",
+        );
+      }
     }
   }
 }
 
-async function validateCompactionSources(
+type ResolvedCompactionRef = {
+  sourceType: "MESSAGE" | "COMPACTED_STATE";
+  sourceId: string;
+  sourceVersion: string;
+  occurredAt: Date;
+  sourceScopeKind: "CONVERSATION" | "PROJECT" | "THREAD";
+  sourceScopeId: string;
+  classification: "PUBLIC" | "INTERNAL" | "PRIVATE" | "RESTRICTED";
+  inputTokenEstimate: number;
+  coveredFromSourceId: string;
+  coveredToSourceId: string;
+  coveredFromAt: Date;
+  coveredToAt: Date;
+  sourceCount: number;
+};
+
+async function resolveCompactionSources(
   tx: Prisma.TransactionClient,
   actorUserId: string,
   targetScope: NormalizedCompactedScope,
   refs: readonly CompactedStateSourceRef[],
   explicitCrossScopeWrite: boolean,
-): Promise<void> {
+): Promise<{
+  refs: ResolvedCompactionRef[];
+  classification: "PUBLIC" | "INTERNAL" | "PRIVATE" | "RESTRICTED";
+  inputTokenEstimate: number;
+  coveredFromSourceId: string;
+  coveredToSourceId: string;
+  coveredFromAt: Date;
+  coveredToAt: Date;
+  sourceCount: number;
+}> {
   if (refs.length < 1 || refs.length > 512) {
     throw new MemoryError(
       "VALIDATION_ERROR",
@@ -443,12 +513,98 @@ async function validateCompactionSources(
     );
   }
 
+  const resolved: ResolvedCompactionRef[] = [];
   for (const ref of refs) {
+    let item: ResolvedCompactionRef;
+    if (ref.sourceType === "MESSAGE") {
+      const message = await tx.message.findFirst({
+        where: {
+          id: ref.sourceId,
+          status: "COMPLETE",
+          conversation: {
+            userId: actorUserId,
+          },
+        },
+        select: {
+          conversationId: true,
+          content: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+      if (
+        !message ||
+        message.updatedAt.toISOString() !==
+          ref.sourceVersion ||
+        ref.sourceScopeKind !== "CONVERSATION" ||
+        ref.sourceScopeId !== message.conversationId
+      ) {
+        throw new MemoryError(
+          "VALIDATION_ERROR",
+          "Compaction message source is stale, forged, or inaccessible",
+        );
+      }
+      item = {
+        sourceType: "MESSAGE",
+        sourceId: ref.sourceId,
+        sourceVersion: message.updatedAt.toISOString(),
+        occurredAt: message.createdAt,
+        sourceScopeKind: "CONVERSATION",
+        sourceScopeId: message.conversationId,
+        classification: "PRIVATE",
+        inputTokenEstimate: estimateTokens(message.content),
+        coveredFromSourceId: ref.sourceId,
+        coveredToSourceId: ref.sourceId,
+        coveredFromAt: message.createdAt,
+        coveredToAt: message.createdAt,
+        sourceCount: 1,
+      };
+    } else {
+      const source =
+        await tx.compactedContextState.findUnique({
+          where: { id: ref.sourceId },
+        });
+      if (
+        !source ||
+        source.invalidatedAt !== null ||
+        String(source.version) !== ref.sourceVersion ||
+        !compactedScopeMatchesRef(source, ref) ||
+        !(await compactedScopeReadable(
+          tx as unknown as PrismaClient,
+          actorUserId,
+          source,
+        ))
+      ) {
+        throw new MemoryError(
+          "VALIDATION_ERROR",
+          "Compacted source state is stale, forged, or inaccessible",
+        );
+      }
+      item = {
+        sourceType: "COMPACTED_STATE",
+        sourceId: source.id,
+        sourceVersion: String(source.version),
+        occurredAt: source.validFrom,
+        sourceScopeKind:
+          source.scopeKind as "CONVERSATION" | "PROJECT" | "THREAD",
+        sourceScopeId: scopeIdForCompactedState(source),
+        classification: parseClassification(
+          source.classification,
+        ),
+        inputTokenEstimate: source.outputTokenEstimate,
+        coveredFromSourceId: source.coveredFromSourceId,
+        coveredToSourceId: source.coveredToSourceId,
+        coveredFromAt: source.coveredFromAt,
+        coveredToAt: source.coveredToAt,
+        sourceCount: source.sourceCount,
+      };
+    }
+
     if (
       targetScope.kind === "PROJECT" &&
       !(
-        ref.sourceScopeKind === "PROJECT" &&
-        ref.sourceScopeId === targetScope.projectId
+        item.sourceScopeKind === "PROJECT" &&
+        item.sourceScopeId === targetScope.projectId
       ) &&
       !explicitCrossScopeWrite
     ) {
@@ -457,87 +613,62 @@ async function validateCompactionSources(
         "Project compaction requires an explicit cross-scope write",
       );
     }
-
-    if (ref.sourceType === "MESSAGE") {
-      const message = await tx.message.findFirst({
-        where: {
-          id: ref.sourceId,
-          status: "COMPLETE",
-          ...(ref.sourceScopeKind === "CONVERSATION"
-            ? {
-                conversationId: ref.sourceScopeId,
-                conversation: {
-                  userId: actorUserId,
-                },
-              }
-            : {}),
-        },
-        select: { updatedAt: true },
-      });
-      if (
-        !message ||
-        message.updatedAt.toISOString() !==
-          ref.sourceVersion
-      ) {
-        throw new MemoryError(
-          "VALIDATION_ERROR",
-          "Compaction message source is stale or inaccessible",
-        );
-      }
-      continue;
-    }
-
-    const source =
-      await tx.compactedContextState.findFirst({
-        where: {
-          id: ref.sourceId,
-          invalidatedAt: null,
-          OR: [
-            { ownerUserId: actorUserId },
-            {
-              project: {
-                OR: [
-                  { ownerUserId: actorUserId },
-                  {
-                    members: {
-                      some: { userId: actorUserId },
-                    },
-                  },
-                ],
-              },
-            },
-          ],
-        },
-        select: {
-          version: true,
-          ownerUserId: true,
-          scopeKind: true,
-          projectId: true,
-          conversationId: true,
-          threadId: true,
-        },
-      });
-    const sourceScopeId =
-      source?.scopeKind === "PROJECT"
-        ? source.projectId
-        : source?.scopeKind === "CONVERSATION"
-          ? source.conversationId
-          : source?.scopeKind === "THREAD"
-            ? source.threadId
-            : null;
-    if (
-      !source ||
-      String(source.version) !== ref.sourceVersion ||
-      source.scopeKind !== ref.sourceScopeKind ||
-      sourceScopeId !== ref.sourceScopeId
-    ) {
-      throw new MemoryError(
-        "VALIDATION_ERROR",
-        "Compacted source state is stale or inaccessible",
-      );
-    }
+    resolved.push(item);
   }
+
+  const ordered = [...resolved].sort(
+    (left, right) =>
+      left.coveredFromAt.getTime() -
+        right.coveredFromAt.getTime() ||
+      left.coveredFromSourceId.localeCompare(
+        right.coveredFromSourceId,
+      ),
+  );
+  const first = ordered[0];
+  const last = [...ordered].sort(
+    (left, right) =>
+      right.coveredToAt.getTime() -
+        left.coveredToAt.getTime() ||
+      right.coveredToSourceId.localeCompare(
+        left.coveredToSourceId,
+      ),
+  )[0];
+  if (!first || !last) {
+    throw new MemoryError(
+      "VALIDATION_ERROR",
+      "Compaction source range is invalid",
+    );
+  }
+
+  return {
+    refs: resolved,
+    classification: resolved.reduce(
+      (value, ref) =>
+        strongerClassification(
+          value,
+          ref.classification,
+        ),
+      "PUBLIC" as
+        | "PUBLIC"
+        | "INTERNAL"
+        | "PRIVATE"
+        | "RESTRICTED",
+    ),
+    inputTokenEstimate: resolved.reduce(
+      (total, ref) => total + ref.inputTokenEstimate,
+      0,
+    ),
+    coveredFromSourceId: first.coveredFromSourceId,
+    coveredToSourceId: last.coveredToSourceId,
+    coveredFromAt: first.coveredFromAt,
+    coveredToAt: last.coveredToAt,
+    sourceCount: resolved.reduce(
+      (total, ref) => total + ref.sourceCount,
+      0,
+    ),
+  };
 }
+
 
 function validateRefreshInput(
   input: RefreshCompactedStateInput,
@@ -553,17 +684,6 @@ function validateRefreshInput(
     throw new MemoryError(
       "SENSITIVE_CONTENT",
       "Secret-like content cannot be stored in compacted context state",
-    );
-  }
-  if (
-    !Number.isInteger(input.inputTokenEstimate) ||
-    input.inputTokenEstimate < 1 ||
-    !Number.isInteger(input.outputTokenEstimate) ||
-    input.outputTokenEstimate < 1
-  ) {
-    throw new MemoryError(
-      "VALIDATION_ERROR",
-      "Compaction token estimates are invalid",
     );
   }
 }
@@ -677,6 +797,71 @@ function parseClassification(
     value === "RESTRICTED"
     ? value
     : "RESTRICTED";
+}
+
+function scopeIdForCompactedState(
+  row: {
+    scopeKind: string;
+    projectId: string | null;
+    conversationId: string | null;
+    threadId: string | null;
+  },
+): string {
+  const value =
+    row.scopeKind === "PROJECT"
+      ? row.projectId
+      : row.scopeKind === "CONVERSATION"
+        ? row.conversationId
+        : row.scopeKind === "THREAD"
+          ? row.threadId
+          : null;
+  if (!value) {
+    throw new MemoryError(
+      "VALIDATION_ERROR",
+      "Compacted source scope is invalid",
+    );
+  }
+  return value;
+}
+
+function compactedScopeMatchesRef(
+  row: {
+    scopeKind: string;
+    projectId: string | null;
+    conversationId: string | null;
+    threadId: string | null;
+  },
+  ref: {
+    sourceScopeKind: string;
+    sourceScopeId: string;
+  },
+): boolean {
+  if (row.scopeKind !== ref.sourceScopeKind) return false;
+  try {
+    return scopeIdForCompactedState(row) === ref.sourceScopeId;
+  } catch {
+    return false;
+  }
+}
+
+function strongerClassification(
+  left: "PUBLIC" | "INTERNAL" | "PRIVATE" | "RESTRICTED",
+  right: "PUBLIC" | "INTERNAL" | "PRIVATE" | "RESTRICTED",
+): "PUBLIC" | "INTERNAL" | "PRIVATE" | "RESTRICTED" {
+  const rank = {
+    PUBLIC: 0,
+    INTERNAL: 1,
+    PRIVATE: 2,
+    RESTRICTED: 3,
+  } as const;
+  return rank[left] >= rank[right] ? left : right;
+}
+
+function estimateTokens(value: string): number {
+  return Math.max(
+    1,
+    new TextEncoder().encode(value).byteLength,
+  );
 }
 
 function hashText(value: string): string {
