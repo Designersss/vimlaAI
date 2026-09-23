@@ -1,0 +1,144 @@
+CREATE TABLE "memory_item" (
+  "id" TEXT NOT NULL,
+  "ownerUserId" TEXT NOT NULL,
+  "scopeKind" TEXT NOT NULL,
+  "scopeKey" TEXT NOT NULL,
+  "projectId" TEXT,
+  "conversationId" TEXT,
+  "threadId" TEXT,
+  "type" TEXT NOT NULL,
+  "slotKey" TEXT NOT NULL,
+  "content" TEXT NOT NULL,
+  "contentHash" TEXT NOT NULL,
+  "classification" TEXT NOT NULL,
+  "sensitivity" TEXT NOT NULL,
+  "confidence" DOUBLE PRECISION NOT NULL,
+  "quality" DOUBLE PRECISION NOT NULL,
+  "generation" INTEGER NOT NULL DEFAULT 1,
+  "origin" TEXT NOT NULL,
+  "state" TEXT NOT NULL DEFAULT 'ACTIVE',
+  "validFrom" TIMESTAMP(3) NOT NULL,
+  "expiresAt" TIMESTAMP(3),
+  "supersedesId" TEXT,
+  "invalidatedAt" TIMESTAMP(3),
+  "invalidationReason" TEXT,
+  "userConfirmedAt" TIMESTAMP(3),
+  "userCorrectedAt" TIMESTAMP(3),
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt" TIMESTAMP(3) NOT NULL,
+  CONSTRAINT "memory_item_pkey" PRIMARY KEY ("id"),
+  CONSTRAINT "memory_item_scope_check" CHECK (
+    ("scopeKind"='PERSONAL' AND "projectId" IS NULL AND "conversationId" IS NULL AND "threadId" IS NULL) OR
+    ("scopeKind"='PROJECT' AND "projectId" IS NOT NULL AND "conversationId" IS NULL AND "threadId" IS NULL) OR
+    ("scopeKind"='CONVERSATION' AND "projectId" IS NULL AND "conversationId" IS NOT NULL AND "threadId" IS NULL) OR
+    ("scopeKind"='THREAD' AND "projectId" IS NULL AND "conversationId" IS NULL AND "threadId" IS NOT NULL)
+  ),
+  CONSTRAINT "memory_item_type_check" CHECK ("type" IN (
+    'USER_FACT','USER_PREFERENCE','USER_GOAL','USER_RELATIONSHIP',
+    'PROJECT_FACT','PROJECT_DECISION','PROJECT_STATE',
+    'CONVERSATION_STATE','THREAD_STATE','DECISION','ENTITY_RELATION'
+  )),
+  CONSTRAINT "memory_item_classification_check" CHECK ("classification" IN ('PUBLIC','INTERNAL','PRIVATE','RESTRICTED')),
+  CONSTRAINT "memory_item_sensitivity_check" CHECK ("sensitivity" IN ('NORMAL','SENSITIVE')),
+  CONSTRAINT "memory_item_origin_check" CHECK ("origin" IN ('AUTO_EXTRACTION','USER_EXPLICIT','USER_CORRECTION','E2EE_USER_DISCLOSURE')),
+  CONSTRAINT "memory_item_state_check" CHECK ("state" IN ('ACTIVE','SUPERSEDED','INVALIDATED')),
+  CONSTRAINT "memory_item_scores_check" CHECK ("confidence">=0 AND "confidence"<=1 AND "quality">=0 AND "quality"<=1),
+  CONSTRAINT "memory_item_generation_check" CHECK ("generation">=1),
+  CONSTRAINT "memory_item_expiry_check" CHECK ("expiresAt" IS NULL OR "expiresAt">"validFrom"),
+  CONSTRAINT "memory_item_invalidation_check" CHECK (
+    ("state"='INVALIDATED' AND "invalidatedAt" IS NOT NULL AND "invalidationReason" IS NOT NULL)
+    OR ("state"<>'INVALIDATED' AND "invalidatedAt" IS NULL)
+  )
+);
+
+CREATE UNIQUE INDEX "memory_item_supersedesId_key" ON "memory_item"("supersedesId");
+CREATE UNIQUE INDEX "memory_item_active_slot_key" ON "memory_item"("scopeKey","slotKey") WHERE "state"='ACTIVE';
+CREATE INDEX "memory_item_ownerUserId_state_validFrom_idx" ON "memory_item"("ownerUserId","state","validFrom");
+CREATE INDEX "memory_item_projectId_state_validFrom_idx" ON "memory_item"("projectId","state","validFrom");
+CREATE INDEX "memory_item_conversationId_state_validFrom_idx" ON "memory_item"("conversationId","state","validFrom");
+CREATE INDEX "memory_item_scopeKey_state_validFrom_idx" ON "memory_item"("scopeKey","state","validFrom");
+CREATE INDEX "memory_item_type_state_validFrom_idx" ON "memory_item"("type","state","validFrom");
+
+ALTER TABLE "memory_item" ADD CONSTRAINT "memory_item_ownerUserId_fkey"
+  FOREIGN KEY ("ownerUserId") REFERENCES "user"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "memory_item" ADD CONSTRAINT "memory_item_projectId_fkey"
+  FOREIGN KEY ("projectId") REFERENCES "project"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "memory_item" ADD CONSTRAINT "memory_item_conversationId_fkey"
+  FOREIGN KEY ("conversationId") REFERENCES "conversation"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "memory_item" ADD CONSTRAINT "memory_item_supersedesId_fkey"
+  FOREIGN KEY ("supersedesId") REFERENCES "memory_item"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+CREATE TABLE "memory_source_ref" (
+  "id" TEXT NOT NULL,
+  "memoryId" TEXT NOT NULL,
+  "provenance" TEXT NOT NULL,
+  "sourceType" TEXT NOT NULL,
+  "sourceId" TEXT NOT NULL,
+  "sourceVersion" TEXT,
+  "sourceScopeKind" TEXT NOT NULL,
+  "sourceScopeId" TEXT,
+  "disclosedAt" TIMESTAMP(3),
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "memory_source_ref_pkey" PRIMARY KEY ("id"),
+  CONSTRAINT "memory_source_ref_provenance_check" CHECK ("provenance" IN ('AUTO_EXTRACTION','USER_EXPLICIT','USER_CORRECTION','E2EE_USER_DISCLOSURE')),
+  CONSTRAINT "memory_source_ref_scope_check" CHECK ("sourceScopeKind" IN ('PERSONAL','PROJECT','CONVERSATION','THREAD','DIRECT_CHAT'))
+);
+CREATE UNIQUE INDEX "memory_source_ref_identity_key" ON "memory_source_ref"("memoryId","provenance","sourceType","sourceId");
+CREATE INDEX "memory_source_ref_source_idx" ON "memory_source_ref"("sourceType","sourceId");
+CREATE INDEX "memory_source_ref_scope_idx" ON "memory_source_ref"("sourceScopeKind","sourceScopeId");
+ALTER TABLE "memory_source_ref" ADD CONSTRAINT "memory_source_ref_memoryId_fkey"
+  FOREIGN KEY ("memoryId") REFERENCES "memory_item"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+CREATE TABLE "compacted_context_state" (
+  "id" TEXT NOT NULL,
+  "ownerUserId" TEXT NOT NULL,
+  "scopeKind" TEXT NOT NULL,
+  "scopeKey" TEXT NOT NULL,
+  "projectId" TEXT,
+  "conversationId" TEXT,
+  "threadId" TEXT,
+  "version" INTEGER NOT NULL,
+  "classification" TEXT NOT NULL,
+  "content" TEXT NOT NULL,
+  "contentHash" TEXT NOT NULL,
+  "sourceRefs" JSONB NOT NULL,
+  "sourceFingerprint" TEXT NOT NULL,
+  "coveredFromSourceId" TEXT NOT NULL,
+  "coveredToSourceId" TEXT NOT NULL,
+  "coveredFromAt" TIMESTAMP(3) NOT NULL,
+  "coveredToAt" TIMESTAMP(3) NOT NULL,
+  "sourceCount" INTEGER NOT NULL,
+  "inputTokenEstimate" INTEGER NOT NULL,
+  "outputTokenEstimate" INTEGER NOT NULL,
+  "validFrom" TIMESTAMP(3) NOT NULL,
+  "invalidatedAt" TIMESTAMP(3),
+  "invalidationReason" TEXT,
+  "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "compacted_context_state_pkey" PRIMARY KEY ("id"),
+  CONSTRAINT "compacted_context_state_scope_check" CHECK (
+    ("scopeKind"='PROJECT' AND "projectId" IS NOT NULL AND "conversationId" IS NULL AND "threadId" IS NULL) OR
+    ("scopeKind"='CONVERSATION' AND "projectId" IS NULL AND "conversationId" IS NOT NULL AND "threadId" IS NULL) OR
+    ("scopeKind"='THREAD' AND "projectId" IS NULL AND "conversationId" IS NULL AND "threadId" IS NOT NULL)
+  ),
+  CONSTRAINT "compacted_context_state_classification_check" CHECK ("classification" IN ('PUBLIC','INTERNAL','PRIVATE','RESTRICTED')),
+  CONSTRAINT "compacted_context_state_version_check" CHECK ("version">=1),
+  CONSTRAINT "compacted_context_state_source_count_check" CHECK ("sourceCount">=1),
+  CONSTRAINT "compacted_context_state_token_check" CHECK ("inputTokenEstimate">=1 AND "outputTokenEstimate">=1),
+  CONSTRAINT "compacted_context_state_range_check" CHECK ("coveredFromAt"<="coveredToAt"),
+  CONSTRAINT "compacted_context_state_invalidation_check" CHECK (
+    ("invalidatedAt" IS NULL AND "invalidationReason" IS NULL)
+    OR ("invalidatedAt" IS NOT NULL AND "invalidationReason" IS NOT NULL)
+  )
+);
+CREATE UNIQUE INDEX "compacted_context_state_scope_version_key" ON "compacted_context_state"("scopeKey","version");
+CREATE UNIQUE INDEX "compacted_context_state_active_scope_key" ON "compacted_context_state"("scopeKey") WHERE "invalidatedAt" IS NULL;
+CREATE INDEX "compacted_context_state_owner_idx" ON "compacted_context_state"("ownerUserId","invalidatedAt","validFrom");
+CREATE INDEX "compacted_context_state_project_idx" ON "compacted_context_state"("projectId","invalidatedAt","validFrom");
+CREATE INDEX "compacted_context_state_conversation_idx" ON "compacted_context_state"("conversationId","invalidatedAt","validFrom");
+CREATE INDEX "compacted_context_state_scope_idx" ON "compacted_context_state"("scopeKey","invalidatedAt","version");
+ALTER TABLE "compacted_context_state" ADD CONSTRAINT "compacted_context_state_ownerUserId_fkey"
+  FOREIGN KEY ("ownerUserId") REFERENCES "user"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+ALTER TABLE "compacted_context_state" ADD CONSTRAINT "compacted_context_state_projectId_fkey"
+  FOREIGN KEY ("projectId") REFERENCES "project"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+ALTER TABLE "compacted_context_state" ADD CONSTRAINT "compacted_context_state_conversationId_fkey"
+  FOREIGN KEY ("conversationId") REFERENCES "conversation"("id") ON DELETE CASCADE ON UPDATE CASCADE;
