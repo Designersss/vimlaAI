@@ -410,6 +410,120 @@ describe("projects API", () => {
     });
     expect(afterLeave.statusCode).toBe(404);
   });
+
+  it("invalidates and retains derived Memory/L2 audit rows when a Project is hard-deleted", async () => {
+    const owner = await registerVerifiedUser(
+      app,
+      "proj-memory-delete",
+    );
+    const created = await createProject(
+      app,
+      owner.cookies,
+      "Derived audit project",
+    );
+    const prisma = app.get(PrismaService).client;
+    const project = await prisma.project.findUniqueOrThrow({
+      where: { id: created.id },
+    });
+    const now = new Date();
+
+    const memory = await prisma.memoryItem.create({
+      data: {
+        ownerUserId: owner.id,
+        scopeKind: "PROJECT",
+        scopeKey: `PROJECT:${project.id}`,
+        projectId: project.id,
+        type: "PROJECT_FACT",
+        slotKey: "audit fact",
+        content: "Retained audit fact",
+        contentHash: "audit-memory-hash",
+        classification: "INTERNAL",
+        sensitivity: "NORMAL",
+        confidence: 1,
+        quality: 1,
+        generation: 1,
+        origin: "USER_EXPLICIT",
+        state: "ACTIVE",
+        validFrom: now,
+        userConfirmedAt: now,
+        sourceRefs: {
+          create: {
+            provenance: "USER_EXPLICIT",
+            sourceType: "PROJECT",
+            sourceId: project.id,
+            sourceVersion: project.updatedAt.toISOString(),
+            sourceScopeKind: "PROJECT",
+            sourceScopeId: project.id,
+          },
+        },
+      },
+    });
+    const compacted =
+      await prisma.compactedContextState.create({
+        data: {
+          ownerUserId: owner.id,
+          scopeKind: "PROJECT",
+          scopeKey: `PROJECT:${project.id}`,
+          projectId: project.id,
+          version: 1,
+          classification: "INTERNAL",
+          content: "Derived project state",
+          contentHash: "audit-compacted-hash",
+          sourceRefs: [],
+          sourceFingerprint: "audit-source-fingerprint",
+          coveredFromSourceId: project.id,
+          coveredToSourceId: project.id,
+          coveredFromAt: now,
+          coveredToAt: now,
+          sourceCount: 1,
+          inputTokenEstimate: 1,
+          outputTokenEstimate: 1,
+          validFrom: now,
+        },
+      });
+
+    const removed = await app.inject({
+      method: "DELETE",
+      url: `/v1/projects/${project.id}`,
+      headers: { origin },
+      cookies: owner.cookies,
+    });
+    expect(removed.statusCode).toBe(204);
+    expect(
+      await prisma.project.findUnique({
+        where: { id: project.id },
+      }),
+    ).toBeNull();
+
+    const retainedMemory =
+      await prisma.memoryItem.findUniqueOrThrow({
+        where: { id: memory.id },
+        include: { sourceRefs: true },
+      });
+    expect(retainedMemory).toMatchObject({
+      state: "INVALIDATED",
+      invalidationReason: "PROJECT_DELETED",
+      projectId: null,
+    });
+    expect(retainedMemory.sourceRefs).toHaveLength(1);
+    expect(retainedMemory.sourceRefs[0]).toMatchObject({
+      sourceType: "PROJECT",
+      sourceId: project.id,
+      sourceScopeKind: "PROJECT",
+      sourceScopeId: project.id,
+    });
+
+    const retainedCompacted =
+      await prisma.compactedContextState.findUniqueOrThrow({
+        where: { id: compacted.id },
+      });
+    expect(retainedCompacted).toMatchObject({
+      projectId: null,
+      invalidationReason: "PROJECT_DELETED",
+    });
+    expect(retainedCompacted.invalidatedAt).not.toBeNull();
+  });
+
 });
 
 async function createProject(
