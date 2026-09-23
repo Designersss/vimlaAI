@@ -98,3 +98,21 @@ model CompactedContextState {
   @@index([scopeKey, invalidatedAt, version])
   @@map("compacted_context_state")
 }
+
+model MemoryExtractionReceipt {
+  id             String   @id @default(uuid())
+  ownerUserId    String
+  owner          User     @relation("MemoryExtractionOwner", fields: [ownerUserId], references: [id], onDelete: Restrict)
+  sourceType     String
+  sourceId       String
+  sourceVersion  String
+  status         String   @default("PENDING")
+  candidateCount Int      @default(0)
+  errorCode      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([sourceType, sourceId, sourceVersion])
+  @@index([ownerUserId, status, updatedAt])
+  @@map("memory_extraction_receipt")
+}
