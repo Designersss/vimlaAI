@@ -88,7 +88,7 @@ CREATE TABLE "memory_source_ref" (
     'USER_EXPLICIT','USER_CORRECTION','E2EE_USER_DISCLOSURE'
   )),
   CONSTRAINT "memory_source_ref_provenance_source_check" CHECK (
-    ("provenance"='USER_EXPLICIT' AND "sourceType"='USER_EXPLICIT') OR
+    ("provenance"='USER_EXPLICIT' AND "sourceType" IN ('USER_EXPLICIT','MESSAGE','WORKSPACE_OBJECT','PROJECT','ARTIFACT')) OR
     ("provenance"='USER_CORRECTION' AND "sourceType"='USER_CORRECTION') OR
     ("provenance"='E2EE_USER_DISCLOSURE' AND "sourceType"='E2EE_USER_DISCLOSURE') OR
     ("provenance"='AUTO_EXTRACTION' AND "sourceType" IN ('MESSAGE','WORKSPACE_OBJECT','PROJECT','ARTIFACT'))
