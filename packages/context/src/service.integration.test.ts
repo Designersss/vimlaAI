@@ -211,15 +211,23 @@ describe("ContextSnapshotService", () => {
       }),
     ).rejects.toBeInstanceOf(ContextConflictError);
 
-    await expect(service.resolveForInvocation({ actorUserId, invocationId })).resolves.toEqual(snapshot);
+    await expect(
+      service.resolveForPlan(actorUserId, planId),
+    ).resolves.toEqual(snapshot);
+    await expect(
+      service.resolveForInvocation({ actorUserId, invocationId }),
+    ).resolves.toEqual(snapshot);
 
     await prisma.projectMember.delete({
       where: { projectId_userId: { projectId: project.id, userId: actorUserId } },
     });
 
-    await expect(service.resolveForInvocation({ actorUserId, invocationId })).rejects.toBeInstanceOf(
-      ContextAccessDeniedError,
-    );
+    await expect(
+      service.resolveForPlan(actorUserId, planId),
+    ).rejects.toBeInstanceOf(ContextAccessDeniedError);
+    await expect(
+      service.resolveForInvocation({ actorUserId, invocationId }),
+    ).rejects.toBeInstanceOf(ContextAccessDeniedError);
     const retained = await service.getByPlan(actorUserId, planId);
     expect(retained.id).toBe(snapshot.id);
     expect(retained.fingerprint).toBe(snapshot.fingerprint);
