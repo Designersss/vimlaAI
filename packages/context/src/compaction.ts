@@ -39,7 +39,8 @@ export interface RefreshCompactedStateInput {
   explicitCrossScopeWrite?: boolean;
 }
 
-type CompactedRow = Prisma.CompactedContextStateGetPayload<{}>;
+type CompactedRow =
+  Prisma.CompactedContextStateGetPayload<Record<string, never>>;
 
 export class CompactedStateService {
   constructor(private readonly db: PrismaClient) {}
