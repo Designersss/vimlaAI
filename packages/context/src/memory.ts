@@ -150,6 +150,8 @@ type MemoryRow = Prisma.MemoryItemGetPayload<{
   include: { sourceRefs: true };
 }>;
 
+const MAX_MEMORY_SOURCE_REFS = 32;
+
 export class MemoryService {
   constructor(
     private readonly db: PrismaClient,
@@ -621,6 +623,32 @@ export class MemoryService {
             },
           });
         }
+        const newestEvidence =
+          await tx.memorySourceRef.findMany({
+            where: {
+              memoryId: existing.id,
+              provenance: "AUTO_EXTRACTION",
+              sourceType: "MESSAGE",
+            },
+            select: { id: true },
+            orderBy: [
+              { createdAt: "desc" },
+              { id: "desc" },
+            ],
+            take: MAX_MEMORY_SOURCE_REFS,
+          });
+        const keepIds = newestEvidence.map((ref) => ref.id);
+        if (keepIds.length > 0) {
+          await tx.memorySourceRef.deleteMany({
+            where: {
+              memoryId: existing.id,
+              provenance: "AUTO_EXTRACTION",
+              sourceType: "MESSAGE",
+              id: { notIn: keepIds },
+            },
+          });
+        }
+
         const refreshed = await tx.memoryItem.update({
           where: { id: existing.id },
           data: {
@@ -765,6 +793,28 @@ export async function ensureMemoryCurrent(
   }
   if (row.expiresAt && row.expiresAt <= new Date()) {
     await invalidateIfActive(db, row.id, "EXPIRED");
+    return false;
+  }
+
+  const automaticEvidence = row.sourceRefs.filter(
+    (ref) =>
+      ref.provenance === "AUTO_EXTRACTION" &&
+      ref.sourceType === "MESSAGE",
+  );
+  if (
+    automaticEvidence.length > 0 &&
+    automaticEvidence.length === row.sourceRefs.length
+  ) {
+    for (const ref of automaticEvidence) {
+      if (await sourceRefCurrent(db, row, ref)) {
+        return true;
+      }
+    }
+    await invalidateIfActive(
+      db,
+      row.id,
+      "SOURCE_STALE_OR_INACCESSIBLE",
+    );
     return false;
   }
 
@@ -951,7 +1001,7 @@ async function assertSourceRefsValid(
   explicitCrossScopeWrite: boolean,
 ): Promise<MemoryClassification> {
   if (refs.length === 0) return "PUBLIC";
-  if (refs.length > 32) {
+  if (refs.length > MAX_MEMORY_SOURCE_REFS) {
     throw new MemoryError(
       "VALIDATION_ERROR",
       "Too many memory source references",
@@ -965,6 +1015,18 @@ async function assertSourceRefsValid(
       actorUserId,
       ref,
     );
+    if (
+      targetScope.kind === "CONVERSATION" &&
+      !(
+        resolved.scopeKind === "CONVERSATION" &&
+        resolved.scopeId === targetScope.conversationId
+      )
+    ) {
+      throw new MemoryError(
+        "FORBIDDEN",
+        "Conversation memory sources must belong to the target conversation",
+      );
+    }
     if (
       targetScope.kind === "PROJECT" &&
       !(
