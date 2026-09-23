@@ -836,20 +836,55 @@ describe("durable memory context graph", () => {
       content: "Launch region is Europe",
     });
 
-    const hits = await new MemoryRetrievalProvider(db).retrieve({
+    const personal = await new MemoryService(db).rememberPersonal({
       actorUserId: owner,
-      planId: randomUUID(),
-      query: "launch region",
-      conversationId: randomUUID(),
-      sourceMessageId: randomUUID(),
-      sourceMessageCreatedAt: new Date().toISOString(),
+      type: "USER_FACT",
+      slotKey: "launch region",
+      content: "Personal/global launch region note",
+    });
+
+    const current = await message(
+      owner,
+      "What is the launch region?",
+    );
+    const planId = randomUUID();
+    await db.executionPlan.create({
+      data: {
+        id: planId,
+        messageId: current.row.id,
+        userId: owner,
+        conversationId: current.conversation.id,
+        schemaVersion: 1,
+        version: 1,
+        planHash: "planning:pending:v1",
+        goal: "Resolve current-project context",
+        status: "PLANNING",
+        maxParallelism: 1,
+      },
+    });
+
+    const retrieval = await new ContextRetrievalService(db, [
+      new MemoryRetrievalProvider(db),
+    ]).retrieveForExecutionPlan({
+      actorUserId: owner,
+      planId,
       currentProjectId: project.id,
     });
-    const hit = hits.find(
+    const projectIndex = retrieval.candidates.findIndex(
       (candidate) => candidate.item.sourceId === memory.id,
     );
-    expect(hit?.currentProject).toBe(true);
-    expect(hit?.sourceKind).toBe("PROJECT_MEMORY");
+    const personalIndex = retrieval.candidates.findIndex(
+      (candidate) => candidate.item.sourceId === personal.id,
+    );
+    expect(projectIndex).toBeGreaterThanOrEqual(0);
+    expect(personalIndex).toBeGreaterThanOrEqual(0);
+    expect(projectIndex).toBeLessThan(personalIndex);
+    expect(
+      retrieval.candidates[projectIndex]?.currentProject,
+    ).toBe(true);
+    expect(
+      retrieval.candidates[projectIndex]?.sourceKind,
+    ).toBe("PROJECT_MEMORY");
   });
 
   it("promotes only an explicit E2EE fact with disclosure provenance", async () => {
