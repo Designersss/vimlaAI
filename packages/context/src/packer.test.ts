@@ -161,6 +161,7 @@ describe("ContextPacker", () => {
         item("user", "USER_MESSAGE", "password: user-explicit-value", {
           sourceKind: "IMMEDIATE",
           currentSurface: true,
+          directReference: true,
           authority: "RAW",
           estimatedTokens: 40,
         }),
