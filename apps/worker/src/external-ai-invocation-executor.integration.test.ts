@@ -189,6 +189,84 @@ describe("ExternalAiInvocationExecutor", () => {
     ).toBe(0);
   });
 
+  it("never sends a sensitive PRIVATE dependency artifact to an external provider", async () => {
+    const seeded = await seedInvocation(prisma, {
+      targetKind: "AI_MODEL",
+      targetModelSlug: "gpt-5-6-luna",
+      purpose: "Use private dependency",
+      fund: true,
+    });
+    const sourceInvocationId = randomUUID();
+    await prisma.invocation.create({
+      data: {
+        id: sourceInvocationId,
+        planId: seeded.planId,
+        sequence: 1,
+        purpose: "Produce sensitive input",
+        targetKind: "VIMLA",
+        targetModelSlug: null,
+        targetAgentId: null,
+        outputDeclarations: [{ name: "result", artifactType: "TEXT" }],
+        acceptanceCriteria: [],
+        riskClass: "READ_ONLY",
+        approvalPolicy: "AUTO",
+        failurePolicy: "FAIL_PLAN",
+        joinPolicy: "ALL_REQUIRED",
+        status: "COMPLETED",
+      },
+    });
+    await prisma.invocationDependency.create({
+      data: {
+        id: randomUUID(),
+        planId: seeded.planId,
+        fromInvocationId: sourceInvocationId,
+        toInvocationId: seeded.invocationId,
+        conditionKind: "DATA",
+        conditionOutcome: "",
+        inputBindings: [
+          {
+            inputName: "privateInput",
+            sourceOutputName: "result",
+            expectedArtifactType: "TEXT",
+          },
+        ],
+      },
+    });
+    await new ArtifactService(prisma).createArtifact({
+      actorUserId: seeded.userId,
+      creatorInvocationId: sourceInvocationId,
+      outputName: "result",
+      type: "TEXT",
+      classification: "PRIVATE",
+      content: {
+        kind: "INLINE_JSON",
+        value: {
+          text: "access_token: abcdefghijklmnopqrstuvwxyz123456",
+        },
+      },
+    });
+
+    const provider = new MockAiProvider();
+    const executor = createExecutor(prisma, provider);
+    await expect(
+      executor.execute(
+        executionInput(seeded, {
+          kind: "AI_MODEL",
+          modelSlug: "gpt-5-6-luna",
+          agentId: null,
+        }),
+      ),
+    ).resolves.toEqual({
+      status: "FAILED",
+      errorCode: "AI_ARTIFACT_SENSITIVE_DATA_DENIED",
+      retryable: false,
+    });
+    expect(provider.callCount).toBe(0);
+    expect(
+      await prisma.aiRequest.count({ where: { userId: seeded.userId } }),
+    ).toBe(0);
+  });
+
   it("uses the exact artifact version frozen in ContextBundle even when a newer version exists", async () => {
     const seeded = await seedInvocation(prisma, {
       targetKind: "AI_MODEL",
@@ -263,10 +341,23 @@ describe("ExternalAiInvocationExecutor", () => {
       fingerprint: "sha256:test-frozen-bundle",
       manifest: {
         version: 1,
+        packingVersion: 1,
         targetKind: "AI_MODEL",
         surfaceKind: "PERSONAL",
         surfaceScopeHash: "sha256:test-personal-surface",
         audienceParticipantCount: 1,
+        budget: {
+          contextWindowTokens: 16_384,
+          outputReserveTokens: 4_096,
+          systemToolReserveTokens: 2_048,
+          artifactReserveTokens: 4_096,
+          safetyMarginTokens: 1_310,
+          effectiveHistoryBudgetTokens: 4_834,
+          compactedStateTriggerTokens: 3_867,
+        },
+        usedTokens: 0,
+        rawHistoryTokens: 0,
+        compactedStateRequired: false,
         allowedItems: [],
         allowedArtifacts: [
           {
@@ -279,6 +370,7 @@ describe("ExternalAiInvocationExecutor", () => {
           },
         ],
         denials: [],
+        packingExclusions: [],
         artifactDenials: [],
       },
       items: [],
@@ -310,6 +402,107 @@ describe("ExternalAiInvocationExecutor", () => {
     const providerContent = provider.lastRequest?.messages[0]?.content ?? "";
     expect(providerContent).toContain("frozen-version-one");
     expect(providerContent).not.toContain("newer-version-two");
+  });
+
+  it("passes only rendered authorized ContextBundle items to the external provider", async () => {
+    const seeded = await seedInvocation(prisma, {
+      targetKind: "AI_MODEL",
+      targetModelSlug: "gpt-5-6-luna",
+      purpose: "Use the authorized release context",
+      fund: true,
+    });
+    const internalOwnerId = "internal-owner-" + randomUUID();
+    const contextBundle: ContextBundleView = {
+      id: "test-rendered-bundle",
+      invocationId: seeded.invocationId,
+      snapshotId: "test-rendered-snapshot",
+      fingerprint: "sha256:test-rendered-bundle",
+      manifest: {
+        version: 1,
+        packingVersion: 1,
+        targetKind: "AI_MODEL",
+        surfaceKind: "PERSONAL",
+        surfaceScopeHash: "sha256:test-personal-surface",
+        audienceParticipantCount: 1,
+        budget: {
+          contextWindowTokens: 16_384,
+          outputReserveTokens: 4_096,
+          systemToolReserveTokens: 2_048,
+          artifactReserveTokens: 4_096,
+          safetyMarginTokens: 1_310,
+          effectiveHistoryBudgetTokens: 4_834,
+          compactedStateTriggerTokens: 3_867,
+        },
+        usedTokens: 24,
+        rawHistoryTokens: 24,
+        compactedStateRequired: false,
+        allowedItems: [
+          {
+            snapshotItemId: "context-item-1",
+            sourceType: "MESSAGE",
+            classification: "PRIVATE",
+            fingerprint: "sha256:context-item-1",
+            estimatedTokens: 24,
+            selectionReason: "RELEVANT",
+          },
+        ],
+        allowedArtifacts: [],
+        denials: [],
+        packingExclusions: [],
+        artifactDenials: [],
+      },
+      items: [
+        {
+          id: "context-item-1",
+          sequence: 0,
+          sourceType: "MESSAGE",
+          sourceId: "message-context-1",
+          sourceVersion: "v1",
+          classification: "PRIVATE",
+          contentRef: "vimla://messages/message-context-1",
+          metadata: {
+            role: "ASSISTANT",
+            content: "The Zephyr release decision is violet.",
+            retrieval: {
+              sourceKind: "CROSS_CONVERSATION",
+              scope: {
+                kind: "PERSONAL",
+                ownerUserId: internalOwnerId,
+              },
+              reason: "same-user lexical retrieval",
+              lexicalScore: 0.92,
+            },
+          },
+          fingerprint: "sha256:context-item-1",
+          createdAt: new Date().toISOString(),
+        },
+      ],
+      artifacts: [],
+      createdAt: new Date().toISOString(),
+    };
+
+    const provider = new MockAiProvider();
+    const executor = createExecutor(prisma, provider);
+    const result = await executor.execute({
+      ...executionInput(seeded, {
+        kind: "AI_MODEL",
+        modelSlug: "gpt-5-6-luna",
+        agentId: null,
+      }),
+      contextBundle,
+    });
+
+    expect(result).toEqual({ status: "COMPLETED", outcome: "PASS" });
+    const providerContent = provider.lastRequest?.messages[0]?.content ?? "";
+    expect(providerContent).toContain("PURPOSE:");
+    expect(providerContent).toContain("CONTEXT_SAFETY:");
+    expect(providerContent).toContain("AUTHORIZED_CONTEXT:");
+    expect(providerContent).toContain(
+      "The Zephyr release decision is violet.",
+    );
+    expect(providerContent).not.toContain(internalOwnerId);
+    expect(providerContent).not.toContain("lexicalScore");
+    expect(providerContent).not.toContain("same-user lexical retrieval");
   });
 
   it("replays a completed invocation without another provider call, reservation, charge, or artifact", async () => {

@@ -10,7 +10,16 @@ import {
   ContextNotFoundError,
   ContextValidationError,
 } from "./errors.js";
+import {
+  CONTEXT_PACKING_VERSION,
+  ContextBudgetService,
+  type ContextBudget,
+} from "./budget.js";
 import { canonicalJson } from "./fingerprint.js";
+import {
+  packContextItems,
+  type ContextPackingExclusionReason,
+} from "./packer.js";
 import {
   CONTEXT_POLICY_VERSION,
   evaluateContextPolicy,
@@ -44,6 +53,13 @@ export interface ContextBundleDenialAudit {
   reason: ContextBundleDenialReason;
 }
 
+export interface ContextBundlePackingExclusionAudit {
+  sourceType: ContextSourceType;
+  sourceRefHash: string;
+  classification: ContextClassification;
+  reason: ContextPackingExclusionReason;
+}
+
 export interface ContextBundleArtifactDenialAudit {
   artifactRefHash: string;
   classification: ContextClassification | "UNKNOWN";
@@ -55,15 +71,30 @@ export interface ContextBundleArtifactDenialAudit {
 
 export interface ContextBundleManifest {
   version: typeof CONTEXT_POLICY_VERSION;
+  packingVersion: typeof CONTEXT_PACKING_VERSION;
   targetKind: ContextInvocationTargetKind;
   surfaceKind: ContextSurfaceDescriptor["kind"];
   surfaceScopeHash: string;
   audienceParticipantCount: number;
+  budget: ContextBudget;
+  usedTokens: number;
+  rawHistoryTokens: number;
+  compactedStateRequired: boolean;
   allowedItems: Array<{
     snapshotItemId: string;
     sourceType: ContextSourceType;
     classification: ContextClassification;
     fingerprint: string;
+    estimatedTokens: number;
+    selectionReason:
+      | "IMMEDIATE"
+      | "CURRENT_SURFACE"
+      | "CURRENT_PROJECT"
+      | "DIRECT_REFERENCE"
+      | "AUTHORITATIVE"
+      | "RELEVANT"
+      | "RECENT"
+      | "FALLBACK";
   }>;
   allowedArtifacts: Array<{
     inputName: string;
@@ -74,6 +105,7 @@ export interface ContextBundleManifest {
     fingerprint: string;
   }>;
   denials: ContextBundleDenialAudit[];
+  packingExclusions: ContextBundlePackingExclusionAudit[];
   artifactDenials: ContextBundleArtifactDenialAudit[];
 }
 
@@ -91,14 +123,17 @@ export interface ContextBundleView {
 export class ContextBundleService {
   private readonly snapshots: ContextSnapshotService;
   private readonly artifacts: ArtifactService;
+  private readonly budgets: ContextBudgetService;
 
   constructor(
     private readonly db: PrismaClient,
     snapshotService?: ContextSnapshotService,
     artifactService?: ArtifactService,
+    budgetService?: ContextBudgetService,
   ) {
     this.snapshots = snapshotService ?? new ContextSnapshotService(db);
     this.artifacts = artifactService ?? new ArtifactService(db);
+    this.budgets = budgetService ?? new ContextBudgetService(db);
   }
 
   async resolveForInvocation(
@@ -113,6 +148,7 @@ export class ContextBundleService {
         id: true,
         planId: true,
         targetKind: true,
+        targetModelSlug: true,
       },
     });
     if (!invocation) {
@@ -128,7 +164,7 @@ export class ContextBundleService {
     const audience = parseAudience(input.actorUserId, audienceItem);
     const surface = surfaceFromAudience(input.actorUserId, audience);
 
-    const allowedItems: ContextSnapshotItemView[] = [];
+    const policyAllowedItems: ContextSnapshotItemView[] = [];
     const allowedArtifacts: ResolvedArtifactInput[] = [];
     const denials: ContextBundleDenialAudit[] = [];
     const artifactDenials: ContextBundleArtifactDenialAudit[] = [];
@@ -173,6 +209,11 @@ export class ContextBundleService {
           (await this.everyAudienceMemberCanReadScope(
             audience,
             sourceScope,
+          )) &&
+          (await this.everyAudienceMemberCanReadSource(
+            audience,
+            item,
+            input.actorUserId,
           ));
         const decision = evaluateContextPolicy({
           actorUserId: input.actorUserId,
@@ -185,7 +226,7 @@ export class ContextBundleService {
         });
 
         if (decision.allowed) {
-          allowedItems.push(item);
+          policyAllowedItems.push(item);
           continue;
         }
 
@@ -268,17 +309,47 @@ export class ContextBundleService {
       }
     }
 
+    const budget = await this.budgets.resolve({
+      targetKind,
+      targetModelSlug: invocation.targetModelSlug,
+    });
+    const packed = packContextItems({
+      items: policyAllowedItems,
+      targetKind,
+      budget,
+    });
+    const packingExclusions = packed.exclusions.map(
+      (exclusion): ContextBundlePackingExclusionAudit => ({
+        sourceType: exclusion.item.sourceType,
+        sourceRefHash: hashValue(
+          `${exclusion.item.sourceType}:${exclusion.item.sourceId}`,
+        ),
+        classification: exclusion.item.classification,
+        reason: exclusion.reason,
+      }),
+    );
+    const allowedItems = packed.selections.map(
+      (selection) => selection.item,
+    );
+
     const manifest: ContextBundleManifest = {
       version: CONTEXT_POLICY_VERSION,
+      packingVersion: CONTEXT_PACKING_VERSION,
       targetKind,
       surfaceKind: surface.kind,
       surfaceScopeHash: hashSurface(surface),
       audienceParticipantCount: audience.participantUserIds.length,
-      allowedItems: allowedItems.map((item) => ({
-        snapshotItemId: item.id,
-        sourceType: item.sourceType,
-        classification: item.classification,
-        fingerprint: item.fingerprint,
+      budget,
+      usedTokens: packed.usedTokens,
+      rawHistoryTokens: packed.rawHistoryTokens,
+      compactedStateRequired: packed.compactedStateRequired,
+      allowedItems: packed.selections.map((selection) => ({
+        snapshotItemId: selection.item.id,
+        sourceType: selection.item.sourceType,
+        classification: selection.item.classification,
+        fingerprint: selection.item.fingerprint,
+        estimatedTokens: selection.estimatedTokens,
+        selectionReason: selection.selectionReason,
       })),
       allowedArtifacts: allowedArtifacts.map(({ inputName, reference }) => ({
         inputName,
@@ -289,6 +360,7 @@ export class ContextBundleService {
         fingerprint: reference.fingerprint,
       })),
       denials,
+      packingExclusions,
       artifactDenials,
     };
     const fingerprint = bundleFingerprint(manifest);
@@ -363,6 +435,20 @@ export class ContextBundleService {
       actorUserIds: audience.participantUserIds,
       artifactVersionId,
     });
+  }
+
+  private async everyAudienceMemberCanReadSource(
+    audience: ContextAudienceDescriptor,
+    item: ContextSnapshotItemView,
+    alreadyCheckedActorUserId: string,
+  ): Promise<boolean> {
+    for (const userId of audience.participantUserIds) {
+      if (userId === alreadyCheckedActorUserId) continue;
+      if (!(await this.canReadSource(userId, item))) {
+        return false;
+      }
+    }
+    return true;
   }
 
   private async everyAudienceMemberCanReadScope(
@@ -555,6 +641,11 @@ function parseAudience(
 
     case "PROJECT": {
       const projectId = boundedId(metadata.projectId, "audience projectId");
+      if (item.sourceId !== projectId) {
+        throw new ContextValidationError(
+          "Context audience source does not match the project surface",
+        );
+      }
       return {
         kind: "PROJECT",
         participantUserIds,
@@ -567,6 +658,11 @@ function parseAudience(
         metadata.directConversationId,
         "audience directConversationId",
       );
+      if (item.sourceId !== directConversationId) {
+        throw new ContextValidationError(
+          "Context audience source does not match the Direct Chat surface",
+        );
+      }
       return {
         kind: "DIRECT_CHAT",
         participantUserIds,
@@ -605,6 +701,42 @@ function inferSourceScope(
   actorUserId: string,
   item: ContextSnapshotItemView,
 ): ContextSourceScope {
+  const metadata = asRecord(item.metadata);
+  const retrieval = asRecord(metadata?.retrieval);
+  const persistedScope = asRecord(retrieval?.scope);
+  if (persistedScope && typeof persistedScope.kind === "string") {
+    switch (persistedScope.kind) {
+      case "PERSONAL":
+        return {
+          kind: "PERSONAL",
+          ownerUserId: boundedId(
+            persistedScope.ownerUserId,
+            "retrieval personal ownerUserId",
+          ),
+        };
+      case "PROJECT":
+        return {
+          kind: "PROJECT",
+          projectId: boundedId(
+            persistedScope.projectId,
+            "retrieval projectId",
+          ),
+        };
+      case "DIRECT_CHAT":
+        return {
+          kind: "DIRECT_CHAT",
+          directConversationId: boundedId(
+            persistedScope.directConversationId,
+            "retrieval directConversationId",
+          ),
+        };
+      default:
+        throw new ContextValidationError(
+          "Persisted retrieval source scope is invalid",
+        );
+    }
+  }
+
   if (item.sourceType === "PROJECT") {
     return { kind: "PROJECT", projectId: item.sourceId };
   }

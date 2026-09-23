@@ -37,6 +37,12 @@ describe("semanticPlanningContext", () => {
           }),
           classification: "RESTRICTED",
         },
+        item("MESSAGE", "credential-secret", {
+          role: "ASSISTANT",
+          content: "password: planner-must-not-see-this",
+          status: "COMPLETE",
+          createdAt: "2026-09-20T10:00:00.000Z",
+        }),
       ],
     } satisfies ContextSnapshotView;
 
@@ -70,6 +76,7 @@ describe("semanticPlanningContext", () => {
     expect(serialized).not.toContain("vimla://");
     expect(serialized).not.toContain("current request");
     expect(serialized).not.toContain("must never reach planner");
+    expect(serialized).not.toContain("planner-must-not-see-this");
   });
 });
 
