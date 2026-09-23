@@ -76,6 +76,8 @@ export const apiErrorCodeSchema = z.enum([
   "project_invite_invalid",
   "project_invite_email_mismatch",
   "project_role_forbidden",
+  "memory_disabled",
+  "memory_sensitive_content",
 ]);
 export type ApiErrorCode = z.infer<typeof apiErrorCodeSchema>;
 
