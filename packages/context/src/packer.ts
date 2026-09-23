@@ -98,7 +98,7 @@ export function packContextItems(
 
     if (
       isExternalTarget(input.targetKind) &&
-      item.sourceType !== "USER_MESSAGE" &&
+      !isImmediateUserMessage(item) &&
       containsSensitiveData(item)
     ) {
       exclusions.push({ item, reason: "SENSITIVE_DATA_FILTERED" });
@@ -396,17 +396,31 @@ function semanticKey(item: ContextSnapshotItemView): string | null {
   return text;
 }
 
-function containsSensitiveData(item: ContextSnapshotItemView): boolean {
-  const text = collectSemanticText(
-    stripRetrievalMetadata(item.metadata),
+function isImmediateUserMessage(
+  item: ContextSnapshotItemView,
+): boolean {
+  const retrieval = retrievalMetadata(item);
+  return (
+    item.sourceType === "USER_MESSAGE" &&
+    retrieval.sourceKind === "IMMEDIATE" &&
+    retrieval.currentSurface &&
+    retrieval.directReference
   );
+}
+
+function containsSensitiveData(item: ContextSnapshotItemView): boolean {
+  const safeMetadata = stripRetrievalMetadata(item.metadata);
+  const text = [
+    collectSemanticText(safeMetadata),
+    JSON.stringify(safeMetadata),
+  ].join("\n");
   if (!text) return false;
 
   return [
     /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/i,
-    /\b(?:password|passwd|пароль)\s*[:=]\s*\S{4,}/i,
-    /\b(?:api[_ -]?key|secret|client[_ -]?secret)\s*[:=]\s*\S{6,}/i,
-    /\b(?:otp|one[- ]time code|одноразов(?:ый|ого) код)\s*[:=]\s*\d{4,10}\b/i,
+    /\b["']?(?:password|passwd|пароль)["']?\s*[:=]\s*["']?\S{4,}/i,
+    /\b["']?(?:api[_ -]?key|secret|client[_ -]?secret)["']?\s*[:=]\s*["']?\S{6,}/i,
+    /\b["']?(?:otp|one[- ]time code|одноразов(?:ый|ого) код)["']?\s*[:=]\s*["']?\d{4,10}\b/i,
   ].some((pattern) => pattern.test(text));
 }
 
