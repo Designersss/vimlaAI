@@ -167,7 +167,40 @@ export class ProjectService {
     if (!access.capabilities.canDelete) {
       throw new ProjectError("FORBIDDEN", "Only the owner can delete this project");
     }
-    await this.db.project.delete({ where: { id: projectId } });
+    await this.db.$transaction(async (tx) => {
+      await tx.memoryItem.updateMany({
+        where: {
+          OR: [
+            { projectId },
+            {
+              sourceRefs: {
+                some: {
+                  sourceType: "PROJECT",
+                  sourceId: projectId,
+                },
+              },
+            },
+          ],
+          state: { not: "INVALIDATED" },
+        },
+        data: {
+          state: "INVALIDATED",
+          invalidatedAt: now,
+          invalidationReason: "PROJECT_DELETED",
+        },
+      });
+      await tx.compactedContextState.updateMany({
+        where: {
+          projectId,
+          invalidatedAt: null,
+        },
+        data: {
+          invalidatedAt: now,
+          invalidationReason: "PROJECT_DELETED",
+        },
+      });
+      await tx.project.delete({ where: { id: projectId } });
+    });
   }
 
   async listMembers(actor: ActorContext, projectId: string, now = new Date()): Promise<ProjectMemberView[]> {
