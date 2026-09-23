@@ -844,8 +844,7 @@ export class ContextRetrievalService {
     for (const provider of this.providers) {
       const provided = await provider.retrieve(providerInput);
       for (const entry of provided) {
-        assertDerivedProviderCandidate(entry);
-        candidates.push(entry);
+        candidates.push(normalizeDerivedProviderCandidate(entry));
       }
     }
 
@@ -866,9 +865,9 @@ const PROVIDER_DERIVED_SOURCE_TYPES = new Set([
   "ENTITY",
 ]);
 
-function assertDerivedProviderCandidate(
+function normalizeDerivedProviderCandidate(
   candidateValue: ContextCandidate,
-): void {
+): ContextCandidate {
   if (
     !PROVIDER_DERIVED_SOURCE_TYPES.has(
       candidateValue.item.sourceType,
@@ -878,6 +877,35 @@ function assertDerivedProviderCandidate(
       "Context retrieval providers may only return derived context sources",
     );
   }
+  if (candidateValue.authority !== "DERIVED") {
+    throw new ContextValidationError(
+      "Derived context providers cannot claim source-of-truth authority",
+    );
+  }
+  if (candidateValue.sourceScope.kind === "DIRECT_CHAT") {
+    throw new ContextValidationError(
+      "Server retrieval providers cannot contribute Direct Chat context",
+    );
+  }
+
+  const expectedSourceKind =
+    candidateValue.item.sourceType === "COMPACTED_STATE"
+      ? "L2_COMPACTED"
+      : candidateValue.item.sourceType === "ENTITY"
+        ? "ENTITY"
+        : candidateValue.sourceScope.kind === "PROJECT"
+          ? "PROJECT_MEMORY"
+          : "PERSONAL_MEMORY";
+  if (candidateValue.sourceKind !== expectedSourceKind) {
+    throw new ContextValidationError(
+      "Derived context provider source kind does not match its source type and scope",
+    );
+  }
+
+  return candidate({
+    ...candidateValue,
+    estimatedTokens: undefined,
+  });
 }
 
 function messageCandidate(
