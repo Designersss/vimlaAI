@@ -225,82 +225,28 @@ export class MemoryMaintenanceService {
     });
     if (!source) return;
 
-    await this.extractMessage({
-      ...input,
-      source,
-    });
-    await this.compactConversation({
-      ...input,
-      conversationId: source.conversationId,
-    });
-  }
-
-  private async extractMessage(input: {
-    userId: string;
-    messageId: string;
-    correlationId: string;
-    source: {
-      id: string;
-      content: string;
-      updatedAt: Date;
-      conversationId: string;
-    };
-  }): Promise<void> {
-    const sourceVersion =
-      input.source.updatedAt.toISOString();
+    const sourceVersion = source.updatedAt.toISOString();
     const claimed = await this.claimExtractionReceipt({
       ownerUserId: input.userId,
-      sourceId: input.source.id,
+      sourceId: source.id,
       sourceVersion,
     });
     if (!claimed) return;
 
     try {
-      const raw = await this.model.complete({
-        prompt: buildExtractionPrompt(input.source.content),
-        correlationId:
-          `${input.correlationId}:memory:${input.source.id}`,
+      const stored = await this.extractMessage({
+        ...input,
+        source,
       });
-      const parsed = memoryExtractionModelOutputSchema.parse(
-        parseStrictJson(raw),
-      );
-
-      let stored = 0;
-      for (const candidate of parsed.candidates) {
-        const result = await this.extraction.process({
-          actorUserId: input.userId,
-          scope: { kind: "PERSONAL" },
-          type: candidate.type,
-          slotKey: candidate.slotKey,
-          content: candidate.content,
-          confidence: candidate.confidence,
-          quality: candidate.confidence,
-          sensitivity: candidate.sensitivity,
-          classification:
-            candidate.sensitivity === "SENSITIVE"
-              ? "RESTRICTED"
-              : "PRIVATE",
-          transient: candidate.transient,
-          sourceRefs: [
-            {
-              provenance: "AUTO_EXTRACTION",
-              sourceType: "MESSAGE",
-              sourceId: input.source.id,
-              sourceVersion,
-              sourceScopeKind: "CONVERSATION",
-              sourceScopeId:
-                input.source.conversationId,
-            },
-          ],
-        });
-        if (result.kind === "STORED") stored += 1;
-      }
-
+      await this.compactConversation({
+        ...input,
+        conversationId: source.conversationId,
+      });
       await this.db.memoryExtractionReceipt.updateMany({
         where: {
           ownerUserId: input.userId,
           sourceType: "MESSAGE",
-          sourceId: input.source.id,
+          sourceId: source.id,
           sourceVersion,
           status: "PENDING",
         },
@@ -315,7 +261,7 @@ export class MemoryMaintenanceService {
         where: {
           ownerUserId: input.userId,
           sourceType: "MESSAGE",
-          sourceId: input.source.id,
+          sourceId: source.id,
           sourceVersion,
           status: "PENDING",
         },
@@ -325,12 +271,67 @@ export class MemoryMaintenanceService {
         },
       });
       this.logger.warn({
-        msg: "memory.extraction.failed",
+        msg: "memory.maintenance.failed",
         userId: input.userId,
-        messageId: input.source.id,
+        messageId: source.id,
         reason: extractionErrorCode(error),
       });
     }
+  }
+
+  private async extractMessage(input: {
+    userId: string;
+    messageId: string;
+    correlationId: string;
+    source: {
+      id: string;
+      content: string;
+      updatedAt: Date;
+      conversationId: string;
+    };
+  }): Promise<number> {
+    const sourceVersion =
+      input.source.updatedAt.toISOString();
+    const raw = await this.model.complete({
+      prompt: buildExtractionPrompt(input.source.content),
+      correlationId:
+        `${input.correlationId}:memory:${input.source.id}`,
+    });
+    const parsed = memoryExtractionModelOutputSchema.parse(
+      parseStrictJson(raw),
+    );
+
+    let stored = 0;
+    for (const candidate of parsed.candidates) {
+      const result = await this.extraction.process({
+        actorUserId: input.userId,
+        scope: { kind: "PERSONAL" },
+        type: candidate.type,
+        slotKey: candidate.slotKey,
+        content: candidate.content,
+        confidence: candidate.confidence,
+        quality: candidate.confidence,
+        sensitivity: candidate.sensitivity,
+        classification:
+          candidate.sensitivity === "SENSITIVE"
+            ? "RESTRICTED"
+            : "PRIVATE",
+        transient: candidate.transient,
+        sourceRefs: [
+          {
+            provenance: "AUTO_EXTRACTION",
+            sourceType: "MESSAGE",
+            sourceId: input.source.id,
+            sourceVersion,
+            sourceScopeKind: "CONVERSATION",
+            sourceScopeId:
+              input.source.conversationId,
+          },
+        ],
+      });
+      if (result.kind === "STORED") stored += 1;
+    }
+    return stored;
   }
 
   private async compactConversation(input: {
@@ -338,8 +339,7 @@ export class MemoryMaintenanceService {
     conversationId: string;
     correlationId: string;
   }): Promise<void> {
-    try {
-      const budget = await this.conservativeBudget();
+    const budget = await this.conservativeBudget();
       const pressure = await this.conversationPressure(
         input.userId,
         input.conversationId,
@@ -425,14 +425,6 @@ export class MemoryMaintenanceService {
         ],
         budget,
       });
-    } catch (error: unknown) {
-      this.logger.warn({
-        msg: "memory.compaction.failed",
-        userId: input.userId,
-        conversationId: input.conversationId,
-        reason: extractionErrorCode(error),
-      });
-    }
   }
 
   private async claimExtractionReceipt(input: {
