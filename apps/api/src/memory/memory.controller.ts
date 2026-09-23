@@ -89,7 +89,7 @@ export class MemoryController {
     @Param("projectId") projectId: string,
     @Body() body: unknown,
   ): Promise<MemoryView> {
-    this.memory.assertEnabled();
+    this.memory.assertProjectMemoryEnabled();
     const input = createProjectMemorySchema.parse(body);
     const created = await this.memory.memory.rememberProject({
       actorUserId: user.id,
