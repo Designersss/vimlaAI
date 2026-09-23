@@ -118,6 +118,7 @@ describe("memory maintenance runtime", () => {
                 slotKey: "answer style",
                 content: "Prefers concise technical answers",
                 confidence: 0.95,
+                sensitivity: "NORMAL",
                 transient: false,
               },
             ],
