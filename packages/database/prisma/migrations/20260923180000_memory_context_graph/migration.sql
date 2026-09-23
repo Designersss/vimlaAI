@@ -168,6 +168,8 @@ CREATE TABLE "memory_extraction_receipt" (
   "candidateCount" INTEGER NOT NULL DEFAULT 0,
   "attemptCount" INTEGER NOT NULL DEFAULT 0,
   "errorCode" TEXT,
+  "extractedAt" TIMESTAMP(3),
+  "compactedAt" TIMESTAMP(3),
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   "updatedAt" TIMESTAMP(3) NOT NULL,
   CONSTRAINT "memory_extraction_receipt_pkey" PRIMARY KEY ("id"),
