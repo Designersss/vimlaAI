@@ -76,9 +76,16 @@ export class CompactedStateService {
         input.sourceRefs,
         input.explicitCrossScopeWrite === true,
       );
+      const pressureTokens =
+        await resolveCompactionPressureTokens(
+          tx,
+          input.actorUserId,
+          scope,
+          resolved.inputTokenEstimate,
+        );
       if (
         !shouldUseCompactedState(
-          resolved.inputTokenEstimate,
+          pressureTokens,
           input.budget,
         )
       ) {
@@ -668,6 +675,37 @@ async function resolveCompactionSources(
   };
 }
 
+
+async function resolveCompactionPressureTokens(
+  tx: Prisma.TransactionClient,
+  actorUserId: string,
+  scope: NormalizedCompactedScope,
+  fallback: number,
+): Promise<number> {
+  if (scope.kind === "CONVERSATION") {
+    const rows = await tx.$queryRaw<Array<{ byteCount: bigint }>>(
+      Prisma.sql`
+        SELECT
+          COALESCE(SUM(OCTET_LENGTH("content")), 0)::bigint
+            AS "byteCount"
+        FROM "message"
+        WHERE "conversationId"=${scope.conversationId}
+          AND "status"='COMPLETE'
+          AND EXISTS (
+            SELECT 1
+            FROM "conversation"
+            WHERE "conversation"."id"=${scope.conversationId}
+              AND "conversation"."userId"=${actorUserId}
+          )
+      `,
+    );
+    const value = rows[0]?.byteCount ?? 0n;
+    return value > BigInt(Number.MAX_SAFE_INTEGER)
+      ? Number.MAX_SAFE_INTEGER
+      : Number(value);
+  }
+  return fallback;
+}
 
 function validateRefreshInput(
   input: RefreshCompactedStateInput,
