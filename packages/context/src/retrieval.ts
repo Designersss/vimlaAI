@@ -1,5 +1,7 @@
+import { ArtifactNotFoundError, ArtifactService } from "@vimla/artifacts";
 import { Prisma, type PrismaClient } from "@vimla/database";
 import {
+  ContextAccessDeniedError,
   ContextConflictError,
   ContextNotFoundError,
   ContextValidationError,
@@ -151,12 +153,14 @@ const STOP_WORDS = new Set([
 
 export class ContextRetrievalService {
   private readonly options: Required<ContextRetrievalOptions>;
+  private readonly artifacts: ArtifactService;
 
   constructor(
     private readonly db: PrismaClient,
     private readonly providers: readonly ContextRetrievalProvider[] = [],
     options: ContextRetrievalOptions = {},
   ) {
+    this.artifacts = new ArtifactService(db);
     this.options = {
       l1RawLimit: options.l1RawLimit ?? DEFAULTS.l1RawLimit,
       olderHistoryScanLimit:
@@ -752,25 +756,29 @@ export class ContextRetrievalService {
         return latest ? [latest.id] : [];
       },
     );
-    const selectedArtifactVersions =
-      selectedArtifactVersionIds.length === 0
-        ? []
-        : await this.db.artifactVersion.findMany({
-            where: {
-              id: { in: selectedArtifactVersionIds },
-            },
-            select: {
-              id: true,
-              contentJson: true,
-              contentRef: true,
-            },
-          });
-    const artifactContentByVersionId = new Map(
-      selectedArtifactVersions.map((version) => [
-        version.id,
-        version,
-      ]),
-    );
+    const artifactContentByVersionId = new Map<
+      string,
+      Awaited<ReturnType<ArtifactService["readVersion"]>>["content"]
+    >();
+    for (const artifactVersionId of selectedArtifactVersionIds) {
+      try {
+        const version = await this.artifacts.readVersion({
+          actorUserId: input.actorUserId,
+          artifactVersionId,
+        });
+        artifactContentByVersionId.set(
+          artifactVersionId,
+          version.content,
+        );
+      } catch (error: unknown) {
+        if (error instanceof ArtifactNotFoundError) {
+          throw new ContextAccessDeniedError(
+            "Artifact context access changed during retrieval",
+          );
+        }
+        throw error;
+      }
+    }
 
     candidates.push(
       ...rankedArtifacts.map(
@@ -780,9 +788,8 @@ export class ContextRetrievalService {
             ? artifactContentByVersionId.get(latest.id)
             : undefined;
           const inlineContentJson =
-            latestContent?.contentJson !== null &&
-            latestContent?.contentJson !== undefined
-              ? JSON.stringify(latestContent.contentJson)
+            latestContent?.kind === "INLINE_JSON"
+              ? JSON.stringify(latestContent.value)
               : null;
           return candidate({
             item: {
@@ -806,7 +813,7 @@ export class ContextRetrievalService {
                 metadata: artifact.metadata,
                 contentKind: inlineContentJson
                   ? "INLINE_JSON"
-                  : latestContent?.contentRef
+                  : latestContent?.kind === "CONTENT_REF"
                     ? "CONTENT_REF"
                     : null,
                 inlineContentJson,
