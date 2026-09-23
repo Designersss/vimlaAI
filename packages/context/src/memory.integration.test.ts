@@ -1378,6 +1378,44 @@ describe("durable memory context graph", () => {
     ).rejects.toMatchObject({ code: "CONFLICT" });
   });
 
+  it("enforces the active Project Memory storage cap inside the shared project scope", async () => {
+    const owner = await user("project-cap-owner");
+    const project = await db.project.create({
+      data: {
+        ownerUserId: owner,
+        name: "Capped Project",
+        members: {
+          create: {
+            userId: owner,
+            role: "OWNER",
+          },
+        },
+      },
+    });
+    const service = new MemoryService(
+      db,
+      projectWriteAuthorizer(),
+      1_000,
+      1,
+    );
+    await service.rememberProject({
+      actorUserId: owner,
+      projectId: project.id,
+      type: "PROJECT_FACT",
+      slotKey: "first",
+      content: "First project fact",
+    });
+    await expect(
+      service.rememberProject({
+        actorUserId: owner,
+        projectId: project.id,
+        type: "PROJECT_DECISION",
+        slotKey: "second",
+        content: "Second project decision",
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+
   it("fails closed for THREAD memory and rejects forged compaction message scopes", async () => {
     const owner = await user("thread-owner");
     const memory = new MemoryService(db);
