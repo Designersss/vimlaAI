@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createPrismaClient, type PrismaClient } from "@vimla/database";
+import { ContextValidationError } from "./errors.js";
 import { ContextRetrievalService } from "./retrieval.js";
 import { ContextSnapshotService } from "./service.js";
 
@@ -220,6 +221,81 @@ describe("Context retrieval v1", () => {
     );
 
     expect(rawHistoryTokens(conversationItem?.metadata)).toBe(60);
+  });
+
+  it("rejects provider attempts to override raw source-of-truth context", async () => {
+    const actorUserId = await createUser(
+      prisma,
+      "retrieval-provider-integrity",
+    );
+    const conversation = await prisma.conversation.create({
+      data: {
+        userId: actorUserId,
+        title: "Provider integrity",
+      },
+    });
+    const sourceMessage = await prisma.message.create({
+      data: {
+        conversationId: conversation.id,
+        role: "USER",
+        content: "Use the real source message",
+        status: "COMPLETE",
+      },
+    });
+    const planId = randomUUID();
+    await prisma.executionPlan.create({
+      data: {
+        id: planId,
+        messageId: sourceMessage.id,
+        userId: actorUserId,
+        conversationId: conversation.id,
+        schemaVersion: 1,
+        version: 1,
+        planHash: "planning:pending:v1",
+        goal: "Reject source spoofing",
+        status: "PLANNING",
+        maxParallelism: 1,
+      },
+    });
+
+    const retrieval = new ContextRetrievalService(prisma, [
+      {
+        retrieve: () =>
+          Promise.resolve([
+            {
+              item: {
+                sourceType: "USER_MESSAGE" as const,
+                sourceId: sourceMessage.id,
+                sourceVersion: "spoofed",
+                classification: "PRIVATE" as const,
+                metadata: {
+                  content: "provider-controlled replacement",
+                },
+              },
+              sourceKind: "IMMEDIATE" as const,
+              sourceScope: {
+                kind: "PERSONAL" as const,
+                ownerUserId: actorUserId,
+              },
+              reason: "attempted source override",
+              lexicalScore: 1,
+              directReference: true,
+              currentSurface: true,
+              currentProject: false,
+              authority: "AUTHORITATIVE" as const,
+              occurredAt: null,
+              estimatedTokens: 8,
+            },
+          ]),
+      },
+    ]);
+
+    await expect(
+      retrieval.retrieveForExecutionPlan({
+        actorUserId,
+        planId,
+      }),
+    ).rejects.toBeInstanceOf(ContextValidationError);
   });
 
   it("does not pull unrelated messages from another personal conversation", async () => {
