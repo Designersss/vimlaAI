@@ -642,7 +642,7 @@ export async function ensureMemoryCurrent(
   }
 
   for (const ref of row.sourceRefs) {
-    if (!(await sourceRefCurrent(db, row.ownerUserId, ref))) {
+    if (!(await sourceRefCurrent(db, row, ref))) {
       await invalidateIfActive(
         db,
         row.id,
@@ -1018,7 +1018,11 @@ async function assertSourceRefValid(
 
 async function sourceRefCurrent(
   db: PrismaClient,
-  memoryOwnerUserId: string,
+  memory: {
+    ownerUserId: string;
+    scopeKind: string;
+    projectId: string | null;
+  },
   ref: {
     sourceType: string;
     sourceId: string;
@@ -1036,7 +1040,7 @@ async function sourceRefCurrent(
       const row = await db.message.findFirst({
         where: {
           id: ref.sourceId,
-          conversation: { userId: memoryOwnerUserId },
+          conversation: { userId: memory.ownerUserId },
         },
         select: { updatedAt: true },
       });
@@ -1052,7 +1056,7 @@ async function sourceRefCurrent(
       const row = await db.workspaceObject.findFirst({
         where: {
           id: ref.sourceId,
-          personalOwnerUserId: memoryOwnerUserId,
+          personalOwnerUserId: memory.ownerUserId,
           deletedAt: null,
         },
         select: { updatedAt: true },
@@ -1066,20 +1070,30 @@ async function sourceRefCurrent(
       );
     }
     case "PROJECT": {
-      const row = await db.project.findFirst({
-        where: {
-          id: ref.sourceId,
-          OR: [
-            { ownerUserId: memoryOwnerUserId },
-            {
-              members: {
-                some: { userId: memoryOwnerUserId },
-              },
+      const projectScoped =
+        memory.scopeKind === "PROJECT" &&
+        memory.projectId === ref.sourceId;
+      const row = projectScoped
+        ? await db.project.findUnique({
+            where: { id: ref.sourceId },
+            select: { updatedAt: true },
+          })
+        : await db.project.findFirst({
+            where: {
+              id: ref.sourceId,
+              OR: [
+                { ownerUserId: memory.ownerUserId },
+                {
+                  members: {
+                    some: {
+                      userId: memory.ownerUserId,
+                    },
+                  },
+                },
+              ],
             },
-          ],
-        },
-        select: { updatedAt: true },
-      });
+            select: { updatedAt: true },
+          });
       return Boolean(
         row &&
           versionMatches(
@@ -1092,7 +1106,7 @@ async function sourceRefCurrent(
       if (!ref.sourceVersion) return false;
       try {
         return await new ArtifactService(db).canReadVersion({
-          actorUserId: memoryOwnerUserId,
+          actorUserId: memory.ownerUserId,
           artifactVersionId: ref.sourceVersion,
         });
       } catch {
