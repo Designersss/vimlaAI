@@ -338,8 +338,8 @@ describe("memory API", () => {
         content: "Must not persist",
       },
     });
-    expect(denied.statusCode).toBe(403);
-    expect(errorCode(denied)).toBe("forbidden");
+    expect(denied.statusCode).toBe(404);
+    expect(errorCode(denied)).toBe("not_found");
     expect(
       await db.memoryItem.count({
         where: {
