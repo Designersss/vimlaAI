@@ -39,6 +39,7 @@ describe("memory API", () => {
       process.env.BETTER_AUTH_URL ??
       "http://localhost:3001";
     process.env.MEMORY_ENABLED = "true";
+    process.env.PROJECTS_ENABLED = "true";
     process.env.DIRECT_CHATS_ENABLED = "true";
 
     const config = loadApiConfig(process.env);
@@ -223,6 +224,47 @@ describe("memory API", () => {
         })
       )?.state,
     ).toBe("INVALIDATED");
+  });
+
+  it("creates Project Memory only through an explicit authorized project write", async () => {
+    const owner = await registerVerifiedUser(
+      app,
+      "memory-project-owner",
+    );
+    const db = app.get(PrismaService).client;
+    const project = await db.project.create({
+      data: {
+        ownerUserId: owner.id,
+        name: "Memory Project",
+        members: {
+          create: {
+            userId: owner.id,
+            role: "OWNER",
+          },
+        },
+      },
+    });
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/v1/memory/projects/${project.id}`,
+      headers: jsonHeaders(),
+      cookies: owner.cookies,
+      payload: {
+        type: "PROJECT_DECISION",
+        slotKey: "launch window",
+        content: "Launch window is October",
+      },
+    });
+    expect(response.statusCode).toBe(201);
+    expect(response.json()).toMatchObject({
+      scopeKind: "PROJECT",
+      projectId: project.id,
+      type: "PROJECT_DECISION",
+      slotKey: "launch window",
+      content: "Launch window is October",
+      origin: "USER_EXPLICIT",
+    });
   });
 
   it("promotes exactly one explicit E2EE fact with disclosure provenance and no hidden authority", async () => {
