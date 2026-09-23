@@ -68,6 +68,7 @@ describe("loadApiConfig", () => {
     expect(config.projectsEnabled).toBe(false);
     expect(config.projectsMutationLimitPerMinute).toBe(60);
     expect(config.projectsInviteTtlDays).toBe(7);
+    expect(config.memoryEnabled).toBe(false);
     expect(config.directChatsEnabled).toBe(false);
     expect(config.directChatsMutationLimitPerMinute).toBe(60);
     expect(config.aiTextProvider).toBe("mock");
@@ -88,6 +89,17 @@ describe("loadApiConfig", () => {
     expect(config.reminderReconcileIntervalSeconds).toBe(60);
     expect(config.reminderMaxLatenessMinutes).toBe(1_440);
     expect(config.notifyDeliveryMaxAttempts).toBe(6);
+  });
+
+  it("enables durable Memory only through its explicit fail-closed flag", () => {
+    const config = loadApiConfig({
+      ...validSharedEnv,
+      API_HOST: "127.0.0.1",
+      API_PORT: "3001",
+      WEB_ORIGIN: "http://localhost:3000",
+      MEMORY_ENABLED: "true",
+    });
+    expect(config.memoryEnabled).toBe(true);
   });
 
   it("selects a dedicated internal semantic planner without changing paid AI routing", () => {
