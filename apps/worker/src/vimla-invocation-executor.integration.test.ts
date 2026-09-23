@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ArtifactService } from "@vimla/artifacts";
+import type { ContextBundleView } from "@vimla/context";
 import { createPrismaClient, type PrismaClient } from "@vimla/database";
 import type { PlannerPlan } from "@vimla/operator";
 import {
@@ -197,6 +198,44 @@ describe("VimlaInvocationExecutor", () => {
     expect(planner.input?.dependencyContext).toContain("PROMPT");
     expect(planner.input?.dependencyContext).toContain(
       "Review the generated campaign prompt",
+    );
+  });
+
+  it("passes sanitized packed ContextBundle items to the Vimla planner", async () => {
+    const seeded = await seedInvocation(
+      prisma,
+      "Use the authorized project context",
+    );
+    const planner = new CapturingPlanner({
+      intent: "act",
+      userMessage: "context received",
+      clarificationQuestion: null,
+      commands: [{ tool: "profile.getSafe", args: {} }],
+    });
+    const executor = new VimlaInvocationExecutor(prisma, planner, "en");
+    const internalOwnerId = "internal-owner-" + randomUUID();
+
+    await expect(
+      executor.execute({
+        ...executionInput(seeded, 1),
+        contextBundle: contextBundleWithMessage(
+          seeded,
+          internalOwnerId,
+        ),
+      }),
+    ).resolves.toEqual({ status: "COMPLETED", outcome: "PASS" });
+
+    expect(planner.input?.dependencyContext).toContain(
+      "The authorized release decision is violet.",
+    );
+    expect(planner.input?.dependencyContext).not.toContain(
+      internalOwnerId,
+    );
+    expect(planner.input?.dependencyContext).not.toContain(
+      "lexicalScore",
+    );
+    expect(planner.input?.dependencyContext).not.toContain(
+      "retrieval reason",
     );
   });
 
@@ -491,6 +530,79 @@ async function seedInvocation(
     invocationId,
     runId: run.id,
     runIdempotencyKey: run.idempotencyKey,
+  };
+}
+
+function contextBundleWithMessage(
+  seeded: SeededInvocation,
+  internalOwnerId: string,
+): ContextBundleView {
+  return {
+    id: "vimla-context-bundle",
+    invocationId: seeded.invocationId,
+    snapshotId: "vimla-context-snapshot",
+    fingerprint: "sha256:vimla-context-bundle",
+    manifest: {
+      version: 1,
+      packingVersion: 1,
+      targetKind: "VIMLA",
+      surfaceKind: "PERSONAL",
+      surfaceScopeHash: "sha256:personal",
+      audienceParticipantCount: 1,
+      budget: {
+        contextWindowTokens: 32_768,
+        outputReserveTokens: 4_096,
+        systemToolReserveTokens: 2_048,
+        artifactReserveTokens: 4_096,
+        safetyMarginTokens: 2_621,
+        effectiveHistoryBudgetTokens: 19_907,
+        compactedStateTriggerTokens: 15_925,
+      },
+      usedTokens: 24,
+      rawHistoryTokens: 24,
+      compactedStateRequired: false,
+      allowedItems: [
+        {
+          snapshotItemId: "vimla-context-item",
+          sourceType: "MESSAGE",
+          classification: "PRIVATE",
+          fingerprint: "sha256:vimla-context-item",
+          estimatedTokens: 24,
+          selectionReason: "RELEVANT",
+        },
+      ],
+      allowedArtifacts: [],
+      denials: [],
+      artifactDenials: [],
+    },
+    items: [
+      {
+        id: "vimla-context-item",
+        sequence: 0,
+        sourceType: "MESSAGE",
+        sourceId: "vimla-context-message",
+        sourceVersion: "v1",
+        classification: "PRIVATE",
+        contentRef: "vimla://messages/vimla-context-message",
+        metadata: {
+          role: "ASSISTANT",
+          content: "The authorized release decision is violet.",
+          retrieval: {
+            sourceKind: "CROSS_CONVERSATION",
+            scope: {
+              kind: "PERSONAL",
+              ownerUserId: internalOwnerId,
+            },
+            reason: "retrieval reason",
+            lexicalScore: 0.91,
+          },
+        },
+        fingerprint: "sha256:vimla-context-item",
+        createdAt: new Date().toISOString(),
+      },
+    ],
+    artifacts: [],
+    createdAt: new Date().toISOString(),
   };
 }
 
