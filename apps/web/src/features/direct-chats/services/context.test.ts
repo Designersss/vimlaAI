@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { DirectConversationPrivacy } from "@vimla/contracts";
-import { prepareDirectChatContext } from "./context";
+import {
+  boundDirectChatContextBefore,
+  prepareDirectChatContext,
+} from "./context";
 import type { StoredPlaintext } from "./crypto-store";
 
 const privacy: DirectConversationPrivacy = {
@@ -73,6 +76,30 @@ describe("prepareDirectChatContext", () => {
       messages: [peer],
     });
     expect(actorDenied.contextBundle.messages).toEqual([]);
+  });
+
+  it("clips same-time and future messages at the encrypted invocation boundary", () => {
+    const prepared = prepareDirectChatContext({
+      actorUserId: "self",
+      privacy,
+      query: "history",
+      messages: [
+        row(1, "self", "old"),
+        row(2, "peer", "same"),
+        row(3, "peer", "future"),
+      ],
+    });
+    const sourceTime = row(2, "peer", "same").createdAt;
+    const bounded = boundDirectChatContextBefore(
+      prepared,
+      sourceTime,
+      "self",
+    );
+    expect(bounded.contextBundle.messages.map((message) => message.text)).toEqual([
+      "old",
+    ]);
+    expect(bounded.ownIncluded).toBe(true);
+    expect(bounded.peerIncluded).toBe(false);
   });
 
   it("deduplicates message ids and respects aggregate context bounds", () => {
