@@ -1,45 +1,34 @@
 import { createHash, randomUUID } from "node:crypto";
 import { ArtifactService } from "@vimla/artifacts";
+import {
+  MEMORY_CLASSIFICATIONS,
+  MEMORY_ORIGINS,
+  MEMORY_SCOPE_KINDS,
+  MEMORY_SENSITIVITIES,
+  MEMORY_TYPES,
+  type MemoryClassification,
+  type MemoryOrigin,
+  type MemoryScopeKind,
+  type MemorySensitivity,
+  type MemoryType,
+} from "@vimla/contracts";
 import { Prisma, type PrismaClient } from "@vimla/database";
 import { containsSensitiveContextData } from "./packer.js";
 
-export const MEMORY_SCOPE_KINDS = [
-  "PERSONAL",
-  "PROJECT",
-  "CONVERSATION",
-  "THREAD",
-] as const;
-export type MemoryScopeKind = (typeof MEMORY_SCOPE_KINDS)[number];
-
-export const MEMORY_TYPES = [
-  "USER_FACT",
-  "USER_PREFERENCE",
-  "USER_GOAL",
-  "USER_RELATIONSHIP",
-  "PROJECT_FACT",
-  "PROJECT_DECISION",
-  "PROJECT_STATE",
-  "CONVERSATION_STATE",
-  "THREAD_STATE",
-  "DECISION",
-  "ENTITY_RELATION",
-] as const;
-export type MemoryType = (typeof MEMORY_TYPES)[number];
-
-export const MEMORY_ORIGINS = [
-  "AUTO_EXTRACTION",
-  "USER_EXPLICIT",
-  "USER_CORRECTION",
-  "E2EE_USER_DISCLOSURE",
-] as const;
-export type MemoryOrigin = (typeof MEMORY_ORIGINS)[number];
-
-export type MemoryClassification =
-  | "PUBLIC"
-  | "INTERNAL"
-  | "PRIVATE"
-  | "RESTRICTED";
-export type MemorySensitivity = "NORMAL" | "SENSITIVE";
+export {
+  MEMORY_CLASSIFICATIONS,
+  MEMORY_ORIGINS,
+  MEMORY_SCOPE_KINDS,
+  MEMORY_SENSITIVITIES,
+  MEMORY_TYPES,
+};
+export type {
+  MemoryClassification,
+  MemoryOrigin,
+  MemoryScopeKind,
+  MemorySensitivity,
+  MemoryType,
+};
 
 export interface MemoryProjectWriteAuthorizer {
   canWriteProject(input: {
