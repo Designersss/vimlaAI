@@ -29,8 +29,10 @@ CREATE TABLE "memory_item" (
   CONSTRAINT "memory_item_pkey" PRIMARY KEY ("id"),
   CONSTRAINT "memory_item_scope_check" CHECK (
     ("scopeKind"='PERSONAL' AND "projectId" IS NULL AND "conversationId" IS NULL AND "threadId" IS NULL) OR
-    ("scopeKind"='PROJECT' AND "projectId" IS NOT NULL AND "conversationId" IS NULL AND "threadId" IS NULL) OR
-    ("scopeKind"='CONVERSATION' AND "projectId" IS NULL AND "conversationId" IS NOT NULL AND "threadId" IS NULL) OR
+    ("scopeKind"='PROJECT' AND "conversationId" IS NULL AND "threadId" IS NULL AND
+      ("projectId" IS NOT NULL OR ("state"='INVALIDATED' AND "invalidatedAt" IS NOT NULL))) OR
+    ("scopeKind"='CONVERSATION' AND "projectId" IS NULL AND "threadId" IS NULL AND
+      ("conversationId" IS NOT NULL OR ("state"='INVALIDATED' AND "invalidatedAt" IS NOT NULL))) OR
     ("scopeKind"='THREAD' AND "projectId" IS NULL AND "conversationId" IS NULL AND "threadId" IS NOT NULL)
   ),
   CONSTRAINT "memory_item_type_check" CHECK ("type" IN (
@@ -62,9 +64,9 @@ CREATE INDEX "memory_item_type_state_validFrom_idx" ON "memory_item"("type","sta
 ALTER TABLE "memory_item" ADD CONSTRAINT "memory_item_ownerUserId_fkey"
   FOREIGN KEY ("ownerUserId") REFERENCES "user"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE "memory_item" ADD CONSTRAINT "memory_item_projectId_fkey"
-  FOREIGN KEY ("projectId") REFERENCES "project"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+  FOREIGN KEY ("projectId") REFERENCES "project"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 ALTER TABLE "memory_item" ADD CONSTRAINT "memory_item_conversationId_fkey"
-  FOREIGN KEY ("conversationId") REFERENCES "conversation"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+  FOREIGN KEY ("conversationId") REFERENCES "conversation"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 ALTER TABLE "memory_item" ADD CONSTRAINT "memory_item_supersedesId_fkey"
   FOREIGN KEY ("supersedesId") REFERENCES "memory_item"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 
@@ -116,8 +118,10 @@ CREATE TABLE "compacted_context_state" (
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT "compacted_context_state_pkey" PRIMARY KEY ("id"),
   CONSTRAINT "compacted_context_state_scope_check" CHECK (
-    ("scopeKind"='PROJECT' AND "projectId" IS NOT NULL AND "conversationId" IS NULL AND "threadId" IS NULL) OR
-    ("scopeKind"='CONVERSATION' AND "projectId" IS NULL AND "conversationId" IS NOT NULL AND "threadId" IS NULL) OR
+    ("scopeKind"='PROJECT' AND "conversationId" IS NULL AND "threadId" IS NULL AND
+      ("projectId" IS NOT NULL OR "invalidatedAt" IS NOT NULL)) OR
+    ("scopeKind"='CONVERSATION' AND "projectId" IS NULL AND "threadId" IS NULL AND
+      ("conversationId" IS NOT NULL OR "invalidatedAt" IS NOT NULL)) OR
     ("scopeKind"='THREAD' AND "projectId" IS NULL AND "conversationId" IS NULL AND "threadId" IS NOT NULL)
   ),
   CONSTRAINT "compacted_context_state_classification_check" CHECK ("classification" IN ('PUBLIC','INTERNAL','PRIVATE','RESTRICTED')),
@@ -139,6 +143,6 @@ CREATE INDEX "compacted_context_state_scope_idx" ON "compacted_context_state"("s
 ALTER TABLE "compacted_context_state" ADD CONSTRAINT "compacted_context_state_ownerUserId_fkey"
   FOREIGN KEY ("ownerUserId") REFERENCES "user"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE "compacted_context_state" ADD CONSTRAINT "compacted_context_state_projectId_fkey"
-  FOREIGN KEY ("projectId") REFERENCES "project"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+  FOREIGN KEY ("projectId") REFERENCES "project"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 ALTER TABLE "compacted_context_state" ADD CONSTRAINT "compacted_context_state_conversationId_fkey"
-  FOREIGN KEY ("conversationId") REFERENCES "conversation"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+  FOREIGN KEY ("conversationId") REFERENCES "conversation"("id") ON DELETE SET NULL ON UPDATE CASCADE;
