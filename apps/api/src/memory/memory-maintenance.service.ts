@@ -66,7 +66,6 @@ export class MemoryMaintenanceService {
             { status: "QUEUED" },
             {
               status: "PENDING",
-              attemptCount: { lt: MAX_RECEIPT_ATTEMPTS },
               updatedAt: { lte: cutoff },
             },
             {
@@ -84,6 +83,24 @@ export class MemoryMaintenanceService {
       });
 
     for (const receipt of receipts) {
+      if (
+        receipt.status === "PENDING" &&
+        receipt.attemptCount >= MAX_RECEIPT_ATTEMPTS
+      ) {
+        await this.db.memoryExtractionReceipt.updateMany({
+          where: {
+            id: receipt.id,
+            status: "PENDING",
+            attemptCount: { gte: MAX_RECEIPT_ATTEMPTS },
+          },
+          data: {
+            status: "FAILED",
+            errorCode: "MAX_ATTEMPTS_EXHAUSTED",
+          },
+        });
+        continue;
+      }
+
       const source = await this.db.message.findFirst({
         where: {
           id: receipt.sourceId,
