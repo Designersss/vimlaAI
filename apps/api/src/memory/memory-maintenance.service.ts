@@ -340,16 +340,16 @@ export class MemoryMaintenanceService {
     correlationId: string;
   }): Promise<void> {
     const budget = await this.conservativeBudget();
-      const pressure = await this.conversationPressure(
-        input.userId,
-        input.conversationId,
-      );
-      if (!shouldUseCompactedState(pressure, budget)) {
-        return;
-      }
+    const pressure = await this.conversationPressure(
+      input.userId,
+      input.conversationId,
+    );
+    if (!shouldUseCompactedState(pressure, budget)) {
+      return;
+    }
 
-      const previous =
-        await this.db.compactedContextState.findFirst({
+    const previous =
+      await this.db.compactedContextState.findFirst({
           where: {
             ownerUserId: input.userId,
             scopeKind: "CONVERSATION",
@@ -359,21 +359,21 @@ export class MemoryMaintenanceService {
           orderBy: { version: "desc" },
         });
 
-      const tail = await this.recentTailIds(
-        input.userId,
-        input.conversationId,
-        budget,
-      );
-      const raw = await this.nextCompactionSegment({
+    const tail = await this.recentTailIds(
+      input.userId,
+      input.conversationId,
+      budget,
+    );
+    const raw = await this.nextCompactionSegment({
         userId: input.userId,
         conversationId: input.conversationId,
         previous,
         tailIds: tail,
         budget,
       });
-      if (raw.length === 0) return;
+    if (raw.length === 0) return;
 
-      const rawModel = await this.model.complete({
+    const rawModel = await this.model.complete({
         prompt: buildCompactionPrompt(
           previous?.content ?? null,
           raw.map((message) => ({
@@ -384,11 +384,11 @@ export class MemoryMaintenanceService {
         correlationId:
           `${input.correlationId}:compact:${input.conversationId}`,
       });
-      const output = memoryCompactionModelOutputSchema.parse(
-        parseStrictJson(rawModel),
-      );
+    const output = memoryCompactionModelOutputSchema.parse(
+      parseStrictJson(rawModel),
+    );
 
-      await this.compaction.refresh({
+    await this.compaction.refresh({
         actorUserId: input.userId,
         scope: {
           kind: "CONVERSATION",
