@@ -13,6 +13,7 @@ import type {
 } from "@vimla/contracts";
 import { Prisma } from "@vimla/database";
 import { PrismaService } from "../persistence/prisma.service.js";
+import { API_CONFIG, type ApiRuntimeConfig } from "../config/api-config.js";
 
 export type ResolvedChatMention = MessageMentionView;
 
@@ -24,7 +25,12 @@ type PersistedRoutingResult = {
 
 @Injectable()
 export class ChatMentionRoutingService {
-  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
+  constructor(
+    @Inject(PrismaService)
+    private readonly prisma: PrismaService,
+    @Inject(API_CONFIG)
+    private readonly config: ApiRuntimeConfig,
+  ) {}
 
   async resolve(input: {
     userId: string;
@@ -105,7 +111,7 @@ export class ChatMentionRoutingService {
 
     try {
       await this.prisma.client.$transaction(async (tx) => {
-        await tx.message.create({
+        const message = await tx.message.create({
           data: {
             id: messageId,
             conversationId: conversation.id,
@@ -114,6 +120,18 @@ export class ChatMentionRoutingService {
             status: "COMPLETE",
           },
         });
+
+        if (this.config.memoryEnabled) {
+          await tx.memoryExtractionReceipt.create({
+            data: {
+              ownerUserId: input.userId,
+              sourceType: "MESSAGE",
+              sourceId: message.id,
+              sourceVersion: message.updatedAt.toISOString(),
+              status: "QUEUED",
+            },
+          });
+        }
 
         if (resolved.length > 0) {
           await tx.messageMention.createMany({
