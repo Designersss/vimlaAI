@@ -928,6 +928,53 @@ describe("direct chats API", () => {
     });
     expect(stillPrivateNote.statusCode).toBe(200);
 
+    const persistedUnsafe = await runDirect(
+      "@Vimla safe answer before recovery",
+    );
+    expect(persistedUnsafe.response.statusCode).toBe(201);
+    await db.operatorRun.update({
+      where: { id: persistedUnsafe.response.json().id },
+      data: {
+        status: "EXECUTING",
+        errorCode: null,
+        publicMessage: null,
+      },
+    });
+    await db.operatorRunStep.deleteMany({
+      where: { runId: persistedUnsafe.response.json().id },
+    });
+    await db.operatorRunStep.create({
+      data: {
+        runId: persistedUnsafe.response.json().id,
+        sequence: 0,
+        toolName: "notes.delete",
+        status: "PENDING",
+        inputJson: { id: privateNote.json().id },
+        publicKind: "note",
+        publicTitle: "Persisted unsafe note delete",
+        publicDetail: null,
+        publicHrefPath: "/work/notes",
+        idempotencyKey: "persisted-direct-chat-unsafe-tool",
+      },
+    });
+    const persistedUnsafeReplay = await app.inject({
+      method: "POST",
+      url: "/v1/operator/runs",
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: persistedUnsafe.payload,
+    });
+    expect(persistedUnsafeReplay.statusCode).toBe(201);
+    expect(persistedUnsafeReplay.json().status).toBe("FAILED");
+    expect(persistedUnsafeReplay.json().errorCode).toBe("tool_denied");
+    const privateNoteAfterRecovery = await app.inject({
+      method: "GET",
+      url: `/v1/workspace/notes/${privateNote.json().id}`,
+      headers: { origin },
+      cookies: alice.cookies,
+    });
+    expect(privateNoteAfterRecovery.statusCode).toBe(200);
+
     const injectedSource = await sendInvoke(
       "@Vimla, кто победил в гран-при 2026?",
     );
