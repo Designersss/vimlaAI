@@ -110,6 +110,8 @@ model MemoryExtractionReceipt {
   candidateCount Int      @default(0)
   attemptCount   Int      @default(0)
   errorCode      String?
+  extractedAt    DateTime?
+  compactedAt    DateTime?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
