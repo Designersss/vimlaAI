@@ -110,7 +110,7 @@ export function packContextItems(
     }
 
     if (
-      isExternalTarget(input.targetKind) &&
+      usesModelContext(input.targetKind) &&
       !isImmediateUserMessage(item) &&
       containsSensitiveData(item)
     ) {
@@ -540,13 +540,15 @@ function clampRatio(value: number): number {
   return Math.min(0.9, Math.max(0.2, value));
 }
 
-function isExternalTarget(
+function usesModelContext(
   targetKind: ContextInvocationTargetKind,
 ): boolean {
   return (
+    targetKind === "VIMLA" ||
     targetKind === "AI_AUTO" ||
     targetKind === "AI_MODEL" ||
-    targetKind === "AGENT"
+    targetKind === "AGENT" ||
+    targetKind === "EVALUATOR"
   );
 }
 
