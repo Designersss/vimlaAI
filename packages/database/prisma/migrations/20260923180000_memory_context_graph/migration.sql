@@ -40,9 +40,29 @@ CREATE TABLE "memory_item" (
     'PROJECT_FACT','PROJECT_DECISION','PROJECT_STATE',
     'CONVERSATION_STATE','THREAD_STATE','DECISION','ENTITY_RELATION'
   )),
+  CONSTRAINT "memory_item_scope_type_check" CHECK (
+    ("scopeKind"='PERSONAL' AND "type" IN (
+      'USER_FACT','USER_PREFERENCE','USER_GOAL','USER_RELATIONSHIP','DECISION','ENTITY_RELATION'
+    )) OR
+    ("scopeKind"='PROJECT' AND "type" IN (
+      'PROJECT_FACT','PROJECT_DECISION','PROJECT_STATE','DECISION','ENTITY_RELATION'
+    )) OR
+    ("scopeKind"='CONVERSATION' AND "type" IN (
+      'CONVERSATION_STATE','DECISION','ENTITY_RELATION'
+    )) OR
+    ("scopeKind"='THREAD' AND "type" IN (
+      'THREAD_STATE','DECISION','ENTITY_RELATION'
+    ))
+  ),
   CONSTRAINT "memory_item_classification_check" CHECK ("classification" IN ('PUBLIC','INTERNAL','PRIVATE','RESTRICTED')),
   CONSTRAINT "memory_item_sensitivity_check" CHECK ("sensitivity" IN ('NORMAL','SENSITIVE')),
   CONSTRAINT "memory_item_origin_check" CHECK ("origin" IN ('AUTO_EXTRACTION','USER_EXPLICIT','USER_CORRECTION','E2EE_USER_DISCLOSURE')),
+  CONSTRAINT "memory_item_origin_marker_check" CHECK (
+    ("origin"='AUTO_EXTRACTION' AND "userConfirmedAt" IS NULL AND "userCorrectedAt" IS NULL)
+    OR ("origin"='USER_EXPLICIT' AND "userConfirmedAt" IS NOT NULL AND "userCorrectedAt" IS NULL)
+    OR ("origin"='USER_CORRECTION' AND "userConfirmedAt" IS NOT NULL AND "userCorrectedAt" IS NOT NULL)
+    OR ("origin"='E2EE_USER_DISCLOSURE' AND "userConfirmedAt" IS NOT NULL AND "userCorrectedAt" IS NULL)
+  ),
   CONSTRAINT "memory_item_state_check" CHECK ("state" IN ('ACTIVE','SUPERSEDED','INVALIDATED')),
   CONSTRAINT "memory_item_scores_check" CHECK ("confidence">=0 AND "confidence"<=1 AND "quality">=0 AND "quality"<=1),
   CONSTRAINT "memory_item_generation_check" CHECK ("generation">=1),
@@ -93,7 +113,16 @@ CREATE TABLE "memory_source_ref" (
     ("provenance"='E2EE_USER_DISCLOSURE' AND "sourceType"='E2EE_USER_DISCLOSURE') OR
     ("provenance"='AUTO_EXTRACTION' AND "sourceType" IN ('MESSAGE','WORKSPACE_OBJECT','PROJECT','ARTIFACT'))
   ),
-  CONSTRAINT "memory_source_ref_scope_check" CHECK ("sourceScopeKind" IN ('PERSONAL','PROJECT','CONVERSATION','THREAD','DIRECT_CHAT'))
+  CONSTRAINT "memory_source_ref_scope_check" CHECK ("sourceScopeKind" IN ('PERSONAL','PROJECT','CONVERSATION','THREAD','DIRECT_CHAT')),
+  CONSTRAINT "memory_source_ref_scope_id_check" CHECK ("sourceScopeId" IS NOT NULL),
+  CONSTRAINT "memory_source_ref_version_check" CHECK (
+    "sourceType"='USER_EXPLICIT'
+    OR "sourceVersion" IS NOT NULL
+  ),
+  CONSTRAINT "memory_source_ref_e2ee_disclosure_check" CHECK (
+    "sourceType"<>'E2EE_USER_DISCLOSURE'
+    OR "disclosedAt" IS NOT NULL
+  )
 );
 CREATE UNIQUE INDEX "memory_source_ref_identity_key" ON "memory_source_ref"("memoryId","provenance","sourceType","sourceId");
 CREATE INDEX "memory_source_ref_source_idx" ON "memory_source_ref"("sourceType","sourceId");
