@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent, type ReactElement } from "react";
+import { useEffect, useRef, useState, type FormEvent, type ReactElement } from "react";
 import { useTranslations } from "next-intl";
 import type { TaskStatus, TaskView } from "@vimla/contracts";
 import { Alert, Button, Card, Checkbox, EmptyState, FormField, Heading, Input, NativeSelect, TaskRow } from "@vimla/ui";
@@ -18,22 +18,27 @@ export function WorkTasks(): ReactElement {
   const [priority, setPriority] = useState<"LOW" | "NORMAL" | "HIGH" | "">("");
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<TaskStatus | "">("");
+  const [isMutating, setIsMutating] = useState(false);
+  const mutationInFlight = useRef(false);
+  const readVersion = useRef(0);
 
   async function reload(): Promise<void> {
+    const version = ++readVersion.current;
     const page = await fetchTasks({ status: statusFilter || undefined });
-    setItems(page.items);
+    if (version === readVersion.current) setItems(page.items);
   }
 
   useEffect(() => {
     let cancelled = false;
+    const version = ++readVersion.current;
     void fetchTasks({ status: statusFilter || undefined })
       .then((page) => {
-        if (!cancelled) {
+        if (!cancelled && version === readVersion.current) {
           setItems(page.items);
         }
       })
       .catch((caught: unknown) => {
-        if (!cancelled) {
+        if (!cancelled && version === readVersion.current) {
           setError(caught instanceof WorkspaceApiError ? caught.code : "internal_error");
         }
       });
@@ -42,10 +47,31 @@ export function WorkTasks(): ReactElement {
     };
   }, [statusFilter]);
 
-  async function onCreate(event: FormEvent): Promise<void> {
-    event.preventDefault();
+  async function mutate(operation: () => Promise<void>): Promise<void> {
+    if (mutationInFlight.current) return;
+    mutationInFlight.current = true;
+    readVersion.current++;
+    setIsMutating(true);
     setError(null);
     try {
+      await operation();
+    } catch (caught: unknown) {
+      setError(caught instanceof WorkspaceApiError ? caught.code : "internal_error");
+      // The server may have committed despite a failed response. Reconcile when reachable.
+      try {
+        await reload();
+      } catch {
+        // Preserve the original error and last visible data while offline.
+      }
+    } finally {
+      mutationInFlight.current = false;
+      setIsMutating(false);
+    }
+  }
+
+  async function onCreate(event: FormEvent): Promise<void> {
+    event.preventDefault();
+    await mutate(async () => {
       await createTask({
         title,
         dueAt: fromDatetimeLocalValue(dueAt),
@@ -55,22 +81,22 @@ export function WorkTasks(): ReactElement {
       setDueAt("");
       setPriority("");
       await reload();
-    } catch (caught: unknown) {
-      setError(caught instanceof WorkspaceApiError ? caught.code : "internal_error");
-    }
+    });
   }
 
   async function onToggle(task: TaskView): Promise<void> {
-    const nextStatus = task.status === "DONE" ? "TODO" : "DONE";
-    const previous = items;
-    setItems(items.map((item) => (item.id === task.id ? { ...item, status: nextStatus } : item)));
-    try {
-      await updateTask(task.id, { status: nextStatus });
-      await reload();
-    } catch (caught: unknown) {
-      setItems(previous);
-      setError(caught instanceof WorkspaceApiError ? caught.code : "internal_error");
-    }
+    await mutate(async () => {
+      const nextStatus = task.status === "DONE" ? "TODO" : "DONE";
+      const previous = items;
+      setItems(items.map((item) => (item.id === task.id ? { ...item, status: nextStatus } : item)));
+      try {
+        await updateTask(task.id, { status: nextStatus });
+        await reload();
+      } catch (caught: unknown) {
+        setItems(previous);
+        throw caught;
+      }
+    });
   }
 
   const visible = items;
@@ -84,11 +110,12 @@ export function WorkTasks(): ReactElement {
       <Card>
         <form className={styles.form} onSubmit={(event) => void onCreate(event)}>
           <FormField label={t("work.titleLabel")} htmlFor="task-title">
-            <Input id="task-title" value={title} onChange={(event) => setTitle(event.target.value)} required />
+            <Input id="task-title" value={title} onChange={(event) => setTitle(event.target.value)} required disabled={isMutating} />
           </FormField>
           <FormField label={t("work.due")} htmlFor="task-due">
             <Input
               id="task-due"
+              disabled={isMutating}
               type="datetime-local"
               value={dueAt}
               onChange={(event) => setDueAt(event.target.value)}
@@ -97,6 +124,7 @@ export function WorkTasks(): ReactElement {
           <FormField label={t("work.priority")} htmlFor="task-priority">
             <NativeSelect
               id="task-priority"
+              disabled={isMutating}
               value={priority}
               onChange={(event) => setPriority(event.target.value as typeof priority)}
             >
@@ -106,12 +134,13 @@ export function WorkTasks(): ReactElement {
               <option value="HIGH">{t("work.priorityHigh")}</option>
             </NativeSelect>
           </FormField>
-          <Button type="submit">{t("work.create")}</Button>
+          <Button type="submit" disabled={isMutating}>{t("work.create")}</Button>
         </form>
       </Card>
       <FormField label={t("work.status")} htmlFor="task-filter">
         <NativeSelect
           id="task-filter"
+          disabled={isMutating}
           value={statusFilter}
           onChange={(event) => setStatusFilter(event.target.value as TaskStatus | "")}
         >
@@ -133,6 +162,7 @@ export function WorkTasks(): ReactElement {
                   title=""
                   leading={
                     <Checkbox
+                      disabled={isMutating}
                       checked={task.status === "DONE"}
                       label={task.title}
                       onChange={() => void onToggle(task)}
@@ -143,20 +173,16 @@ export function WorkTasks(): ReactElement {
                       <Button
                         variant="secondary"
                         size="sm"
-                        onClick={() => void updateTask(task.id, { status: "IN_PROGRESS" }).then(reload)}
+                        disabled={isMutating}
+                        onClick={() => void mutate(() => updateTask(task.id, { status: "IN_PROGRESS" }).then(reload))}
                       >
                         {t("work.statusIN_PROGRESS")}
                       </Button>
                       <Button
                         variant="ghost"
                         size="sm"
-                        onClick={() =>
-                          void deleteTask(task.id)
-                            .then(reload)
-                            .catch((caught: unknown) => {
-                              setError(caught instanceof WorkspaceApiError ? caught.code : "internal_error");
-                            })
-                        }
+                        disabled={isMutating}
+                        onClick={() => void mutate(() => deleteTask(task.id).then(reload))}
                       >
                         {t("work.delete")}
                       </Button>

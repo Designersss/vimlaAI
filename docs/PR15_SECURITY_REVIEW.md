@@ -10,6 +10,8 @@ The email adapter still constructs an explicit allowlist of message fields; its 
 
 A separate correctness finding affected distributed leases: concurrency admission and completion used the process clock while PostgreSQL issued leases. A worker with a slow clock could commit an expired lease. Both comparisons now use database time. A negative integration test reproduces the expired-lease commit on the old implementation and passes after the fix; coverage also checks admission with an ahead-of-database process clock and subsequent expired-job recovery.
 
+The local browser gate also exposed a pre-existing task-checkbox race: overlapping optimistic mutations and list refreshes could restore stale state. Task mutations now share a UI in-flight guard until the authoritative refresh completes; older list responses are ignored and failure releases controls. This is a UI ordering guard, not server authorization. A controlled-latency browser regression fails on the old UI, exercises failure recovery and preserves all existing assertions.
+
 ## Remaining dependency advisories: documented, not suppressed
 
 `pnpm audit --prod` still reports three advisories. No audit allowlist was introduced and the audit's nonzero exit status is retained.

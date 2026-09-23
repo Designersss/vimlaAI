@@ -3,6 +3,53 @@ import { signUp, uniqueEmail, verifyEmail } from "./helpers";
 import { assertNoDocumentOverflow } from "./responsive-helpers";
 
 test.describe("personal workspace", () => {
+  test("serializes task mutations through the authoritative refresh and recovers from failure", async ({ page, request }) => {
+    const email = uniqueEmail("e2e-task-mutation-race");
+    await signUp(page, { name: "Ada", email, password: "correct-horse-battery" });
+    await verifyEmail(page, request, email);
+    await page.goto("/work/tasks");
+    await page.getByLabel(/название|title/i).fill("Serialized task");
+    await page.getByRole("button", { name: /создать|create/i }).click();
+    const checkbox = page.getByRole("checkbox", { name: "Serialized task" });
+    await expect(checkbox).toBeVisible();
+    let release: () => void = () => undefined;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    let mutations = 0;
+    await page.route("**/v1/workspace/tasks/*", async (route) => {
+      if (route.request().method() !== "PATCH") return route.continue();
+      mutations++;
+      if (mutations === 1) await held;
+      if (mutations === 3) {
+        await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ code: "internal_error" }) });
+        return;
+      }
+      await route.continue();
+    });
+    await checkbox.check();
+    try {
+      await expect(checkbox).toBeDisabled();
+      await expect(page.getByRole("button", { name: /создать|create/i })).toBeDisabled();
+      await expect.poll(() => mutations).toBe(1);
+    } finally {
+      release();
+    }
+    await expect(checkbox).toBeEnabled();
+    await expect(checkbox).toBeChecked();
+    await checkbox.uncheck();
+    await expect(checkbox).toBeEnabled();
+    await page.reload();
+    await expect(checkbox).not.toBeChecked();
+    // The injected failure intentionally rolls back before a check() postcondition may run.
+    await checkbox.click();
+    await expect(page.getByTestId("work-shell").getByRole("alert")).toBeVisible();
+    await expect(checkbox).toBeEnabled();
+    await expect(checkbox).not.toBeChecked();
+    await checkbox.check();
+    await expect(checkbox).toBeEnabled();
+    await page.reload();
+    await expect(checkbox).toBeChecked();
+  });
+
   test("manages tasks and reminders and surfaces due items in today", async ({ page, request }) => {
     test.setTimeout(60_000);
     const email = uniqueEmail("e2e-work-today");
