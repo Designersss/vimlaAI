@@ -10,7 +10,7 @@ import {
   type MemoryScopeKind,
 } from "./memory.js";
 
-const MAX_SCAN = 96;
+const MAX_SCAN = 1_000;
 const MAX_RETURNED = 24;
 const FALLBACK_CONFIRMED = 6;
 
@@ -68,57 +68,50 @@ export class MemoryRetrievalProvider
     });
 
     const queryTerms = tokens(input.query);
-    const current: Array<{
-      row: (typeof rows)[number];
-      score: number;
-      directReference: boolean;
-    }> = [];
-    for (const row of rows) {
-      if (!(await ensureMemoryCurrent(this.db, row))) {
+    const ranked = rows
+      .map((row) => {
+        const score = lexicalScore(
+          queryTerms,
+          tokens([row.slotKey, row.content, row.type].join("\n")),
+        );
+        const directReference =
+          row.slotKey.length >= 3 &&
+          input.query
+            .toLocaleLowerCase()
+            .includes(row.slotKey.toLocaleLowerCase());
+        return { row, score, directReference };
+      })
+      .sort(compareMemoryCandidate);
+
+    const relevant = ranked.filter(
+      ({ score, directReference }) =>
+        score > 0 || directReference,
+    );
+    const fallback = ranked
+      .filter(
+        ({ row, score, directReference }) =>
+          score <= 0 &&
+          !directReference &&
+          row.userConfirmedAt !== null,
+      )
+      .sort((left, right) =>
+        right.row.validFrom.getTime() -
+          left.row.validFrom.getTime() ||
+        right.row.id.localeCompare(left.row.id),
+      )
+      .slice(0, FALLBACK_CONFIRMED);
+
+    const ordered = [...relevant, ...fallback];
+    const selected: typeof ordered = [];
+    const seen = new Set<string>();
+    for (const candidate of ordered) {
+      if (selected.length >= MAX_RETURNED) break;
+      if (seen.has(candidate.row.id)) continue;
+      seen.add(candidate.row.id);
+      if (!(await ensureMemoryCurrent(this.db, candidate.row))) {
         continue;
       }
-      const score = lexicalScore(
-        queryTerms,
-        tokens(
-          [row.slotKey, row.content, row.type].join("\n"),
-        ),
-      );
-      const directReference =
-        row.slotKey.length >= 3 &&
-        input.query
-          .toLocaleLowerCase()
-          .includes(row.slotKey.toLocaleLowerCase());
-      current.push({ row, score, directReference });
-    }
-
-    const relevant = current
-      .filter(({ score, directReference }) => score > 0 || directReference)
-      .sort(compareMemoryCandidate);
-    const selectedIds = new Set(
-      relevant.slice(0, MAX_RETURNED).map(({ row }) => row.id),
-    );
-    const selected = relevant.slice(0, MAX_RETURNED);
-
-    if (selected.length < MAX_RETURNED) {
-      const fallback = current
-        .filter(
-          ({ row }) =>
-            !selectedIds.has(row.id) &&
-            row.userConfirmedAt !== null,
-        )
-        .sort((left, right) =>
-          right.row.validFrom.getTime() -
-            left.row.validFrom.getTime() ||
-          right.row.id.localeCompare(left.row.id),
-        )
-        .slice(
-          0,
-          Math.min(
-            FALLBACK_CONFIRMED,
-            MAX_RETURNED - selected.length,
-          ),
-        );
-      selected.push(...fallback);
+      selected.push(candidate);
     }
 
     return selected.map(
