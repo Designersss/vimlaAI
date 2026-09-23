@@ -6,6 +6,9 @@ import type {
 } from "./retrieval.js";
 import type { ContextSourceScope } from "./policy.js";
 import {
+  estimateConservativeTokens as estimateTokens,
+} from "./token-estimate.js";
+import {
   ensureMemoryCurrent,
   type MemoryScopeKind,
 } from "./memory.js";
@@ -308,13 +311,6 @@ function lexicalScore(
     if (set.has(token)) matched += 1;
   }
   return Math.min(1, matched / Math.max(1, new Set(query).size));
-}
-
-function estimateTokens(value: string): number {
-  return Math.max(
-    1,
-    new TextEncoder().encode(value).byteLength,
-  );
 }
 
 function parseClassification(
