@@ -425,7 +425,6 @@ describe("direct chats API", () => {
     const vimlaMention: MessageMentionInput = {
       handleId: vimlaHandle.id,
       kind: "SYSTEM_AGENT",
-      targetId: "VIMLA",
       canonicalHandle: vimlaHandle.normalized,
       startOffset: 0,
       endOffset: 6,
