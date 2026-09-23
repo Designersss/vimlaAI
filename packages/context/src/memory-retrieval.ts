@@ -1,4 +1,4 @@
-import type { PrismaClient } from "@vimla/database";
+import { Prisma, type PrismaClient } from "@vimla/database";
 import type {
   ContextCandidate,
   ContextRetrievalProvider,
@@ -23,51 +23,108 @@ export class MemoryRetrievalProvider
     input: ContextRetrievalProviderInput,
   ): Promise<readonly ContextCandidate[]> {
     const now = new Date();
-    const rows = await this.db.memoryItem.findMany({
-      where: {
-        state: "ACTIVE",
-        invalidatedAt: null,
-        OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
-        AND: [
-          {
+    const queryTerms = tokens(input.query);
+    const scopeClause: Prisma.MemoryItemWhereInput = {
+      OR: [
+        {
+          scopeKind: "PERSONAL",
+          ownerUserId: input.actorUserId,
+        },
+        {
+          scopeKind: "CONVERSATION",
+          ownerUserId: input.actorUserId,
+          conversationId: input.conversationId,
+        },
+        {
+          scopeKind: "PROJECT",
+          project: {
             OR: [
+              { ownerUserId: input.actorUserId },
               {
-                scopeKind: "PERSONAL",
-                ownerUserId: input.actorUserId,
-              },
-              {
-                scopeKind: "CONVERSATION",
-                ownerUserId: input.actorUserId,
-                conversationId: input.conversationId,
-              },
-              {
-                scopeKind: "PROJECT",
-                project: {
-                  OR: [
-                    { ownerUserId: input.actorUserId },
-                    {
-                      members: {
-                        some: { userId: input.actorUserId },
-                      },
-                    },
-                  ],
+                members: {
+                  some: { userId: input.actorUserId },
                 },
               },
             ],
           },
+        },
+      ],
+    };
+    const activeClauses: Prisma.MemoryItemWhereInput[] = [
+      {
+        OR: [
+          { expiresAt: null },
+          { expiresAt: { gt: now } },
         ],
       },
-      include: { sourceRefs: true },
-      orderBy: [
-        { userCorrectedAt: "desc" },
-        { userConfirmedAt: "desc" },
-        { validFrom: "desc" },
-        { id: "desc" },
-      ],
-      take: MAX_SCAN,
-    });
+      scopeClause,
+    ];
+    const lexicalTerms = queryTerms.slice(0, 16);
+    const relevantRows =
+      lexicalTerms.length === 0
+        ? []
+        : await this.db.memoryItem.findMany({
+            where: {
+              state: "ACTIVE",
+              invalidatedAt: null,
+              AND: [
+                ...activeClauses,
+                {
+                  OR: lexicalTerms.flatMap((term) => [
+                    {
+                      slotKey: {
+                        contains: term,
+                        mode: "insensitive" as const,
+                      },
+                    },
+                    {
+                      content: {
+                        contains: term,
+                        mode: "insensitive" as const,
+                      },
+                    },
+                    {
+                      type: {
+                        contains: term,
+                        mode: "insensitive" as const,
+                      },
+                    },
+                  ]),
+                },
+              ],
+            },
+            include: { sourceRefs: true },
+            orderBy: [
+              { userCorrectedAt: "desc" },
+              { userConfirmedAt: "desc" },
+              { validFrom: "desc" },
+              { id: "desc" },
+            ],
+            take: MAX_SCAN,
+          });
+    const confirmedRows =
+      await this.db.memoryItem.findMany({
+        where: {
+          state: "ACTIVE",
+          invalidatedAt: null,
+          userConfirmedAt: { not: null },
+          AND: activeClauses,
+        },
+        include: { sourceRefs: true },
+        orderBy: [
+          { validFrom: "desc" },
+          { id: "desc" },
+        ],
+        take: FALLBACK_CONFIRMED * 4,
+      });
+    const byId = new Map(
+      [...relevantRows, ...confirmedRows].map((row) => [
+        row.id,
+        row,
+      ]),
+    );
+    const rows = [...byId.values()];
 
-    const queryTerms = tokens(input.query);
     const ranked = rows
       .map((row) => {
         const score = lexicalScore(
