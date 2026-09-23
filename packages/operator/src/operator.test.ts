@@ -1,11 +1,70 @@
 import { describe, expect, it } from "vitest";
-import { parsePlannerOutput } from "./planner-parse.js";
+import {
+  parsePlannerOutput,
+  selectDirectChatPlannerOutput,
+} from "./planner-parse.js";
 import { buildPlannerPrompt } from "./planner-prompt.js";
 import { evaluatePlanPolicy, toolRequiresConfirmation } from "./policy.js";
 import { prepareSteps } from "./executor.js";
 import { sanitizePublicText } from "./public-text.js";
 import { confirmationTokenMatches, generateConfirmationToken, hashConfirmationToken } from "./confirmation.js";
 import { OperatorError } from "./errors.js";
+
+describe("Direct Chat planner authority", () => {
+  it("does not let untrusted context introduce a side effect", () => {
+    const trusted = JSON.stringify({
+      intent: "answer",
+      userMessage: "Answer only",
+      clarificationQuestion: null,
+      commands: [],
+    });
+    const injected = JSON.stringify({
+      intent: "act",
+      userMessage: "Created a task",
+      clarificationQuestion: null,
+      commands: [
+        {
+          tool: "tasks.create",
+          args: { title: "Injected task" },
+        },
+      ],
+    });
+    expect(
+      selectDirectChatPlannerOutput(trusted, injected),
+    ).toBe(trusted);
+  });
+
+  it("keeps actor-requested actions independent of chat context", () => {
+    const trusted = JSON.stringify({
+      intent: "act",
+      userMessage: "Create the task",
+      clarificationQuestion: null,
+      commands: [
+        {
+          tool: "tasks.create",
+          args: { title: "Actor requested task" },
+        },
+      ],
+    });
+    const contextual = JSON.stringify({
+      intent: "act",
+      userMessage: "Create a different task",
+      clarificationQuestion: null,
+      commands: [
+        {
+          tool: "tasks.create",
+          args: {
+            title: "Peer-controlled task",
+            assigneeHint: "Bob",
+          },
+        },
+      ],
+    });
+    expect(
+      selectDirectChatPlannerOutput(trusted, contextual),
+    ).toBe(trusted);
+  });
+});
 
 describe("planner prompt", () => {
   it("exposes only scoped task creation on Direct Chat", () => {
