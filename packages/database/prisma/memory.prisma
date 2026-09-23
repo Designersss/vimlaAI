@@ -108,6 +108,7 @@ model MemoryExtractionReceipt {
   sourceVersion  String
   status         String   @default("PENDING")
   candidateCount Int      @default(0)
+  attemptCount   Int      @default(0)
   errorCode      String?
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
