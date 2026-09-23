@@ -58,7 +58,10 @@ import {
   loadConversationPlaintexts,
   savePlaintext,
 } from "../services/crypto-store";
-import { prepareDirectChatContext } from "../services/context";
+import {
+  boundDirectChatContextBefore,
+  prepareDirectChatContext,
+} from "../services/context";
 import { decodeDirectPlaintext, encodeDirectPlaintext, type DirectPlaintextPayload } from "../services/payload";
 import { subscribeDirectChatEvents } from "../services/realtime";
 import { decryptMessage, encryptForDevices, ensureLocalDevice } from "../services/session";
@@ -415,14 +418,19 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         mentions,
       );
       if (!sourceMessage) return;
+      const sourceBoundContext = boundDirectChatContextBefore(
+        preparedContext,
+        sourceMessage.createdAt,
+        userId,
+      );
       const run = await createOperatorRun({
         clientRequestId: crypto.randomUUID(),
         content: text,
         invocationScope: "DIRECT_CHAT",
         directConversationId: conversation.id,
         directSourceMessageId: sourceMessage.id,
-        ...(preparedContext.contextBundle.messages.length > 0
-          ? { contextBundle: preparedContext.contextBundle }
+        ...(sourceBoundContext.contextBundle.messages.length > 0
+          ? { contextBundle: sourceBoundContext.contextBundle }
           : {}),
       });
       setPendingRun(run);
