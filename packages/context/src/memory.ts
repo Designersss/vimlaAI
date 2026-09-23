@@ -193,6 +193,45 @@ export class MemoryService {
     });
   }
 
+  async rememberProject(input: {
+    actorUserId: string;
+    projectId: string;
+    type: MemoryType;
+    slotKey: string;
+    content: string;
+    expiresAt?: Date | null;
+  }): Promise<MemoryView> {
+    const id = randomUUID();
+    return this.ingestCandidate({
+      actorUserId: input.actorUserId,
+      scope: {
+        kind: "PROJECT",
+        projectId: input.projectId,
+      },
+      type: input.type,
+      slotKey: input.slotKey,
+      content: input.content,
+      origin: "USER_EXPLICIT",
+      classification: "INTERNAL",
+      sensitivity: "NORMAL",
+      confidence: 1,
+      quality: 1,
+      expiresAt: input.expiresAt,
+      userConfirmed: true,
+      explicitCrossScopeWrite: true,
+      sourceRefs: [
+        {
+          provenance: "USER_EXPLICIT",
+          sourceType: "USER_EXPLICIT",
+          sourceId: id,
+          sourceScopeKind: "PERSONAL",
+          sourceScopeId: input.actorUserId,
+          disclosedAt: new Date(),
+        },
+      ],
+    });
+  }
+
   async correctPersonal(
     actorUserId: string,
     memoryId: string,
