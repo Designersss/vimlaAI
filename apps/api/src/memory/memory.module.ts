@@ -6,6 +6,7 @@ import { MemoryController } from "./memory.controller.js";
 import { MemoryFacade } from "./memory.facade.js";
 import { MemoryRateLimitGuard } from "./memory-rate-limit.guard.js";
 import { MemoryMaintenanceService } from "./memory-maintenance.service.js";
+import { MemoryMaintenanceReconciler } from "./memory-maintenance-reconciler.service.js";
 
 @Module({
   imports: [PersistenceModule, AuthModule, OrchestrationModule],
@@ -14,6 +15,7 @@ import { MemoryMaintenanceService } from "./memory-maintenance.service.js";
     MemoryFacade,
     MemoryRateLimitGuard,
     MemoryMaintenanceService,
+    MemoryMaintenanceReconciler,
   ],
   exports: [MemoryFacade, MemoryMaintenanceService],
 })
