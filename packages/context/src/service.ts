@@ -210,17 +210,9 @@ export class ContextSnapshotService {
           }),
         );
       case "E2EE_DISCLOSURE":
-        return Boolean(
-          await this.db.directMessage.findFirst({
-            where: {
-              id: check.sourceId,
-              conversation: {
-                members: { some: { userId: check.actorUserId } },
-              },
-            },
-            select: { id: true },
-          }),
-        );
+        // Execution-owned E2EE disclosures require the specialized
+        // membership + consent gate. Generic snapshot access must fail closed.
+        return false;
       case "CONVERSATION":
       case "AUDIENCE":
         return Boolean(
