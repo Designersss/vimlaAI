@@ -60,6 +60,7 @@ type RetrievalMetadata = {
   authority: "AUTHORITATIVE" | "RAW" | "DERIVED";
   occurredAt: string | null;
   estimatedTokens: number | null;
+  rawHistoryTokens: number | null;
   stale: boolean;
   superseded: boolean;
 };
@@ -68,9 +69,21 @@ export function packContextItems(
   input: PackContextItemsInput,
 ): ContextPackingResult {
   const maxSourceShare = clampRatio(input.maxSourceShare ?? 0.55);
-  const rawHistoryTokens = input.items
+  const selectedRawHistoryTokens = input.items
     .filter((item) => retrievalMetadata(item).sourceKind === "L1_RAW")
     .reduce((total, item) => total + estimateItemTokens(item), 0);
+  const scannedRawHistoryTokens = input.items.reduce(
+    (largest, item) =>
+      Math.max(
+        largest,
+        retrievalMetadata(item).rawHistoryTokens ?? 0,
+      ),
+    0,
+  );
+  const rawHistoryTokens = Math.max(
+    selectedRawHistoryTokens,
+    scannedRawHistoryTokens,
+  );
   const compactedStateRequired = shouldUseCompactedState(
     rawHistoryTokens,
     input.budget,
@@ -339,6 +352,11 @@ function retrievalMetadata(
       typeof retrieval?.estimatedTokens === "number" &&
       Number.isFinite(retrieval.estimatedTokens)
         ? retrieval.estimatedTokens
+        : null,
+    rawHistoryTokens:
+      typeof retrieval?.rawHistoryTokens === "number" &&
+      Number.isFinite(retrieval.rawHistoryTokens)
+        ? retrieval.rawHistoryTokens
         : null,
     stale: retrieval?.stale === true,
     superseded: retrieval?.superseded === true,
