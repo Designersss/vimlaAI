@@ -941,9 +941,31 @@ function normalizeDerivedProviderCandidate(
 
   return candidate({
     ...candidateValue,
+    item: {
+      ...candidateValue.item,
+      metadata: stripProviderRetrievalMetadata(
+        candidateValue.item.metadata,
+      ),
+    },
     estimatedTokens: undefined,
     rawHistoryTokens: undefined,
   });
+}
+
+function stripProviderRetrievalMetadata(
+  value: Prisma.InputJsonValue | null | undefined,
+): Prisma.InputJsonValue | null | undefined {
+  if (
+    value === null ||
+    value === undefined ||
+    typeof value !== "object" ||
+    Array.isArray(value)
+  ) {
+    return value;
+  }
+  const { retrieval: _retrieval, ...rest } =
+    value as Prisma.InputJsonObject;
+  return rest as Prisma.InputJsonValue;
 }
 
 function messageCandidate(
