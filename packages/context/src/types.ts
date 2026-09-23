@@ -59,6 +59,7 @@ export interface CreateContextSnapshotInput {
 export interface CreateExecutionPlanSnapshotInput {
   actorUserId: string;
   planId: string;
+  currentProjectId?: string | null;
 }
 
 export interface ResolveInvocationContextInput {
