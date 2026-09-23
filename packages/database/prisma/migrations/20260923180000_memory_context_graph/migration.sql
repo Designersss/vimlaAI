@@ -83,6 +83,16 @@ CREATE TABLE "memory_source_ref" (
   "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT "memory_source_ref_pkey" PRIMARY KEY ("id"),
   CONSTRAINT "memory_source_ref_provenance_check" CHECK ("provenance" IN ('AUTO_EXTRACTION','USER_EXPLICIT','USER_CORRECTION','E2EE_USER_DISCLOSURE')),
+  CONSTRAINT "memory_source_ref_source_type_check" CHECK ("sourceType" IN (
+    'MESSAGE','WORKSPACE_OBJECT','PROJECT','ARTIFACT',
+    'USER_EXPLICIT','USER_CORRECTION','E2EE_USER_DISCLOSURE'
+  )),
+  CONSTRAINT "memory_source_ref_provenance_source_check" CHECK (
+    ("provenance"='USER_EXPLICIT' AND "sourceType"='USER_EXPLICIT') OR
+    ("provenance"='USER_CORRECTION' AND "sourceType"='USER_CORRECTION') OR
+    ("provenance"='E2EE_USER_DISCLOSURE' AND "sourceType"='E2EE_USER_DISCLOSURE') OR
+    ("provenance"='AUTO_EXTRACTION' AND "sourceType" IN ('MESSAGE','WORKSPACE_OBJECT','PROJECT','ARTIFACT'))
+  ),
   CONSTRAINT "memory_source_ref_scope_check" CHECK ("sourceScopeKind" IN ('PERSONAL','PROJECT','CONVERSATION','THREAD','DIRECT_CHAT'))
 );
 CREATE UNIQUE INDEX "memory_source_ref_identity_key" ON "memory_source_ref"("memoryId","provenance","sourceType","sourceId");
@@ -163,7 +173,7 @@ CREATE TABLE "memory_extraction_receipt" (
   CONSTRAINT "memory_extraction_receipt_source_type_check"
     CHECK ("sourceType" IN ('MESSAGE')),
   CONSTRAINT "memory_extraction_receipt_status_check"
-    CHECK ("status" IN ('PENDING','COMPLETED','FAILED')),
+    CHECK ("status" IN ('QUEUED','PENDING','COMPLETED','FAILED','SKIPPED')),
   CONSTRAINT "memory_extraction_receipt_candidate_count_check"
     CHECK ("candidateCount">=0)
 );
