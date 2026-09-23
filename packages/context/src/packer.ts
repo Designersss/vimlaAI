@@ -426,10 +426,17 @@ function isImmediateUserMessage(
 }
 
 function containsSensitiveData(item: ContextSnapshotItemView): boolean {
-  const safeMetadata = stripRetrievalMetadata(item.metadata);
+  return containsSensitiveContextData(
+    stripRetrievalMetadata(item.metadata),
+  );
+}
+
+export function containsSensitiveContextData(
+  value: unknown,
+): boolean {
   const text = [
-    collectSemanticText(safeMetadata),
-    JSON.stringify(safeMetadata),
+    collectSemanticText(value),
+    JSON.stringify(value),
   ].join("\n");
   if (!text) return false;
 
