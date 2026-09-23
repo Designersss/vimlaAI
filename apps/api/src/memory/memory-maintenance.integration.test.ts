@@ -448,6 +448,58 @@ describe("memory maintenance runtime", () => {
     expect(extractionCalls).toBe(2);
   });
 
+  it("terminalizes a stale final-attempt PENDING receipt instead of leaving it stuck forever", async () => {
+    const userId = await createUser("runtime-max-attempt");
+    const conversationId = await createConversation(userId);
+    const source = await createMessage({
+      conversationId,
+      content: "Final-attempt maintenance source",
+    });
+    const receipt = await db.memoryExtractionReceipt.create({
+      data: {
+        ownerUserId: userId,
+        sourceType: "MESSAGE",
+        sourceId: source.id,
+        sourceVersion: source.updatedAt.toISOString(),
+        status: "PENDING",
+        attemptCount: 5,
+      },
+    });
+    await db.memoryExtractionReceipt.update({
+      where: { id: receipt.id },
+      data: {
+        updatedAt: new Date(Date.now() - 10 * 60_000),
+      },
+    });
+
+    let called = false;
+    const model: SemanticPlannerModel = {
+      complete: () => {
+        called = true;
+        return Promise.resolve(JSON.stringify({ candidates: [] }));
+      },
+    };
+    const prisma = prismaService();
+    const maintenance = new MemoryMaintenanceService(
+      prisma,
+      new MemoryFacade(prisma, config),
+      config,
+      model,
+    );
+
+    await maintenance.reconcilePending(10);
+    expect(
+      await db.memoryExtractionReceipt.findUniqueOrThrow({
+        where: { id: receipt.id },
+      }),
+    ).toMatchObject({
+      status: "FAILED",
+      attemptCount: 5,
+      errorCode: "MAX_ATTEMPTS_EXHAUSTED",
+    });
+    expect(called).toBe(false);
+  });
+
   it("retries failed compaction from the durable receipt without duplicating extracted Memory", async () => {
     const userId = await createUser("runtime-compaction-retry");
     const conversationId = await createConversation(userId);
