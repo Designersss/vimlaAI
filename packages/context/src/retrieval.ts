@@ -2,6 +2,7 @@ import { Prisma, type PrismaClient } from "@vimla/database";
 import {
   ContextConflictError,
   ContextNotFoundError,
+  ContextValidationError,
 } from "./errors.js";
 import type { ContextSourceScope } from "./policy.js";
 import type {
@@ -793,7 +794,11 @@ export class ContextRetrievalService {
         sourceMessage.createdAt.toISOString(),
     };
     for (const provider of this.providers) {
-      candidates.push(...(await provider.retrieve(providerInput)));
+      const provided = await provider.retrieve(providerInput);
+      for (const entry of provided) {
+        assertDerivedProviderCandidate(entry);
+        candidates.push(entry);
+      }
     }
 
     return {
@@ -803,6 +808,27 @@ export class ContextRetrievalService {
         this.options.maxCandidates,
       ),
     };
+  }
+}
+
+
+const PROVIDER_DERIVED_SOURCE_TYPES = new Set([
+  "COMPACTED_STATE",
+  "MEMORY",
+  "ENTITY",
+]);
+
+function assertDerivedProviderCandidate(
+  candidateValue: ContextCandidate,
+): void {
+  if (
+    !PROVIDER_DERIVED_SOURCE_TYPES.has(
+      candidateValue.item.sourceType,
+    )
+  ) {
+    throw new ContextValidationError(
+      "Context retrieval providers may only return derived context sources",
+    );
   }
 }
 
