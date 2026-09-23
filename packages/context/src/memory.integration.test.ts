@@ -1413,7 +1413,7 @@ describe("durable memory context graph", () => {
         slotKey: "second",
         content: "Second project decision",
       }),
-    ).rejects.toMatchObject({ code: "CONFLICT" });
+    ).rejects.toMatchObject({ code: "STORAGE_LIMIT" });
   });
 
   it("skips automatic extraction at the Personal Memory cap instead of retrying it as an outage", async () => {
