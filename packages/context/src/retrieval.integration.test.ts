@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { ArtifactService } from "@vimla/artifacts";
 import { createPrismaClient, type PrismaClient } from "@vimla/database";
 import { ContextValidationError } from "./errors.js";
 import { ContextRetrievalService } from "./retrieval.js";
@@ -154,6 +155,127 @@ describe("Context retrieval v1", () => {
     expect(l1Items.some((item) => item.sourceId === older.id)).toBe(
       false,
     );
+  });
+
+  it("retrieves immutable inline content for a relevant prior artifact", async () => {
+    const actorUserId = await createUser(
+      prisma,
+      "retrieval-artifact-content",
+    );
+    const originConversation = await prisma.conversation.create({
+      data: {
+        userId: actorUserId,
+        title: "Artifact origin",
+      },
+    });
+    const originMessage = await prisma.message.create({
+      data: {
+        conversationId: originConversation.id,
+        role: "USER",
+        content: "Create the Zephyr release plan artifact",
+        status: "COMPLETE",
+      },
+    });
+    const originPlanId = randomUUID();
+    const originInvocationId = randomUUID();
+    await prisma.executionPlan.create({
+      data: {
+        id: originPlanId,
+        messageId: originMessage.id,
+        userId: actorUserId,
+        conversationId: originConversation.id,
+        schemaVersion: 1,
+        version: 1,
+        planHash: "sha256:" + randomUUID(),
+        goal: "Create release artifact",
+        status: "COMPLETED",
+        maxParallelism: 1,
+        invocations: {
+          create: {
+            id: originInvocationId,
+            sequence: 0,
+            purpose: "Create Zephyr release plan",
+            targetKind: "VIMLA",
+            outputDeclarations: [
+              {
+                name: "release-plan",
+                artifactType: "TEXT",
+              },
+            ],
+            acceptanceCriteria: [],
+            riskClass: "READ_ONLY",
+            approvalPolicy: "AUTO",
+            failurePolicy: "FAIL_PLAN",
+            joinPolicy: "ALL_REQUIRED",
+            status: "COMPLETED",
+          },
+        },
+      },
+    });
+    const artifacts = new ArtifactService(prisma);
+    const artifact = await artifacts.createArtifact({
+      actorUserId,
+      creatorInvocationId: originInvocationId,
+      outputName: "release-plan",
+      type: "TEXT",
+      classification: "PRIVATE",
+      metadata: {
+        topic: "Zephyr release",
+      },
+      content: {
+        kind: "INLINE_JSON",
+        value: {
+          text: "The immutable Zephyr release decision is violet.",
+        },
+      },
+    });
+
+    const currentConversation = await prisma.conversation.create({
+      data: {
+        userId: actorUserId,
+        title: "Artifact retrieval",
+      },
+    });
+    const sourceMessage = await prisma.message.create({
+      data: {
+        conversationId: currentConversation.id,
+        role: "USER",
+        content: "What did the Zephyr release-plan artifact say?",
+        status: "COMPLETE",
+      },
+    });
+    const planId = randomUUID();
+    await prisma.executionPlan.create({
+      data: {
+        id: planId,
+        messageId: sourceMessage.id,
+        userId: actorUserId,
+        conversationId: currentConversation.id,
+        schemaVersion: 1,
+        version: 1,
+        planHash: "planning:pending:v1",
+        goal: "Retrieve prior artifact content",
+        status: "PLANNING",
+        maxParallelism: 1,
+      },
+    });
+
+    const snapshot = await snapshots.createForExecutionPlan({
+      actorUserId,
+      planId,
+    });
+    const artifactItem = snapshot.items.find(
+      (item) => item.sourceId === artifact.artifactId,
+    );
+    const artifactMetadata = record(artifactItem?.metadata);
+
+    expect(artifactItem?.sourceType).toBe("ARTIFACT");
+    expect(retrievalKind(artifactItem?.metadata)).toBe("ARTIFACT");
+    expect(artifactMetadata?.contentKind).toBe("INLINE_JSON");
+    expect(artifactMetadata?.inlineContentJson).toContain(
+      "immutable Zephyr release decision is violet",
+    );
+    expect(artifactItem?.sourceVersion).toBe("1");
   });
 
   it("derives raw-history pressure from the whole conversation rather than the scan window", async () => {
@@ -411,4 +533,12 @@ function rawHistoryTokens(metadata: unknown): number | null {
   }
   const value = (retrieval as Record<string, unknown>).rawHistoryTokens;
   return typeof value === "number" ? value : null;
+}
+
+function record(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
 }
