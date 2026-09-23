@@ -1,6 +1,12 @@
 import type { ContextSnapshotItemView } from "./types.js";
 
 const MAX_RENDERED_CONTEXT_BYTES = 512 * 1024;
+const INTERNAL_METADATA_KEYS = new Set([
+  "retrieval",
+  "fingerprint",
+  "sourceRefHash",
+  "artifactRefHash",
+]);
 
 export function renderContextBundleItems(
   items: readonly ContextSnapshotItemView[],
@@ -8,7 +14,7 @@ export function renderContextBundleItems(
   if (items.length === 0) return null;
 
   const blocks = items.map((item) => {
-    const metadata = stripRetrievalMetadata(item.metadata);
+    const metadata = sanitizeForExecutor(item.metadata);
     return [
       "[CONTEXT " + item.sourceType + "]",
       JSON.stringify(metadata),
@@ -22,17 +28,38 @@ export function renderContextBundleItems(
   return rendered;
 }
 
-function stripRetrievalMetadata(value: unknown): unknown {
+function sanitizeForExecutor(
+  value: unknown,
+  depth = 0,
+): unknown {
+  if (depth > 8) return null;
   if (
-    typeof value !== "object" ||
     value === null ||
-    Array.isArray(value)
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
   ) {
     return value;
   }
-  const { retrieval: _retrieval, ...rest } = value as Record<
-    string,
-    unknown
-  >;
-  return rest;
+  if (Array.isArray(value)) {
+    return value
+      .slice(0, 128)
+      .map((entry) => sanitizeForExecutor(entry, depth + 1));
+  }
+  if (typeof value !== "object") return null;
+
+  const sanitized: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(
+    value as Record<string, unknown>,
+  )) {
+    if (
+      INTERNAL_METADATA_KEYS.has(key) ||
+      key === "id" ||
+      key.endsWith("Id")
+    ) {
+      continue;
+    }
+    sanitized[key] = sanitizeForExecutor(entry, depth + 1);
+  }
+  return sanitized;
 }
