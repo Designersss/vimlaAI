@@ -1089,7 +1089,11 @@ export class OrchestrationService {
   private async ensureContextSnapshot(userId: string, planId: string): Promise<ContextSnapshotView> {
     try {
       const context = new ContextSnapshotService(this.prisma.client);
-      return await context.createForExecutionPlan({ actorUserId: userId, planId });
+      await context.createForExecutionPlan({
+        actorUserId: userId,
+        planId,
+      });
+      return await context.resolveForPlan(userId, planId);
     } catch (error: unknown) {
       if (error instanceof ContextNotFoundError) {
         throw new NotFoundException("Execution plan not found");
