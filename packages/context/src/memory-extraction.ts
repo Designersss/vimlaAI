@@ -36,7 +36,7 @@ export class MemoryExtractionPipeline {
     if (proposal.transient === true) {
       return { kind: "SKIPPED", reason: "TRANSIENT" };
     }
-    if ((proposal.confidence ?? 0.8) < 0.5) {
+    if ((proposal.confidence ?? 0.8) < 0.75) {
       return { kind: "SKIPPED", reason: "LOW_CONFIDENCE" };
     }
     if (
