@@ -144,6 +144,12 @@ export class MemoryError extends Error {
   }
 }
 
+export function isMemoryError(
+  error: unknown,
+): error is MemoryError {
+  return error instanceof MemoryError;
+}
+
 type MemoryRow = Prisma.MemoryItemGetPayload<{
   include: { sourceRefs: true };
 }>;
