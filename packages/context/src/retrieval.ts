@@ -660,7 +660,8 @@ export class ContextRetrievalService {
         (object) =>
           object.sourceMessageId === sourceMessage.id ||
           object.sourceConversationId ===
-            sourceMessage.conversation.id,
+            sourceMessage.conversation.id ||
+          queryReferencesId(query, object.id),
       ).map(({ value: object, score, directReference }) =>
         candidate({
           item: {
@@ -697,6 +698,7 @@ export class ContextRetrievalService {
         this.options.projectLimit,
         (project) =>
           [project.name, project.description ?? ""].join("\n"),
+        (project) => queryReferencesId(query, project.id),
       ).map(({ value: project, score, directReference }) =>
         candidate({
           item: {
@@ -727,61 +729,107 @@ export class ContextRetrievalService {
       ),
     );
 
-    candidates.push(
-      ...rankStructured(
-        artifacts.filter((artifact) =>
-          isKnownClassification(artifact.classification),
-        ),
-        queryTokens,
-        this.options.artifactLimit,
-        (artifact) =>
-          [
-            artifact.outputName,
-            artifact.type,
-            JSON.stringify(artifact.metadata ?? null),
-          ].join("\n"),
-      ).map(({ value: artifact, score, directReference }) => {
+    const rankedArtifacts = rankStructured(
+      artifacts.filter((artifact) =>
+        isKnownClassification(artifact.classification),
+      ),
+      queryTokens,
+      this.options.artifactLimit,
+      (artifact) =>
+        [
+          artifact.outputName,
+          artifact.type,
+          JSON.stringify(artifact.metadata ?? null),
+        ].join("\n"),
+      (artifact) => queryReferencesId(query, artifact.id),
+    );
+    const selectedArtifactVersionIds = rankedArtifacts.flatMap(
+      ({ value: artifact }) => {
         const latest = artifact.versions[0];
-        return candidate({
-          item: {
-            sourceType: "ARTIFACT",
-            sourceId: artifact.id,
-            sourceVersion: latest
-              ? String(latest.version)
-              : artifact.createdAt.toISOString(),
-            classification: parseClassification(
-              artifact.classification,
-            ),
-            contentRef: latest
-              ? "vimla://artifacts/" +
-                artifact.id +
-                "/versions/" +
-                latest.id
-              : "vimla://artifacts/" + artifact.id,
-            metadata: {
-              outputName: artifact.outputName,
-              type: artifact.type,
-              metadata: artifact.metadata,
-              latestVersion: latest
-                ? {
-                    version: latest.version,
-                    fingerprint: latest.fingerprint,
-                    createdAt: latest.createdAt.toISOString(),
-                  }
-                : null,
-            } as Prisma.InputJsonValue,
-          },
-          sourceKind: "ARTIFACT",
-          sourceScope: personalScope,
-          reason: "authorized artifact metadata lexical retrieval",
-          lexicalScore: score,
-          directReference,
-          currentSurface: false,
-          currentProject: false,
-          authority: "AUTHORITATIVE",
-          occurredAt: artifact.createdAt.toISOString(),
-        });
-      }),
+        return latest ? [latest.id] : [];
+      },
+    );
+    const selectedArtifactVersions =
+      selectedArtifactVersionIds.length === 0
+        ? []
+        : await this.db.artifactVersion.findMany({
+            where: {
+              id: { in: selectedArtifactVersionIds },
+            },
+            select: {
+              id: true,
+              contentJson: true,
+              contentRef: true,
+            },
+          });
+    const artifactContentByVersionId = new Map(
+      selectedArtifactVersions.map((version) => [
+        version.id,
+        version,
+      ]),
+    );
+
+    candidates.push(
+      ...rankedArtifacts.map(
+        ({ value: artifact, score, directReference }) => {
+          const latest = artifact.versions[0];
+          const latestContent = latest
+            ? artifactContentByVersionId.get(latest.id)
+            : undefined;
+          const inlineContentJson =
+            latestContent?.contentJson !== null &&
+            latestContent?.contentJson !== undefined
+              ? JSON.stringify(latestContent.contentJson)
+              : null;
+          return candidate({
+            item: {
+              sourceType: "ARTIFACT",
+              sourceId: artifact.id,
+              sourceVersion: latest
+                ? String(latest.version)
+                : artifact.createdAt.toISOString(),
+              classification: parseClassification(
+                artifact.classification,
+              ),
+              contentRef: latest
+                ? "vimla://artifacts/" +
+                  artifact.id +
+                  "/versions/" +
+                  latest.id
+                : "vimla://artifacts/" + artifact.id,
+              metadata: {
+                outputName: artifact.outputName,
+                type: artifact.type,
+                metadata: artifact.metadata,
+                contentKind: inlineContentJson
+                  ? "INLINE_JSON"
+                  : latestContent?.contentRef
+                    ? "CONTENT_REF"
+                    : null,
+                inlineContentJson,
+                latestVersion: latest
+                  ? {
+                      version: latest.version,
+                      fingerprint: latest.fingerprint,
+                      createdAt: latest.createdAt.toISOString(),
+                    }
+                  : null,
+              } as Prisma.InputJsonValue,
+            },
+            sourceKind: "ARTIFACT",
+            sourceScope: personalScope,
+            reason: inlineContentJson
+              ? "authorized immutable artifact content retrieval"
+              : "authorized artifact metadata retrieval",
+            lexicalScore: score,
+            directReference,
+            currentSurface: false,
+            currentProject: false,
+            authority: "AUTHORITATIVE",
+            occurredAt: artifact.createdAt.toISOString(),
+          });
+        },
+      ),
     );
 
     const providerInput: ContextRetrievalProviderInput = {
@@ -1308,6 +1356,13 @@ function strongCrossSurfaceMatch(
     return matches >= 1 && score >= 0.2;
   }
   return matches >= 2 && score >= 0.18;
+}
+
+function queryReferencesId(
+  query: string,
+  id: string,
+): boolean {
+  return id.length > 0 && query.includes(id);
 }
 
 function estimateTokens(value: string): number {
