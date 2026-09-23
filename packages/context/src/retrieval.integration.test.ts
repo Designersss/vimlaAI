@@ -276,6 +276,33 @@ describe("Context retrieval v1", () => {
       "immutable Zephyr release decision is violet",
     );
     expect(artifactItem?.sourceVersion).toBe("1");
+
+    await artifacts.createVersion({
+      actorUserId,
+      artifactId: artifact.artifactId,
+      expectedCurrentVersion: artifact.version,
+      content: {
+        kind: "INLINE_JSON",
+        value: {
+          text: "A newer artifact version says orange.",
+        },
+      },
+    });
+    const replay = await snapshots.createForExecutionPlan({
+      actorUserId,
+      planId,
+    });
+    const replayArtifact = replay.items.find(
+      (item) => item.sourceId === artifact.artifactId,
+    );
+    const replayMetadata = record(replayArtifact?.metadata);
+    expect(replayArtifact?.sourceVersion).toBe("1");
+    expect(replayMetadata?.inlineContentJson).toContain(
+      "immutable Zephyr release decision is violet",
+    );
+    expect(replayMetadata?.inlineContentJson).not.toContain(
+      "newer artifact version says orange",
+    );
   });
 
   it("derives raw-history pressure from the whole conversation rather than the scan window", async () => {
