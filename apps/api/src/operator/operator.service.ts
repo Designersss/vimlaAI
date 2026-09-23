@@ -100,6 +100,10 @@ export class OperatorService {
     const run = await this.loadOwnedRun(userId, runId);
     let confirmationToken: string | null = null;
     if (run.status === "AWAITING_CONFIRMATION") {
+      const contextFailure = await this.failIfDirectChatContextRevoked(run);
+      if (contextFailure) {
+        return contextFailure;
+      }
       confirmationToken = await this.rotateConfirmationToken(run.id);
     }
     return this.toView(run, confirmationToken);
@@ -772,7 +776,13 @@ export class OperatorService {
   private async failRun(runId: string, errorCode: string, message: string): Promise<OperatorRunView> {
     const updated = await this.prisma.operatorRun.update({
       where: { id: runId },
-      data: { status: "FAILED", errorCode, publicMessage: sanitizePublicText(message, 2_000) },
+      data: {
+        status: "FAILED",
+        errorCode,
+        publicMessage: sanitizePublicText(message, 2_000),
+        confirmationTokenHash: null,
+        confirmationExpiresAt: null,
+      },
       include: { steps: { orderBy: { sequence: "asc" } } },
     });
     await this.persistAssistant(updated, updated.publicMessage ?? message);
@@ -1050,6 +1060,18 @@ export class OperatorService {
         error instanceof OperatorError &&
         error.code === "CONTEXT_REVOKED"
       ) {
+        await this.prisma.operatorRunStep.updateMany({
+          where: {
+            runId: run.id,
+            status: {
+              in: ["PENDING", "NEEDS_CONFIRMATION", "CONFIRMED"],
+            },
+          },
+          data: {
+            status: "FAILED",
+            errorCode: "direct_chat_context_revoked",
+          },
+        });
         return this.failRun(
           run.id,
           "direct_chat_context_revoked",
