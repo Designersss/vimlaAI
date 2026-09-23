@@ -39,7 +39,7 @@ export interface RefreshCompactedStateInput {
   budget: ContextBudget;
   inputTokenEstimate?: number;
   outputTokenEstimate?: number;
-  explicitCrossScopeWrite?: boolean;
+  explicitProjectWrite?: { projectId: string };
 }
 
 type CompactedRow =
@@ -74,7 +74,7 @@ export class CompactedStateService {
         input.actorUserId,
         scope,
         input.sourceRefs,
-        input.explicitCrossScopeWrite === true,
+        input.explicitProjectWrite?.projectId ?? null,
       );
       const pressureTokens =
         await resolveCompactionPressureTokens(
@@ -504,7 +504,7 @@ async function resolveCompactionSources(
   actorUserId: string,
   targetScope: NormalizedCompactedScope,
   refs: readonly CompactedStateSourceRef[],
-  explicitCrossScopeWrite: boolean,
+  explicitProjectWriteId: string | null,
 ): Promise<{
   refs: ResolvedCompactionRef[];
   classification: "PUBLIC" | "INTERNAL" | "PRIVATE" | "RESTRICTED";
@@ -627,7 +627,7 @@ async function resolveCompactionSources(
         item.sourceScopeKind === "PROJECT" &&
         item.sourceScopeId === targetScope.projectId
       ) &&
-      !explicitCrossScopeWrite
+      explicitProjectWriteId !== targetScope.projectId
     ) {
       throw new MemoryError(
         "FORBIDDEN",
