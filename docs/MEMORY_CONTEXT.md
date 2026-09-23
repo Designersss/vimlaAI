@@ -60,7 +60,7 @@ Private-chat automatic extraction writes only Personal Memory. Project Memory is
 
 Delete is logical invalidation, not physical destruction of audit history. Invalidated/superseded/expired records are excluded from future retrieval.
 
-The entire surface is fail-closed behind `MEMORY_ENABLED=false` by default.
+The entire surface is fail-closed behind `MEMORY_ENABLED=false` by default. Active Personal Memory is capped by `MEMORY_MAX_ACTIVE_PERSONAL_ITEMS` (default 1000), and shared Project Memory by `MEMORY_MAX_ACTIVE_PROJECT_ITEMS` (default 2000); per-user mutation rate limiting applies before writes.
 
 ## 4. Automatic extraction policy
 
