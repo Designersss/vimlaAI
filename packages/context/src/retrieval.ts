@@ -4,7 +4,10 @@ import {
   ContextNotFoundError,
   ContextValidationError,
 } from "./errors.js";
-import {\n  isKnownContextClassification,\n  type ContextSourceScope,\n} from "./policy.js";
+import {
+  isKnownContextClassification,
+  type ContextSourceScope,
+} from "./policy.js";
 import type {
   ContextClassification,
   ContextSnapshotItemInput,
@@ -697,7 +700,8 @@ export class ContextRetrievalService {
         queryTokens,
         this.options.projectLimit,
         (project) =>
-          [project.name, project.description ?? ""].join("\n"),
+          [project.name, project.description ?? ""].join("
+"),
         (project) => queryReferencesId(query, project.id),
       ).map(({ value: project, score, directReference }) =>
         candidate({
@@ -740,7 +744,8 @@ export class ContextRetrievalService {
           artifact.outputName,
           artifact.type,
           JSON.stringify(artifact.metadata ?? null),
-        ].join("\n"),
+        ].join("
+"),
       (artifact) => queryReferencesId(query, artifact.id),
     );
     const selectedArtifactVersionIds = rankedArtifacts.flatMap(
@@ -1190,7 +1195,8 @@ function workspaceSearchText(object: {
     object.list?.title ?? "",
     object.list?.description ?? "",
     ...(object.list?.items.map((item) => item.text) ?? []),
-  ].join("\n");
+  ].join("
+");
 }
 
 function workspaceMetadata(object: {
