@@ -480,13 +480,17 @@ describe("durable memory context graph", () => {
         name: "Memory Project",
         members: {
           create: [
+            { userId: owner, role: "OWNER" },
             { userId: member, role: "ADMIN" },
             { userId: viewer, role: "MEMBER" },
           ],
         },
       },
     });
-    const service = new MemoryService(db);
+    const service = new MemoryService(
+      db,
+      projectWriteAuthorizer(),
+    );
     const projectMemory = await service.ingestCandidate({
       actorUserId: owner,
       scope: { kind: "PROJECT", projectId: project.id },
