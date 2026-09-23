@@ -5,6 +5,9 @@ import {
   type ContextBudget,
 } from "./budget.js";
 import { containsSensitiveContextData } from "./packer.js";
+import {
+  estimateConservativeTokens as estimateTokens,
+} from "./token-estimate.js";
 import type {
   ContextCandidate,
   ContextRetrievalProvider,
@@ -917,13 +920,6 @@ function strongerClassification(
     RESTRICTED: 3,
   } as const;
   return rank[left] >= rank[right] ? left : right;
-}
-
-function estimateTokens(value: string): number {
-  return Math.max(
-    1,
-    new TextEncoder().encode(value).byteLength,
-  );
 }
 
 function hashText(value: string): string {
