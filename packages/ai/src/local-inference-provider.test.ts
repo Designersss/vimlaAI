@@ -130,6 +130,28 @@ describe("LocalInferenceProvider", () => {
     });
   });
 
+  it("enforces the local request timeout without exposing provider details", async () => {
+    const fetchImpl: HttpFetch = async (_url, init) =>
+      new Promise<Response>((_resolve, reject) => {
+        init.signal?.addEventListener(
+          "abort",
+          () => reject(init.signal?.reason ?? new Error("aborted")),
+          { once: true },
+        );
+      });
+    const local = provider(fetchImpl, { timeoutMs: 10 });
+
+    await expect(local.streamChat({
+      providerModelId: "qwen-local",
+      messages: [{ role: "user", content: "hello" }],
+      maxOutputTokens: 32,
+      correlationId: "corr-timeout",
+    })).rejects.toMatchObject({
+      code: "TIMEOUT",
+      retryable: true,
+    });
+  });
+
   it("opens its circuit after repeated retryable local failures", async () => {
     let calls = 0;
     const fetchImpl: HttpFetch = async () => {
