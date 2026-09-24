@@ -25,3 +25,5 @@ export * from "./compaction.js";
 export * from "./memory-extraction.js";
 
 export * from "./token-estimate.js";
+
+export * from "./memory-sensitivity.js";
