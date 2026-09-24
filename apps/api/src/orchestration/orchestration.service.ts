@@ -1221,6 +1221,16 @@ export class OrchestrationService {
           derivedProviders,
           {},
           semantic,
+          semantic
+            ? (summary) => {
+                this.telemetry.emit({
+                  event: "context.semantic_retrieval",
+                  planId,
+                  outcome: "SUCCESS",
+                  ...summary,
+                });
+              }
+            : undefined,
         ),
       );
       await context.createForExecutionPlan({
