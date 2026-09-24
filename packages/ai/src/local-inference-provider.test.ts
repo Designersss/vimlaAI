@@ -209,6 +209,47 @@ describe("LocalInferenceProvider", () => {
     });
   });
 
+  it("releases a half-open circuit lease when a recovery stream is abandoned", async () => {
+    let calls = 0;
+    const fetchImpl: HttpFetch = async () => {
+      calls += 1;
+      if (calls === 1) {
+        return new Response("{}", { status: 503 });
+      }
+      return new Response("data: [DONE]\n\n", { status: 200 });
+    };
+    const local = provider(fetchImpl, {
+      timeoutMs: 10,
+      circuitBreakerFailureThreshold: 1,
+      circuitBreakerResetMs: 1,
+      maxConcurrentRequests: 1,
+      maxQueueDepth: 0,
+    });
+    const request = {
+      providerModelId: "qwen-local",
+      messages: [{ role: "user" as const, content: "hello" }],
+      maxOutputTokens: 32,
+      correlationId: "corr-half-open",
+    };
+
+    await expect(local.streamChat(request)).rejects.toMatchObject({
+      code: "UNAVAILABLE",
+      retryable: true,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 5));
+
+    await local.streamChat(request);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    const recovered = await local.streamChat(request);
+    for await (const _event of recovered.events) {
+      // Drain the successful recovery stream.
+    }
+
+    expect(calls).toBe(3);
+    expect(local.runtimeState().circuitState).toBe("CLOSED");
+  });
+
   it("rejects unsupported tool use and oversized requests before network access", async () => {
     let calls = 0;
     const fetchImpl: HttpFetch = async () => {
