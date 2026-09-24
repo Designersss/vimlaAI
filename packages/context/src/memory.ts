@@ -576,7 +576,6 @@ export class MemoryService {
           scope,
           input.sourceRefs,
           input.explicitProjectWrite?.projectId ?? null,
-          input.origin,
         );
       const classification = strongerClassification(
         requestedClassification,
@@ -1092,7 +1091,6 @@ async function assertSourceRefsValid(
   targetScope: NormalizedScope,
   refs: readonly MemorySourceRefInput[],
   explicitProjectWriteId: string | null,
-  origin: MemoryOrigin,
 ): Promise<MemoryClassification> {
   if (refs.length === 0) return "PUBLIC";
   if (refs.length > MAX_MEMORY_SOURCE_REFS) {
