@@ -817,6 +817,151 @@ describe("memory maintenance runtime", () => {
     expect(compactionCalls).toBe(2);
   });
 
+  it("redacts only expired derived audit plaintext while preserving current Memory and L2", async () => {
+    const userId = await createUser("runtime-audit-retention");
+    const conversationId = await createConversation(userId);
+    const prisma = prismaService();
+    const facade = new MemoryFacade(prisma, config);
+    const first = await facade.memory.rememberPersonal({
+      actorUserId: userId,
+      type: "USER_PREFERENCE",
+      slotKey: "retention preference",
+      content: "Old retained preference",
+    });
+    const current = await facade.memory.rememberPersonal({
+      actorUserId: userId,
+      type: "USER_PREFERENCE",
+      slotKey: "retention preference",
+      content: "Current preference",
+    });
+
+    const oldAt = new Date(
+      Date.now() -
+        (config.memoryDerivedAuditRetentionDays + 5) *
+          24 *
+          60 *
+          60_000,
+    );
+    await db.memoryItem.update({
+      where: { id: first.id },
+      data: { updatedAt: oldAt },
+    });
+
+    const oldState = await db.compactedContextState.create({
+      data: {
+        ownerUserId: userId,
+        scopeKind: "CONVERSATION",
+        scopeKey: `CONVERSATION:${conversationId}`,
+        conversationId,
+        version: 1,
+        classification: "PRIVATE",
+        content: "Old compacted plaintext",
+        contentHash: "old-compacted-hash",
+        sourceRefs: [],
+        sourceFingerprint: "old-fingerprint",
+        coveredFromSourceId: "old-from",
+        coveredToSourceId: "old-to",
+        coveredFromAt: oldAt,
+        coveredToAt: oldAt,
+        sourceCount: 1,
+        inputTokenEstimate: 1,
+        outputTokenEstimate: 1,
+        validFrom: oldAt,
+        invalidatedAt: oldAt,
+        invalidationReason: "SUPERSEDED",
+      },
+    });
+    const currentState =
+      await db.compactedContextState.create({
+        data: {
+          ownerUserId: userId,
+          scopeKind: "CONVERSATION",
+          scopeKey: `CONVERSATION:${conversationId}`,
+          conversationId,
+          version: 2,
+          classification: "PRIVATE",
+          content: "Current compacted plaintext",
+          contentHash: "current-compacted-hash",
+          sourceRefs: [],
+          sourceFingerprint: "current-fingerprint",
+          coveredFromSourceId: "current-from",
+          coveredToSourceId: "current-to",
+          coveredFromAt: new Date(),
+          coveredToAt: new Date(),
+          sourceCount: 1,
+          inputTokenEstimate: 1,
+          outputTokenEstimate: 1,
+          validFrom: new Date(),
+        },
+      });
+
+    const maintenance = new MemoryMaintenanceService(
+      prisma,
+      facade,
+      config,
+      {
+        complete: () =>
+          Promise.resolve(
+            JSON.stringify({ candidates: [] }),
+          ),
+      },
+    );
+
+    await expect(
+      maintenance.redactExpiredDerivedAuditContent(),
+    ).resolves.toEqual({
+      memoryItems: 1,
+      compactedStates: 1,
+    });
+
+    expect(
+      await db.memoryItem.findUniqueOrThrow({
+        where: { id: first.id },
+      }),
+    ).toMatchObject({
+      state: "SUPERSEDED",
+      content: "",
+    });
+    expect(
+      (
+        await db.memoryItem.findUniqueOrThrow({
+          where: { id: first.id },
+        })
+      ).contentRedactedAt,
+    ).not.toBeNull();
+    expect(
+      await db.memoryItem.findUniqueOrThrow({
+        where: { id: current.id },
+      }),
+    ).toMatchObject({
+      state: "ACTIVE",
+      content: "Current preference",
+      contentRedactedAt: null,
+    });
+    expect(
+      await db.compactedContextState.findUniqueOrThrow({
+        where: { id: oldState.id },
+      }),
+    ).toMatchObject({
+      content: "",
+    });
+    expect(
+      (
+        await db.compactedContextState.findUniqueOrThrow({
+          where: { id: oldState.id },
+        })
+      ).contentRedactedAt,
+    ).not.toBeNull();
+    expect(
+      await db.compactedContextState.findUniqueOrThrow({
+        where: { id: currentState.id },
+      }),
+    ).toMatchObject({
+      content: "Current compacted plaintext",
+      contentRedactedAt: null,
+    });
+  });
+
   it("never treats Direct Chat rows as automatic memory sources", async () => {
     const userId = await createUser("runtime-direct");
     const peerId = await createUser("runtime-direct-peer");
