@@ -77,6 +77,11 @@ type QueueWaiter = {
   resolve: () => void;
 };
 
+type CircuitPermit = {
+  generation: number;
+  halfOpen: boolean;
+};
+
 export class LocalInferenceProvider implements AiProvider {
   readonly id = "vimla-local";
   readonly capabilityMatrix: LocalInferenceCapabilityMatrix;
@@ -91,6 +96,7 @@ export class LocalInferenceProvider implements AiProvider {
   private consecutiveFailures = 0;
   private openUntilMs = 0;
   private halfOpenInFlight = false;
+  private circuitGeneration = 0;
 
   constructor(private readonly config: LocalInferenceProviderConfig) {
     const parsedBase = new URL(config.baseUrl);
@@ -222,11 +228,11 @@ export class LocalInferenceProvider implements AiProvider {
       ? AbortSignal.any([request.abortSignal, timeout])
       : timeout;
 
-    const halfOpen = this.claimCircuitPermission();
+    const permit = this.claimCircuitPermission();
     try {
       await this.acquireSlot(signal);
     } catch (error: unknown) {
-      if (halfOpen) this.halfOpenInFlight = false;
+      this.releaseHalfOpenPermit(permit);
       throw error;
     }
 
@@ -256,9 +262,9 @@ export class LocalInferenceProvider implements AiProvider {
       releaseSlotOnce();
       const classified = classifyTransportError(error, signal);
       if (classified.code === "CANCELED") {
-        if (halfOpen) this.halfOpenInFlight = false;
+        this.releaseHalfOpenPermit(permit);
       } else {
-        this.recordFailure();
+        this.recordFailure(permit);
       }
       throw classified;
     }
@@ -267,14 +273,14 @@ export class LocalInferenceProvider implements AiProvider {
       releaseSlotOnce();
       await discardResponseBody(response);
       const error = classifyHttpError(response.status);
-      if (error.retryable) this.recordFailure();
-      else this.recordSuccess();
+      if (error.retryable) this.recordFailure(permit);
+      else this.recordSuccess(permit);
       throw error;
     }
 
     if (!response.body) {
       releaseSlotOnce();
-      this.recordFailure();
+      this.recordFailure(permit);
       throw new LocalInferenceError("INVALID_RESPONSE", true, response.status);
     }
 
@@ -284,9 +290,7 @@ export class LocalInferenceProvider implements AiProvider {
 
     const releaseOnAbort = (): void => {
       releaseSlotOnce();
-      if (halfOpen && this.openUntilMs > 0) {
-        this.halfOpenInFlight = false;
-      }
+      this.releaseHalfOpenPermit(permit);
     };
     signal.addEventListener("abort", releaseOnAbort, { once: true });
     if (signal.aborted) {
@@ -298,7 +302,7 @@ export class LocalInferenceProvider implements AiProvider {
       events: this.readStream(
         response.body,
         signal,
-        halfOpen,
+        permit,
         releaseSlotOnce,
         () => signal.removeEventListener("abort", releaseOnAbort),
       ),
@@ -308,7 +312,7 @@ export class LocalInferenceProvider implements AiProvider {
   private async *readStream(
     body: ReadableStream<Uint8Array>,
     signal: AbortSignal,
-    halfOpen: boolean,
+    permit: CircuitPermit,
     releaseSlot: () => void,
     removeAbortListener: () => void,
   ): AsyncIterable<ProviderStreamEvent> {
@@ -331,8 +335,9 @@ export class LocalInferenceProvider implements AiProvider {
         }
         if (done) {
           reachedPhysicalEof = true;
-          yield* parser.finish();
-          this.recordSuccess();
+          const finalEvents = parser.finish();
+          this.recordSuccess(permit);
+          yield* finalEvents;
           return;
         }
         if (value) {
@@ -341,9 +346,12 @@ export class LocalInferenceProvider implements AiProvider {
             throw new LocalInferenceError("INVALID_RESPONSE", true);
           }
           const events = parser.push(value);
+          const terminal = events.some((event) => event.type === "done");
+          if (terminal) {
+            this.recordSuccess(permit);
+          }
           yield* events;
-          if (events.some((event) => event.type === "done")) {
-            this.recordSuccess();
+          if (terminal) {
             return;
           }
         }
@@ -354,9 +362,9 @@ export class LocalInferenceProvider implements AiProvider {
           ? new LocalInferenceError("INVALID_RESPONSE", true)
           : classifyTransportError(error, signal);
       if (classified.code === "CANCELED") {
-        if (halfOpen) this.halfOpenInFlight = false;
+        this.releaseHalfOpenPermit(permit);
       } else {
-        this.recordFailure();
+        this.recordFailure(permit);
       }
       throw classified;
     } finally {
@@ -367,9 +375,7 @@ export class LocalInferenceProvider implements AiProvider {
       reader.releaseLock();
       removeAbortListener();
       releaseSlot();
-      if (halfOpen && this.openUntilMs > 0) {
-        this.halfOpenInFlight = false;
-      }
+      this.releaseHalfOpenPermit(permit);
     }
   }
 
@@ -407,7 +413,7 @@ export class LocalInferenceProvider implements AiProvider {
     });
   }
 
-  private claimCircuitPermission(): boolean {
+  private claimCircuitPermission(): CircuitPermit {
     const now = Date.now();
     if (this.openUntilMs > now) {
       throw new LocalInferenceError("CIRCUIT_OPEN", true);
@@ -417,24 +423,58 @@ export class LocalInferenceProvider implements AiProvider {
         throw new LocalInferenceError("CIRCUIT_OPEN", true);
       }
       this.halfOpenInFlight = true;
-      return true;
+      return {
+        generation: this.circuitGeneration,
+        halfOpen: true,
+      };
     }
-    return false;
+    return {
+      generation: this.circuitGeneration,
+      halfOpen: false,
+    };
   }
 
-  private recordSuccess(): void {
-    this.consecutiveFailures = 0;
-    this.openUntilMs = 0;
-    this.halfOpenInFlight = false;
+  private recordSuccess(permit: CircuitPermit): void {
+    if (permit.generation !== this.circuitGeneration) return;
+    if (permit.halfOpen) {
+      this.consecutiveFailures = 0;
+      this.openUntilMs = 0;
+      this.halfOpenInFlight = false;
+      this.circuitGeneration += 1;
+      return;
+    }
+    if (this.openUntilMs === 0) {
+      this.consecutiveFailures = 0;
+    }
   }
 
-  private recordFailure(): void {
+  private recordFailure(permit: CircuitPermit): void {
+    if (permit.generation !== this.circuitGeneration) return;
+    if (permit.halfOpen) {
+      this.openCircuit();
+      return;
+    }
+
     this.consecutiveFailures += 1;
     if (
-      this.halfOpenInFlight ||
       this.consecutiveFailures >= this.config.circuitBreakerFailureThreshold
     ) {
-      this.openUntilMs = Date.now() + this.config.circuitBreakerResetMs;
+      this.openCircuit();
+    }
+  }
+
+  private openCircuit(): void {
+    this.openUntilMs = Date.now() + this.config.circuitBreakerResetMs;
+    this.halfOpenInFlight = false;
+    this.circuitGeneration += 1;
+  }
+
+  private releaseHalfOpenPermit(permit: CircuitPermit): void {
+    if (
+      permit.halfOpen &&
+      permit.generation === this.circuitGeneration &&
+      this.openUntilMs > 0
+    ) {
       this.halfOpenInFlight = false;
     }
   }
