@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import {
   LocalInferenceError,
-  type AiProvider,
+  type ProviderChatRequest,
+  type ProviderChatResult,
   type ProviderStreamEvent,
 } from "@vimla/ai";
 import {
@@ -51,6 +52,10 @@ export type RedisEval = (
   numberOfKeys: number,
   ...args: Array<string | number>
 ) => Promise<unknown>;
+
+export interface VimlaCoreGateway {
+  streamChat(request: ProviderChatRequest): Promise<ProviderChatResult>;
+}
 
 export interface VimlaCoreFairUseLease {
   release(): Promise<void>;
@@ -116,7 +121,7 @@ export class DisabledVimlaToolPlanner implements VimlaToolPlanner {
 
 export class LocalInferenceVimlaToolPlanner implements VimlaToolPlanner {
   constructor(
-    private readonly provider: AiProvider,
+    private readonly gateway: VimlaCoreGateway,
     private readonly model: string,
     private readonly maxOutputTokens: number,
     private readonly fairUse: VimlaCoreFairUseLimiter,
@@ -149,7 +154,7 @@ export class LocalInferenceVimlaToolPlanner implements VimlaToolPlanner {
         invocationScope: "PERSONAL",
         untrustedContext: input.dependencyContext,
       });
-      const result = await this.provider.streamChat({
+      const result = await this.gateway.streamChat({
         providerModelId: this.model,
         messages: [{ role: "user", content: prompt }],
         maxOutputTokens: this.maxOutputTokens,
