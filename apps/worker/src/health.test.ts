@@ -1,3 +1,4 @@
+import type { Server } from "node:http";
 import { describe, expect, it } from "vitest";
 import { closeHttpServer, listenWorkerHealth } from "./health.js";
 
@@ -59,7 +60,7 @@ describe("worker health listener", () => {
   });
 });
 
-function serverBase(server: import("node:http").Server): string {
+function serverBase(server: Server): string {
   const address = server.address();
   expect(address).not.toBeNull();
   if (!address || typeof address === "string") {
