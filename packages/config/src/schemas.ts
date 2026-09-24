@@ -19,6 +19,7 @@ export type LogLevel = z.infer<typeof logLevelSchema>;
 
 const portSchema = z.coerce.number().int().min(1).max(65535);
 const integerStringSchema = z.string().regex(/^\d+$/);
+const rolloutFlagSchema = z.enum(["auto", "true", "false"]).default("auto");
 const cleanHttpUrlSchema = z.url().refine(
   (value) => {
     const url = new URL(value);
@@ -133,6 +134,10 @@ export const apiEnvSchema = z
     SEMANTIC_PLANNER_MODEL: z.preprocess(emptyToUndefined, z.string().trim().min(1).optional()),
     SEMANTIC_PLANNER_API_KEY: z.preprocess(emptyToUndefined, z.string().trim().min(1).optional()),
     SEMANTIC_PLANNER_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(600_000).default(120_000),
+    ORCHESTRATION_ENABLED: rolloutFlagSchema,
+    SEMANTIC_PLANNER_ENABLED: rolloutFlagSchema,
+    CONTEXT_RETRIEVAL_ENABLED: rolloutFlagSchema,
+    SEMANTIC_RETRIEVAL_ENABLED: rolloutFlagSchema,
     AI_DEFAULT_MAX_OUTPUT_TOKENS: z.coerce.number().int().min(1).max(128_000).default(2048),
     AI_MAX_MESSAGE_BYTES: z.coerce.number().int().min(1).default(16_384),
     AI_MAX_CONTEXT_BYTES: z.coerce.number().int().min(1).default(65_536),
@@ -230,6 +235,34 @@ export const apiEnvSchema = z
           code: "custom",
           path: ["SEMANTIC_PLANNER_PROVIDER"],
           message: "Mock semantic planner is not allowed in staging/production",
+        });
+      }
+
+      if (
+        value.SEMANTIC_PLANNER_ENABLED === "true" &&
+        (
+          value.SEMANTIC_PLANNER_PROVIDER === "mock" ||
+          !value.SEMANTIC_PLANNER_BASE_URL ||
+          !value.SEMANTIC_PLANNER_MODEL
+        )
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["SEMANTIC_PLANNER_ENABLED"],
+          message:
+            "SEMANTIC_PLANNER_ENABLED in staging/production requires the configured internal semantic planner",
+        });
+      }
+
+      if (
+        value.SEMANTIC_RETRIEVAL_ENABLED === "true" &&
+        value.EMBEDDING_PROVIDER !== "internal-http"
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["SEMANTIC_RETRIEVAL_ENABLED"],
+          message:
+            "SEMANTIC_RETRIEVAL_ENABLED in staging/production requires the confirmed internal embedding provider",
         });
       }
 
@@ -516,6 +549,10 @@ export const apiConfigSchema = z.object({
   semanticPlannerModel: z.string().min(1).optional(),
   semanticPlannerApiKey: z.string().min(1).optional(),
   semanticPlannerTimeoutMs: z.number().int().min(1_000).max(600_000),
+  orchestrationEnabled: z.boolean(),
+  semanticPlannerEnabled: z.boolean(),
+  contextRetrievalEnabled: z.boolean(),
+  semanticRetrievalEnabled: z.boolean(),
   aiDefaultMaxOutputTokens: z.number().int().min(1),
   aiMaxMessageBytes: z.number().int().min(1),
   aiMaxContextBytes: z.number().int().min(1),
@@ -646,6 +683,10 @@ export const workerEnvSchema = z
     AI_MAX_PLAN_SETTLED_MICRORUB: integerStringSchema.default("80000000"),
     AI_MAX_PLAN_COMMITTED_MICRORUB: integerStringSchema.default("80000000"),
     AI_CANCELLATION_POLL_MS: z.coerce.number().int().min(10).max(5_000).default(250),
+    ORCHESTRATION_ENABLED: rolloutFlagSchema,
+    CONTEXT_RETRIEVAL_ENABLED: rolloutFlagSchema,
+    SEMANTIC_RETRIEVAL_ENABLED: rolloutFlagSchema,
+    LOCAL_AI_ENABLED: rolloutFlagSchema,
     VIMLA_CORE_PROVIDER: z
       .enum(["auto", "disabled", "deterministic", "internal-http"])
       .default("auto"),
@@ -779,6 +820,32 @@ export const workerEnvSchema = z
       });
     }
 
+    if (
+      (value.APP_ENV === "production" || value.APP_ENV === "staging") &&
+      value.LOCAL_AI_ENABLED === "true" &&
+      value.VIMLA_CORE_PROVIDER !== "internal-http"
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["LOCAL_AI_ENABLED"],
+        message:
+          "LOCAL_AI_ENABLED in staging/production requires VIMLA_CORE_PROVIDER=internal-http",
+      });
+    }
+
+    if (
+      (value.APP_ENV === "production" || value.APP_ENV === "staging") &&
+      value.SEMANTIC_RETRIEVAL_ENABLED === "true" &&
+      value.EMBEDDING_PROVIDER !== "internal-http"
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["SEMANTIC_RETRIEVAL_ENABLED"],
+        message:
+          "SEMANTIC_RETRIEVAL_ENABLED in staging/production requires the confirmed internal embedding provider",
+      });
+    }
+
     if (value.EVALUATOR_PROVIDER === "internal-http") {
       if (!value.EVALUATOR_BASE_URL) {
         ctx.addIssue({
@@ -889,6 +956,10 @@ export const workerConfigSchema = z.object({
   aiMaxPlanSettledMicroRub: z.string().regex(/^\d+$/),
   aiMaxPlanCommittedMicroRub: z.string().regex(/^\d+$/),
   aiCancellationPollMs: z.number().int().min(10).max(5_000),
+  orchestrationEnabled: z.boolean(),
+  contextRetrievalEnabled: z.boolean(),
+  semanticRetrievalEnabled: z.boolean(),
+  localAiEnabled: z.boolean(),
   vimlaCoreProvider: z.enum([
     "disabled",
     "deterministic",
