@@ -1115,9 +1115,19 @@ export class OrchestrationService {
           semantic,
         ),
       );
+      const focused = await this.prisma.client.executionPlan.findFirst({
+        where: { id: planId, userId },
+        select: {
+          conversation: {
+            select: { projectId: true },
+          },
+        },
+      });
       await context.createForExecutionPlan({
         actorUserId: userId,
         planId,
+        currentProjectId:
+          focused?.conversation.projectId ?? null,
       });
       return await context.resolveForPlan(userId, planId);
     } catch (error: unknown) {
