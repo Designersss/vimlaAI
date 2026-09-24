@@ -277,13 +277,10 @@ export class ContextRetrievalService {
       kind: "PERSONAL",
       ownerUserId: input.actorUserId,
     };
-    const currentSurfaceScope: ContextSourceScope =
-      currentProjectId
-        ? {
-            kind: "PROJECT",
-            projectId: currentProjectId,
-          }
-        : personalScope;
+    // A project-focused personal conversation remains a PERSONAL surface.
+    // projectId is a retrieval/ranking hint only; it must never relabel the
+    // private conversation or its raw history as shared Project context.
+    const currentSurfaceScope: ContextSourceScope = personalScope;
 
     const recentMessages = await this.db.message.findMany({
       where: {
@@ -366,9 +363,7 @@ export class ContextRetrievalService {
           orderBy: [{ createdAt: "desc" }, { id: "desc" }],
           take: this.options.crossConversationScanLimit,
         }),
-        currentProjectId
-          ? Promise.resolve([])
-          : this.db.workspaceObject.findMany({
+        this.db.workspaceObject.findMany({
           where: {
             personalOwnerUserId: input.actorUserId,
             deletedAt: null,
@@ -645,23 +640,17 @@ export class ContextRetrievalService {
       candidate({
         item: {
           sourceType: "AUDIENCE",
-          sourceId:
-            currentProjectId ??
-            sourceMessage.conversation.id,
+          sourceId: sourceMessage.conversation.id,
           sourceVersion:
-            currentProject?.updatedAt.toISOString() ??
             sourceMessage.conversation.updatedAt.toISOString(),
           classification: "PRIVATE",
-          metadata: currentProjectId
-            ? {
-                kind: "PROJECT",
-                projectId: currentProjectId,
-                participantUserIds: [input.actorUserId],
-              }
-            : {
-                kind: "PERSONAL",
-                participantUserIds: [input.actorUserId],
-              },
+          metadata: {
+            kind: "PERSONAL",
+            participantUserIds: [input.actorUserId],
+            ...(currentProjectId
+              ? { focusedProjectId: currentProjectId }
+              : {}),
+          },
         },
         sourceKind: "IMMEDIATE",
         sourceScope: currentSurfaceScope,
@@ -733,14 +722,7 @@ export class ContextRetrievalService {
             },
           },
           sourceKind: "CROSS_CONVERSATION",
-          sourceScope:
-            currentProjectId !== null &&
-            message.conversation.projectId === currentProjectId
-              ? {
-                  kind: "PROJECT",
-                  projectId: currentProjectId,
-                }
-              : personalScope,
+          sourceScope: personalScope,
           reason:
             "same-user cross-conversation lexical retrieval",
           lexicalScore: score,
@@ -926,22 +908,17 @@ export class ContextRetrievalService {
               } as Prisma.InputJsonValue,
             },
             sourceKind: "ARTIFACT",
-            sourceScope:
-              currentProjectId &&
-              artifact.creatorInvocation.plan.conversation.projectId ===
-                currentProjectId
-                ? {
-                    kind: "PROJECT",
-                    projectId: currentProjectId,
-                  }
-                : personalScope,
+            sourceScope: personalScope,
             reason: inlineContentJson
               ? "authorized immutable artifact content retrieval"
               : "authorized artifact metadata retrieval",
             lexicalScore: score,
             directReference,
             currentSurface: false,
-            currentProject: false,
+            currentProject:
+              currentProjectId !== null &&
+              artifact.creatorInvocation.plan.conversation.projectId ===
+                currentProjectId,
             authority: "AUTHORITATIVE",
             occurredAt: artifact.createdAt.toISOString(),
           });
@@ -970,19 +947,10 @@ export class ContextRetrievalService {
       }
     }
 
-    const surfaceCandidates = currentProjectId
-      ? candidates.filter(
-          (candidateValue) =>
-            candidateValue.sourceScope.kind === "PROJECT" &&
-            candidateValue.sourceScope.projectId ===
-              currentProjectId,
-        )
-      : candidates;
-
     return {
       query,
       candidates: normalizeCandidates(
-        surfaceCandidates,
+        candidates,
         this.options.maxCandidates,
       ),
     };
