@@ -273,6 +273,104 @@ describe("AI chat integration", () => {
   });
 
 
+  it("authorizes persistent target changes only for the owning conversation", async () => {
+    const owner = await registerUser(app, "thread-target-owner");
+    const outsider = await registerUser(app, "thread-target-outsider");
+    const modelId = await firstModelId(app, owner.cookies);
+    const created = await app.inject({
+      method: "POST",
+      url: "/v1/conversations",
+      headers: { origin, "content-type": "application/json" },
+      cookies: owner.cookies,
+      payload: {
+        defaultTarget: { kind: "AI_MODEL", modelId },
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    const conversationId = String(created.json().id);
+
+    const denied = await app.inject({
+      method: "POST",
+      url: `/v1/conversations/${conversationId}/default-target`,
+      headers: { origin, "content-type": "application/json" },
+      cookies: outsider.cookies,
+      payload: { kind: "AI_AUTO" },
+    });
+    expect(denied.statusCode).toBe(404);
+
+    const changed = await app.inject({
+      method: "POST",
+      url: `/v1/conversations/${conversationId}/default-target`,
+      headers: { origin, "content-type": "application/json" },
+      cookies: owner.cookies,
+      payload: { kind: "AI_AUTO" },
+    });
+    expect(changed.statusCode).toBe(200);
+    expect(changed.json()).toEqual({ kind: "AI_AUTO" });
+
+    const invalid = await app.inject({
+      method: "POST",
+      url: `/v1/conversations/${conversationId}/default-target`,
+      headers: { origin, "content-type": "application/json" },
+      cookies: owner.cookies,
+      payload: {
+        kind: "AI_MODEL",
+        modelId: "missing-thread-model",
+      },
+    });
+    expect(invalid.statusCode).toBe(400);
+
+    const detail = await app.inject({
+      method: "GET",
+      url: `/v1/conversations/${conversationId}`,
+      headers: { origin },
+      cookies: owner.cookies,
+    });
+    expect(detail.statusCode).toBe(200);
+    expect(detail.json().defaultTarget).toEqual({ kind: "AI_AUTO" });
+  });
+
+  it("enforces valid persistent target shapes in PostgreSQL", async () => {
+    const user = await registerUser(app, "thread-target-constraints");
+    const prisma = createPrismaClient(testDatabaseUrl);
+    const model = await prisma.aiModel.findFirstOrThrow({
+      where: { active: true, visible: true },
+    });
+
+    await expect(
+      prisma.conversation.create({
+        data: {
+          userId: user.id,
+          kind: "CHAT",
+          defaultTargetKind: "AI_AUTO",
+          defaultTargetModelId: model.id,
+        },
+      }),
+    ).rejects.toThrow();
+
+    await expect(
+      prisma.conversation.create({
+        data: {
+          userId: user.id,
+          kind: "CHAT",
+          defaultTargetKind: "AI_MODEL",
+        },
+      }),
+    ).rejects.toThrow();
+
+    await expect(
+      prisma.conversation.create({
+        data: {
+          userId: user.id,
+          kind: "OPERATOR",
+          defaultTargetKind: "AI_AUTO",
+        },
+      }),
+    ).rejects.toThrow();
+
+    await prisma.$disconnect();
+  });
+
   it("persists project focus only for current project members", async () => {
     const owner = await registerUser(app, "project-focus-owner");
     const member = await registerUser(app, "project-focus-member");
