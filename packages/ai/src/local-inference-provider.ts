@@ -158,6 +158,7 @@ export class LocalInferenceProvider implements AiProvider {
       throw new LocalInferenceError("UNAVAILABLE", true);
     }
     if (!response.ok) {
+      await discardResponseBody(response);
       throw new LocalInferenceError(
         response.status >= 500 ? "UNAVAILABLE" : "REJECTED",
         response.status >= 500,
@@ -264,6 +265,7 @@ export class LocalInferenceProvider implements AiProvider {
 
     if (!response.ok) {
       releaseSlotOnce();
+      await discardResponseBody(response);
       const error = classifyHttpError(response.status);
       if (error.retryable) this.recordFailure();
       else this.recordSuccess();
@@ -357,8 +359,10 @@ export class LocalInferenceProvider implements AiProvider {
     const started = Date.now();
     try {
       const response = await this.fetchWithProbeTimeout(path);
+      const ok = response.ok;
+      await discardResponseBody(response);
       return {
-        ok: response.ok,
+        ok,
         latencyMs: Math.max(0, Date.now() - started),
       };
     } catch {
@@ -542,6 +546,15 @@ function classifyAbortSignal(signal: AbortSignal): LocalInferenceError {
     return new LocalInferenceError("TIMEOUT", true);
   }
   return new LocalInferenceError("CANCELED", false);
+}
+
+async function discardResponseBody(response: Response): Promise<void> {
+  if (!response.body) return;
+  try {
+    await response.body.cancel();
+  } catch {
+    // Best-effort connection cleanup must not replace the provider result.
+  }
 }
 
 async function readBoundedJson(
