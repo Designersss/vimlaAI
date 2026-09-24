@@ -17,7 +17,10 @@ import {
   type VimlaAiGateway,
 } from "@vimla/ai";
 import { BillingError, type BillingEngine, type ReservationView } from "@vimla/billing";
-import type { SendMessage } from "@vimla/contracts";
+import type {
+  ConversationDefaultTarget,
+  SendMessage,
+} from "@vimla/contracts";
 import { Prisma, type PrismaClient } from "@vimla/database";
 import { API_CONFIG, type ApiRuntimeConfig } from "../config/api-config.js";
 import { BillingService } from "../billing/billing.service.js";
@@ -103,6 +106,7 @@ export class TextChatService {
     userId: string,
     title?: string,
     projectId?: string,
+    defaultTarget?: ConversationDefaultTarget,
   ) {
     if (projectId) {
       if (!this.config.projectsEnabled) {
@@ -123,13 +127,52 @@ export class TextChatService {
       }
     }
 
+    if (defaultTarget?.kind === "AI_MODEL") {
+      await this.resolveModel(defaultTarget.modelId);
+    }
+
     return this.prisma.conversation.create({
       data: {
         userId,
         projectId: projectId ?? null,
         title: title ?? null,
         kind: "CHAT",
+        defaultTargetKind: defaultTarget?.kind ?? null,
+        defaultTargetModelId:
+          defaultTarget?.kind === "AI_MODEL"
+            ? defaultTarget.modelId
+            : null,
       },
+    });
+  }
+
+  async setConversationDefaultTarget(
+    userId: string,
+    conversationId: string,
+    target: ConversationDefaultTarget,
+  ) {
+    if (target.kind === "AI_MODEL") {
+      await this.resolveModel(target.modelId);
+    }
+
+    const updated = await this.prisma.conversation.updateMany({
+      where: {
+        id: conversationId,
+        userId,
+        kind: "CHAT",
+      },
+      data: {
+        defaultTargetKind: target.kind,
+        defaultTargetModelId:
+          target.kind === "AI_MODEL" ? target.modelId : null,
+      },
+    });
+    if (updated.count !== 1) {
+      throw new NotFoundException("Conversation was not found");
+    }
+
+    return this.prisma.conversation.findFirstOrThrow({
+      where: { id: conversationId, userId, kind: "CHAT" },
     });
   }
 
@@ -185,7 +228,11 @@ export class TextChatService {
 
     this.assertMessageSize(input.body.content);
 
-    const model = await this.resolveModel(input.body.modelId);
+    const model = await this.resolveThreadModel({
+      userId: input.userId,
+      conversation,
+      legacyModelId: input.body.modelId,
+    });
     const outcome = await this.beginOrReuseRequest({
       userId: input.userId,
       conversationId: conversation.id,
@@ -742,6 +789,225 @@ export class TextChatService {
       "Retry this request with a new clientRequestId",
       409,
     );
+  }
+
+  private async resolveThreadModel(input: {
+    userId: string;
+    conversation: {
+      id: string;
+      kind: string;
+      defaultTargetKind: string | null;
+      defaultTargetModelId: string | null;
+    };
+    legacyModelId?: string;
+  }): Promise<ResolvedModel> {
+    let targetKind = input.conversation.defaultTargetKind;
+    let targetModelId = input.conversation.defaultTargetModelId;
+
+    if (targetKind === null) {
+      if (!input.legacyModelId) {
+        throw new AiError(
+          "THREAD_TARGET_REQUIRED",
+          "This AI thread does not have a default target yet",
+          400,
+        );
+      }
+
+      await this.resolveModel(input.legacyModelId);
+      await this.prisma.conversation.updateMany({
+        where: {
+          id: input.conversation.id,
+          userId: input.userId,
+          kind: "CHAT",
+          defaultTargetKind: null,
+          defaultTargetModelId: null,
+        },
+        data: {
+          defaultTargetKind: "AI_MODEL",
+          defaultTargetModelId: input.legacyModelId,
+        },
+      });
+
+      const persisted = await this.prisma.conversation.findFirst({
+        where: {
+          id: input.conversation.id,
+          userId: input.userId,
+          kind: "CHAT",
+        },
+        select: {
+          defaultTargetKind: true,
+          defaultTargetModelId: true,
+        },
+      });
+      if (!persisted) {
+        throw new NotFoundException("Conversation was not found");
+      }
+      targetKind = persisted.defaultTargetKind;
+      targetModelId = persisted.defaultTargetModelId;
+    }
+
+    if (targetKind === "AI_MODEL" && targetModelId) {
+      return this.resolveModel(targetModelId);
+    }
+    if (targetKind === "AI_AUTO" && targetModelId === null) {
+      return this.resolveAutoModel(input.userId, input.conversation.id);
+    }
+
+    throw new AiError(
+      "THREAD_TARGET_INVALID",
+      "The AI thread target is invalid",
+      409,
+    );
+  }
+
+  private async resolveAutoModel(
+    userId: string,
+    conversationId: string,
+  ): Promise<ResolvedModel> {
+    const history = await this.prisma.message.findMany({
+      where: { conversationId, status: "COMPLETE" },
+      orderBy: { createdAt: "asc" },
+    });
+    const context = selectContextMessages(
+      history,
+      this.config.aiMaxContextBytes,
+    );
+    const providerMessages: ProviderChatMessage[] = context.map(
+      (message) => ({
+        role: message.role === "ASSISTANT" ? "assistant" : "user",
+        content: message.content,
+      }),
+    );
+    const estimatedInputTokens =
+      estimateProviderRequestInputTokens(providerMessages);
+    const now = new Date();
+    const rows = await this.prisma.aiModel.findMany({
+      where: { active: true, visible: true },
+      include: {
+        priceVersions: {
+          where: {
+            effectiveFrom: { lte: now },
+            OR: [
+              { effectiveTo: null },
+              { effectiveTo: { gt: now } },
+            ],
+          },
+          orderBy: { effectiveFrom: "desc" },
+          take: 1,
+        },
+      },
+    });
+    const capacity =
+      await this.engine.getSpendableUsageState(userId);
+    const candidates = rows.flatMap((model) => {
+      const price = model.priceVersions[0];
+      const policy = VIMLA_AI_MODEL_CATALOG.find(
+        (entry) =>
+          entry.slug === model.slug &&
+          entry.provider === model.provider &&
+          entry.providerModelId === model.providerModelId,
+      );
+      if (
+        !price ||
+        !policy ||
+        policy.billingBoundedness !== "HARD_BOUNDED"
+      ) {
+        return [];
+      }
+
+      const contextOutput = Math.max(
+        0,
+        model.contextWindowTokens - estimatedInputTokens,
+      );
+      const modelMaxOutputTokens = Math.min(
+        model.maxOutputTokens,
+        contextOutput,
+      );
+      const minimumOutputTokens = Math.min(
+        DEFAULT_AI_EXECUTION_BUDGET_PROFILES.STANDARD
+          .minimumOutputTokens,
+        model.maxOutputTokens,
+      );
+      if (modelMaxOutputTokens < minimumOutputTokens) {
+        return [];
+      }
+
+      const resolved: ResolvedModel = {
+        id: model.id,
+        provider: model.provider,
+        providerModelId: model.providerModelId,
+        contextWindowTokens: model.contextWindowTokens,
+        maxOutputTokens: model.maxOutputTokens,
+        priceVersionId: price.id,
+        price: {
+          inputMicroRubPerMillion:
+            price.inputMicroRubPerMillion,
+          outputMicroRubPerMillion:
+            price.outputMicroRubPerMillion,
+          cacheReadMicroRubPerMillion:
+            price.cacheReadMicroRubPerMillion,
+          cacheWriteMicroRubPerMillion:
+            price.cacheWriteMicroRubPerMillion,
+        },
+      };
+      const budget = resolveAiExecutionBudget({
+        profile: "STANDARD",
+        profiles: DEFAULT_AI_EXECUTION_BUDGET_PROFILES,
+        modelMaxOutputTokens,
+        estimatedInputTokens,
+        availableMicroRub: capacity.availableMicroRub,
+        maxReservationMicroRub:
+          BigInt(this.config.aiMaxReservationMicroRub),
+        price: resolved.price,
+        safetyBps:
+          BigInt(this.config.aiReservationSafetyBps),
+      });
+
+      return [
+        {
+          resolved,
+          priority: policy.autoPriority,
+          funded: budget.kind === "FUNDED",
+          estimatedCost:
+            budget.kind === "FUNDED"
+              ? budget.budget.estimatedCostMicroRub
+              : null,
+        },
+      ];
+    });
+
+    if (candidates.length === 0) {
+      throw new AiError(
+        "MODEL_UNAVAILABLE",
+        "Auto has no compatible model for this thread",
+        400,
+      );
+    }
+
+    const funded = candidates.filter((candidate) => candidate.funded);
+    const pool = funded.length > 0 ? funded : candidates;
+    pool.sort((left, right) => {
+      if (left.priority !== right.priority) {
+        return left.priority - right.priority;
+      }
+      if (
+        left.estimatedCost !== null &&
+        right.estimatedCost !== null &&
+        left.estimatedCost !== right.estimatedCost
+      ) {
+        return left.estimatedCost < right.estimatedCost ? -1 : 1;
+      }
+      return left.resolved.id.localeCompare(right.resolved.id);
+    });
+    const selected = pool[0];
+    if (!selected) {
+      throw new AiError(
+        "MODEL_UNAVAILABLE",
+        "Auto has no compatible model for this thread",
+        400,
+      );
+    }
+    return selected.resolved;
   }
 
   private async resolveModel(modelId: string): Promise<ResolvedModel> {
