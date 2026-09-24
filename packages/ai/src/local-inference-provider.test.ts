@@ -107,7 +107,10 @@ describe("LocalInferenceProvider", () => {
         if (readCalls === 1) {
           return {
             done: false,
-            value: encoder.encode("data: [DONE]\n\n"),
+            value: encoder.encode(
+              "data: [DONE]\n\n" +
+                'data: {"choices":[{"delta":{"content":"ignored"}}]}\n\n',
+            ),
           };
         }
         return new Promise<ReadableStreamReadResult<Uint8Array>>(() => undefined);
