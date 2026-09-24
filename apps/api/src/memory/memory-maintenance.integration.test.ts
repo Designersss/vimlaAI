@@ -330,6 +330,59 @@ describe("memory maintenance runtime", () => {
     });
   });
 
+  it("never sends deterministically sensitive personal facts to automatic extraction", async () => {
+    const userId = await createUser("runtime-sensitive-source");
+    const conversationId = await createConversation(userId);
+    const source = await createMessage({
+      conversationId,
+      content: "I was diagnosed with diabetes.",
+    });
+
+    let called = false;
+    const model: SemanticPlannerModel = {
+      complete: () => {
+        called = true;
+        return Promise.resolve(
+          JSON.stringify({ candidates: [] }),
+        );
+      },
+    };
+    const prisma = prismaService();
+    const maintenance = new MemoryMaintenanceService(
+      prisma,
+      new MemoryFacade(prisma, config),
+      config,
+      model,
+    );
+
+    await maintenance.observeConversationMessage({
+      userId,
+      messageId: source.id,
+      correlationId: "runtime-sensitive-source",
+    });
+
+    expect(called).toBe(false);
+    expect(
+      await db.memoryItem.count({
+        where: { ownerUserId: userId },
+      }),
+    ).toBe(0);
+    expect(
+      await db.memoryExtractionReceipt.findUniqueOrThrow({
+        where: {
+          sourceType_sourceId_sourceVersion: {
+            sourceType: "MESSAGE",
+            sourceId: source.id,
+            sourceVersion: source.updatedAt.toISOString(),
+          },
+        },
+      }),
+    ).toMatchObject({
+      status: "COMPLETED",
+      candidateCount: 0,
+    });
+  });
+
   it("fails extraction closed on invalid model output without breaking the source message", async () => {
     const userId = await createUser("runtime-invalid");
     const conversationId =
@@ -382,6 +435,7 @@ describe("memory maintenance runtime", () => {
     const userId = await createUser("runtime-compaction-redaction");
     const conversationId = await createConversation(userId);
     const secret = "sk-abcdefghijklmnopqrstuvwxyz123456";
+    const sensitiveFact = "I was diagnosed with diabetes.";
     const history = [];
     for (let index = 0; index < 12; index += 1) {
       history.push(
@@ -391,7 +445,9 @@ describe("memory maintenance runtime", () => {
           content:
             index === 1
               ? `api_key = ${secret} ` + "s".repeat(900)
-              : `safe-${index} ` + "x".repeat(900),
+              : index === 2
+                ? sensitiveFact + "m".repeat(900)
+                : `safe-${index} ` + "x".repeat(900),
         }),
       );
     }
@@ -434,6 +490,7 @@ describe("memory maintenance runtime", () => {
       "[SENSITIVE_DATA_REDACTED]",
     );
     expect(compactionPrompt).not.toContain(secret);
+    expect(compactionPrompt).not.toContain(sensitiveFact);
     expect(
       await db.compactedContextState.count({
         where: {
