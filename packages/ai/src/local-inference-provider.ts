@@ -215,9 +215,14 @@ export class LocalInferenceProvider implements AiProvider {
       throw new LocalInferenceError("REJECTED", false);
     }
 
+    const timeout = AbortSignal.timeout(this.config.timeoutMs);
+    const signal = request.abortSignal
+      ? AbortSignal.any([request.abortSignal, timeout])
+      : timeout;
+
     const halfOpen = this.claimCircuitPermission();
     try {
-      await this.acquireSlot(request.abortSignal);
+      await this.acquireSlot(signal);
     } catch (error: unknown) {
       if (halfOpen) this.halfOpenInFlight = false;
       throw error;
@@ -229,11 +234,6 @@ export class LocalInferenceProvider implements AiProvider {
       slotReleased = true;
       this.releaseSlot();
     };
-
-    const timeout = AbortSignal.timeout(this.config.timeoutMs);
-    const signal = request.abortSignal
-      ? AbortSignal.any([request.abortSignal, timeout])
-      : timeout;
 
     let response: Response;
     try {
@@ -403,9 +403,9 @@ export class LocalInferenceProvider implements AiProvider {
     return "HALF_OPEN";
   }
 
-  private async acquireSlot(signal?: AbortSignal): Promise<void> {
-    if (signal?.aborted) {
-      throw new LocalInferenceError("CANCELED", false);
+  private async acquireSlot(signal: AbortSignal): Promise<void> {
+    if (signal.aborted) {
+      throw classifyAbortSignal(signal);
     }
     if (this.activeRequests < this.config.maxConcurrentRequests) {
       this.activeRequests += 1;
@@ -417,25 +417,17 @@ export class LocalInferenceProvider implements AiProvider {
 
     await new Promise<void>((resolve, reject) => {
       let settled = false;
-      const timer = setTimeout(() => {
-        if (settled) return;
-        settled = true;
-        removeWaiter();
-        cleanup();
-        reject(new LocalInferenceError("OVERLOADED", true));
-      }, this.config.timeoutMs);
 
       const onAbort = (): void => {
         if (settled) return;
         settled = true;
         removeWaiter();
         cleanup();
-        reject(new LocalInferenceError("CANCELED", false));
+        reject(classifyAbortSignal(signal));
       };
 
       const cleanup = (): void => {
-        clearTimeout(timer);
-        signal?.removeEventListener("abort", onAbort);
+        signal.removeEventListener("abort", onAbort);
       };
 
       const waiter: QueueWaiter = {
@@ -453,7 +445,7 @@ export class LocalInferenceProvider implements AiProvider {
         if (index >= 0) this.waiters.splice(index, 1);
       };
 
-      signal?.addEventListener("abort", onAbort, { once: true });
+      signal.addEventListener("abort", onAbort, { once: true });
       this.waiters.push(waiter);
     });
   }
@@ -519,13 +511,17 @@ function classifyTransportError(
 ): LocalInferenceError {
   if (error instanceof LocalInferenceError) return error;
   if (signal.aborted) {
-    const reason = signal.reason;
-    if (reason instanceof DOMException && reason.name === "TimeoutError") {
-      return new LocalInferenceError("TIMEOUT", true);
-    }
-    return new LocalInferenceError("CANCELED", false);
+    return classifyAbortSignal(signal);
   }
   return new LocalInferenceError("UNAVAILABLE", true);
+}
+
+function classifyAbortSignal(signal: AbortSignal): LocalInferenceError {
+  const reason = signal.reason;
+  if (reason instanceof DOMException && reason.name === "TimeoutError") {
+    return new LocalInferenceError("TIMEOUT", true);
+  }
+  return new LocalInferenceError("CANCELED", false);
 }
 
 async function readBoundedJson(
