@@ -143,6 +143,13 @@ describe("LocalInferenceVimlaToolPlanner", () => {
     expect(calls).toHaveLength(2);
     expect(String(calls[0]?.args[0])).not.toContain("user-sensitive-id");
     expect(calls[0]?.keys).toBe(2);
+    expect(calls[0]?.script).toContain("ZREMRANGEBYSCORE");
+    expect(calls[0]?.script).toContain("ZADD");
     expect(calls[1]?.keys).toBe(1);
+    expect(calls[1]?.script).toContain("ZREM");
+
+    const acquiredLeaseId = calls[0]?.args[6];
+    expect(typeof acquiredLeaseId).toBe("string");
+    expect(acquiredLeaseId).toBe(calls[1]?.args[1]);
   });
 });
