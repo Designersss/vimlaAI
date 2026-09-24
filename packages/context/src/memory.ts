@@ -374,6 +374,7 @@ export class MemoryService {
     actorUserId: string;
     directConversationId: string;
     sourceMessageId: string;
+    projectId?: string;
     type: MemoryType;
     slotKey: string;
     content: string;
@@ -402,20 +403,31 @@ export class MemoryService {
       );
     }
 
+    const targetScope: MemoryScope = input.projectId
+      ? { kind: "PROJECT", projectId: input.projectId }
+      : { kind: "PERSONAL" };
+
     return this.ingestCandidate({
       actorUserId: input.actorUserId,
-      scope: { kind: "PERSONAL" },
+      scope: targetScope,
       type: input.type,
       slotKey: input.slotKey,
       content: input.content,
       origin: "E2EE_USER_DISCLOSURE",
-      classification: "PRIVATE",
+      classification: input.projectId ? "INTERNAL" : "PRIVATE",
       sensitivity: "NORMAL",
       confidence: 1,
       quality: 1,
       validFrom: disclosedAt,
       expiresAt: input.expiresAt,
       userConfirmed: true,
+      ...(input.projectId
+        ? {
+            explicitProjectWrite: {
+              projectId: input.projectId,
+            },
+          }
+        : {}),
       sourceRefs: [
         {
           provenance: "E2EE_USER_DISCLOSURE",
