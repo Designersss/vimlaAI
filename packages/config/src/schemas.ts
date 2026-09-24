@@ -636,6 +636,9 @@ export const workerEnvSchema = z
     VIMLA_CORE_PROVIDER: z
       .enum(["auto", "disabled", "deterministic", "internal-http"])
       .default("auto"),
+    VIMLA_CORE_INTERNAL_CONFIRMED: z
+      .enum(["true", "false"])
+      .default("false"),
     VIMLA_CORE_BASE_URL: z.preprocess(
       emptyToUndefined,
       z.url().optional(),
@@ -719,7 +722,20 @@ export const workerEnvSchema = z
     TBANK_API_BASE_URL: z.preprocess(emptyToUndefined, z.url().optional()),
   })
   .superRefine((value, ctx) => {
-    if (value.VIMLA_CORE_PROVIDER === "internal-http") {
+    const vimlaCoreUsesInternal =
+      value.VIMLA_CORE_PROVIDER === "internal-http" ||
+      (value.VIMLA_CORE_PROVIDER === "auto" &&
+        Boolean(value.VIMLA_CORE_BASE_URL) &&
+        Boolean(value.VIMLA_CORE_MODEL));
+    if (vimlaCoreUsesInternal) {
+      if (value.VIMLA_CORE_INTERNAL_CONFIRMED !== "true") {
+        ctx.addIssue({
+          code: "custom",
+          path: ["VIMLA_CORE_INTERNAL_CONFIRMED"],
+          message:
+            "VIMLA_CORE_INTERNAL_CONFIRMED must confirm included self-hosted inference; paid providers are not supported",
+        });
+      }
       if (!value.VIMLA_CORE_BASE_URL) {
         ctx.addIssue({
           code: "custom",
