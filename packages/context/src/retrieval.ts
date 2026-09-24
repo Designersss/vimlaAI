@@ -159,6 +159,19 @@ const STOP_WORDS = new Set([
   "еще",
 ]);
 
+export interface ContextRetrievalTelemetrySummary {
+  durationMs: number;
+  candidateCount: number;
+  selectedCount: number;
+  currentSurfaceCount: number;
+  crossSurfaceCount: number;
+  currentProjectCount: number;
+}
+
+export type ContextRetrievalTelemetryObserver = (
+  summary: ContextRetrievalTelemetrySummary,
+) => void;
+
 export class ContextRetrievalService {
   private readonly options: Required<ContextRetrievalOptions>;
   private readonly artifacts: ArtifactService;
@@ -168,6 +181,7 @@ export class ContextRetrievalService {
     private readonly providers: readonly ContextRetrievalProvider[] = [],
     options: ContextRetrievalOptions = {},
     private readonly semanticSearch?: SemanticSearchService,
+    private readonly telemetryObserver?: ContextRetrievalTelemetryObserver,
   ) {
     this.artifacts = new ArtifactService(db);
     this.options = {
@@ -196,6 +210,7 @@ export class ContextRetrievalService {
     actorUserId: string;
     planId: string;
   }): Promise<ContextCandidateSet> {
+    const startedAt = Date.now();
     const plan = await this.db.executionPlan.findFirst({
       where: {
         id: input.planId,
@@ -947,12 +962,36 @@ export class ContextRetrievalService {
       }
     }
 
+    const normalized = normalizeCandidates(
+      candidates,
+      this.options.maxCandidates,
+    );
+    if (this.telemetryObserver) {
+      const semanticCandidates = candidates.filter(
+        (entry) => entry.semanticScore !== undefined,
+      );
+      const semanticSelected = normalized.filter(
+        (entry) => entry.semanticScore !== undefined,
+      );
+      this.telemetryObserver({
+        durationMs: Math.max(0, Date.now() - startedAt),
+        candidateCount: semanticCandidates.length,
+        selectedCount: semanticSelected.length,
+        currentSurfaceCount: semanticSelected.filter(
+          (entry) => entry.currentSurface,
+        ).length,
+        crossSurfaceCount: semanticSelected.filter(
+          (entry) => !entry.currentSurface,
+        ).length,
+        currentProjectCount: semanticSelected.filter(
+          (entry) => entry.currentProject,
+        ).length,
+      });
+    }
+
     return {
       query,
-      candidates: normalizeCandidates(
-        candidates,
-        this.options.maxCandidates,
-      ),
+      candidates: normalized,
     };
   }
 }
