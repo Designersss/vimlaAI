@@ -65,6 +65,22 @@ export function loadApiConfig(
     semanticPlannerModel: parsed.SEMANTIC_PLANNER_MODEL,
     semanticPlannerApiKey: parsed.SEMANTIC_PLANNER_API_KEY,
     semanticPlannerTimeoutMs: parsed.SEMANTIC_PLANNER_TIMEOUT_MS,
+    orchestrationEnabled: resolveRolloutFlag(
+      parsed.ORCHESTRATION_ENABLED,
+      parsed.APP_ENV,
+    ),
+    semanticPlannerEnabled: resolveRolloutFlag(
+      parsed.SEMANTIC_PLANNER_ENABLED,
+      parsed.APP_ENV,
+    ),
+    contextRetrievalEnabled: resolveRolloutFlag(
+      parsed.CONTEXT_RETRIEVAL_ENABLED,
+      parsed.APP_ENV,
+    ),
+    semanticRetrievalEnabled: resolveRolloutFlag(
+      parsed.SEMANTIC_RETRIEVAL_ENABLED,
+      parsed.APP_ENV,
+    ),
     aiDefaultMaxOutputTokens: parsed.AI_DEFAULT_MAX_OUTPUT_TOKENS,
     aiMaxMessageBytes: parsed.AI_MAX_MESSAGE_BYTES,
     aiMaxContextBytes: parsed.AI_MAX_CONTEXT_BYTES,
@@ -143,6 +159,15 @@ export function loadApiConfig(
     tbankReceiptItemName: parsed.TBANK_RECEIPT_ITEM_NAME,
     tbankRecurringEnabled: parsed.TBANK_RECURRING_ENABLED === "true",
   });
+}
+
+export function resolveRolloutFlag(
+  value: "auto" | "true" | "false",
+  appEnv: "local" | "test" | "staging" | "production",
+): boolean {
+  if (value === "true") return true;
+  if (value === "false") return false;
+  return appEnv === "local" || appEnv === "test";
 }
 
 function resolveSemanticPlannerProvider(parsed: {
@@ -278,6 +303,22 @@ export function loadWorkerConfig(
     aiMaxPlanSettledMicroRub: parsed.AI_MAX_PLAN_SETTLED_MICRORUB,
     aiMaxPlanCommittedMicroRub: parsed.AI_MAX_PLAN_COMMITTED_MICRORUB,
     aiCancellationPollMs: parsed.AI_CANCELLATION_POLL_MS,
+    orchestrationEnabled: resolveRolloutFlag(
+      parsed.ORCHESTRATION_ENABLED,
+      parsed.APP_ENV,
+    ),
+    contextRetrievalEnabled: resolveRolloutFlag(
+      parsed.CONTEXT_RETRIEVAL_ENABLED,
+      parsed.APP_ENV,
+    ),
+    semanticRetrievalEnabled: resolveRolloutFlag(
+      parsed.SEMANTIC_RETRIEVAL_ENABLED,
+      parsed.APP_ENV,
+    ),
+    localAiEnabled: resolveRolloutFlag(
+      parsed.LOCAL_AI_ENABLED,
+      parsed.APP_ENV,
+    ),
     vimlaCoreProvider: resolveVimlaCoreProvider(parsed),
     vimlaCoreBaseUrl: parsed.VIMLA_CORE_BASE_URL?.replace(/\/$/, ""),
     vimlaCoreModel: parsed.VIMLA_CORE_MODEL,
