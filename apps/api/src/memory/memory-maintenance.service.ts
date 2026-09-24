@@ -314,7 +314,6 @@ export class MemoryMaintenanceService {
     if (!extracted) {
       try {
         stored =
-          source.conversation.projectId !== null ||
           containsSensitiveContextData({
             content: source.content,
           }) ||
