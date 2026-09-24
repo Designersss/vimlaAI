@@ -5,6 +5,7 @@ import {
   type ContextBudget,
 } from "./budget.js";
 import { containsSensitiveContextData } from "./packer.js";
+import { containsSensitivePersonalMemoryData } from "./memory-sensitivity.js";
 import {
   estimateConservativeTokens as estimateTokens,
 } from "./token-estimate.js";
@@ -100,10 +101,17 @@ export class CompactedStateService {
 
       const content = input.content.trim();
       const outputTokenEstimate = estimateTokens(content);
-      const classification = strongerClassification(
+      const sourceClassification = strongerClassification(
         input.classification,
         resolved.classification,
       );
+      const classification =
+        containsSensitivePersonalMemoryData(content)
+          ? strongerClassification(
+              sourceClassification,
+              "RESTRICTED",
+            )
+          : sourceClassification;
       const sourceFingerprint = hashJson(
         resolved.refs.map((ref) => ({
           sourceType: ref.sourceType,
