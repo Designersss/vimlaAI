@@ -152,6 +152,28 @@ describe("LocalInferenceProvider", () => {
     });
   });
 
+  it("releases an abandoned stream concurrency slot when the request deadline expires", async () => {
+    const fetchImpl: HttpFetch = async () =>
+      new Response("data: [DONE]\n\n", { status: 200 });
+    const local = provider(fetchImpl, {
+      timeoutMs: 10,
+      maxConcurrentRequests: 1,
+      maxQueueDepth: 0,
+    });
+
+    await local.streamChat({
+      providerModelId: "qwen-local",
+      messages: [{ role: "user", content: "abandoned" }],
+      maxOutputTokens: 32,
+      correlationId: "corr-abandoned",
+    });
+    expect(local.runtimeState().adapterActiveRequests).toBe(1);
+
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    expect(local.runtimeState().adapterActiveRequests).toBe(0);
+  });
+
   it("opens its circuit after repeated retryable local failures", async () => {
     let calls = 0;
     const fetchImpl: HttpFetch = async () => {
