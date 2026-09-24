@@ -112,16 +112,18 @@ describe("AI chat integration", () => {
       where: { id: conversation.id },
     });
     expect(persisted.defaultTargetKind).toBe("AI_MODEL");
-    expect([firstModel.id, secondModel.id]).toContain(
-      persisted.defaultTargetModelId,
-    );
+    const targetModelId = persisted.defaultTargetModelId;
+    if (!targetModelId) {
+      throw new Error("Expected a persisted thread model");
+    }
+    expect([firstModel.id, secondModel.id]).toContain(targetModelId);
     const requests = await prisma.aiRequest.findMany({
       where: { userId: user.id, conversationId: conversation.id },
     });
     expect(requests).toHaveLength(2);
     expect(
       new Set(requests.map((request) => request.modelId)),
-    ).toEqual(new Set([persisted.defaultTargetModelId!]));
+    ).toEqual(new Set([targetModelId]));
     await prisma.$disconnect();
   });
 
