@@ -205,11 +205,12 @@ describe("LocalInferenceProvider", () => {
     };
 
     const result = await local.streamChat(request);
-    await expect(async () => {
+    const drain = (async () => {
       for await (const _event of result.events) {
         // Drain the provider stream.
       }
-    }).rejects.toMatchObject({
+    })();
+    await expect(drain).rejects.toMatchObject({
       code: "INVALID_RESPONSE",
       retryable: true,
     });
