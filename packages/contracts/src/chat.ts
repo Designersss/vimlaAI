@@ -5,6 +5,7 @@ import { operatorRunViewSchema } from "./operator.js";
 export const createConversationSchema = z
   .object({
     title: z.string().trim().min(1).max(120).optional(),
+    projectId: z.string().uuid().optional(),
   })
   .strict();
 export type CreateConversation = z.infer<typeof createConversationSchema>;
@@ -38,6 +39,7 @@ export type AiModelsResponse = z.infer<typeof aiModelsResponseSchema>;
 
 export const conversationSummarySchema = z.object({
   id: z.string().min(1),
+  projectId: z.string().uuid().nullable(),
   title: z.string().nullable(),
   updatedAt: z.string(),
 });
@@ -64,6 +66,7 @@ export type ChatMessage = z.infer<typeof chatMessageSchema>;
 
 export const conversationDetailSchema = z.object({
   id: z.string().min(1),
+  projectId: z.string().uuid().nullable(),
   title: z.string().nullable(),
   updatedAt: z.string(),
   messages: z.array(chatMessageSchema),
