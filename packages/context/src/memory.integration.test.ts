@@ -896,6 +896,106 @@ describe("durable memory context graph", () => {
     ).toBe("PROJECT_MEMORY");
   });
 
+  it("drops current-project ranking after Project access is revoked while retaining the user's own chat as personal context", async () => {
+    const projectOwner = await user("focus-revoke-owner");
+    const actor = await user("focus-revoke-member");
+    const project = await db.project.create({
+      data: {
+        ownerUserId: projectOwner,
+        name: "Revoked Focus Project",
+        members: {
+          create: {
+            userId: actor,
+            role: "MEMBER",
+          },
+        },
+      },
+    });
+    const historicalConversation =
+      await db.conversation.create({
+        data: {
+          userId: actor,
+          projectId: project.id,
+          kind: "CHAT",
+        },
+      });
+    const historicalMessage = await db.message.create({
+      data: {
+        conversationId: historicalConversation.id,
+        role: "USER",
+        status: "COMPLETE",
+        content: "Launch region for this project is Europe.",
+      },
+    });
+    const currentConversation =
+      await db.conversation.create({
+        data: {
+          userId: actor,
+          projectId: project.id,
+          kind: "CHAT",
+        },
+      });
+    const currentMessage = await db.message.create({
+      data: {
+        conversationId: currentConversation.id,
+        role: "USER",
+        status: "COMPLETE",
+        content: "What is the launch region?",
+      },
+    });
+    const planId = randomUUID();
+    await db.executionPlan.create({
+      data: {
+        id: planId,
+        messageId: currentMessage.id,
+        userId: actor,
+        conversationId: currentConversation.id,
+        schemaVersion: 1,
+        version: 1,
+        planHash: "planning:pending:v1",
+        goal: "Resolve project focus",
+        status: "PLANNING",
+        maxParallelism: 1,
+      },
+    });
+
+    const retrieval = new ContextRetrievalService(db);
+    const before = await retrieval.retrieveForExecutionPlan({
+      actorUserId: actor,
+      planId,
+    });
+    expect(
+      before.candidates.find(
+        (candidate) =>
+          candidate.item.sourceId === historicalMessage.id,
+      )?.currentProject,
+    ).toBe(true);
+
+    await db.projectMember.delete({
+      where: {
+        projectId_userId: {
+          projectId: project.id,
+          userId: actor,
+        },
+      },
+    });
+
+    const after = await retrieval.retrieveForExecutionPlan({
+      actorUserId: actor,
+      planId,
+    });
+    const retainedPersonal = after.candidates.find(
+      (candidate) =>
+        candidate.item.sourceId === historicalMessage.id,
+    );
+    expect(retainedPersonal).toBeDefined();
+    expect(retainedPersonal?.currentProject).toBe(false);
+    expect(retainedPersonal?.sourceScope).toEqual({
+      kind: "PERSONAL",
+      ownerUserId: actor,
+    });
+  });
+
   it("retrieves L2 from another personal conversation focused on the current Project", async () => {
     const owner = await user("project-l2-owner");
     const project = await db.project.create({
