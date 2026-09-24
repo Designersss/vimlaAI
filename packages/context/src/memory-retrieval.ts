@@ -15,7 +15,6 @@ import {
 
 const MAX_SCAN = 1_000;
 const MAX_RETURNED = 24;
-const FALLBACK_CONFIRMED = 6;
 
 export class MemoryRetrievalProvider
   implements ContextRetrievalProvider
@@ -171,23 +170,8 @@ export class MemoryRetrievalProvider
             ],
             take: MAX_SCAN,
           });
-    const confirmedRows =
-      await this.db.memoryItem.findMany({
-        where: {
-          state: "ACTIVE",
-          invalidatedAt: null,
-          userConfirmedAt: { not: null },
-          AND: activeClauses,
-        },
-        include: { sourceRefs: true },
-        orderBy: [
-          { validFrom: "desc" },
-          { id: "desc" },
-        ],
-        take: FALLBACK_CONFIRMED * 4,
-      });
     const byId = new Map(
-      [...priorityRows, ...relevantRows, ...confirmedRows].map((row) => [
+      [...priorityRows, ...relevantRows].map((row) => [
         row.id,
         row,
       ]),
@@ -209,25 +193,10 @@ export class MemoryRetrievalProvider
       })
       .sort(compareMemoryCandidate);
 
-    const relevant = ranked.filter(
+    const ordered = ranked.filter(
       ({ score, directReference }) =>
         score > 0 || directReference,
     );
-    const fallback = ranked
-      .filter(
-        ({ row, score, directReference }) =>
-          score <= 0 &&
-          !directReference &&
-          row.userConfirmedAt !== null,
-      )
-      .sort((left, right) =>
-        right.row.validFrom.getTime() -
-          left.row.validFrom.getTime() ||
-        right.row.id.localeCompare(left.row.id),
-      )
-      .slice(0, FALLBACK_CONFIRMED);
-
-    const ordered = [...relevant, ...fallback];
     const selected: typeof ordered = [];
     const seen = new Set<string>();
     for (const candidate of ordered) {
@@ -275,10 +244,7 @@ export class MemoryRetrievalProvider
               ? "PROJECT_MEMORY"
               : "PERSONAL_MEMORY",
           sourceScope,
-          reason:
-            score > 0 || directReference
-              ? "relevant durable memory"
-              : "recent user-confirmed memory fallback",
+          reason: "relevant durable memory",
           lexicalScore: score,
           directReference,
           currentSurface:
