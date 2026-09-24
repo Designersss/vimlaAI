@@ -338,7 +338,13 @@ export class LocalInferenceProvider implements AiProvider {
           if (responseBytes > MAX_STREAM_RESPONSE_BYTES) {
             throw new LocalInferenceError("INVALID_RESPONSE", true);
           }
-          yield* parser.push(value);
+          const events = parser.push(value);
+          yield* events;
+          if (events.some((event) => event.type === "done")) {
+            await reader.cancel().catch(() => undefined);
+            this.recordSuccess();
+            return;
+          }
         }
       }
     } catch (error: unknown) {
