@@ -95,7 +95,7 @@ export class SemanticSearchService {
             AND (
               (s.kind='MESSAGE' AND EXISTS (SELECT 1 FROM message m JOIN conversation cv ON cv.id=m."conversationId"
                 WHERE m.id=s."sourceId" AND cv."userId"=${input.actorUserId} AND m.status='COMPLETE' AND cv.kind IN ('CHAT','OPERATOR')
-                AND m.id<>${input.sourceMessageId} AND m."createdAt"<=${plan.message.createdAt}))
+                AND m.id<>${input.sourceMessageId} AND m."createdAt"<${plan.message.createdAt}))
               OR (s.kind='NOTE' AND EXISTS (SELECT 1 FROM workspace_object o WHERE o.id=s."sourceId"
                 AND o."personalOwnerUserId"=${input.actorUserId} AND o."deletedAt" IS NULL AND o."scopeType"='PERSONAL'))
               OR (s.kind='PROJECT' AND EXISTS (SELECT 1 FROM project p WHERE p.id=s."sourceId" AND
@@ -172,7 +172,11 @@ export class SemanticSearchService {
           ),
           directReference,
           currentSurface,
-          currentProject: false,
+          currentProject:
+            input.currentProjectId !== null &&
+            input.currentProjectId !== undefined &&
+            doc.scope.kind === "PROJECT" &&
+            doc.scope.projectId === input.currentProjectId,
           occurredAt: doc.occurredAt.toISOString(),
           estimatedTokens: Buffer.byteLength(JSON.stringify(item.metadata)),
         });
