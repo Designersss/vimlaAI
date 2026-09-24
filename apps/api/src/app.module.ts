@@ -21,6 +21,7 @@ import { DirectChatsModule } from "./direct-chats/direct-chats.module.js";
 import { MentionsModule } from "./mentions/mentions.module.js";
 import { MemoryModule } from "./memory/memory.module.js";
 import { createPinoHttpOptions } from "./observability/logger.js";
+import { ObservabilityModule } from "./observability/observability.module.js";
 
 @Module({})
 export class AppModule {
@@ -28,6 +29,7 @@ export class AppModule {
     const apiConfigModule = ApiConfigModule.forRoot(config);
     const imports = [
       apiConfigModule,
+      ObservabilityModule,
       LoggerModule.forRootAsync({
         imports: [apiConfigModule],
         inject: [API_CONFIG],
