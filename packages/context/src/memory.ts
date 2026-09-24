@@ -999,7 +999,20 @@ async function memoryScopeReadable(
         }),
       );
     case "THREAD":
-      return false;
+      if (!row.threadId || row.ownerUserId !== actorUserId) {
+        return false;
+      }
+      return Boolean(
+        await db.conversation.findFirst({
+          where: {
+            id: row.threadId,
+            userId: actorUserId,
+            kind: "CHAT",
+            defaultTargetKind: { in: ["AI_AUTO", "AI_MODEL"] },
+          },
+          select: { id: true },
+        }),
+      );
     case "PROJECT":
       if (!row.projectId) return false;
       return Boolean(
@@ -1030,11 +1043,24 @@ async function assertScopeWritable(
   switch (scope.kind) {
     case "PERSONAL":
       return;
-    case "THREAD":
-      throw new MemoryError(
-        "DISABLED",
-        "Thread Memory requires the PR-18 thread authority model",
-      );
+    case "THREAD": {
+      const thread = await tx.conversation.findFirst({
+        where: {
+          id: scope.threadId ?? "",
+          userId: actorUserId,
+          kind: "CHAT",
+          defaultTargetKind: { in: ["AI_AUTO", "AI_MODEL"] },
+        },
+        select: { id: true },
+      });
+      if (!thread) {
+        throw new MemoryError(
+          "NOT_FOUND",
+          "Thread memory scope not found",
+        );
+      }
+      return;
+    }
     case "CONVERSATION": {
       const conversation = await tx.conversation.findFirst({
         where: {
@@ -1120,6 +1146,18 @@ async function assertSourceRefsValid(
       );
     }
     if (
+      targetScope.kind === "THREAD" &&
+      !(
+        resolved.scopeKind === "THREAD" &&
+        resolved.scopeId === targetScope.threadId
+      )
+    ) {
+      throw new MemoryError(
+        "FORBIDDEN",
+        "Thread memory sources must belong to the target thread",
+      );
+    }
+    if (
       targetScope.kind === "PROJECT" &&
       !(
         resolved.scopeKind === "PROJECT" &&
@@ -1202,6 +1240,12 @@ async function assertSourceRefValid(
         select: {
           updatedAt: true,
           conversationId: true,
+          conversation: {
+            select: {
+              kind: true,
+              defaultTargetKind: true,
+            },
+          },
         },
       });
       if (
@@ -1216,15 +1260,30 @@ async function assertSourceRefValid(
           "Message memory source is stale or inaccessible",
         );
       }
+      const claimedKind =
+        ref.sourceScopeKind === "THREAD" ? "THREAD" : "CONVERSATION";
+      if (
+        claimedKind === "THREAD" &&
+        !(
+          row.conversation.kind === "CHAT" &&
+          (row.conversation.defaultTargetKind === "AI_AUTO" ||
+            row.conversation.defaultTargetKind === "AI_MODEL")
+        )
+      ) {
+        throw new MemoryError(
+          "VALIDATION_ERROR",
+          "Message memory thread source is not an AI thread",
+        );
+      }
       assertClaimedScope(
         ref,
-        "CONVERSATION",
+        claimedKind,
         row.conversationId,
         "Message memory",
       );
       return {
         classification: "PRIVATE",
-        scopeKind: "CONVERSATION",
+        scopeKind: claimedKind,
         scopeId: row.conversationId,
       };
     }
@@ -1423,6 +1482,7 @@ async function sourceRefCurrent(
     ownerUserId: string;
     scopeKind: string;
     projectId: string | null;
+    threadId: string | null;
   },
   ref: {
     sourceType: string;
@@ -1466,7 +1526,8 @@ async function sourceRefCurrent(
     }
     case "MESSAGE": {
       if (
-        ref.sourceScopeKind !== "CONVERSATION" ||
+        (ref.sourceScopeKind !== "CONVERSATION" &&
+          ref.sourceScopeKind !== "THREAD") ||
         !ref.sourceScopeId
       ) {
         return false;
@@ -1475,7 +1536,15 @@ async function sourceRefCurrent(
         where: {
           id: ref.sourceId,
           conversationId: ref.sourceScopeId,
-          conversation: { userId: memory.ownerUserId },
+          conversation: {
+            userId: memory.ownerUserId,
+            ...(ref.sourceScopeKind === "THREAD"
+              ? {
+                  kind: "CHAT",
+                  defaultTargetKind: { in: ["AI_AUTO", "AI_MODEL"] },
+                }
+              : {}),
+          },
         },
         select: { updatedAt: true },
       });
