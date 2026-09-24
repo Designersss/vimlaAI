@@ -258,6 +258,49 @@ describe("LocalInferenceProvider", () => {
     });
   });
 
+  it("does not send a queued request after another request opens the circuit", async () => {
+    let calls = 0;
+    let resolveFirst: ((response: Response) => void) | undefined;
+    const fetchImpl: HttpFetch = async () => {
+      calls += 1;
+      return new Promise<Response>((resolve) => {
+        resolveFirst = resolve;
+      });
+    };
+    const local = provider(fetchImpl, {
+      maxConcurrentRequests: 1,
+      maxQueueDepth: 1,
+      circuitBreakerFailureThreshold: 1,
+      circuitBreakerResetMs: 30_000,
+    });
+    const request = {
+      providerModelId: "qwen-local",
+      messages: [{ role: "user" as const, content: "hello" }],
+      maxOutputTokens: 32,
+      correlationId: "corr-queue-circuit",
+    };
+
+    const first = local.streamChat(request);
+    await Promise.resolve();
+    const queued = local.streamChat({
+      ...request,
+      correlationId: "corr-queued-after-open",
+    });
+    await Promise.resolve();
+
+    resolveFirst?.(new Response("{}", { status: 503 }));
+
+    await expect(first).rejects.toMatchObject({
+      code: "UNAVAILABLE",
+      retryable: true,
+    });
+    await expect(queued).rejects.toMatchObject({
+      code: "CIRCUIT_OPEN",
+      retryable: true,
+    });
+    expect(calls).toBe(1);
+  });
+
   it("does not let an older in-flight success close a circuit opened by another request", async () => {
     let calls = 0;
     let resolveFirst: ((response: Response) => void) | undefined;
