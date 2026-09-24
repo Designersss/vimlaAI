@@ -852,6 +852,10 @@ describe("durable memory context graph", () => {
       owner,
       "What is the launch region?",
     );
+    await db.conversation.update({
+      where: { id: current.conversation.id },
+      data: { projectId: project.id },
+    });
     const planId = randomUUID();
     await db.executionPlan.create({
       data: {
@@ -873,7 +877,6 @@ describe("durable memory context graph", () => {
     ]).retrieveForExecutionPlan({
       actorUserId: owner,
       planId,
-      currentProjectId: project.id,
     });
     const projectIndex = retrieval.candidates.findIndex(
       (candidate) => candidate.item.sourceId === memory.id,
