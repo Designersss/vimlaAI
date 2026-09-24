@@ -1,6 +1,11 @@
 import type { ContextBundleView } from "@vimla/context";
 import { Prisma, type PrismaClient } from "@vimla/database";
 import {
+  NOOP_TELEMETRY_SINK,
+  telemetryDurationMs,
+  type TelemetrySink,
+} from "@vimla/shared";
+import {
   decideDependencyReadiness,
   isTerminalInvocationStatus as isSharedTerminalInvocationStatus,
   type DependencyCondition,
@@ -126,6 +131,7 @@ export interface OrchestrationRuntimeOptions {
   usageRecheckBaseMs?: number;
   usageRecheckMaxMs?: number;
   executorRegistry?: InvocationExecutorRegistry;
+  telemetry?: TelemetrySink;
 }
 
 type ClaimedInvocation = {
@@ -136,6 +142,7 @@ type ClaimedInvocation = {
   idempotencyKey: string;
   failurePolicy: FailurePolicy;
   target: InvocationExecutionInput["target"];
+  queueDelayMs: number;
 };
 
 type RuntimePlan = Prisma.ExecutionPlanGetPayload<{
@@ -153,6 +160,7 @@ export class OrchestrationRuntime {
   private readonly usageRecheckBaseMs: number;
   private readonly usageRecheckMaxMs: number;
   private readonly executorRegistry: InvocationExecutorRegistry;
+  private readonly telemetry: TelemetrySink;
 
   constructor(
     private readonly prisma: PrismaClient,
@@ -174,11 +182,14 @@ export class OrchestrationRuntime {
       throw new Error("usageRecheckMaxMs must be >= usageRecheckBaseMs");
     }
     this.executorRegistry = options.executorRegistry ?? new FailClosedInvocationExecutorRegistry();
+    this.telemetry = options.telemetry ?? NOOP_TELEMETRY_SINK;
   }
 
   async reconcile(): Promise<void> {
-    await this.recoverStalePlanningShells();
-    await this.recoverStaleRuns();
+    const startedAt = Date.now();
+    const recoveredPlanningShells =
+      await this.recoverStalePlanningShells();
+    const recoveredInvocationRuns = await this.recoverStaleRuns();
 
     let cursor: string | undefined;
     for (;;) {
@@ -196,6 +207,18 @@ export class OrchestrationRuntime {
       cursor = plans.at(-1)?.id;
       if (!cursor) break;
     }
+
+    const recoveredStuckWorkflows =
+      recoveredPlanningShells + recoveredInvocationRuns;
+    this.telemetry.emit({
+      event: "runtime.reconciliation",
+      outcome:
+        recoveredStuckWorkflows > 0 ? "RECOVERED" : "SUCCESS",
+      recoveredPlanningShells,
+      recoveredInvocationRuns,
+      recoveredStuckWorkflows,
+      durationMs: telemetryDurationMs(startedAt),
+    });
   }
 
   async dispatchPlan(planId: string): Promise<void> {
@@ -337,6 +360,44 @@ export class OrchestrationRuntime {
     }
 
     await this.persistExecutionResult(claim, result);
+    const persistedRun = await this.prisma.invocationRun.findUnique({
+      where: { id: claim.runId },
+      select: {
+        status: true,
+        errorCode: true,
+        startedAt: true,
+        finishedAt: true,
+      },
+    });
+    if (persistedRun) {
+      const durationMs =
+        persistedRun.finishedAt && persistedRun.startedAt
+          ? Math.max(
+              0,
+              persistedRun.finishedAt.getTime() -
+                persistedRun.startedAt.getTime(),
+            )
+          : 0;
+      this.telemetry.emit({
+        event: "runtime.invocation",
+        planId: claim.planId,
+        invocationId: claim.invocationId,
+        runId: claim.runId,
+        targetKind: claim.target.kind,
+        outcome: runtimeTelemetryOutcome(
+          persistedRun.status,
+          result,
+        ),
+        durationMs,
+        queueDelayMs: claim.queueDelayMs,
+        attempt: claim.attempt,
+        retryable:
+          result.status === "FAILED" ? result.retryable : false,
+        ...(persistedRun.errorCode
+          ? { errorCode: persistedRun.errorCode }
+          : {}),
+      });
+    }
     await this.enqueueDispatch(planId);
   }
 
@@ -380,6 +441,10 @@ export class OrchestrationRuntime {
         runId: run.id,
         idempotencyKey,
         failurePolicy: parseFailurePolicy(invocation.failurePolicy),
+        queueDelayMs: Math.max(
+          0,
+          Date.now() - invocation.updatedAt.getTime(),
+        ),
         target: {
           kind: parseTargetKind(invocation.targetKind),
           modelSlug: invocation.targetModelSlug,
@@ -465,7 +530,8 @@ export class OrchestrationRuntime {
     });
   }
 
-  private async recoverStalePlanningShells(): Promise<void> {
+  private async recoverStalePlanningShells(): Promise<number> {
+    let recoveredCount = 0;
     const cutoff = new Date(Date.now() - this.planningStaleAfterMs);
     const stalePlans = await this.prisma.executionPlan.findMany({
       where: {
@@ -492,15 +558,17 @@ export class OrchestrationRuntime {
         },
       });
       if (recovered.count === 1) {
+        recoveredCount += 1;
         this.logger.warn(
           { planId: plan.id },
           "recovered stale semantic planning shell",
         );
       }
     }
+    return recoveredCount;
   }
 
-  private async recoverStaleRuns(): Promise<void> {
+  private async recoverStaleRuns(): Promise<number> {
     const cutoff = new Date(Date.now() - this.staleAfterMs);
     const staleRuns = await this.prisma.invocationRun.findMany({
       where: { status: "RUNNING", startedAt: { lt: cutoff } },
@@ -509,13 +577,21 @@ export class OrchestrationRuntime {
       take: this.reconcileBatchSize,
     });
 
+    let recoveredCount = 0;
     for (const stale of staleRuns) {
-      await this.recoverStaleRun(stale.id, stale.invocationId);
+      if (await this.recoverStaleRun(stale.id, stale.invocationId)) {
+        recoveredCount += 1;
+      }
     }
+    return recoveredCount;
   }
 
-  private async recoverStaleRun(runId: string, invocationId: string): Promise<void> {
+  private async recoverStaleRun(
+    runId: string,
+    invocationId: string,
+  ): Promise<boolean> {
     let planId: string | null = null;
+    let recovered = false;
     await this.prisma.$transaction(async (tx) => {
       const initial = await tx.invocation.findUnique({
         where: { id: invocationId },
@@ -539,6 +615,7 @@ export class OrchestrationRuntime {
           where: { id: runId },
           data: { status: "CANCELED", errorCode: "INVOCATION_NO_LONGER_ACTIVE", finishedAt: now },
         });
+        recovered = true;
         return;
       }
 
@@ -546,6 +623,7 @@ export class OrchestrationRuntime {
         where: { id: runId },
         data: { status: "FAILED", errorCode: "WORKER_INTERRUPTED", finishedAt: now },
       });
+      recovered = true;
       if (run.attempt < this.maxAttempts) {
         await tx.invocation.updateMany({
           where: { id: invocationId, status: "RUNNING" },
@@ -563,9 +641,13 @@ export class OrchestrationRuntime {
       }
     });
 
-    if (planId) {
-      this.logger.warn({ planId, invocationId, runId }, "recovered stale orchestration invocation run");
+    if (planId && recovered) {
+      this.logger.warn(
+        { planId, invocationId, runId },
+        "recovered stale orchestration invocation run",
+      );
     }
+    return recovered;
   }
 
   private async enqueueDispatch(planId: string): Promise<void> {
@@ -580,7 +662,16 @@ export class OrchestrationRuntime {
         },
       );
     } catch (error: unknown) {
-      if (isDuplicateJobError(error)) return;
+      if (isDuplicateJobError(error)) {
+        this.telemetry.emit({
+          event: "safety.policy",
+          planId,
+          action: "DUPLICATE_PREVENTED",
+          reason: "OTHER",
+          count: 1,
+        });
+        return;
+      }
       throw error;
     }
   }
@@ -597,7 +688,17 @@ export class OrchestrationRuntime {
         },
       );
     } catch (error: unknown) {
-      if (isDuplicateJobError(error)) return;
+      if (isDuplicateJobError(error)) {
+        this.telemetry.emit({
+          event: "safety.policy",
+          planId,
+          invocationId,
+          action: "DUPLICATE_PREVENTED",
+          reason: "OTHER",
+          count: 1,
+        });
+        return;
+      }
       throw error;
     }
   }
@@ -713,6 +814,26 @@ async function failPlan(
     },
     data: { status: "CANCELED" },
   });
+}
+
+function runtimeTelemetryOutcome(
+  persistedStatus: string,
+  result: InvocationExecutionResult,
+): "SUCCESS" | "FAILED" | "REPLAYED" | "WAITING" | "CANCELED" {
+  if (persistedStatus === "CANCELED") return "CANCELED";
+  if (
+    persistedStatus === "WAITING_FOR_USAGE_CAPACITY" ||
+    persistedStatus === "BLOCKED_INSUFFICIENT_USAGE"
+  ) {
+    return "WAITING";
+  }
+  if (persistedStatus === "COMPLETED") {
+    return result.status === "COMPLETED" &&
+      result.outcome === "REPLAYED"
+      ? "REPLAYED"
+      : "SUCCESS";
+  }
+  return "FAILED";
 }
 
 function invocationRunIdempotencyKey(invocationId: string, attempt: number): string {
