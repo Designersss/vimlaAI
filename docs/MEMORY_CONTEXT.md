@@ -144,7 +144,9 @@ When `MEMORY_ENABLED=true`, orchestration adds two derived providers to the exis
 
 Providers can only contribute existing allowed derived source types, with `authority=DERIVED`. Core Context code reattaches retrieval metadata and applies ContextPolicy, audience checks, classification rules, source contribution caps, token budgets, and deduplication.
 
-Memory retrieval filters for lexical relevance before its bounded result window, so a large set of newer unrelated rows cannot hide an older relevant fact. L2 retrieval always reserves the current-conversation state separately from authorized Project states. Provider input also carries an optional `currentProjectId`; when a Project surface supplies it, Project Memory/L2 are marked `currentProject` and receive the existing current-project ranking boost. Private-chat surfaces intentionally pass no current project.
+Memory retrieval filters for lexical relevance before its bounded result window, so a large set of newer unrelated rows cannot hide an older relevant fact. L2 retrieval always reserves the current-conversation state separately from authorized Project states.
+
+A personal chat may opt into an authorized Project **focus** by storing a nullable `Conversation.projectId`. The focus is accepted only after server-side owner/member validation and is persisted before retrieval; model output cannot supply or override it. Snapshot construction derives `currentProjectId` from that persisted relation, so authorized Project Memory/L2 and same-project personal chat history receive the existing current-project ranking boost. This is read-context focus only: it does not turn the personal chat into a shared Project surface and never authorizes Project Memory mutation. Deleting the Project clears the focus via `ON DELETE SET NULL`; membership loss immediately removes Project-derived context through normal current-ACL checks.
 
 Memory does not get automatic semantic-vector indexing in PR-17; semantic retrieval remains source-based and E2EE exclusions from PR-15/PR-16 remain unchanged.
 
