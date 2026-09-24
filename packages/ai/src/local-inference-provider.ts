@@ -315,6 +315,7 @@ export class LocalInferenceProvider implements AiProvider {
     const parser = new OpenAiCompatSseParser();
     const reader = body.getReader();
     let responseBytes = 0;
+    let reachedPhysicalEof = false;
     const abortReader = (): void => {
       void reader.cancel(signal.reason).catch(() => undefined);
     };
@@ -329,6 +330,7 @@ export class LocalInferenceProvider implements AiProvider {
           throw classifyAbortSignal(signal);
         }
         if (done) {
+          reachedPhysicalEof = true;
           yield* parser.finish();
           this.recordSuccess();
           return;
@@ -341,7 +343,6 @@ export class LocalInferenceProvider implements AiProvider {
           const events = parser.push(value);
           yield* events;
           if (events.some((event) => event.type === "done")) {
-            await reader.cancel().catch(() => undefined);
             this.recordSuccess();
             return;
           }
@@ -360,6 +361,9 @@ export class LocalInferenceProvider implements AiProvider {
       throw classified;
     } finally {
       signal.removeEventListener("abort", abortReader);
+      if (!reachedPhysicalEof) {
+        void reader.cancel().catch(() => undefined);
+      }
       reader.releaseLock();
       removeAbortListener();
       releaseSlot();
