@@ -294,7 +294,9 @@ describe("ContextBundleService", () => {
       (item) => item.sourceId === privateMessage.id,
     );
     expect(related).toBeDefined();
-    expect(privateItem).toBeDefined();
+    // Project-surface filtering happens before the snapshot is frozen,
+    // because semantic planning consumes snapshot.items directly.
+    expect(privateItem).toBeUndefined();
 
     const resolved = await bundles.resolveForInvocation({
       actorUserId,
@@ -311,14 +313,6 @@ describe("ContextBundleService", () => {
         (item) => item.sourceId === privateMessage.id,
       ),
     ).toBe(false);
-    expect(resolved.manifest.denials).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          sourceType: "MESSAGE",
-          reason: "SOURCE_SCOPE_DENIED",
-        }),
-      ]),
-    );
   });
 
   it("rejects a shared audience descriptor whose source does not match its surface id", async () => {
