@@ -14,6 +14,7 @@ import {
 } from "@vimla/contracts";
 import { Prisma, type PrismaClient } from "@vimla/database";
 import { containsSensitiveContextData } from "./packer.js";
+import { containsSensitivePersonalMemoryData } from "./memory-sensitivity.js";
 
 export {
   MEMORY_CLASSIFICATIONS,
@@ -532,9 +533,19 @@ export class MemoryService {
     const contentHash = hashText(content);
     const validFrom = input.validFrom ?? new Date();
     const expiresAt = input.expiresAt ?? null;
+    const detectedSensitive =
+      containsSensitivePersonalMemoryData(
+        [input.slotKey, content].join("\n"),
+      );
     const requestedClassification =
-      input.classification ?? "PRIVATE";
-    const sensitivity = input.sensitivity ?? "NORMAL";
+      detectedSensitive
+        ? strongerClassification(
+            input.classification ?? "PRIVATE",
+            "RESTRICTED",
+          )
+        : input.classification ?? "PRIVATE";
+    const sensitivity =
+      detectedSensitive ? "SENSITIVE" : input.sensitivity ?? "NORMAL";
     const confidence = input.confidence ?? 0.8;
     const quality = input.quality ?? 0.8;
 
@@ -1672,6 +1683,17 @@ function validateCandidate(
     throw new MemoryError(
       "VALIDATION_ERROR",
       "Sensitive memory must be RESTRICTED",
+    );
+  }
+  if (
+    input.origin === "AUTO_EXTRACTION" &&
+    containsSensitivePersonalMemoryData(
+      [input.slotKey, content].join("\n"),
+    )
+  ) {
+    throw new MemoryError(
+      "SENSITIVE_CONTENT",
+      "Sensitive personal facts cannot be stored by automatic Memory extraction",
     );
   }
   if (input.origin === "AUTO_EXTRACTION") {
