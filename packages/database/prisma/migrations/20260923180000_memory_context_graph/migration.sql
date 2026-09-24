@@ -81,7 +81,8 @@ CREATE TABLE "memory_item" (
     OR ("state"<>'INVALIDATED' AND "invalidatedAt" IS NULL)
   ),
   CONSTRAINT "memory_item_redaction_check" CHECK (
-    "contentRedactedAt" IS NULL OR "state"<>'ACTIVE'
+    "contentRedactedAt" IS NULL
+    OR ("state"<>'ACTIVE' AND "content"='')
   )
 );
 
@@ -187,7 +188,8 @@ CREATE TABLE "compacted_context_state" (
     OR ("invalidatedAt" IS NOT NULL AND "invalidationReason" IS NOT NULL)
   ),
   CONSTRAINT "compacted_context_state_redaction_check" CHECK (
-    "contentRedactedAt" IS NULL OR "invalidatedAt" IS NOT NULL
+    "contentRedactedAt" IS NULL
+    OR ("invalidatedAt" IS NOT NULL AND "content"='')
   )
 );
 CREATE UNIQUE INDEX "compacted_context_state_scope_version_key" ON "compacted_context_state"("scopeKey","version");
