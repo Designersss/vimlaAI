@@ -223,6 +223,13 @@ export class LocalInferenceProvider implements AiProvider {
       throw error;
     }
 
+    let slotReleased = false;
+    const releaseSlotOnce = (): void => {
+      if (slotReleased) return;
+      slotReleased = true;
+      this.releaseSlot();
+    };
+
     const timeout = AbortSignal.timeout(this.config.timeoutMs);
     const signal = request.abortSignal
       ? AbortSignal.any([request.abortSignal, timeout])
@@ -244,7 +251,7 @@ export class LocalInferenceProvider implements AiProvider {
         signal,
       });
     } catch (error: unknown) {
-      this.releaseSlot();
+      releaseSlotOnce();
       const classified = classifyTransportError(error, signal);
       if (classified.code === "CANCELED") {
         if (halfOpen) this.halfOpenInFlight = false;
@@ -255,7 +262,7 @@ export class LocalInferenceProvider implements AiProvider {
     }
 
     if (!response.ok) {
-      this.releaseSlot();
+      releaseSlotOnce();
       const error = classifyHttpError(response.status);
       if (error.retryable) this.recordFailure();
       else this.recordSuccess();
@@ -263,7 +270,7 @@ export class LocalInferenceProvider implements AiProvider {
     }
 
     if (!response.body) {
-      this.releaseSlot();
+      releaseSlotOnce();
       this.recordFailure();
       throw new LocalInferenceError("INVALID_RESPONSE", true, response.status);
     }
@@ -272,9 +279,18 @@ export class LocalInferenceProvider implements AiProvider {
       response.headers.get("x-request-id") ??
       response.headers.get("x-provider-request-id");
 
+    const releaseOnAbort = (): void => releaseSlotOnce();
+    signal.addEventListener("abort", releaseOnAbort, { once: true });
+
     return {
       providerRequestId,
-      events: this.readStream(response.body, signal, halfOpen),
+      events: this.readStream(
+        response.body,
+        signal,
+        halfOpen,
+        releaseSlotOnce,
+        () => signal.removeEventListener("abort", releaseOnAbort),
+      ),
     };
   }
 
@@ -282,6 +298,8 @@ export class LocalInferenceProvider implements AiProvider {
     body: ReadableStream<Uint8Array>,
     signal: AbortSignal,
     halfOpen: boolean,
+    releaseSlot: () => void,
+    removeAbortListener: () => void,
   ): AsyncIterable<ProviderStreamEvent> {
     const parser = new OpenAiCompatSseParser();
     const reader = body.getReader();
@@ -310,7 +328,8 @@ export class LocalInferenceProvider implements AiProvider {
       throw classified;
     } finally {
       reader.releaseLock();
-      this.releaseSlot();
+      removeAbortListener();
+      releaseSlot();
     }
   }
 
