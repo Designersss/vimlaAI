@@ -3,14 +3,17 @@ import type { NormalizedUsage, ProviderStreamEvent } from "./types.js";
 
 export class OpenAiCompatSseParser {
   private buffer = "";
+  private terminal = false;
   private readonly decoder = new TextDecoder("utf-8", { fatal: false });
 
   push(chunk: Uint8Array): ProviderStreamEvent[] {
+    if (this.terminal) return [];
     this.buffer += this.decoder.decode(chunk, { stream: true });
     return this.drain(false);
   }
 
   finish(): ProviderStreamEvent[] {
+    if (this.terminal) return [];
     this.buffer += this.decoder.decode();
     return this.drain(true);
   }
@@ -27,7 +30,13 @@ export class OpenAiCompatSseParser {
 
       const rawEvent = this.buffer.slice(0, boundary);
       this.buffer = this.buffer.slice(boundary + 2);
-      events.push(...parseSseBlock(rawEvent));
+      const parsed = parseSseBlock(rawEvent);
+      events.push(...parsed);
+      if (parsed.some((event) => event.type === "done")) {
+        this.terminal = true;
+        this.buffer = "";
+        break;
+      }
     }
 
     if (flush && this.buffer.trim().length > 0) {
