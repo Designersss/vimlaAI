@@ -357,9 +357,9 @@ export class LocalInferenceProvider implements AiProvider {
         }
         if (done) {
           reachedPhysicalEof = true;
-          const finalEvents = parser.finish();
+          const final = eventsThroughDone(parser.finish());
           this.recordSuccess(permit);
-          yield* finalEvents;
+          yield* final.events;
           return;
         }
         if (value) {
@@ -367,13 +367,12 @@ export class LocalInferenceProvider implements AiProvider {
           if (responseBytes > MAX_STREAM_RESPONSE_BYTES) {
             throw new LocalInferenceError("INVALID_RESPONSE", true);
           }
-          const events = parser.push(value);
-          const terminal = events.some((event) => event.type === "done");
-          if (terminal) {
+          const parsed = eventsThroughDone(parser.push(value));
+          if (parsed.terminal) {
             this.recordSuccess(permit);
           }
-          yield* events;
-          if (terminal) {
+          yield* parsed.events;
+          if (parsed.terminal) {
             return;
           }
         }
@@ -572,6 +571,20 @@ export class LocalInferenceProvider implements AiProvider {
       return;
     }
   }
+}
+
+function eventsThroughDone(events: ProviderStreamEvent[]): {
+  events: ProviderStreamEvent[];
+  terminal: boolean;
+} {
+  const doneIndex = events.findIndex((event) => event.type === "done");
+  if (doneIndex === -1) {
+    return { events, terminal: false };
+  }
+  return {
+    events: events.slice(0, doneIndex + 1),
+    terminal: true,
+  };
 }
 
 function serializeProviderMessage(
