@@ -86,8 +86,8 @@ export class RedisVimlaCoreFairUseLimiter
       .update(actorUserId)
       .digest("base64url")
       .slice(0, 32);
-    const rateKey = `vimla:core:fair-use:rate:${suffix}`;
-    const concurrentKey = `vimla:core:fair-use:concurrent:${suffix}`;
+    const rateKey = `vimla:core:fair-use:{${suffix}}:rate`;
+    const concurrentKey = `vimla:core:fair-use:{${suffix}}:concurrent`;
     const leaseId = randomUUID();
     const result = await this.evalRedis(
       FAIR_USE_ACQUIRE_SCRIPT,
