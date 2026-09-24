@@ -660,6 +660,10 @@ describe("durable memory context graph", () => {
       slotKey: "coffee preference",
       content: "Prefers black coffee",
     });
+    await db.memoryItem.update({
+      where: { id: remembered.id },
+      data: { validFrom: new Date(Date.now() - 60_000) },
+    });
     const current = await message(
       owner,
       "Explain PostgreSQL advisory locks and transaction scope.",
