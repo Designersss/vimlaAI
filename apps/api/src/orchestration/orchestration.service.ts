@@ -109,7 +109,8 @@ export class OrchestrationService {
     correlationId: string,
     onPlanning?: (planId: string) => void,
   ): Promise<SemanticPlanMessageResult> {
-    this.assertPreviewEnabled();
+    this.assertOrchestrationEnabled();
+    this.assertSemanticPlannerEnabled();
 
     const sourceMessage = await this.prisma.client.message.findFirst({
       where: {
@@ -553,7 +554,7 @@ export class OrchestrationService {
   }
 
   async create(userId: string, body: unknown): Promise<ExecutionPlanView> {
-    this.assertPreviewEnabled();
+    this.assertOrchestrationEnabled();
     const input = parseCreate(body);
     validateManualExecutionPlan(input.plan);
 
@@ -653,7 +654,7 @@ export class OrchestrationService {
   }
 
   async getOne(userId: string, id: string): Promise<ExecutionPlanView> {
-    this.assertPreviewEnabled();
+    this.assertOrchestrationEnabled();
     const plan = await this.prisma.client.executionPlan.findFirst({
       where: { id, userId },
       include: planInclude,
@@ -668,7 +669,7 @@ export class OrchestrationService {
     userId: string,
     messageId: string,
   ): Promise<ExecutionPlanLookupView> {
-    this.assertPreviewEnabled();
+    this.assertOrchestrationEnabled();
     const plan = await this.prisma.client.executionPlan.findFirst({
       where: { userId, messageId },
       include: planInclude,
@@ -680,7 +681,7 @@ export class OrchestrationService {
     userId: string,
     conversationId: string,
   ): Promise<ExecutionPlanConversationView> {
-    this.assertPreviewEnabled();
+    this.assertOrchestrationEnabled();
 
     const activePlans = await this.prisma.client.executionPlan.findMany({
       where: {
@@ -716,7 +717,7 @@ export class OrchestrationService {
   }
 
   async start(userId: string, id: string): Promise<ExecutionPlanView> {
-    this.assertPreviewEnabled();
+    this.assertOrchestrationEnabled();
     await this.ensureContextSnapshot(userId, id);
 
     return this.prisma.client.$transaction(async (tx) => {
@@ -781,7 +782,7 @@ export class OrchestrationService {
   }
 
   async stop(userId: string, id: string): Promise<ExecutionPlanView> {
-    this.assertPreviewEnabled();
+    this.assertOrchestrationEnabled();
     return this.prisma.client.$transaction(async (tx) => {
       const current = await tx.executionPlan.findFirst({
         where: { id, userId },
@@ -818,7 +819,7 @@ export class OrchestrationService {
   }
 
   async approve(userId: string, id: string, body: unknown): Promise<ExecutionPlanView> {
-    this.assertPreviewEnabled();
+    this.assertOrchestrationEnabled();
     const input = parseApprove(body);
 
     return this.prisma.client.$transaction(async (tx) => {
@@ -880,7 +881,7 @@ export class OrchestrationService {
     graphInvocationId: string,
     body: unknown,
   ): Promise<ExecutionPlanView> {
-    this.assertPreviewEnabled();
+    this.assertOrchestrationEnabled();
     const input = parseHumanEvaluation(body);
     const parsedInvocationId = workflowGraphKeySchema.safeParse(
       graphInvocationId,
@@ -1094,11 +1095,15 @@ export class OrchestrationService {
   }
 
   private async ensureContextSnapshot(userId: string, planId: string): Promise<ContextSnapshotView> {
+    this.assertContextRetrievalEnabled();
     try {
-      const semantic = this.config.embeddings ? new SemanticSearchService(
+      const semantic =
+        this.config.semanticRetrievalEnabled && this.config.embeddings
+          ? new SemanticSearchService(
         this.prisma.client, new InternalHttpEmbeddingProvider(this.config.embeddings),
         { warn: (fields, message) => Logger.warn({ ...fields, message }, "SemanticRetrieval") },
-      ) : undefined;
+      )
+          : undefined;
       const derivedProviders = this.config.memoryEnabled
         ? [
             new MemoryRetrievalProvider(this.prisma.client),
@@ -1199,10 +1204,21 @@ export class OrchestrationService {
     };
   }
 
-  private assertPreviewEnabled(): void {
-    const nonProductionPreview = this.config.appEnv === "local" || this.config.appEnv === "test";
-    if (!nonProductionPreview || !this.config.operatorEnabled) {
+  private assertOrchestrationEnabled(): void {
+    if (!this.config.orchestrationEnabled || !this.config.operatorEnabled) {
       throw new NotFoundException("Execution plans are not available");
+    }
+  }
+
+  private assertSemanticPlannerEnabled(): void {
+    if (!this.config.semanticPlannerEnabled) {
+      throw new NotFoundException("Semantic workflow planning is not available");
+    }
+  }
+
+  private assertContextRetrievalEnabled(): void {
+    if (!this.config.contextRetrievalEnabled) {
+      throw new NotFoundException("Execution context retrieval is not available");
     }
   }
 }
