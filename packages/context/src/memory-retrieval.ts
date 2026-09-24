@@ -44,6 +44,11 @@ export class MemoryRetrievalProvider
           conversationId: input.conversationId,
         },
         {
+          scopeKind: "THREAD",
+          ownerUserId: input.actorUserId,
+          threadId: input.conversationId,
+        },
+        {
           scopeKind: "PROJECT",
           project: {
             OR: [
@@ -75,6 +80,11 @@ export class MemoryRetrievalProvider
           scopeKind: "CONVERSATION",
           ownerUserId: input.actorUserId,
           conversationId: input.conversationId,
+        },
+        {
+          scopeKind: "THREAD",
+          ownerUserId: input.actorUserId,
+          threadId: input.conversationId,
         },
         ...(input.currentProjectId
           ? [
@@ -248,8 +258,10 @@ export class MemoryRetrievalProvider
           lexicalScore: score,
           directReference,
           currentSurface:
-            row.scopeKind === "CONVERSATION" &&
-            row.conversationId === input.conversationId,
+            (row.scopeKind === "CONVERSATION" &&
+              row.conversationId === input.conversationId) ||
+            (row.scopeKind === "THREAD" &&
+              row.threadId === input.conversationId),
           currentProject:
             (sourceScope.kind === "PROJECT" &&
               sourceScope.projectId === input.currentProjectId) ||
