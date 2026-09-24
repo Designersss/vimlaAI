@@ -280,6 +280,9 @@ export class MemoryMaintenanceService {
         content: true,
         updatedAt: true,
         conversationId: true,
+        conversation: {
+          select: { projectId: true },
+        },
       },
     });
     if (!source) return;
@@ -311,6 +314,7 @@ export class MemoryMaintenanceService {
     if (!extracted) {
       try {
         stored =
+          source.conversation.projectId !== null ||
           containsSensitiveContextData({
             content: source.content,
           }) ||
