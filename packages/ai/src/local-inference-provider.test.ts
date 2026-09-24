@@ -93,17 +93,39 @@ describe("LocalInferenceProvider", () => {
     });
   });
 
-  it("treats the OpenAI-compatible done event as terminal without waiting for EOF", async () => {
+  it("treats the OpenAI-compatible done event as terminal without reading for EOF", async () => {
+    const encoder = new TextEncoder();
+    let readCalls = 0;
     let canceled = false;
-    const body = new ReadableStream<Uint8Array>({
-      start(controller) {
-        controller.enqueue(new TextEncoder().encode("data: [DONE]\\n\\n"));
+    let released = false;
+    const reader = {
+      read: async (): Promise<ReadableStreamReadResult<Uint8Array>> => {
+        readCalls += 1;
+        if (readCalls === 1) {
+          return {
+            done: false,
+            value: encoder.encode("data: [DONE]\\n\\n"),
+          };
+        }
+        return new Promise<ReadableStreamReadResult<Uint8Array>>(() => undefined);
       },
-      cancel() {
+      cancel: async (): Promise<void> => {
         canceled = true;
       },
-    });
-    const local = provider(async () => new Response(body, { status: 200 }));
+      releaseLock: (): void => {
+        released = true;
+      },
+    };
+    const body = {
+      getReader: () => reader,
+    } as unknown as ReadableStream<Uint8Array>;
+    const response = {
+      ok: true,
+      status: 200,
+      headers: new Headers(),
+      body,
+    } as Response;
+    const local = provider(async () => response);
     const result = await local.streamChat({
       providerModelId: "qwen-local",
       messages: [{ role: "user", content: "hello" }],
@@ -114,7 +136,9 @@ describe("LocalInferenceProvider", () => {
     for await (const event of result.events) events.push(event);
 
     expect(events).toEqual([{ type: "done" }]);
+    expect(readCalls).toBe(1);
     expect(canceled).toBe(true);
+    expect(released).toBe(true);
     expect(local.runtimeState().adapterActiveRequests).toBe(0);
   });
 
