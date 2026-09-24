@@ -26,6 +26,10 @@ import {
 } from "@vimla/context";
 import { type Prisma } from "@vimla/database";
 import {
+  countTelemetryValues,
+  telemetryDurationMs,
+} from "@vimla/shared";
+import {
   SemanticPlannerError,
   SemanticWorkflowPlanner,
   toPlannerInvocationMentions,
@@ -34,6 +38,7 @@ import {
   type SemanticWorkflowPlannerResult,
 } from "@vimla/orchestration";
 import { API_CONFIG, type ApiRuntimeConfig } from "../config/api-config.js";
+import { ApiTelemetrySink } from "../observability/telemetry.js";
 import { PrismaService } from "../persistence/prisma.service.js";
 import {
   acceptanceCriteriaSchema,
@@ -100,6 +105,8 @@ export class OrchestrationService {
     @Inject(API_CONFIG) private readonly config: ApiRuntimeConfig,
     @Inject(SEMANTIC_PLANNER_MODEL)
     private readonly semanticPlannerModel: SemanticPlannerModel,
+    @Inject(ApiTelemetrySink)
+    private readonly telemetry: ApiTelemetrySink,
   ) {}
 
   async planMessage(
@@ -148,6 +155,12 @@ export class OrchestrationService {
       };
     }
     if (shell.status !== "PLANNING") {
+      this.telemetry.emit({
+        event: "planner.feedback",
+        planId: shell.id,
+        action: "REPLAY",
+        count: 1,
+      });
       return existingSemanticPlanResult(shell);
     }
 
@@ -164,6 +177,12 @@ export class OrchestrationService {
         };
       }
       if (claim.plan.status !== "PLANNING") {
+        this.telemetry.emit({
+          event: "planner.feedback",
+          planId: claim.plan.id,
+          action: "REPLAY",
+          count: 1,
+        });
         return existingSemanticPlanResult(claim.plan);
       }
       return { kind: "PLANNING", planId: claim.plan.id };
@@ -188,6 +207,12 @@ export class OrchestrationService {
             include: planInclude,
           });
           if (replay && replay.status !== "PLANNING") {
+            this.telemetry.emit({
+              event: "planner.feedback",
+              planId: replay.id,
+              action: "REPLAY",
+              count: 1,
+            });
             return existingSemanticPlanResult(replay);
           }
         }
@@ -196,6 +221,7 @@ export class OrchestrationService {
       }
 
       const planner = new SemanticWorkflowPlanner(this.semanticPlannerModel);
+      const plannerStartedAt = Date.now();
       let result: SemanticWorkflowPlannerResult;
       try {
         result = await planner.plan({
@@ -212,11 +238,30 @@ export class OrchestrationService {
             include: planInclude,
           });
           if (replay && replay.status !== "PLANNING") {
+            this.telemetry.emit({
+              event: "planner.feedback",
+              planId: replay.id,
+              action: "REPLAY",
+              count: 1,
+            });
             return existingSemanticPlanResult(replay);
           }
         }
         await this.failPlanningClaim(userId, shell.id, claim.claimHash);
         if (error instanceof SemanticPlannerError) {
+          this.telemetry.emit({
+            event: "planner.completed",
+            correlationId,
+            planId: shell.id,
+            outcome: "FAILED",
+            durationMs: telemetryDurationMs(plannerStartedAt),
+            nodeCount: 0,
+            edgeCount: 0,
+            depth: 0,
+            maxParallelism: 0,
+            validationFailureCode: error.code,
+            replayed: false,
+          });
           throw new BadRequestException({
             code: "semantic_plan_invalid",
             message: "The workflow proposal could not be validated safely",
@@ -226,6 +271,18 @@ export class OrchestrationService {
       }
 
       if (result.kind === "CLARIFY") {
+        this.telemetry.emit({
+          event: "planner.completed",
+          correlationId,
+          planId: shell.id,
+          outcome: "WAITING",
+          durationMs: telemetryDurationMs(plannerStartedAt),
+          nodeCount: 0,
+          edgeCount: 0,
+          depth: 0,
+          maxParallelism: 0,
+          replayed: false,
+        });
         const question = await this.persistClarification(
           userId,
           shell.id,
@@ -246,6 +303,17 @@ export class OrchestrationService {
         validateManualExecutionPlan(executablePlan);
       } catch (error: unknown) {
         if (error instanceof SemanticPlanPolicyError) {
+          const shape = plannerTelemetryShape(result.plan);
+          this.telemetry.emit({
+            event: "planner.completed",
+            correlationId,
+            planId: shell.id,
+            outcome: "DENIED",
+            durationMs: telemetryDurationMs(plannerStartedAt),
+            ...shape,
+            validationFailureCode: error.code,
+            replayed: false,
+          });
           const question = await this.persistClarification(
             userId,
             shell.id,
@@ -262,14 +330,24 @@ export class OrchestrationService {
       }
 
       try {
+        const finalized = await this.finalizePlanningShell(
+          userId,
+          shell.id,
+          claim.claimHash,
+          executablePlan,
+        );
+        this.telemetry.emit({
+          event: "planner.completed",
+          correlationId,
+          planId: shell.id,
+          outcome: "SUCCESS",
+          durationMs: telemetryDurationMs(plannerStartedAt),
+          ...plannerTelemetryShape(executablePlan),
+          replayed: false,
+        });
         return {
           kind: "PLANNED",
-          plan: await this.finalizePlanningShell(
-            userId,
-            shell.id,
-            claim.claimHash,
-            executablePlan,
-          ),
+          plan: finalized,
         };
       } catch (error: unknown) {
         if (error instanceof ConflictException) {
@@ -278,6 +356,12 @@ export class OrchestrationService {
             include: planInclude,
           });
           if (replay && replay.status !== "PLANNING") {
+            this.telemetry.emit({
+              event: "planner.feedback",
+              planId: replay.id,
+              action: "REPLAY",
+              count: 1,
+            });
             return existingSemanticPlanResult(replay);
           }
         }
@@ -1096,6 +1180,7 @@ export class OrchestrationService {
 
   private async ensureContextSnapshot(userId: string, planId: string): Promise<ContextSnapshotView> {
     this.assertContextRetrievalEnabled();
+    const startedAt = Date.now();
     try {
       const semantic =
         this.config.semanticRetrievalEnabled && this.config.embeddings
@@ -1124,7 +1209,19 @@ export class OrchestrationService {
         actorUserId: userId,
         planId,
       });
-      return await context.resolveForPlan(userId, planId);
+      const snapshot = await context.resolveForPlan(userId, planId);
+      this.telemetry.emit({
+        event: "context.snapshot",
+        planId,
+        outcome: "SUCCESS",
+        durationMs: telemetryDurationMs(startedAt),
+        itemCount: snapshot.items.length,
+        metadataBytes: snapshotMetadataBytes(snapshot),
+        sourceDistribution: countTelemetryValues(
+          snapshot.items.map((item) => item.sourceType),
+        ),
+      });
+      return snapshot;
     } catch (error: unknown) {
       if (error instanceof ContextNotFoundError) {
         throw new NotFoundException("Execution plan not found");
@@ -1221,6 +1318,49 @@ export class OrchestrationService {
       throw new NotFoundException("Execution context retrieval is not available");
     }
   }
+}
+
+function plannerTelemetryShape(plan: {
+  maxParallelism: number;
+  invocations: readonly { id: string }[];
+  dependencies: readonly {
+    fromInvocationId: string;
+    toInvocationId: string;
+  }[];
+}): {
+  nodeCount: number;
+  edgeCount: number;
+  depth: number;
+  maxParallelism: number;
+} {
+  const depths = new Map(
+    plan.invocations.map((invocation) => [invocation.id, 1]),
+  );
+  for (let pass = 0; pass < plan.invocations.length; pass += 1) {
+    let changed = false;
+    for (const dependency of plan.dependencies) {
+      const fromDepth = depths.get(dependency.fromInvocationId) ?? 1;
+      const current = depths.get(dependency.toInvocationId) ?? 1;
+      if (fromDepth + 1 > current) {
+        depths.set(dependency.toInvocationId, fromDepth + 1);
+        changed = true;
+      }
+    }
+    if (!changed) break;
+  }
+  return {
+    nodeCount: plan.invocations.length,
+    edgeCount: plan.dependencies.length,
+    depth: Math.max(0, ...depths.values()),
+    maxParallelism: plan.maxParallelism,
+  };
+}
+
+function snapshotMetadataBytes(snapshot: ContextSnapshotView): number {
+  const encoded = JSON.stringify(
+    snapshot.items.map((item) => item.metadata ?? null),
+  );
+  return new TextEncoder().encode(encoded).byteLength;
 }
 
 const planInclude = {
