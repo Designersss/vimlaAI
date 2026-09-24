@@ -171,7 +171,13 @@ export class LocalInferenceProvider implements AiProvider {
         response.status,
       );
     }
-    const payload = await readBoundedJson(response, MAX_PROBE_RESPONSE_BYTES);
+    let payload: unknown;
+    try {
+      payload = await readBoundedJson(response, MAX_PROBE_RESPONSE_BYTES);
+    } catch (error: unknown) {
+      if (error instanceof LocalInferenceError) throw error;
+      throw new LocalInferenceError("UNAVAILABLE", true);
+    }
     const record = asRecord(payload);
     if (!record) {
       throw new LocalInferenceError("INVALID_RESPONSE", true);
@@ -275,6 +281,13 @@ export class LocalInferenceProvider implements AiProvider {
         this.recordFailure(permit);
       }
       throw classified;
+    }
+
+    if (signal.aborted) {
+      releaseSlotOnce();
+      discardResponseBody(response);
+      this.releaseHalfOpenPermit(permit);
+      throw classifyAbortSignal(signal);
     }
 
     if (!response.ok) {
