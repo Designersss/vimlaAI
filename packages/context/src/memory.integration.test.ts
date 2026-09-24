@@ -2110,6 +2110,19 @@ describe("durable memory context graph", () => {
       },
     });
     const memory = new MemoryService(db);
+    await expect(
+      memory.ingestCandidate({
+        actorUserId: owner,
+        scope: { kind: "THREAD", threadId: thread.id },
+        type: "THREAD_STATE",
+        slotKey: "missing provenance",
+        content: "Must not bypass thread provenance",
+        origin: "USER_EXPLICIT",
+        userConfirmed: true,
+        sourceRefs: [],
+      }),
+    ).rejects.toMatchObject({ code: "VALIDATION_ERROR" });
+
     const stored = await memory.ingestCandidate({
       actorUserId: owner,
       scope: { kind: "THREAD", threadId: thread.id },
