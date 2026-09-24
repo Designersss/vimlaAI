@@ -342,6 +342,7 @@ export class LocalInferenceProvider implements AiProvider {
     const reader = body.getReader();
     let responseBytes = 0;
     let reachedPhysicalEof = false;
+    let sawProviderEvent = false;
     const abortReader = (): void => {
       void reader.cancel(signal.reason).catch(() => undefined);
     };
@@ -358,6 +359,12 @@ export class LocalInferenceProvider implements AiProvider {
         if (done) {
           reachedPhysicalEof = true;
           const final = eventsThroughDone(parser.finish());
+          if (final.events.length > 0) {
+            sawProviderEvent = true;
+          }
+          if (!sawProviderEvent) {
+            throw new LocalInferenceError("INVALID_RESPONSE", true);
+          }
           this.recordSuccess(permit);
           yield* final.events;
           return;
@@ -368,6 +375,9 @@ export class LocalInferenceProvider implements AiProvider {
             throw new LocalInferenceError("INVALID_RESPONSE", true);
           }
           const parsed = eventsThroughDone(parser.push(value));
+          if (parsed.events.length > 0) {
+            sawProviderEvent = true;
+          }
           if (parsed.terminal) {
             this.recordSuccess(permit);
           }
