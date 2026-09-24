@@ -1251,8 +1251,8 @@ describe("durable memory context graph", () => {
     expect(hit).toMatchObject({
       sourceKind: "L2_COMPACTED",
       sourceScope: {
-        kind: "PROJECT",
-        projectId: project.id,
+        kind: "PERSONAL",
+        ownerUserId: owner,
       },
       currentSurface: false,
       currentProject: true,
