@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   LocalInferenceError,
   type ProviderChatRequest,
@@ -27,24 +27,26 @@ end
 if rate > tonumber(ARGV[2]) then
   return 0
 end
-local concurrent = redis.call("INCR", KEYS[2])
-if concurrent == 1 then
-  redis.call("PEXPIRE", KEYS[2], ARGV[3])
-end
-if concurrent > tonumber(ARGV[4]) then
-  redis.call("DECR", KEYS[2])
+
+local redisTime = redis.call("TIME")
+local nowMs = tonumber(redisTime[1]) * 1000 + math.floor(tonumber(redisTime[2]) / 1000)
+redis.call("ZREMRANGEBYSCORE", KEYS[2], "-inf", nowMs)
+if redis.call("ZCARD", KEYS[2]) >= tonumber(ARGV[4]) then
   return -1
 end
+
+local expiresAtMs = nowMs + tonumber(ARGV[3])
+redis.call("ZADD", KEYS[2], expiresAtMs, ARGV[5])
+redis.call("PEXPIRE", KEYS[2], ARGV[3])
 return 1
 `;
 
 const FAIR_USE_RELEASE_SCRIPT = `
-local current = tonumber(redis.call("GET", KEYS[1]) or "0")
-if current <= 1 then
+redis.call("ZREM", KEYS[1], ARGV[1])
+if redis.call("ZCARD", KEYS[1]) == 0 then
   redis.call("DEL", KEYS[1])
-  return 0
 end
-return redis.call("DECR", KEYS[1])
+return 1
 `;
 
 export type RedisEval = (
@@ -86,6 +88,7 @@ export class RedisVimlaCoreFairUseLimiter
       .slice(0, 32);
     const rateKey = `vimla:core:fair-use:rate:${suffix}`;
     const concurrentKey = `vimla:core:fair-use:concurrent:${suffix}`;
+    const leaseId = randomUUID();
     const result = await this.evalRedis(
       FAIR_USE_ACQUIRE_SCRIPT,
       2,
@@ -95,6 +98,7 @@ export class RedisVimlaCoreFairUseLimiter
       this.requestsPerMinute,
       this.leaseTtlMs,
       this.maxConcurrentPerUser,
+      leaseId,
     );
     if (Number(result) !== 1) return null;
 
@@ -107,6 +111,7 @@ export class RedisVimlaCoreFairUseLimiter
           FAIR_USE_RELEASE_SCRIPT,
           1,
           concurrentKey,
+          leaseId,
         );
       },
     };
