@@ -1,3 +1,11 @@
+ALTER TABLE "conversation" ADD COLUMN "projectId" TEXT;
+CREATE INDEX "conversation_projectId_updatedAt_idx"
+  ON "conversation"("projectId","updatedAt");
+ALTER TABLE "conversation"
+  ADD CONSTRAINT "conversation_projectId_fkey"
+  FOREIGN KEY ("projectId") REFERENCES "project"("id")
+  ON DELETE SET NULL ON UPDATE CASCADE;
+
 CREATE TABLE "memory_item" (
   "id" TEXT NOT NULL,
   "ownerUserId" TEXT NOT NULL,
