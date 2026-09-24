@@ -942,7 +942,7 @@ describe("durable memory context graph", () => {
     ).resolves.toBe(false);
   });
 
-  it("rejects automatic Project-chat sources writing into Personal Memory", async () => {
+  it("keeps automatic project-focused private-chat Memory personal", async () => {
     const owner = await user("project-auto-boundary-owner");
     const project = await db.project.create({
       data: {
@@ -962,30 +962,47 @@ describe("durable memory context graph", () => {
         conversationId: conversation.id,
         role: "USER",
         status: "COMPLETE",
-        content: "Project-only launch decision",
+        content: "I prefer concise release summaries.",
       },
     });
 
-    await expect(
-      new MemoryService(db).ingestCandidate({
-        actorUserId: owner,
-        scope: { kind: "PERSONAL" },
-        type: "USER_FACT",
-        slotKey: "launch decision",
-        content: "Project-only launch decision",
-        origin: "AUTO_EXTRACTION",
-        sourceRefs: [
-          {
-            provenance: "AUTO_EXTRACTION",
-            sourceType: "MESSAGE",
-            sourceId: source.id,
-            sourceVersion: source.updatedAt.toISOString(),
-            sourceScopeKind: "CONVERSATION",
-            sourceScopeId: conversation.id,
-          },
-        ],
+    const stored = await new MemoryService(db).ingestCandidate({
+      actorUserId: owner,
+      scope: { kind: "PERSONAL" },
+      type: "USER_PREFERENCE",
+      slotKey: "release summary style",
+      content: "Prefers concise release summaries",
+      origin: "AUTO_EXTRACTION",
+      sourceRefs: [
+        {
+          provenance: "AUTO_EXTRACTION",
+          sourceType: "MESSAGE",
+          sourceId: source.id,
+          sourceVersion: source.updatedAt.toISOString(),
+          sourceScopeKind: "CONVERSATION",
+          sourceScopeId: conversation.id,
+        },
+      ],
+    });
+
+    expect(stored).toMatchObject({
+      scopeKind: "PERSONAL",
+      projectId: null,
+      conversationId: null,
+      origin: "AUTO_EXTRACTION",
+      content: "Prefers concise release summaries",
+    });
+    expect(
+      await db.memorySourceRef.findFirstOrThrow({
+        where: {
+          memoryId: stored.id,
+          sourceId: source.id,
+        },
       }),
-    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    ).toMatchObject({
+      sourceScopeKind: "CONVERSATION",
+      sourceScopeId: conversation.id,
+    });
   });
 
   it("rejects cross-conversation Memory and L2 provenance even for the same owner", async () => {
