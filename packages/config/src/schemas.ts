@@ -633,6 +633,77 @@ export const workerEnvSchema = z
     AI_MAX_PLAN_SETTLED_MICRORUB: integerStringSchema.default("80000000"),
     AI_MAX_PLAN_COMMITTED_MICRORUB: integerStringSchema.default("80000000"),
     AI_CANCELLATION_POLL_MS: z.coerce.number().int().min(10).max(5_000).default(250),
+    VIMLA_CORE_PROVIDER: z
+      .enum(["auto", "disabled", "deterministic", "internal-http"])
+      .default("auto"),
+    VIMLA_CORE_BASE_URL: z.preprocess(
+      emptyToUndefined,
+      z.url().optional(),
+    ),
+    VIMLA_CORE_MODEL: z.preprocess(
+      emptyToUndefined,
+      z.string().trim().min(1).optional(),
+    ),
+    VIMLA_CORE_API_KEY: z.preprocess(
+      emptyToUndefined,
+      z.string().trim().min(1).optional(),
+    ),
+    VIMLA_CORE_TIMEOUT_MS: z.coerce
+      .number()
+      .int()
+      .min(1_000)
+      .max(600_000)
+      .default(60_000),
+    VIMLA_CORE_MAX_OUTPUT_TOKENS: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(32_768)
+      .default(2_048),
+    VIMLA_CORE_MAX_REQUEST_BYTES: z.coerce
+      .number()
+      .int()
+      .min(1_024)
+      .max(1_048_576)
+      .default(262_144),
+    VIMLA_CORE_MAX_CONCURRENT_REQUESTS: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(32)
+      .default(4),
+    VIMLA_CORE_MAX_QUEUE_DEPTH: z.coerce
+      .number()
+      .int()
+      .min(0)
+      .max(1_024)
+      .default(32),
+    VIMLA_CORE_CIRCUIT_FAILURE_THRESHOLD: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(20)
+      .default(3),
+    VIMLA_CORE_CIRCUIT_RESET_MS: z.coerce
+      .number()
+      .int()
+      .min(1_000)
+      .max(600_000)
+      .default(30_000),
+    VIMLA_CORE_TOOL_USE_ENABLED: z
+      .enum(["true", "false"])
+      .default("true"),
+    VIMLA_CORE_FAIR_USE_REQUESTS_PER_MINUTE: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .default(20),
+    VIMLA_CORE_FAIR_USE_MAX_CONCURRENT_PER_USER: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(8)
+      .default(2),
     EVALUATOR_PROVIDER: z.enum(["disabled", "internal-http"]).default("disabled"),
     EVALUATOR_BASE_URL: z.preprocess(emptyToUndefined, z.url().optional()),
     EVALUATOR_MODEL: z.preprocess(emptyToUndefined, z.string().trim().min(1).optional()),
@@ -648,6 +719,37 @@ export const workerEnvSchema = z
     TBANK_API_BASE_URL: z.preprocess(emptyToUndefined, z.url().optional()),
   })
   .superRefine((value, ctx) => {
+    if (value.VIMLA_CORE_PROVIDER === "internal-http") {
+      if (!value.VIMLA_CORE_BASE_URL) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["VIMLA_CORE_BASE_URL"],
+          message:
+            "VIMLA_CORE_BASE_URL is required when VIMLA_CORE_PROVIDER=internal-http",
+        });
+      }
+      if (!value.VIMLA_CORE_MODEL) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["VIMLA_CORE_MODEL"],
+          message:
+            "VIMLA_CORE_MODEL is required when VIMLA_CORE_PROVIDER=internal-http",
+        });
+      }
+    }
+
+    if (
+      (value.APP_ENV === "production" || value.APP_ENV === "staging") &&
+      value.VIMLA_CORE_PROVIDER === "deterministic"
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["VIMLA_CORE_PROVIDER"],
+        message:
+          "Deterministic Vimla Core provider is not allowed in staging/production",
+      });
+    }
+
     if (value.EVALUATOR_PROVIDER === "internal-http") {
       if (!value.EVALUATOR_BASE_URL) {
         ctx.addIssue({
@@ -758,6 +860,24 @@ export const workerConfigSchema = z.object({
   aiMaxPlanSettledMicroRub: z.string().regex(/^\d+$/),
   aiMaxPlanCommittedMicroRub: z.string().regex(/^\d+$/),
   aiCancellationPollMs: z.number().int().min(10).max(5_000),
+  vimlaCoreProvider: z.enum([
+    "disabled",
+    "deterministic",
+    "internal-http",
+  ]),
+  vimlaCoreBaseUrl: z.url().optional(),
+  vimlaCoreModel: z.string().min(1).optional(),
+  vimlaCoreApiKey: z.string().min(1).optional(),
+  vimlaCoreTimeoutMs: z.number().int().min(1_000).max(600_000),
+  vimlaCoreMaxOutputTokens: z.number().int().min(1).max(32_768),
+  vimlaCoreMaxRequestBytes: z.number().int().min(1_024).max(1_048_576),
+  vimlaCoreMaxConcurrentRequests: z.number().int().min(1).max(32),
+  vimlaCoreMaxQueueDepth: z.number().int().min(0).max(1_024),
+  vimlaCoreCircuitFailureThreshold: z.number().int().min(1).max(20),
+  vimlaCoreCircuitResetMs: z.number().int().min(1_000).max(600_000),
+  vimlaCoreToolUseEnabled: z.boolean(),
+  vimlaCoreFairUseRequestsPerMinute: z.number().int().min(1),
+  vimlaCoreFairUseMaxConcurrentPerUser: z.number().int().min(1).max(8),
   evaluatorProvider: z.enum(["disabled", "internal-http"]),
   evaluatorBaseUrl: z.url().optional(),
   evaluatorModel: z.string().min(1).optional(),
