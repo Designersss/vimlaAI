@@ -207,7 +207,7 @@ export class CompactedStateRetrievalProvider
       this.db.compactedContextState.findFirst({
         where: {
           invalidatedAt: null,
-          validFrom: { lte: snapshotCutoff },
+          validFrom: { lt: snapshotCutoff },
           scopeKind: "CONVERSATION",
           ownerUserId: input.actorUserId,
           conversationId: input.conversationId,
@@ -221,7 +221,7 @@ export class CompactedStateRetrievalProvider
         ? this.db.compactedContextState.findFirst({
             where: {
               invalidatedAt: null,
-              validFrom: { lte: snapshotCutoff },
+              validFrom: { lt: snapshotCutoff },
               scopeKind: "PROJECT",
               projectId: input.currentProjectId,
               project: {
@@ -245,7 +245,7 @@ export class CompactedStateRetrievalProvider
         ? this.db.compactedContextState.findMany({
             where: {
               invalidatedAt: null,
-              validFrom: { lte: snapshotCutoff },
+              validFrom: { lt: snapshotCutoff },
               scopeKind: "CONVERSATION",
               ownerUserId: input.actorUserId,
               conversationId: { not: input.conversationId },
@@ -264,7 +264,7 @@ export class CompactedStateRetrievalProvider
       this.db.compactedContextState.findMany({
         where: {
           invalidatedAt: null,
-          validFrom: { lte: snapshotCutoff },
+          validFrom: { lt: snapshotCutoff },
           scopeKind: "PROJECT",
           ...(input.currentProjectId
             ? { projectId: { not: input.currentProjectId } }
