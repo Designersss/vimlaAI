@@ -290,7 +290,7 @@ export class ContextRetrievalService {
         conversationId: sourceMessage.conversation.id,
         id: { not: sourceMessage.id },
         status: "COMPLETE",
-        createdAt: { lte: sourceMessage.createdAt },
+        createdAt: { lt: sourceMessage.createdAt },
       },
       select: {
         id: true,
@@ -320,7 +320,7 @@ export class ContextRetrievalService {
               notIn: [sourceMessage.id, ...recentIds],
             },
             status: "COMPLETE",
-            createdAt: { lte: sourceMessage.createdAt },
+            createdAt: { lt: sourceMessage.createdAt },
           },
           select: {
             id: true,
@@ -345,7 +345,7 @@ export class ContextRetrievalService {
                 : {}),
             },
             status: "COMPLETE",
-            createdAt: { lte: sourceMessage.createdAt },
+            createdAt: { lt: sourceMessage.createdAt },
           },
           select: {
             id: true,
@@ -532,7 +532,7 @@ export class ContextRetrievalService {
             WHERE "conversationId" = ${sourceMessage.conversation.id}
               AND "id" <> ${sourceMessage.id}
               AND "status" = 'COMPLETE'
-              AND "createdAt" <= ${sourceMessage.createdAt}
+              AND "createdAt" < ${sourceMessage.createdAt}
           `,
         ),
       ]);
