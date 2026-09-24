@@ -22,6 +22,7 @@ import {
   conversationsResponseSchema,
   createConversationSchema,
   sendMessageSchema,
+  updateConversationDefaultTargetSchema,
   type ConversationCreated,
   type ConversationDetail,
   type ConversationsResponse,
@@ -65,11 +66,13 @@ export class ConversationsController {
       user.id,
       parsed.data.title,
       parsed.data.projectId,
+      parsed.data.defaultTarget,
     );
     return conversationCreatedSchema.parse({
       id: conversation.id,
       projectId: conversation.projectId,
       title: conversation.title,
+      defaultTarget: toDefaultTarget(conversation),
       updatedAt: conversation.updatedAt.toISOString(),
     });
   }
@@ -82,6 +85,7 @@ export class ConversationsController {
         id: conversation.id,
         projectId: conversation.projectId,
         title: conversation.title,
+        defaultTarget: toDefaultTarget(conversation),
         updatedAt: conversation.updatedAt.toISOString(),
       })),
     });
@@ -98,6 +102,7 @@ export class ConversationsController {
       id: conversation.id,
       projectId: conversation.projectId,
       title: conversation.title,
+      defaultTarget: toDefaultTarget(conversation),
       updatedAt: conversation.updatedAt.toISOString(),
       messages: conversation.messages.map((message) => ({
         id: message.id,
@@ -109,6 +114,28 @@ export class ConversationsController {
         mentions: mentions.get(message.id) ?? [],
       })),
     });
+  }
+
+  @Post(":id/default-target")
+  @SensitiveMutation()
+  @HttpCode(200)
+  async setDefaultTarget(
+    @AuthUser() user: AuthenticatedUser,
+    @Param("id") conversationId: string,
+    @Body() body: unknown,
+  ): Promise<ConversationDetail["defaultTarget"]> {
+    const parsed =
+      updateConversationDefaultTargetSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new BadRequestException("Invalid conversation target payload");
+    }
+    const conversation =
+      await this.chat.setConversationDefaultTarget(
+        user.id,
+        conversationId,
+        parsed.data,
+      );
+    return toDefaultTarget(conversation);
   }
 
   @Post(":id/messages")
@@ -272,4 +299,27 @@ function publicStreamError(error: unknown, requestId: string): Record<string, st
 
 function toApiCode(code: string): string {
   return code.toLowerCase();
+}
+
+
+function toDefaultTarget(conversation: {
+  defaultTargetKind: string | null;
+  defaultTargetModelId: string | null;
+}): ConversationDetail["defaultTarget"] {
+  if (
+    conversation.defaultTargetKind === "AI_MODEL" &&
+    conversation.defaultTargetModelId
+  ) {
+    return {
+      kind: "AI_MODEL",
+      modelId: conversation.defaultTargetModelId,
+    };
+  }
+  if (
+    conversation.defaultTargetKind === "AI_AUTO" &&
+    conversation.defaultTargetModelId === null
+  ) {
+    return { kind: "AI_AUTO" };
+  }
+  return null;
 }
