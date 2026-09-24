@@ -1110,16 +1110,6 @@ async function assertSourceRefsValid(
       ref,
     );
     if (
-      origin === "AUTO_EXTRACTION" &&
-      targetScope.kind === "PERSONAL" &&
-      resolved.scopeKind === "PROJECT"
-    ) {
-      throw new MemoryError(
-        "FORBIDDEN",
-        "Project-scoped sources cannot be automatically promoted to Personal Memory",
-      );
-    }
-    if (
       targetScope.kind === "CONVERSATION" &&
       !(
         resolved.scopeKind === "CONVERSATION" &&
