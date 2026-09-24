@@ -66,7 +66,7 @@ export class MemoryRetrievalProvider
           { expiresAt: { gt: now } },
         ],
       },
-      { validFrom: { lte: snapshotCutoff } },
+      { validFrom: { lt: snapshotCutoff } },
       scopeClause,
     ];
     const lexicalTerms = queryTerms.slice(0, 16);
@@ -136,7 +136,7 @@ export class MemoryRetrievalProvider
                     { expiresAt: { gt: now } },
                   ],
                 },
-                { validFrom: { lte: snapshotCutoff } },
+                { validFrom: { lt: snapshotCutoff } },
                 priorityScope,
                 lexicalFilter,
               ],
