@@ -963,6 +963,74 @@ describe("memory maintenance runtime", () => {
     });
   });
 
+  it("never auto-promotes project-linked chat facts into Personal Memory", async () => {
+    const userId = await createUser("runtime-project-scope");
+    const project = await db.project.create({
+      data: {
+        ownerUserId: userId,
+        name: "Runtime Project",
+      },
+    });
+    const conversationId = (
+      await db.conversation.create({
+        data: {
+          userId,
+          kind: "CHAT",
+          projectId: project.id,
+        },
+      })
+    ).id;
+    const source = await createMessage({
+      conversationId,
+      content:
+        "Project launch region is Europe and this must stay project-scoped.",
+    });
+
+    let modelCalls = 0;
+    const model: SemanticPlannerModel = {
+      complete: () => {
+        modelCalls += 1;
+        return Promise.reject(
+          new Error("Project chat extraction must not call the model"),
+        );
+      },
+    };
+    const prisma = prismaService();
+    const maintenance = new MemoryMaintenanceService(
+      prisma,
+      new MemoryFacade(prisma, config),
+      config,
+      model,
+    );
+
+    await maintenance.observeConversationMessage({
+      userId,
+      messageId: source.id,
+      correlationId: "runtime-project-scope",
+    });
+
+    expect(modelCalls).toBe(0);
+    expect(
+      await db.memoryItem.count({
+        where: { ownerUserId: userId },
+      }),
+    ).toBe(0);
+    expect(
+      await db.memoryExtractionReceipt.findUniqueOrThrow({
+        where: {
+          sourceType_sourceId_sourceVersion: {
+            sourceType: "MESSAGE",
+            sourceId: source.id,
+            sourceVersion: source.updatedAt.toISOString(),
+          },
+        },
+      }),
+    ).toMatchObject({
+      status: "COMPLETED",
+      candidateCount: 0,
+    });
+  });
+
   it("never treats Direct Chat rows as automatic memory sources", async () => {
     const userId = await createUser("runtime-direct");
     const peerId = await createUser("runtime-direct-peer");
