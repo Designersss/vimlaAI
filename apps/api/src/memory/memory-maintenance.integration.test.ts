@@ -920,6 +920,7 @@ describe("memory maintenance runtime", () => {
       }),
     ).toMatchObject({
       state: "SUPERSEDED",
+      slotKey: "[REDACTED]",
       content: "",
     });
     expect(
