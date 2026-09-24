@@ -423,10 +423,6 @@ describe("memory API", () => {
       app,
       "memory-e2ee-project-peer",
     );
-    const viewer = await registerVerifiedUser(
-      app,
-      "memory-e2ee-project-viewer",
-    );
     const db = app.get(PrismaService).client;
     const device = await db.userCryptoDevice.create({
       data: {
@@ -466,7 +462,7 @@ describe("memory API", () => {
         members: {
           create: [
             { userId: actor.id, role: "OWNER" },
-            { userId: viewer.id, role: "MEMBER" },
+            { userId: peer.id, role: "MEMBER" },
           ],
         },
       },
@@ -515,7 +511,7 @@ describe("memory API", () => {
       method: "POST",
       url: "/v1/memory/e2ee-promotions",
       headers: jsonHeaders(),
-      cookies: viewer.cookies,
+      cookies: peer.cookies,
       payload: {
         directConversationId: directConversation.id,
         sourceMessageId: source.id,
@@ -529,7 +525,7 @@ describe("memory API", () => {
     expect(
       await db.memoryItem.count({
         where: {
-          ownerUserId: viewer.id,
+          ownerUserId: peer.id,
           projectId: project.id,
           origin: "E2EE_USER_DISCLOSURE",
         },
