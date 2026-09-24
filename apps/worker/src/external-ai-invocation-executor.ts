@@ -32,6 +32,10 @@ import {
 } from "@vimla/context";
 import { Prisma, type PrismaClient } from "@vimla/database";
 import {
+  NOOP_TELEMETRY_SINK,
+  type TelemetrySink,
+} from "@vimla/shared";
+import {
   resolveAiExecutionBudget,
   validateAiExecutionBudgetProfiles,
   type AiExecutionBudgetProfiles,
@@ -140,6 +144,7 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
     private readonly config: ExternalAiExecutorConfig,
     private readonly toolBroker: ExternalAiToolBroker = new NoopExternalAiToolBroker(),
     private readonly logger: RuntimeLogger = silentRuntimeLogger,
+    private readonly telemetry: TelemetrySink = NOOP_TELEMETRY_SINK,
   ) {
     validateAiExecutionBudgetProfiles(config.budgetProfiles);
     if (config.maxReservationMicroRub <= 0n) {
@@ -267,6 +272,14 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
             },
             "AI paid provider turn replay suppressed",
           );
+          this.telemetry.emit({
+            event: "safety.policy",
+            planId: input.planId,
+            invocationId: input.invocationId,
+            action: "DUPLICATE_PREVENTED",
+            reason: "OTHER",
+            count: 1,
+          });
           return { status: "COMPLETED", outcome: "REPLAYED" };
         }
 
@@ -310,6 +323,14 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
             },
             "AI paid provider turn replay suppressed",
           );
+          this.telemetry.emit({
+            event: "safety.policy",
+            planId: input.planId,
+            invocationId: input.invocationId,
+            action: "DUPLICATE_PREVENTED",
+            reason: "OTHER",
+            count: 1,
+          });
           const toolCalls = request.toolCalls;
           messages.push({
             role: "assistant",
@@ -632,6 +653,22 @@ export class ExternalAiInvocationExecutor implements InvocationExecutorRegistry 
             data: { status: "SUCCEEDED" },
           }),
         ]);
+
+        this.telemetry.emit({
+          event: "economics.ai",
+          planId: input.planId,
+          invocationId: input.invocationId,
+          aiRequestId: request.aiRequestId,
+          providerClass: "PAID_EXTERNAL",
+          modelClass: turnModel.slug,
+          outcome:
+            provider.toolCallError || provider.interrupted
+              ? "FAILED"
+              : "SUCCESS",
+          providerActualCostMicroRub: actualCost.toString(),
+          userSettledUsageMicroRub: settledMicroRub.toString(),
+          marginMicroRub: (settledMicroRub - actualCost).toString(),
+        });
 
         if (provider.toolCallError) {
           return terminal("AI_TOOL_CALL_INVALID");
