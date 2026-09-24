@@ -61,9 +61,14 @@ export class ConversationsController {
       throw new BadRequestException("Invalid conversation payload");
     }
 
-    const conversation = await this.chat.createConversation(user.id, parsed.data.title);
+    const conversation = await this.chat.createConversation(
+      user.id,
+      parsed.data.title,
+      parsed.data.projectId,
+    );
     return conversationCreatedSchema.parse({
       id: conversation.id,
+      projectId: conversation.projectId,
       title: conversation.title,
       updatedAt: conversation.updatedAt.toISOString(),
     });
@@ -75,6 +80,7 @@ export class ConversationsController {
     return conversationsResponseSchema.parse({
       conversations: conversations.map((conversation) => ({
         id: conversation.id,
+        projectId: conversation.projectId,
         title: conversation.title,
         updatedAt: conversation.updatedAt.toISOString(),
       })),
@@ -90,6 +96,7 @@ export class ConversationsController {
     const mentions = await this.routing.readForMessages(conversation.messages.map((message) => message.id));
     return conversationDetailSchema.parse({
       id: conversation.id,
+      projectId: conversation.projectId,
       title: conversation.title,
       updatedAt: conversation.updatedAt.toISOString(),
       messages: conversation.messages.map((message) => ({
