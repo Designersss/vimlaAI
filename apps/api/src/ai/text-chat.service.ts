@@ -226,8 +226,6 @@ export class TextChatService {
       });
     }
 
-    this.assertMessageSize(input.body.content);
-
     const existingRequest = await this.prisma.aiRequest.findUnique({
       where: {
         userId_clientRequestId: {
@@ -237,13 +235,19 @@ export class TextChatService {
       },
       include: {
         messages: {
-          where: { role: "ASSISTANT" },
           orderBy: { createdAt: "asc" },
         },
       },
     });
     if (existingRequest) {
-      if (existingRequest.conversationId !== conversation.id) {
+      const originalUserMessage = existingRequest.messages.find(
+        (message) => message.role === "USER",
+      );
+      if (
+        existingRequest.conversationId !== conversation.id ||
+        (originalUserMessage !== undefined &&
+          originalUserMessage.content !== input.body.content)
+      ) {
         throw new AiError(
           "IDEMPOTENCY_CONFLICT",
           "clientRequestId was already used in another conversation",
@@ -251,7 +255,9 @@ export class TextChatService {
         );
       }
       if (existingRequest.status === "SUCCEEDED") {
-        const assistant = existingRequest.messages[0];
+        const assistant = existingRequest.messages.find(
+          (message) => message.role === "ASSISTANT",
+        );
         this.writeEvent(input.sink, "start", {
           aiRequestId: existingRequest.id,
         });
@@ -279,6 +285,8 @@ export class TextChatService {
         409,
       );
     }
+
+    this.assertMessageSize(input.body.content);
 
     const model = await this.resolveThreadModel({
       userId: input.userId,
@@ -817,21 +825,34 @@ export class TextChatService {
           clientRequestId: input.body.clientRequestId,
         },
       },
-      include: { messages: { where: { role: "ASSISTANT" }, orderBy: { createdAt: "asc" } } },
+      include: {
+        messages: {
+          orderBy: { createdAt: "asc" },
+        },
+      },
     });
     if (!existing) {
       throw new AiError("AI_REQUEST_IN_PROGRESS", "Duplicate request could not be loaded", 409);
     }
-    if (existing.conversationId !== input.conversationId) {
+    const originalUserMessage = existing.messages.find(
+      (message) => message.role === "USER",
+    );
+    if (
+      existing.conversationId !== input.conversationId ||
+      (originalUserMessage !== undefined &&
+        originalUserMessage.content !== input.body.content)
+    ) {
       throw new AiError(
         "IDEMPOTENCY_CONFLICT",
-        "clientRequestId was already used in another conversation",
+        "clientRequestId was already used for a different request",
         409,
       );
     }
 
     if (existing.status === "SUCCEEDED") {
-      const assistant = existing.messages[0];
+      const assistant = existing.messages.find(
+        (message) => message.role === "ASSISTANT",
+      );
       return {
         kind: "replay",
         aiRequestId: existing.id,
