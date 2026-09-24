@@ -20,6 +20,7 @@ export class ContextAwareInvocationExecutorRegistry
     private readonly prisma: PrismaClient,
     private readonly fallback: InvocationExecutorRegistry,
     bundles?: ContextBundleService,
+    private readonly enabled = true,
   ) {
     this.bundles = bundles ?? new ContextBundleService(prisma);
   }
@@ -27,6 +28,10 @@ export class ContextAwareInvocationExecutorRegistry
   async execute(
     input: InvocationExecutionInput,
   ): Promise<InvocationExecutionResult> {
+    if (!this.enabled) {
+      return terminal("CONTEXT_RETRIEVAL_DISABLED");
+    }
+
     const invocation = await this.prisma.invocation.findFirst({
       where: {
         id: input.invocationId,
