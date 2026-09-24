@@ -134,16 +134,29 @@ export type CorrectPersonalMemory = z.infer<
   typeof correctPersonalMemorySchema
 >;
 
-export const promoteE2eeMemorySchema = z
-  .object({
-    directConversationId: z.string().uuid(),
-    sourceMessageId: z.string().uuid(),
-    type: personalMemoryTypeSchema,
-    slotKey: z.string().trim().min(1).max(MEMORY_LIMITS.slotKeyMax),
-    content: z.string().trim().min(1).max(MEMORY_LIMITS.contentMax),
-    expiresAt: optionalDateTimeSchema,
-  })
-  .strict();
+export const promoteE2eeMemorySchema = z.union([
+  z
+    .object({
+      directConversationId: z.string().uuid(),
+      sourceMessageId: z.string().uuid(),
+      type: personalMemoryTypeSchema,
+      slotKey: z.string().trim().min(1).max(MEMORY_LIMITS.slotKeyMax),
+      content: z.string().trim().min(1).max(MEMORY_LIMITS.contentMax),
+      expiresAt: optionalDateTimeSchema,
+    })
+    .strict(),
+  z
+    .object({
+      directConversationId: z.string().uuid(),
+      sourceMessageId: z.string().uuid(),
+      projectId: z.string().uuid(),
+      type: projectMemoryTypeSchema,
+      slotKey: z.string().trim().min(1).max(MEMORY_LIMITS.slotKeyMax),
+      content: z.string().trim().min(1).max(MEMORY_LIMITS.contentMax),
+      expiresAt: optionalDateTimeSchema,
+    })
+    .strict(),
+]);
 export type PromoteE2eeMemory = z.infer<
   typeof promoteE2eeMemorySchema
 >;
