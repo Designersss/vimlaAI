@@ -462,6 +462,63 @@ describe("memory API", () => {
     }
   });
 
+  it("enforces the configured active Project Memory storage cap", async () => {
+    const config = loadApiConfig({
+      ...process.env,
+      MEMORY_ENABLED: "true",
+      PROJECTS_ENABLED: "true",
+      MEMORY_MUTATION_LIMIT_PER_MINUTE: "100",
+      MEMORY_MAX_ACTIVE_PROJECT_ITEMS: "1",
+    });
+    const isolated = await createVimlaApiApp(config, {
+      quiet: true,
+    });
+    await isolated.init();
+    await isolated.getHttpAdapter().getInstance().ready();
+    try {
+      const owner = await registerVerifiedUser(
+        isolated,
+        "memory-project-storage-cap",
+      );
+      const db = isolated.get(PrismaService).client;
+      const project = await db.project.create({
+        data: {
+          ownerUserId: owner.id,
+          name: "Project Memory Cap",
+        },
+      });
+
+      const first = await isolated.inject({
+        method: "POST",
+        url: `/v1/memory/projects/${project.id}`,
+        headers: jsonHeaders(),
+        cookies: owner.cookies,
+        payload: {
+          type: "PROJECT_FACT",
+          slotKey: "cap-one",
+          content: "First project fact",
+        },
+      });
+      expect(first.statusCode).toBe(201);
+
+      const second = await isolated.inject({
+        method: "POST",
+        url: `/v1/memory/projects/${project.id}`,
+        headers: jsonHeaders(),
+        cookies: owner.cookies,
+        payload: {
+          type: "PROJECT_DECISION",
+          slotKey: "cap-two",
+          content: "Second project fact",
+        },
+      });
+      expect(second.statusCode).toBe(409);
+      expect(errorCode(second)).toBe("conflict");
+    } finally {
+      await isolated.close();
+    }
+  });
+
   it("enforces the configured active personal memory storage cap", async () => {
     const config = loadApiConfig({
       ...process.env,
