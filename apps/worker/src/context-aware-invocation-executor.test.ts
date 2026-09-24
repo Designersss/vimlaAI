@@ -32,6 +32,29 @@ const input: InvocationExecutionInput = {
 };
 
 describe("ContextAwareInvocationExecutorRegistry", () => {
+  it("fails closed before DB or fallback access when context retrieval is disabled", async () => {
+    const findFirst = vi.fn();
+    const execute = vi.fn();
+    const resolveForInvocation = vi.fn();
+    const registry = new ContextAwareInvocationExecutorRegistry(
+      {
+        invocation: { findFirst },
+      } as unknown as PrismaClient,
+      { execute } satisfies InvocationExecutorRegistry,
+      { resolveForInvocation } as unknown as ContextBundleService,
+      false,
+    );
+
+    await expect(registry.execute(input)).resolves.toEqual({
+      status: "FAILED",
+      errorCode: "CONTEXT_RETRIEVAL_DISABLED",
+      retryable: false,
+    });
+    expect(findFirst).not.toHaveBeenCalled();
+    expect(resolveForInvocation).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
+  });
+
   it("delegates only after the invocation context passes authorization", async () => {
     const findFirst = vi.fn().mockResolvedValue(persistedVimlaInvocation);
     const allowedBundle = {
