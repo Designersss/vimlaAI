@@ -7,6 +7,7 @@ import type { PlannerPlan } from "@vimla/operator";
 import {
   DeterministicVimlaToolPlanner,
   VimlaInvocationExecutor,
+  VimlaPlannerError,
   type VimlaToolPlanner,
   type VimlaToolPlannerInput,
   vimlaToolIdempotencyKey,
@@ -194,6 +195,10 @@ describe("VimlaInvocationExecutor", () => {
     await expect(
       executor.execute(executionInput(seeded, 1)),
     ).resolves.toEqual({ status: "COMPLETED", outcome: "PASS" });
+    expect(planner.input?.actorUserId).toBe(seeded.userId);
+    expect(planner.input?.correlationId).toBe(
+      seeded.runIdempotencyKey,
+    );
     expect(planner.input?.dependencyContext).toContain("INPUT prompt");
     expect(planner.input?.dependencyContext).toContain("PROMPT");
     expect(planner.input?.dependencyContext).toContain(
@@ -274,6 +279,38 @@ describe("VimlaInvocationExecutor", () => {
       errorCode: "VIMLA_ACTION_NOT_RESOLVED",
       retryable: false,
     });
+  });
+
+  it("propagates Vimla Core failure without creating a paid AI request", async () => {
+    const seeded = await seedInvocation(
+      prisma,
+      "use local Vimla Core only",
+    );
+    const executor = new VimlaInvocationExecutor(
+      prisma,
+      {
+        plan: async () => {
+          throw new VimlaPlannerError(
+            "VIMLA_CORE_UNAVAILABLE",
+            true,
+          );
+        },
+      },
+      "en",
+    );
+
+    await expect(
+      executor.execute(executionInput(seeded, 1)),
+    ).resolves.toEqual({
+      status: "FAILED",
+      errorCode: "VIMLA_CORE_UNAVAILABLE",
+      retryable: true,
+    });
+    expect(
+      await prisma.aiRequest.count({
+        where: { userId: seeded.userId },
+      }),
+    ).toBe(0);
   });
 
   it("requires orchestration approval for destructive Vimla tools and accepts an already-approved invocation", async () => {

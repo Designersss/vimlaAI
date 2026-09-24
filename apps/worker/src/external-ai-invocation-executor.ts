@@ -114,7 +114,7 @@ type DurableToolResult = {
 
 export class ExternalAiAwareInvocationExecutorRegistry implements InvocationExecutorRegistry {
   constructor(
-    private readonly ai: ExternalAiInvocationExecutor,
+    private readonly ai: InvocationExecutorRegistry,
     private readonly fallback: InvocationExecutorRegistry,
   ) {}
 
