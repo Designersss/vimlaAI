@@ -326,6 +326,7 @@ export class ContextRetrievalService {
             conversation: {
               select: {
                 title: true,
+                projectId: true,
                 updatedAt: true,
               },
             },
@@ -661,7 +662,10 @@ export class ContextRetrievalService {
           lexicalScore: score,
           directReference: false,
           currentSurface: false,
-          currentProject: false,
+          currentProject:
+            input.currentProjectId !== null &&
+            input.currentProjectId !== undefined &&
+            message.conversation.projectId === input.currentProjectId,
           authority: "RAW",
           occurredAt: message.createdAt.toISOString(),
         }),
