@@ -18,6 +18,7 @@ CREATE TABLE "memory_item" (
   "slotKey" TEXT NOT NULL,
   "content" TEXT NOT NULL,
   "contentHash" TEXT NOT NULL,
+  "contentRedactedAt" TIMESTAMP(3),
   "classification" TEXT NOT NULL,
   "sensitivity" TEXT NOT NULL,
   "confidence" DOUBLE PRECISION NOT NULL,
@@ -78,6 +79,9 @@ CREATE TABLE "memory_item" (
   CONSTRAINT "memory_item_invalidation_check" CHECK (
     ("state"='INVALIDATED' AND "invalidatedAt" IS NOT NULL AND "invalidationReason" IS NOT NULL)
     OR ("state"<>'INVALIDATED' AND "invalidatedAt" IS NULL)
+  ),
+  CONSTRAINT "memory_item_redaction_check" CHECK (
+    "contentRedactedAt" IS NULL OR "state"<>'ACTIVE'
   )
 );
 
@@ -88,6 +92,7 @@ CREATE INDEX "memory_item_projectId_state_validFrom_idx" ON "memory_item"("proje
 CREATE INDEX "memory_item_conversationId_state_validFrom_idx" ON "memory_item"("conversationId","state","validFrom");
 CREATE INDEX "memory_item_scopeKey_state_validFrom_idx" ON "memory_item"("scopeKey","state","validFrom");
 CREATE INDEX "memory_item_type_state_validFrom_idx" ON "memory_item"("type","state","validFrom");
+CREATE INDEX "memory_item_redaction_idx" ON "memory_item"("state","contentRedactedAt","updatedAt");
 
 ALTER TABLE "memory_item" ADD CONSTRAINT "memory_item_ownerUserId_fkey"
   FOREIGN KEY ("ownerUserId") REFERENCES "user"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
@@ -150,6 +155,7 @@ CREATE TABLE "compacted_context_state" (
   "classification" TEXT NOT NULL,
   "content" TEXT NOT NULL,
   "contentHash" TEXT NOT NULL,
+  "contentRedactedAt" TIMESTAMP(3),
   "sourceRefs" JSONB NOT NULL,
   "sourceFingerprint" TEXT NOT NULL,
   "coveredFromSourceId" TEXT NOT NULL,
@@ -179,6 +185,9 @@ CREATE TABLE "compacted_context_state" (
   CONSTRAINT "compacted_context_state_invalidation_check" CHECK (
     ("invalidatedAt" IS NULL AND "invalidationReason" IS NULL)
     OR ("invalidatedAt" IS NOT NULL AND "invalidationReason" IS NOT NULL)
+  ),
+  CONSTRAINT "compacted_context_state_redaction_check" CHECK (
+    "contentRedactedAt" IS NULL OR "invalidatedAt" IS NOT NULL
   )
 );
 CREATE UNIQUE INDEX "compacted_context_state_scope_version_key" ON "compacted_context_state"("scopeKey","version");
@@ -187,6 +196,7 @@ CREATE INDEX "compacted_context_state_owner_idx" ON "compacted_context_state"("o
 CREATE INDEX "compacted_context_state_project_idx" ON "compacted_context_state"("projectId","invalidatedAt","validFrom");
 CREATE INDEX "compacted_context_state_conversation_idx" ON "compacted_context_state"("conversationId","invalidatedAt","validFrom");
 CREATE INDEX "compacted_context_state_scope_idx" ON "compacted_context_state"("scopeKey","invalidatedAt","version");
+CREATE INDEX "compacted_context_state_redaction_idx" ON "compacted_context_state"("invalidatedAt","contentRedactedAt");
 ALTER TABLE "compacted_context_state" ADD CONSTRAINT "compacted_context_state_ownerUserId_fkey"
   FOREIGN KEY ("ownerUserId") REFERENCES "user"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
 ALTER TABLE "compacted_context_state" ADD CONSTRAINT "compacted_context_state_projectId_fkey"
