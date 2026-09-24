@@ -502,7 +502,6 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
                   .catch(() => store.failAssistant("internal_error"));
               }}
               onSelectPro={() => {
-                setMode("pro");
                 setPickerOpen(true);
               }}
             />
