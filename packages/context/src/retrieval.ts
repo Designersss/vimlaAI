@@ -340,6 +340,9 @@ export class ContextRetrievalService {
             },
             conversation: {
               userId: input.actorUserId,
+              ...(currentProjectId
+                ? { projectId: currentProjectId }
+                : {}),
             },
             status: "COMPLETE",
             createdAt: { lte: sourceMessage.createdAt },
@@ -363,7 +366,9 @@ export class ContextRetrievalService {
           orderBy: [{ createdAt: "desc" }, { id: "desc" }],
           take: this.options.crossConversationScanLimit,
         }),
-        this.db.workspaceObject.findMany({
+        currentProjectId
+          ? Promise.resolve([])
+          : this.db.workspaceObject.findMany({
           where: {
             personalOwnerUserId: input.actorUserId,
             deletedAt: null,
@@ -424,18 +429,20 @@ export class ContextRetrievalService {
           take: this.options.workspaceScanLimit,
         }),
         this.db.project.findMany({
-          where: {
-            OR: [
-              { ownerUserId: input.actorUserId },
-              {
-                members: {
-                  some: {
-                    userId: input.actorUserId,
+          where: currentProjectId
+            ? { id: currentProjectId }
+            : {
+                OR: [
+                  { ownerUserId: input.actorUserId },
+                  {
+                    members: {
+                      some: {
+                        userId: input.actorUserId,
+                      },
+                    },
                   },
-                },
+                ],
               },
-            ],
-          },
           select: {
             id: true,
             name: true,
@@ -449,23 +456,40 @@ export class ContextRetrievalService {
         }),
         this.db.artifact.findMany({
           where: {
-            OR: [
+            AND: [
               {
-                creatorInvocation: {
-                  plan: {
-                    userId: input.actorUserId,
+                OR: [
+                  {
+                    creatorInvocation: {
+                      plan: {
+                        userId: input.actorUserId,
+                      },
+                    },
                   },
-                },
-              },
-              {
-                accessGrants: {
-                  some: {
-                    granteeUserId: input.actorUserId,
-                    permission: "READ",
-                    revokedAt: null,
+                  {
+                    accessGrants: {
+                      some: {
+                        granteeUserId: input.actorUserId,
+                        permission: "READ",
+                        revokedAt: null,
+                      },
+                    },
                   },
-                },
+                ],
               },
+              ...(currentProjectId
+                ? [
+                    {
+                      creatorInvocation: {
+                        plan: {
+                          conversation: {
+                            projectId: currentProjectId,
+                          },
+                        },
+                      },
+                    },
+                  ]
+                : []),
             ],
           },
           select: {
@@ -475,6 +499,17 @@ export class ContextRetrievalService {
             classification: true,
             metadata: true,
             createdAt: true,
+            creatorInvocation: {
+              select: {
+                plan: {
+                  select: {
+                    conversation: {
+                      select: { projectId: true },
+                    },
+                  },
+                },
+              },
+            },
             versions: {
               select: {
                 id: true,
@@ -891,7 +926,15 @@ export class ContextRetrievalService {
               } as Prisma.InputJsonValue,
             },
             sourceKind: "ARTIFACT",
-            sourceScope: personalScope,
+            sourceScope:
+              currentProjectId &&
+              artifact.creatorInvocation.plan.conversation.projectId ===
+                currentProjectId
+                ? {
+                    kind: "PROJECT",
+                    projectId: currentProjectId,
+                  }
+                : personalScope,
             reason: inlineContentJson
               ? "authorized immutable artifact content retrieval"
               : "authorized artifact metadata retrieval",
