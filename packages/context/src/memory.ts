@@ -602,12 +602,13 @@ export class MemoryService {
             include: { sourceRefs: true },
           })
         : null;
+      let lineageParent = existing;
       const existingExpired =
         existing?.expiresAt !== null &&
         existing?.expiresAt !== undefined &&
         existing.expiresAt <= new Date();
       if (existing && existingExpired) {
-        existing = await tx.memoryItem.update({
+        lineageParent = await tx.memoryItem.update({
           where: { id: existing.id },
           data: {
             state: "INVALIDATED",
@@ -616,6 +617,7 @@ export class MemoryService {
           },
           include: { sourceRefs: true },
         });
+        existing = null;
       }
 
       if (
@@ -824,12 +826,14 @@ export class MemoryService {
           sensitivity,
           confidence,
           quality,
-          generation: existing ? existing.generation + 1 : 1,
+          generation: lineageParent
+            ? lineageParent.generation + 1
+            : 1,
           origin: input.origin,
           state: "ACTIVE",
           validFrom,
           expiresAt,
-          supersedesId: existing?.id ?? null,
+          supersedesId: lineageParent?.id ?? null,
           userConfirmedAt:
             input.userConfirmed === true ? new Date() : null,
           userCorrectedAt:
@@ -1108,7 +1112,7 @@ async function assertSourceRefsValid(
     if (
       origin === "AUTO_EXTRACTION" &&
       targetScope.kind === "PERSONAL" &&
-      resolved.sourceProjectId
+      resolved.scopeKind === "PROJECT"
     ) {
       throw new MemoryError(
         "FORBIDDEN",
@@ -1156,7 +1160,6 @@ async function assertSourceRefValid(
   classification: MemoryClassification;
   scopeKind: MemoryScopeKind | "DIRECT_CHAT";
   scopeId: string | null;
-  sourceProjectId?: string | null;
 }> {
   switch (ref.sourceType) {
     case "USER_EXPLICIT":
@@ -1211,9 +1214,6 @@ async function assertSourceRefValid(
         select: {
           updatedAt: true,
           conversationId: true,
-          conversation: {
-            select: { projectId: true },
-          },
         },
       });
       if (
@@ -1238,7 +1238,6 @@ async function assertSourceRefValid(
         classification: "PRIVATE",
         scopeKind: "CONVERSATION",
         scopeId: row.conversationId,
-        sourceProjectId: row.conversation.projectId,
       };
     }
     case "WORKSPACE_OBJECT": {
@@ -1448,8 +1447,35 @@ async function sourceRefCurrent(
   switch (ref.sourceType) {
     case "USER_EXPLICIT":
     case "USER_CORRECTION":
-    case "E2EE_USER_DISCLOSURE":
       return true;
+    case "E2EE_USER_DISCLOSURE": {
+      if (
+        ref.sourceScopeKind !== "DIRECT_CHAT" ||
+        !ref.sourceScopeId ||
+        !ref.sourceVersion
+      ) {
+        return false;
+      }
+      const row = await db.directMessage.findFirst({
+        where: {
+          id: ref.sourceId,
+          conversationId: ref.sourceScopeId,
+          conversation: {
+            members: {
+              some: { userId: memory.ownerUserId },
+            },
+          },
+        },
+        select: { createdAt: true },
+      });
+      return Boolean(
+        row &&
+          versionMatches(
+            ref.sourceVersion,
+            row.createdAt.toISOString(),
+          ),
+      );
+    }
     case "MESSAGE": {
       if (
         ref.sourceScopeKind !== "CONVERSATION" ||
