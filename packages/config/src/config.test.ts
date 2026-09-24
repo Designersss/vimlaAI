@@ -373,6 +373,77 @@ describe("loadWorkerConfig", () => {
     expect(config.reminderReconcileIntervalSeconds).toBe(60);
     expect(config.webOrigin).toBe("http://localhost:3000");
     expect(config.workerHealthPort).toBeUndefined();
+    expect(config.vimlaCoreProvider).toBe("deterministic");
+    expect(config.vimlaCoreBaseUrl).toBeUndefined();
+    expect(config.vimlaCoreModel).toBeUndefined();
+    expect(config.vimlaCoreToolUseEnabled).toBe(true);
+    expect(config.vimlaCoreFairUseRequestsPerMinute).toBe(20);
+    expect(config.vimlaCoreFairUseMaxConcurrentPerUser).toBe(2);
+  });
+
+  it("resolves a dedicated internal Vimla Core provider without paid-AI fallback settings", () => {
+    const configured = loadWorkerConfig({
+      ...validSharedEnv,
+      VIMLA_CORE_PROVIDER: "internal-http",
+      VIMLA_CORE_BASE_URL: "http://127.0.0.1:18080/v1/",
+      VIMLA_CORE_MODEL: "qwen-vimla-core",
+      VIMLA_CORE_API_KEY: "internal-only-secret",
+      VIMLA_CORE_TIMEOUT_MS: "45000",
+      VIMLA_CORE_MAX_OUTPUT_TOKENS: "1024",
+      VIMLA_CORE_MAX_REQUEST_BYTES: "131072",
+      VIMLA_CORE_MAX_CONCURRENT_REQUESTS: "3",
+      VIMLA_CORE_MAX_QUEUE_DEPTH: "12",
+      VIMLA_CORE_CIRCUIT_FAILURE_THRESHOLD: "4",
+      VIMLA_CORE_CIRCUIT_RESET_MS: "20000",
+      VIMLA_CORE_TOOL_USE_ENABLED: "false",
+      VIMLA_CORE_FAIR_USE_REQUESTS_PER_MINUTE: "15",
+      VIMLA_CORE_FAIR_USE_MAX_CONCURRENT_PER_USER: "1",
+    });
+
+    expect(configured.vimlaCoreProvider).toBe("internal-http");
+    expect(configured.vimlaCoreBaseUrl).toBe("http://127.0.0.1:18080/v1");
+    expect(configured.vimlaCoreModel).toBe("qwen-vimla-core");
+    expect(configured.vimlaCoreApiKey).toBe("internal-only-secret");
+    expect(configured.vimlaCoreTimeoutMs).toBe(45_000);
+    expect(configured.vimlaCoreMaxOutputTokens).toBe(1_024);
+    expect(configured.vimlaCoreMaxRequestBytes).toBe(131_072);
+    expect(configured.vimlaCoreMaxConcurrentRequests).toBe(3);
+    expect(configured.vimlaCoreMaxQueueDepth).toBe(12);
+    expect(configured.vimlaCoreCircuitFailureThreshold).toBe(4);
+    expect(configured.vimlaCoreCircuitResetMs).toBe(20_000);
+    expect(configured.vimlaCoreToolUseEnabled).toBe(false);
+    expect(configured.vimlaCoreFairUseRequestsPerMinute).toBe(15);
+    expect(configured.vimlaCoreFairUseMaxConcurrentPerUser).toBe(1);
+  });
+
+  it("requires endpoint and model for an explicit internal Vimla Core provider", () => {
+    expect(() =>
+      loadWorkerConfig({
+        ...validSharedEnv,
+        VIMLA_CORE_PROVIDER: "internal-http",
+      }),
+    ).toThrow(/VIMLA_CORE_BASE_URL|VIMLA_CORE_MODEL/);
+  });
+
+  it("rejects deterministic Vimla Core in staging and production", () => {
+    expect(() =>
+      loadWorkerConfig({
+        ...validSharedEnv,
+        APP_ENV: "production",
+        BETTER_AUTH_SECRET: "production-worker-secret-value-32-chars-min",
+        WEB_ORIGIN: "https://app.vimla.example",
+        EMAIL_PROVIDER: "smtp",
+        SMTP_HOST: "smtp.example.com",
+        SMTP_USER: "vimla",
+        SMTP_PASSWORD: "smtp-secret-value",
+        EMAIL_FROM: "noreply@vimla.example",
+        PAYMENT_PROVIDER: "tbank",
+        TBANK_ENV: "production",
+        TBANK_TERMINAL_KEY: "production-terminal-key",
+        TBANK_PASSWORD: "production-tbank-password-value",
+        VIMLA_CORE_PROVIDER: "deterministic",
+      }),
+    ).toThrow(/VIMLA_CORE_PROVIDER/);
   });
 
   it("keeps AI evaluator disabled by default and validates internal-http settings", () => {
