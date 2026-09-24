@@ -100,6 +100,7 @@ export class MemoryMaintenanceService {
             updatedAt: { lte: cutoff },
           },
           data: {
+            slotKey: "[REDACTED]",
             content: "",
             contentHash,
             contentRedactedAt: now,
