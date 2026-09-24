@@ -475,6 +475,27 @@ describe("semantic retrieval on real PostgreSQL/pgvector", () => {
     expect(await countChunks(key)).toBe(1);
   });
 
+  it("rejects semantic MESSAGE hits at the exact source-message Send timestamp", async () => {
+    const owner = await user();
+    const p = await plan(owner);
+    const tied = await db.message.create({
+      data: {
+        conversationId: p.input.conversationId,
+        role: "ASSISTANT",
+        status: "COMPLETE",
+        content: "violet future tie",
+        createdAt: new Date(p.input.sourceMessageCreatedAt),
+      },
+    });
+    await index("MESSAGE", tied.id);
+
+    expect(
+      (await search.retrieve(p.input)).some(
+        (candidate) => candidate.item.sourceId === tied.id,
+      ),
+    ).toBe(false);
+  });
+
   it("keeps semantically rediscovered recent messages in the L1 raw tail", async () => {
     const owner = await user();
     const p = await plan(owner);
