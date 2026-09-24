@@ -280,9 +280,6 @@ export class MemoryMaintenanceService {
         content: true,
         updatedAt: true,
         conversationId: true,
-        conversation: {
-          select: { projectId: true },
-        },
       },
     });
     if (!source) return;
