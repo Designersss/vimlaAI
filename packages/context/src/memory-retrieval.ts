@@ -26,6 +26,12 @@ export class MemoryRetrievalProvider
     input: ContextRetrievalProviderInput,
   ): Promise<readonly ContextCandidate[]> {
     const now = new Date();
+    const snapshotCutoff = new Date(
+      input.sourceMessageCreatedAt,
+    );
+    if (!Number.isFinite(snapshotCutoff.getTime())) {
+      return [];
+    }
     const queryTerms = tokens(input.query);
     const scopeClause: Prisma.MemoryItemWhereInput = {
       OR: [
@@ -60,6 +66,7 @@ export class MemoryRetrievalProvider
           { expiresAt: { gt: now } },
         ],
       },
+      { validFrom: { lte: snapshotCutoff } },
       scopeClause,
     ];
     const lexicalTerms = queryTerms.slice(0, 16);
