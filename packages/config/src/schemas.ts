@@ -725,8 +725,8 @@ export const workerEnvSchema = z
     const vimlaCoreUsesInternal =
       value.VIMLA_CORE_PROVIDER === "internal-http" ||
       (value.VIMLA_CORE_PROVIDER === "auto" &&
-        Boolean(value.VIMLA_CORE_BASE_URL) &&
-        Boolean(value.VIMLA_CORE_MODEL));
+        (Boolean(value.VIMLA_CORE_BASE_URL) ||
+          Boolean(value.VIMLA_CORE_MODEL)));
     if (vimlaCoreUsesInternal) {
       if (value.VIMLA_CORE_INTERNAL_CONFIRMED !== "true") {
         ctx.addIssue({
