@@ -1,0 +1,126 @@
+// PR-17 durable derived memory and compacted context state.
+// Raw messages, projects and workspace objects remain authoritative source data.
+model MemoryItem {
+  id                String   @id @default(uuid())
+  ownerUserId       String
+  owner             User     @relation("MemoryOwner", fields: [ownerUserId], references: [id], onDelete: Restrict)
+  scopeKind         String
+  scopeKey          String
+  projectId         String?
+  project           Project? @relation("ProjectMemory", fields: [projectId], references: [id], onDelete: SetNull)
+  conversationId    String?
+  conversation      Conversation? @relation("ConversationMemory", fields: [conversationId], references: [id], onDelete: SetNull)
+  threadId          String?
+  type              String
+  slotKey           String
+  content           String
+  contentHash       String
+  contentRedactedAt DateTime?
+  classification    String
+  sensitivity       String
+  confidence        Float
+  quality           Float
+  generation        Int      @default(1)
+  origin            String
+  state             String   @default("ACTIVE")
+  validFrom         DateTime
+  expiresAt         DateTime?
+  supersedesId      String?  @unique
+  supersedes        MemoryItem? @relation("MemorySupersession", fields: [supersedesId], references: [id], onDelete: Restrict)
+  supersededBy      MemoryItem? @relation("MemorySupersession")
+  invalidatedAt     DateTime?
+  invalidationReason String?
+  userConfirmedAt   DateTime?
+  userCorrectedAt   DateTime?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  sourceRefs        MemorySourceRef[]
+
+  @@index([ownerUserId, state, validFrom])
+  @@index([projectId, state, validFrom])
+  @@index([conversationId, state, validFrom])
+  @@index([scopeKey, state, validFrom])
+  @@index([type, state, validFrom])
+  @@index([state, contentRedactedAt, updatedAt])
+  @@map("memory_item")
+}
+
+model MemorySourceRef {
+  id              String     @id @default(uuid())
+  memoryId        String
+  memory          MemoryItem @relation(fields: [memoryId], references: [id], onDelete: Cascade)
+  provenance      String
+  sourceType      String
+  sourceId        String
+  sourceVersion   String?
+  sourceScopeKind String
+  sourceScopeId   String?
+  disclosedAt     DateTime?
+  createdAt       DateTime   @default(now())
+
+  @@unique([memoryId, provenance, sourceType, sourceId])
+  @@index([sourceType, sourceId])
+  @@index([sourceScopeKind, sourceScopeId])
+  @@map("memory_source_ref")
+}
+
+model CompactedContextState {
+  id                 String   @id @default(uuid())
+  ownerUserId        String
+  owner              User     @relation("CompactedStateOwner", fields: [ownerUserId], references: [id], onDelete: Restrict)
+  scopeKind          String
+  scopeKey           String
+  projectId          String?
+  project            Project? @relation("ProjectCompactedState", fields: [projectId], references: [id], onDelete: SetNull)
+  conversationId     String?
+  conversation       Conversation? @relation("ConversationCompactedState", fields: [conversationId], references: [id], onDelete: SetNull)
+  threadId           String?
+  version            Int
+  classification     String
+  content            String
+  contentHash        String
+  contentRedactedAt DateTime?
+  sourceRefs         Json
+  sourceFingerprint  String
+  coveredFromSourceId String
+  coveredToSourceId  String
+  coveredFromAt      DateTime
+  coveredToAt        DateTime
+  sourceCount        Int
+  inputTokenEstimate Int
+  outputTokenEstimate Int
+  validFrom          DateTime
+  invalidatedAt      DateTime?
+  invalidationReason String?
+  createdAt          DateTime @default(now())
+
+  @@unique([scopeKey, version])
+  @@index([ownerUserId, invalidatedAt, validFrom])
+  @@index([projectId, invalidatedAt, validFrom])
+  @@index([conversationId, invalidatedAt, validFrom])
+  @@index([scopeKey, invalidatedAt, version])
+  @@index([invalidatedAt, contentRedactedAt])
+  @@map("compacted_context_state")
+}
+
+model MemoryExtractionReceipt {
+  id             String   @id @default(uuid())
+  ownerUserId    String
+  owner          User     @relation("MemoryExtractionOwner", fields: [ownerUserId], references: [id], onDelete: Restrict)
+  sourceType     String
+  sourceId       String
+  sourceVersion  String
+  status         String   @default("PENDING")
+  candidateCount Int      @default(0)
+  attemptCount   Int      @default(0)
+  errorCode      String?
+  extractedAt    DateTime?
+  compactedAt    DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([sourceType, sourceId, sourceVersion])
+  @@index([ownerUserId, status, updatedAt])
+  @@index([sourceType, status, updatedAt])
+  @@map("memory_extraction_receipt")
+}

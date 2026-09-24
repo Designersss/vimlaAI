@@ -11,6 +11,10 @@ import {
   isKnownContextClassification,
   type ContextSourceScope,
 } from "./policy.js";
+import {
+  conservativeTokensFromByteCount,
+  estimateConservativeTokens as estimateTokens,
+} from "./token-estimate.js";
 import type {
   ContextClassification,
   ContextSnapshotItemInput,
@@ -67,6 +71,7 @@ export interface ContextRetrievalProviderInput {
   conversationId: string;
   sourceMessageId: string;
   sourceMessageCreatedAt: string;
+  currentProjectId?: string | null;
 }
 
 export interface ContextRetrievalProvider {
@@ -209,6 +214,7 @@ export class ContextRetrievalService {
             conversation: {
               select: {
                 id: true,
+                projectId: true,
                 title: true,
                 kind: true,
                 createdAt: true,
@@ -243,19 +249,45 @@ export class ContextRetrievalService {
     }
 
     const sourceMessage = plan.message;
+    const focusedProjectId =
+      sourceMessage.conversation.projectId;
+    const currentProject = focusedProjectId
+      ? await this.db.project.findFirst({
+          where: {
+            id: focusedProjectId,
+            OR: [
+              { ownerUserId: input.actorUserId },
+              {
+                members: {
+                  some: { userId: input.actorUserId },
+                },
+              },
+            ],
+          },
+          select: {
+            id: true,
+            updatedAt: true,
+          },
+        })
+      : null;
+    const currentProjectId = currentProject?.id ?? null;
     const query = sourceMessage.content;
     const queryTokens = tokenize(query);
     const personalScope: ContextSourceScope = {
       kind: "PERSONAL",
       ownerUserId: input.actorUserId,
     };
+    // A project-focused personal conversation remains a PERSONAL surface.
+    // projectId is a retrieval/ranking hint only; it must never relabel the
+    // private conversation or its raw history as shared Project context.
+    const currentSurfaceScope: ContextSourceScope = personalScope;
 
     const recentMessages = await this.db.message.findMany({
       where: {
         conversationId: sourceMessage.conversation.id,
         id: { not: sourceMessage.id },
         status: "COMPLETE",
-        createdAt: { lte: sourceMessage.createdAt },
+        createdAt: { lt: sourceMessage.createdAt },
       },
       select: {
         id: true,
@@ -285,7 +317,7 @@ export class ContextRetrievalService {
               notIn: [sourceMessage.id, ...recentIds],
             },
             status: "COMPLETE",
-            createdAt: { lte: sourceMessage.createdAt },
+            createdAt: { lt: sourceMessage.createdAt },
           },
           select: {
             id: true,
@@ -305,9 +337,12 @@ export class ContextRetrievalService {
             },
             conversation: {
               userId: input.actorUserId,
+              ...(currentProjectId
+                ? { projectId: currentProjectId }
+                : {}),
             },
             status: "COMPLETE",
-            createdAt: { lte: sourceMessage.createdAt },
+            createdAt: { lt: sourceMessage.createdAt },
           },
           select: {
             id: true,
@@ -320,6 +355,7 @@ export class ContextRetrievalService {
             conversation: {
               select: {
                 title: true,
+                projectId: true,
                 updatedAt: true,
               },
             },
@@ -388,18 +424,20 @@ export class ContextRetrievalService {
           take: this.options.workspaceScanLimit,
         }),
         this.db.project.findMany({
-          where: {
-            OR: [
-              { ownerUserId: input.actorUserId },
-              {
-                members: {
-                  some: {
-                    userId: input.actorUserId,
+          where: currentProjectId
+            ? { id: currentProjectId }
+            : {
+                OR: [
+                  { ownerUserId: input.actorUserId },
+                  {
+                    members: {
+                      some: {
+                        userId: input.actorUserId,
+                      },
+                    },
                   },
-                },
+                ],
               },
-            ],
-          },
           select: {
             id: true,
             name: true,
@@ -413,23 +451,40 @@ export class ContextRetrievalService {
         }),
         this.db.artifact.findMany({
           where: {
-            OR: [
+            AND: [
               {
-                creatorInvocation: {
-                  plan: {
-                    userId: input.actorUserId,
+                OR: [
+                  {
+                    creatorInvocation: {
+                      plan: {
+                        userId: input.actorUserId,
+                      },
+                    },
                   },
-                },
-              },
-              {
-                accessGrants: {
-                  some: {
-                    granteeUserId: input.actorUserId,
-                    permission: "READ",
-                    revokedAt: null,
+                  {
+                    accessGrants: {
+                      some: {
+                        granteeUserId: input.actorUserId,
+                        permission: "READ",
+                        revokedAt: null,
+                      },
+                    },
                   },
-                },
+                ],
               },
+              ...(currentProjectId
+                ? [
+                    {
+                      creatorInvocation: {
+                        plan: {
+                          conversation: {
+                            projectId: currentProjectId,
+                          },
+                        },
+                      },
+                    },
+                  ]
+                : []),
             ],
           },
           select: {
@@ -439,6 +494,17 @@ export class ContextRetrievalService {
             classification: true,
             metadata: true,
             createdAt: true,
+            creatorInvocation: {
+              select: {
+                plan: {
+                  select: {
+                    conversation: {
+                      select: { projectId: true },
+                    },
+                  },
+                },
+              },
+            },
             versions: {
               select: {
                 id: true,
@@ -456,12 +522,12 @@ export class ContextRetrievalService {
         this.db.$queryRaw<Array<{ byteCount: bigint }>>(
           Prisma.sql`
             SELECT
-              COALESCE(SUM(OCTET_LENGTH("content")), 0)::bigint AS "byteCount"
+              COALESCE(SUM(GREATEST(OCTET_LENGTH("content"), 1)), 0)::bigint AS "byteCount"
             FROM "message"
             WHERE "conversationId" = ${sourceMessage.conversation.id}
               AND "id" <> ${sourceMessage.id}
               AND "status" = 'COMPLETE'
-              AND "createdAt" <= ${sourceMessage.createdAt}
+              AND "createdAt" < ${sourceMessage.createdAt}
           `,
         ),
       ]);
@@ -486,12 +552,12 @@ export class ContextRetrievalService {
           },
         },
         sourceKind: "IMMEDIATE",
-        sourceScope: personalScope,
+        sourceScope: currentSurfaceScope,
         reason: "current user message",
         lexicalScore: 1,
         directReference: true,
         currentSurface: true,
-        currentProject: false,
+        currentProject: currentProjectId !== null,
         authority: "RAW",
         occurredAt: sourceMessage.createdAt.toISOString(),
       }),
@@ -511,7 +577,7 @@ export class ContextRetrievalService {
           },
         },
         sourceKind: "IMMEDIATE",
-        sourceScope: personalScope,
+        sourceScope: currentSurfaceScope,
         reason: "current conversation",
         lexicalScore: lexicalScore(
           queryTokens,
@@ -519,7 +585,7 @@ export class ContextRetrievalService {
         ),
         directReference: true,
         currentSurface: true,
-        currentProject: false,
+        currentProject: currentProjectId !== null,
         authority: "AUTHORITATIVE",
         occurredAt:
           sourceMessage.conversation.updatedAt.toISOString(),
@@ -581,17 +647,21 @@ export class ContextRetrievalService {
           metadata: {
             kind: "PERSONAL",
             participantUserIds: [input.actorUserId],
+            ...(currentProjectId
+              ? { focusedProjectId: currentProjectId }
+              : {}),
           },
         },
         sourceKind: "IMMEDIATE",
-        sourceScope: personalScope,
+        sourceScope: currentSurfaceScope,
         reason: "response audience",
         lexicalScore: 0,
         directReference: true,
         currentSurface: true,
-        currentProject: false,
+        currentProject: currentProjectId !== null,
         authority: "AUTHORITATIVE",
         occurredAt:
+          currentProject?.updatedAt.toISOString() ??
           sourceMessage.conversation.updatedAt.toISOString(),
       }),
       ...recentMessages
@@ -599,11 +669,13 @@ export class ContextRetrievalService {
         .map((message) =>
           messageCandidate(
             message,
-            personalScope,
+            currentSurfaceScope,
             "L1_RAW",
             "recent raw current-conversation history",
             queryTokens,
             true,
+            undefined,
+            currentProjectId !== null,
           ),
         ),
     ];
@@ -616,12 +688,13 @@ export class ContextRetrievalService {
       ).map(({ message, score }) =>
         messageCandidate(
           message,
-          personalScope,
+          currentSurfaceScope,
           "OLDER_HISTORY",
           "lexically relevant older current-conversation message",
           queryTokens,
           true,
           score,
+          currentProjectId !== null,
         ),
       ),
     );
@@ -655,7 +728,10 @@ export class ContextRetrievalService {
           lexicalScore: score,
           directReference: false,
           currentSurface: false,
-          currentProject: false,
+          currentProject:
+            currentProjectId !== null &&
+            currentProjectId !== undefined &&
+            message.conversation.projectId === currentProjectId,
           authority: "RAW",
           occurredAt: message.createdAt.toISOString(),
         }),
@@ -733,7 +809,8 @@ export class ContextRetrievalService {
           lexicalScore: score,
           directReference,
           currentSurface: false,
-          currentProject: false,
+          currentProject:
+            project.id === currentProjectId,
           authority: "AUTHORITATIVE",
           occurredAt: project.updatedAt.toISOString(),
         }),
@@ -838,7 +915,10 @@ export class ContextRetrievalService {
             lexicalScore: score,
             directReference,
             currentSurface: false,
-            currentProject: false,
+            currentProject:
+              currentProjectId !== null &&
+              artifact.creatorInvocation.plan.conversation.projectId ===
+                currentProjectId,
             authority: "AUTHORITATIVE",
             occurredAt: artifact.createdAt.toISOString(),
           });
@@ -854,6 +934,7 @@ export class ContextRetrievalService {
       sourceMessageId: sourceMessage.id,
       sourceMessageCreatedAt:
         sourceMessage.createdAt.toISOString(),
+      currentProjectId: currentProjectId ?? null,
     };
     if (this.semanticSearch) {
       const semantic = await this.semanticSearch.retrieve(providerInput);
@@ -1000,6 +1081,7 @@ function messageCandidate(
   queryTokens: readonly string[],
   currentSurface: boolean,
   score = lexicalScore(queryTokens, tokenize(message.content)),
+  currentProject = false,
 ): ContextCandidate {
   return candidate({
     item: {
@@ -1021,7 +1103,7 @@ function messageCandidate(
     lexicalScore: score,
     directReference: false,
     currentSurface,
-    currentProject: false,
+    currentProject,
     authority: "RAW",
     occurredAt: message.createdAt.toISOString(),
   });
@@ -1473,24 +1555,6 @@ function queryReferencesId(
   id: string,
 ): boolean {
   return id.length > 0 && query.includes(id);
-}
-
-function estimateTokens(value: string): number {
-  // Match @vimla/ai admission safety: one UTF-8 byte is treated as one
-  // conservative token unit so multilingual text is never undercounted.
-  return Math.max(
-    1,
-    new TextEncoder().encode(value).byteLength,
-  );
-}
-
-function conservativeTokensFromByteCount(
-  byteCount: bigint,
-): number {
-  if (byteCount <= 0n) return 0;
-  return byteCount > BigInt(Number.MAX_SAFE_INTEGER)
-    ? Number.MAX_SAFE_INTEGER
-    : Number(byteCount);
 }
 
 function roundScore(value: number): number {

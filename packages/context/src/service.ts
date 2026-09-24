@@ -7,6 +7,8 @@ import {
   ContextValidationError,
 } from "./errors.js";
 import { fingerprintContextItem, fingerprintContextSnapshot } from "./fingerprint.js";
+import { canReadCompactedState } from "./compaction.js";
+import { canReadMemoryItem } from "./memory.js";
 import { ContextRetrievalService } from "./retrieval.js";
 import type {
   ContextAccessCheck,
@@ -45,7 +47,10 @@ export class ContextSnapshotService {
       return toView(existing);
     }
 
-    const items = await this.collectExecutionPlanItems(input.actorUserId, input.planId);
+    const items = await this.collectExecutionPlanItems(
+      input.actorUserId,
+      input.planId,
+    );
     return this.persistSnapshot({ ...input, items }, true);
   }
 
@@ -219,13 +224,47 @@ export class ContextSnapshotService {
         // membership + consent gate. Generic snapshot access must fail closed.
         return false;
       case "CONVERSATION":
-      case "AUDIENCE":
         return Boolean(
           await this.db.conversation.findFirst({
             where: { id: check.sourceId, userId: check.actorUserId },
             select: { id: true },
           }),
         );
+      case "AUDIENCE": {
+        const [conversation, project, direct] = await Promise.all([
+          this.db.conversation.findFirst({
+            where: {
+              id: check.sourceId,
+              userId: check.actorUserId,
+            },
+            select: { id: true },
+          }),
+          this.db.project.findFirst({
+            where: {
+              id: check.sourceId,
+              OR: [
+                { ownerUserId: check.actorUserId },
+                {
+                  members: {
+                    some: { userId: check.actorUserId },
+                  },
+                },
+              ],
+            },
+            select: { id: true },
+          }),
+          this.db.directConversationMember.findUnique({
+            where: {
+              conversationId_userId: {
+                conversationId: check.sourceId,
+                userId: check.actorUserId,
+              },
+            },
+            select: { id: true },
+          }),
+        ]);
+        return Boolean(conversation || project || direct);
+      }
       case "PARTICIPANT":
       case "LOCALE_TIMEZONE":
         return check.sourceId === check.actorUserId;
@@ -278,10 +317,20 @@ export class ContextSnapshotService {
             select: { id: true },
           }),
         );
+      case "COMPACTED_STATE":
+        return canReadCompactedState(
+          this.db,
+          check.actorUserId,
+          check.sourceId,
+        );
+      case "MEMORY":
+        return canReadMemoryItem(
+          this.db,
+          check.actorUserId,
+          check.sourceId,
+        );
       case "ATTACHMENT":
       case "FILE_METADATA":
-      case "COMPACTED_STATE":
-      case "MEMORY":
       case "ENTITY":
         return false;
     }

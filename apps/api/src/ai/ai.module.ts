@@ -11,6 +11,7 @@ import { AuthModule } from "../auth/auth.module.js";
 import { BillingModule } from "../billing/billing.module.js";
 import { PersistenceModule } from "../persistence/persistence.module.js";
 import { OrchestrationModule } from "../orchestration/orchestration.module.js";
+import { MemoryModule } from "../memory/memory.module.js";
 import { AI_GATEWAY, AI_PROVIDER } from "./ai.tokens.js";
 import { AiConcurrencyService } from "./concurrency.service.js";
 import { AiRateLimitGuard } from "./ai-rate-limit.guard.js";
@@ -20,7 +21,13 @@ import { ModelsController } from "./models.controller.js";
 import { TextChatService } from "./text-chat.service.js";
 
 @Module({
-  imports: [PersistenceModule, AuthModule, BillingModule, OrchestrationModule],
+  imports: [
+    PersistenceModule,
+    AuthModule,
+    BillingModule,
+    OrchestrationModule,
+    MemoryModule,
+  ],
   controllers: [ModelsController, ConversationsController],
   providers: [
     AiRateLimitGuard,

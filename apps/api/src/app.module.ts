@@ -19,6 +19,7 @@ import { OrchestrationModule } from "./orchestration/orchestration.module.js";
 import { ProjectsModule } from "./projects/projects.module.js";
 import { DirectChatsModule } from "./direct-chats/direct-chats.module.js";
 import { MentionsModule } from "./mentions/mentions.module.js";
+import { MemoryModule } from "./memory/memory.module.js";
 import { createPinoHttpOptions } from "./observability/logger.js";
 
 @Module({})
@@ -46,6 +47,7 @@ export class AppModule {
       ProjectsModule,
       DirectChatsModule,
       MentionsModule,
+      MemoryModule,
     ];
 
     if (isDevBillingEnvironment(config.appEnv)) {

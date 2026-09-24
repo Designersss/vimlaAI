@@ -157,6 +157,69 @@ describe("Context retrieval v1", () => {
     );
   });
 
+  it("excludes non-source messages that appear at the exact Send timestamp", async () => {
+    const actorUserId = await createUser(
+      prisma,
+      "retrieval-send-timestamp-tie",
+    );
+    const conversation = await prisma.conversation.create({
+      data: {
+        userId: actorUserId,
+        title: "Send boundary tie",
+      },
+    });
+    const sourceMessage = await prisma.message.create({
+      data: {
+        conversationId: conversation.id,
+        role: "USER",
+        content: "Freeze context now.",
+        status: "COMPLETE",
+      },
+    });
+    const laterMessage = await prisma.message.create({
+      data: {
+        conversationId: conversation.id,
+        role: "ASSISTANT",
+        content:
+          "This message was inserted later and must not enter the frozen snapshot.",
+        status: "COMPLETE",
+      },
+    });
+    await prisma.message.update({
+      where: { id: laterMessage.id },
+      data: {
+        createdAt: sourceMessage.createdAt,
+      },
+    });
+
+    const planId = randomUUID();
+    await prisma.executionPlan.create({
+      data: {
+        id: planId,
+        messageId: sourceMessage.id,
+        userId: actorUserId,
+        conversationId: conversation.id,
+        schemaVersion: 1,
+        version: 1,
+        planHash: "planning:pending:v1",
+        goal: "Freeze exact Send boundary",
+        status: "PLANNING",
+        maxParallelism: 1,
+      },
+    });
+
+    const snapshot = await snapshots.createForExecutionPlan({
+      actorUserId,
+      planId,
+    });
+
+    expect(
+      snapshot.items.some(
+        (item) => item.sourceId === laterMessage.id,
+      ),
+    ).toBe(false);
+  });
+
   it("retrieves immutable inline content for a relevant prior artifact", async () => {
     const actorUserId = await createUser(
       prisma,

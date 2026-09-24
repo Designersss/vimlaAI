@@ -219,6 +219,79 @@ describe("ContextPacker", () => {
     );
   });
 
+  it("filters high-risk personal history for external models while preserving explicit current input", () => {
+    const result = packContextItems({
+      targetKind: "AI_MODEL",
+      budget: SMALL_BUDGET,
+      items: [
+        item(
+          "current-sensitive",
+          "USER_MESSAGE",
+          "I was diagnosed with diabetes; explain this result.",
+          {
+            sourceKind: "IMMEDIATE",
+            currentSurface: true,
+            directReference: true,
+            authority: "RAW",
+            estimatedTokens: 50,
+          },
+        ),
+        item(
+          "historical-sensitive",
+          "MESSAGE",
+          "I was diagnosed with diabetes.",
+          {
+            sourceKind: "CROSS_CONVERSATION",
+            authority: "RAW",
+            estimatedTokens: 40,
+            lexicalScore: 0.9,
+          },
+        ),
+      ],
+    });
+
+    expect(
+      result.selections.map(({ item: selected }) => selected.id),
+    ).toContain("current-sensitive");
+    expect(
+      result.selections.map(({ item: selected }) => selected.id),
+    ).not.toContain("historical-sensitive");
+    expect(result.exclusions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          item: expect.objectContaining({
+            id: "historical-sensitive",
+          }),
+          reason: "SENSITIVE_DATA_FILTERED",
+        }),
+      ]),
+    );
+  });
+
+  it("keeps high-risk personal history available to the internal Vimla model boundary", () => {
+    const result = packContextItems({
+      targetKind: "VIMLA",
+      budget: SMALL_BUDGET,
+      items: [
+        item(
+          "internal-sensitive",
+          "MESSAGE",
+          "I was diagnosed with diabetes.",
+          {
+            sourceKind: "CROSS_CONVERSATION",
+            authority: "RAW",
+            estimatedTokens: 40,
+            lexicalScore: 0.9,
+          },
+        ),
+      ],
+    });
+
+    expect(
+      result.selections.map(({ item: selected }) => selected.id),
+    ).toContain("internal-sensitive");
+  });
+
   it("filters retrieved secrets for Vimla model context as well", () => {
     const result = packContextItems({
       targetKind: "VIMLA",
@@ -247,12 +320,11 @@ describe("ContextPacker", () => {
       targetKind: "VIMLA",
       budget: SMALL_BUDGET,
       items: [
-        item("global-memory", "MEMORY", "old project status", {
+        item("global-memory", "MEMORY", "remembered project status", {
           sourceKind: "PERSONAL_MEMORY",
           authority: "DERIVED",
           estimatedTokens: 80,
           lexicalScore: 0.95,
-          stale: true,
         }),
         item("current-project", "PROJECT", "current project status", {
           sourceKind: "PROJECT_OBJECT",
@@ -272,6 +344,7 @@ describe("ContextPacker", () => {
     });
 
     expect(result.selections[0]?.item.id).toBe("current-project");
+    expect(result.selections.map(({ item: selected }) => selected.id)).toContain("global-memory");
     expect(result.selections.map(({ item: selected }) => selected.id)).not.toContain("superseded");
     expect(result.exclusions).toEqual(
       expect.arrayContaining([

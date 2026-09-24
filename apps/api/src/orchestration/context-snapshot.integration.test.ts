@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { NestFastifyApplication } from "@nestjs/platform-fastify";
 import { loadApiConfig } from "@vimla/config/server";
+import { MemoryService } from "@vimla/context";
 import { createPrismaClient, type PrismaClient } from "@vimla/database";
 import { createVimlaApiApp } from "../create-app.js";
 import { registerVerifiedUser } from "../test/identity-helpers.js";
@@ -31,6 +32,8 @@ describe("execution plan context snapshot", () => {
       process.env.BETTER_AUTH_SECRET ?? "local-dev-only-change-me-use-32-chars-min";
     process.env.BETTER_AUTH_URL = process.env.BETTER_AUTH_URL ?? "http://localhost:3001";
     process.env.OPERATOR_ENABLED = "true";
+    process.env.MEMORY_ENABLED = "true";
+    process.env.PROJECTS_ENABLED = "true";
 
     prisma = createPrismaClient(testDatabaseUrl);
     const config = loadApiConfig(process.env);
@@ -42,6 +45,117 @@ describe("execution plan context snapshot", () => {
   afterAll(async () => {
     if (app) await app.close();
     if (prisma) await prisma.$disconnect();
+  });
+
+  it("keeps project-focused personal conversations PERSONAL while ranking current Project Memory first", async () => {
+    const owner = await registerVerifiedUser(
+      app,
+      "context-current-project",
+    );
+    const project = await prisma.project.create({
+      data: {
+        ownerUserId: owner.id,
+        name: "Current Project",
+      },
+    });
+    const conversation = await prisma.conversation.create({
+      data: {
+        userId: owner.id,
+        projectId: project.id,
+        title: "Focused project chat",
+        kind: "CHAT",
+      },
+    });
+
+    const memory = new MemoryService(
+      prisma,
+      {
+        canWriteProject: async ({ actorUserId, projectId }) =>
+          actorUserId === owner.id && projectId === project.id,
+      },
+    );
+    const personal = await memory.rememberPersonal({
+      actorUserId: owner.id,
+      type: "USER_FACT",
+      slotKey: "launch region",
+      content: "General launch region preference is global",
+    });
+    const projectMemory = await memory.rememberProject({
+      actorUserId: owner.id,
+      projectId: project.id,
+      type: "PROJECT_FACT",
+      slotKey: "launch region",
+      content: "Current project launch region is Europe",
+    });
+
+    const message = await prisma.message.create({
+      data: {
+        conversationId: conversation.id,
+        role: "USER",
+        content: "What is the launch region?",
+        status: "COMPLETE",
+      },
+    });
+    const created = await app.inject({
+      method: "POST",
+      url: "/v1/execution-plans",
+      headers: { origin, "content-type": "application/json" },
+      cookies: owner.cookies,
+      payload: {
+        messageId: message.id,
+        plan: simplePlan(),
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    const planId = created.json().id as string;
+    const snapshot =
+      await prisma.contextSnapshot.findUniqueOrThrow({
+        where: { planId },
+        include: {
+          items: { orderBy: { sequence: "asc" } },
+        },
+      });
+
+    const projectIndex = snapshot.items.findIndex(
+      (item) =>
+        item.sourceType === "MEMORY" &&
+        item.sourceId === projectMemory.id,
+    );
+    const personalIndex = snapshot.items.findIndex(
+      (item) =>
+        item.sourceType === "MEMORY" &&
+        item.sourceId === personal.id,
+    );
+    expect(projectIndex).toBeGreaterThanOrEqual(0);
+    expect(personalIndex).toBeGreaterThanOrEqual(0);
+    expect(projectIndex).toBeLessThan(personalIndex);
+    expect(
+      snapshot.items[projectIndex]?.metadata,
+    ).toMatchObject({
+      retrieval: {
+        currentProject: true,
+        scope: {
+          kind: "PROJECT",
+          projectId: project.id,
+        },
+      },
+    });
+    const audience = snapshot.items.find(
+      (item) => item.sourceType === "AUDIENCE",
+    );
+    expect(audience?.sourceId).toBe(conversation.id);
+    expect(audience?.metadata).toMatchObject({
+      kind: "PERSONAL",
+      participantUserIds: [owner.id],
+      focusedProjectId: project.id,
+    });
+    expect(
+      snapshot.items.some(
+        (item) =>
+          item.sourceType === "PARTICIPANT" &&
+          item.sourceId === owner.id,
+      ),
+    ).toBe(true);
   });
 
   it("creates the snapshot before start and preserves it across source edits and create replay", async () => {

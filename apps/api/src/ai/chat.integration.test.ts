@@ -41,6 +41,7 @@ describe("AI chat integration", () => {
     process.env.BETTER_AUTH_URL = process.env.BETTER_AUTH_URL ?? "http://localhost:3001";
     process.env.AI_TEXT_ENABLED = "true";
     process.env.AI_TEXT_PROVIDER = "mock";
+    process.env.PROJECTS_ENABLED = "true";
 
     const prisma = createPrismaClient(testDatabaseUrl);
     await seedVimlaPlans(prisma);
@@ -64,6 +65,70 @@ describe("AI chat integration", () => {
   it("rejects anonymous model listing", async () => {
     const response = await app.inject({ method: "GET", url: "/v1/ai/models", headers: { origin } });
     expect(response.statusCode).toBe(401);
+  });
+
+  it("persists project focus only for current project members", async () => {
+    const owner = await registerUser(app, "project-focus-owner");
+    const member = await registerUser(app, "project-focus-member");
+    const outsider = await registerUser(app, "project-focus-outsider");
+    const prisma = createPrismaClient(testDatabaseUrl);
+    const project = await prisma.project.create({
+      data: {
+        ownerUserId: owner.id,
+        name: "Focused chat project",
+        members: {
+          create: {
+            userId: member.id,
+            role: "MEMBER",
+          },
+        },
+      },
+    });
+    await prisma.$disconnect();
+
+    const ownerCreated = await app.inject({
+      method: "POST",
+      url: "/v1/conversations",
+      headers: { origin, "content-type": "application/json" },
+      cookies: owner.cookies,
+      payload: { projectId: project.id },
+    });
+    expect(ownerCreated.statusCode).toBe(201);
+    expect(ownerCreated.json()).toMatchObject({
+      projectId: project.id,
+    });
+
+    const memberCreated = await app.inject({
+      method: "POST",
+      url: "/v1/conversations",
+      headers: { origin, "content-type": "application/json" },
+      cookies: member.cookies,
+      payload: { projectId: project.id },
+    });
+    expect(memberCreated.statusCode).toBe(201);
+    expect(memberCreated.json()).toMatchObject({
+      projectId: project.id,
+    });
+
+    const denied = await app.inject({
+      method: "POST",
+      url: "/v1/conversations",
+      headers: { origin, "content-type": "application/json" },
+      cookies: outsider.cookies,
+      payload: { projectId: project.id },
+    });
+    expect(denied.statusCode).toBe(404);
+
+    const ownerDetail = await app.inject({
+      method: "GET",
+      url: `/v1/conversations/${String(ownerCreated.json().id)}`,
+      headers: { origin },
+      cookies: owner.cookies,
+    });
+    expect(ownerDetail.statusCode).toBe(200);
+    expect(ownerDetail.json()).toMatchObject({
+      projectId: project.id,
+    });
   });
 
   it("rejects injected message fields and providerModelId", async () => {

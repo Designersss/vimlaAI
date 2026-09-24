@@ -9,7 +9,9 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
@@ -19,9 +21,10 @@
     "test:integration": "vitest run --config vitest.integration.config.ts"
   },
   "dependencies": {
+    "@vimla/ai": "workspace:*",
     "@vimla/artifacts": "workspace:*",
-    "@vimla/database": "workspace:*",
-    "@vimla/ai": "workspace:*"
+    "@vimla/contracts": "workspace:*",
+    "@vimla/database": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^24.3.1",

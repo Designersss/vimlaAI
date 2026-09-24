@@ -15,3 +15,15 @@ export * from "./semantic-sources.js";
 export * from "./semantic-text.js";
 
 export * from "./e2ee-disclosure.js";
+
+export * from "./memory.js";
+
+export * from "./memory-retrieval.js";
+
+export * from "./compaction.js";
+
+export * from "./memory-extraction.js";
+
+export * from "./token-estimate.js";
+
+export * from "./memory-sensitivity.js";

@@ -210,6 +210,86 @@ describe("semantic retrieval on real PostgreSQL/pgvector", () => {
     expect(await search.retrieve(p.input)).toEqual([]);
   });
 
+  it("scopes semantic project focus without relabeling private messages as Project sources", async () => {
+    const owner = await user();
+    const currentProject = await db.project.create({
+      data: {
+        ownerUserId: owner,
+        name: "Current semantic project",
+      },
+    });
+    const unrelatedProject = await db.project.create({
+      data: {
+        ownerUserId: owner,
+        name: "Unrelated semantic project",
+      },
+    });
+
+    const currentConversation = await db.conversation.create({
+      data: {
+        userId: owner,
+        projectId: currentProject.id,
+        kind: "CHAT",
+      },
+    });
+    const focusedMessage = await db.message.create({
+      data: {
+        conversationId: currentConversation.id,
+        role: "USER",
+        status: "COMPLETE",
+        content: "violet focused evidence",
+      },
+    });
+    const unrelatedConversation = await db.conversation.create({
+      data: {
+        userId: owner,
+        projectId: unrelatedProject.id,
+        kind: "CHAT",
+      },
+    });
+    const unrelatedMessage = await db.message.create({
+      data: {
+        conversationId: unrelatedConversation.id,
+        role: "USER",
+        status: "COMPLETE",
+        content: "violet unrelated evidence",
+      },
+    });
+
+    await index("MESSAGE", focusedMessage.id);
+    await index("MESSAGE", unrelatedMessage.id);
+    await index("PROJECT", currentProject.id);
+    await index("PROJECT", unrelatedProject.id);
+
+    const p = await plan(owner);
+    await db.conversation.update({
+      where: { id: p.input.conversationId },
+      data: { projectId: currentProject.id },
+    });
+
+    const hits = await search.retrieve({
+      ...p.input,
+      currentProjectId: currentProject.id,
+    });
+    const ids = hits.map((hit) => hit.item.sourceId);
+
+    expect(ids).toContain(focusedMessage.id);
+    expect(ids).toContain(currentProject.id);
+    expect(ids).not.toContain(unrelatedMessage.id);
+    expect(ids).not.toContain(unrelatedProject.id);
+
+    const focused = hits.find(
+      (hit) => hit.item.sourceId === focusedMessage.id,
+    );
+    expect(focused).toMatchObject({
+      sourceScope: {
+        kind: "PERSONAL",
+        ownerUserId: owner,
+      },
+      currentProject: true,
+    });
+  });
+
   it("invalidates note chunks transactionally on child update and soft deletion", async () => {
     const owner = await user();
     const note = await db.workspaceObject.create({
@@ -473,6 +553,27 @@ describe("semantic retrieval on real PostgreSQL/pgvector", () => {
     }
     await index("MESSAGE", msg.id);
     expect(await countChunks(key)).toBe(1);
+  });
+
+  it("rejects semantic MESSAGE hits at the exact source-message Send timestamp", async () => {
+    const owner = await user();
+    const p = await plan(owner);
+    const tied = await db.message.create({
+      data: {
+        conversationId: p.input.conversationId,
+        role: "ASSISTANT",
+        status: "COMPLETE",
+        content: "violet future tie",
+        createdAt: new Date(p.input.sourceMessageCreatedAt),
+      },
+    });
+    await index("MESSAGE", tied.id);
+
+    expect(
+      (await search.retrieve(p.input)).some(
+        (candidate) => candidate.item.sourceId === tied.id,
+      ),
+    ).toBe(false);
   });
 
   it("keeps semantically rediscovered recent messages in the L1 raw tail", async () => {

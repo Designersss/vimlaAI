@@ -5,6 +5,7 @@ import { loadApiConfig } from "@vimla/config/server";
 import { createPrismaClient } from "@vimla/database";
 import { createVimlaApiApp } from "../create-app.js";
 import { PrismaService } from "../persistence/prisma.service.js";
+import { MemoryFacade } from "../memory/memory.facade.js";
 import { registerUnverifiedUser, registerVerifiedUser } from "../test/identity-helpers.js";
 
 const testDatabaseUrl = process.env.TEST_DATABASE_URL;
@@ -410,6 +411,252 @@ describe("projects API", () => {
     });
     expect(afterLeave.statusCode).toBe(404);
   });
+
+  it("invalidates and retains derived Memory/L2 audit rows when a Project is hard-deleted", async () => {
+    const owner = await registerVerifiedUser(
+      app,
+      "proj-memory-delete",
+    );
+    const created = await createProject(
+      app,
+      owner.cookies,
+      "Derived audit project",
+    );
+    const prisma = app.get(PrismaService).client;
+    const project = await prisma.project.findUniqueOrThrow({
+      where: { id: created.id },
+    });
+    const now = new Date();
+    const focusedConversation = await prisma.conversation.create({
+      data: {
+        userId: owner.id,
+        projectId: project.id,
+        kind: "CHAT",
+        title: "Project-focused personal chat",
+      },
+    });
+
+    const memory = await prisma.memoryItem.create({
+      data: {
+        ownerUserId: owner.id,
+        scopeKind: "PROJECT",
+        scopeKey: `PROJECT:${project.id}`,
+        projectId: project.id,
+        type: "PROJECT_FACT",
+        slotKey: "audit fact",
+        content: "Retained audit fact",
+        contentHash: "audit-memory-hash",
+        classification: "INTERNAL",
+        sensitivity: "NORMAL",
+        confidence: 1,
+        quality: 1,
+        generation: 1,
+        origin: "USER_EXPLICIT",
+        state: "ACTIVE",
+        validFrom: now,
+        userConfirmedAt: now,
+        sourceRefs: {
+          create: {
+            provenance: "USER_EXPLICIT",
+            sourceType: "PROJECT",
+            sourceId: project.id,
+            sourceVersion: project.updatedAt.toISOString(),
+            sourceScopeKind: "PROJECT",
+            sourceScopeId: project.id,
+          },
+        },
+      },
+    });
+    const compacted =
+      await prisma.compactedContextState.create({
+        data: {
+          ownerUserId: owner.id,
+          scopeKind: "PROJECT",
+          scopeKey: `PROJECT:${project.id}`,
+          projectId: project.id,
+          version: 1,
+          classification: "INTERNAL",
+          content: "Derived project state",
+          contentHash: "audit-compacted-hash",
+          sourceRefs: [],
+          sourceFingerprint: "audit-source-fingerprint",
+          coveredFromSourceId: project.id,
+          coveredToSourceId: project.id,
+          coveredFromAt: now,
+          coveredToAt: now,
+          sourceCount: 1,
+          inputTokenEstimate: 1,
+          outputTokenEstimate: 1,
+          validFrom: now,
+        },
+      });
+
+    const removed = await app.inject({
+      method: "DELETE",
+      url: `/v1/projects/${project.id}`,
+      headers: { origin },
+      cookies: owner.cookies,
+    });
+    expect(removed.statusCode).toBe(204);
+    expect(
+      await prisma.project.findUnique({
+        where: { id: project.id },
+      }),
+    ).toBeNull();
+    expect(
+      (
+        await prisma.conversation.findUniqueOrThrow({
+          where: { id: focusedConversation.id },
+          select: { projectId: true },
+        })
+      ).projectId,
+    ).toBeNull();
+
+    const retainedMemory =
+      await prisma.memoryItem.findUniqueOrThrow({
+        where: { id: memory.id },
+        include: { sourceRefs: true },
+      });
+    expect(retainedMemory).toMatchObject({
+      state: "INVALIDATED",
+      invalidationReason: "PROJECT_DELETED",
+      projectId: null,
+    });
+    expect(retainedMemory.sourceRefs).toHaveLength(1);
+    expect(retainedMemory.sourceRefs[0]).toMatchObject({
+      sourceType: "PROJECT",
+      sourceId: project.id,
+      sourceScopeKind: "PROJECT",
+      sourceScopeId: project.id,
+    });
+
+    const retainedCompacted =
+      await prisma.compactedContextState.findUniqueOrThrow({
+        where: { id: compacted.id },
+      });
+    expect(retainedCompacted).toMatchObject({
+      projectId: null,
+      invalidationReason: "PROJECT_DELETED",
+    });
+    expect(retainedCompacted.invalidatedAt).not.toBeNull();
+  });
+
+
+  it("uses real Project capabilities for Project Memory writes, including MEMBER and PLAN_LOCKED denial", async () => {
+    const owner = await registerVerifiedUser(
+      app,
+      "proj-memory-cap-owner",
+    );
+    const member = await registerVerifiedUser(
+      app,
+      "proj-memory-cap-member",
+    );
+    await buyPro(app, owner.cookies);
+
+    const first = await createProject(
+      app,
+      owner.cookies,
+      "Memory Cap One",
+    );
+    const second = await createProject(
+      app,
+      owner.cookies,
+      "Memory Cap Two",
+    );
+
+    const invite = await inviteMember(
+      app,
+      owner.cookies,
+      first.id,
+      member.email,
+      "MEMBER",
+    );
+    await acceptInvite(app, member.cookies, invite.inviteUrl);
+
+    const prisma = app.get(PrismaService).client;
+    const memory = app.get(MemoryFacade).memory;
+    const firstProject = await prisma.project.findUniqueOrThrow({
+      where: { id: first.id },
+    });
+
+    await expect(
+      memory.ingestCandidate({
+        actorUserId: member.id,
+        scope: { kind: "PROJECT", projectId: first.id },
+        type: "PROJECT_FACT",
+        slotKey: "member write",
+        content: "Member must not write Project Memory",
+        origin: "USER_EXPLICIT",
+        userConfirmed: true,
+        sourceRefs: [
+          {
+            provenance: "USER_EXPLICIT",
+            sourceType: "PROJECT",
+            sourceId: first.id,
+            sourceVersion: firstProject.updatedAt.toISOString(),
+            sourceScopeKind: "PROJECT",
+            sourceScopeId: first.id,
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+    await expireActiveSubscription(app, owner.id);
+
+    const firstView = await app.inject({
+      method: "GET",
+      url: `/v1/projects/${first.id}`,
+      headers: { origin },
+      cookies: owner.cookies,
+    });
+    const secondView = await app.inject({
+      method: "GET",
+      url: `/v1/projects/${second.id}`,
+      headers: { origin },
+      cookies: owner.cookies,
+    });
+    const views = [firstView.json(), secondView.json()] as Array<{
+      id: string;
+      projectState: string;
+    }>;
+    const locked = views.find(
+      (view) => view.projectState === "PLAN_LOCKED",
+    );
+    if (!locked) {
+      throw new Error("expected one plan-locked project");
+    }
+    const lockedProject =
+      await prisma.project.findUniqueOrThrow({
+        where: { id: locked.id },
+      });
+
+    await expect(
+      memory.ingestCandidate({
+        actorUserId: owner.id,
+        scope: {
+          kind: "PROJECT",
+          projectId: lockedProject.id,
+        },
+        type: "PROJECT_STATE",
+        slotKey: "locked write",
+        content: "Locked project must stay read-only",
+        origin: "USER_EXPLICIT",
+        userConfirmed: true,
+        sourceRefs: [
+          {
+            provenance: "USER_EXPLICIT",
+            sourceType: "PROJECT",
+            sourceId: lockedProject.id,
+            sourceVersion:
+              lockedProject.updatedAt.toISOString(),
+            sourceScopeKind: "PROJECT",
+            sourceScopeId: lockedProject.id,
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
 });
 
 async function createProject(

@@ -60,6 +60,7 @@ export class SemanticSearchService {
     )
       return [];
     try {
+      const currentProjectId = input.currentProjectId ?? null;
       const active = await this.db.semanticGeneration.findFirst({
         orderBy: { sequence: "desc" },
       });
@@ -95,13 +96,20 @@ export class SemanticSearchService {
             AND (
               (s.kind='MESSAGE' AND EXISTS (SELECT 1 FROM message m JOIN conversation cv ON cv.id=m."conversationId"
                 WHERE m.id=s."sourceId" AND cv."userId"=${input.actorUserId} AND m.status='COMPLETE' AND cv.kind IN ('CHAT','OPERATOR')
-                AND m.id<>${input.sourceMessageId} AND m."createdAt"<=${plan.message.createdAt}))
+                AND (${currentProjectId}::text IS NULL OR cv."projectId"=${currentProjectId})
+                AND m.id<>${input.sourceMessageId} AND m."createdAt"<${plan.message.createdAt}))
               OR (s.kind='NOTE' AND EXISTS (SELECT 1 FROM workspace_object o WHERE o.id=s."sourceId"
                 AND o."personalOwnerUserId"=${input.actorUserId} AND o."deletedAt" IS NULL AND o."scopeType"='PERSONAL'))
-              OR (s.kind='PROJECT' AND EXISTS (SELECT 1 FROM project p WHERE p.id=s."sourceId" AND
+              OR (s.kind='PROJECT' AND EXISTS (SELECT 1 FROM project p WHERE p.id=s."sourceId"
+                AND (${currentProjectId}::text IS NULL OR p.id=${currentProjectId}) AND
                 (p."ownerUserId"=${input.actorUserId} OR EXISTS (SELECT 1 FROM project_member pm WHERE pm."projectId"=p.id AND pm."userId"=${input.actorUserId}))))
               OR (s.kind='ARTIFACT' AND EXISTS (SELECT 1 FROM artifact a JOIN invocation i ON i.id=a."creatorInvocationId" JOIN execution_plan ep ON ep.id=i."planId"
-                WHERE a.id=s."sourceId" AND a.classification<>'RESTRICTED' AND (ep."userId"=${input.actorUserId} OR
+                WHERE a.id=s."sourceId" AND a.classification<>'RESTRICTED'
+                AND (${currentProjectId}::text IS NULL OR EXISTS (
+                  SELECT 1 FROM conversation acv
+                  WHERE acv.id=ep."conversationId" AND acv."projectId"=${currentProjectId}
+                ))
+                AND (ep."userId"=${input.actorUserId} OR
                   EXISTS (SELECT 1 FROM artifact_access_grant ag WHERE ag."artifactId"=a.id AND ag."granteeUserId"=${input.actorUserId} AND ag.permission='READ' AND ag."revokedAt" IS NULL))))
             )
           ), ranked AS (
@@ -172,7 +180,12 @@ export class SemanticSearchService {
           ),
           directReference,
           currentSurface,
-          currentProject: false,
+          currentProject:
+            currentProjectId !== null &&
+            ((doc.scope.kind === "PROJECT" &&
+              doc.scope.projectId === currentProjectId) ||
+              hit.kind === "MESSAGE" ||
+              hit.kind === "ARTIFACT"),
           occurredAt: doc.occurredAt.toISOString(),
           estimatedTokens: Buffer.byteLength(JSON.stringify(item.metadata)),
         });

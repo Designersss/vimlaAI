@@ -163,6 +163,11 @@ export const apiEnvSchema = z
     PROJECTS_ENABLED: z.enum(["true", "false"]).default("false"),
     PROJECTS_MUTATION_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).default(60),
     PROJECTS_INVITE_TTL_DAYS: z.coerce.number().int().min(1).max(30).default(7),
+    MEMORY_ENABLED: z.enum(["true", "false"]).default("false"),
+    MEMORY_MUTATION_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).default(30),
+    MEMORY_MAX_ACTIVE_PERSONAL_ITEMS: z.coerce.number().int().min(1).max(10_000).default(1_000),
+    MEMORY_MAX_ACTIVE_PROJECT_ITEMS: z.coerce.number().int().min(1).max(20_000).default(2_000),
+    MEMORY_DERIVED_AUDIT_RETENTION_DAYS: z.coerce.number().int().min(1).max(3_650).optional(),
     DIRECT_CHATS_ENABLED: z.enum(["true", "false"]).default("false"),
     DIRECT_CHATS_MUTATION_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).default(60),
     DIRECT_CHATS_MAX_CIPHERTEXT_BYTES: z.coerce.number().int().min(1024).max(262_144).default(65_536),
@@ -213,6 +218,34 @@ export const apiEnvSchema = z
           path: ["SEMANTIC_PLANNER_PROVIDER"],
           message: "Mock semantic planner is not allowed in staging/production",
         });
+      }
+
+      if (value.MEMORY_ENABLED === "true") {
+        if (
+          value.SEMANTIC_PLANNER_PROVIDER === "mock" ||
+          !value.SEMANTIC_PLANNER_BASE_URL ||
+          !value.SEMANTIC_PLANNER_MODEL
+        ) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["MEMORY_ENABLED"],
+            message:
+              "MEMORY_ENABLED in staging/production requires the configured internal semantic planner",
+          });
+        }
+        if (
+          value.MEMORY_DERIVED_AUDIT_RETENTION_DAYS ===
+          undefined
+        ) {
+          ctx.addIssue({
+            code: "custom",
+            path: [
+              "MEMORY_DERIVED_AUDIT_RETENTION_DAYS",
+            ],
+            message:
+              "MEMORY_ENABLED in staging/production requires an explicit derived-audit retention period",
+          });
+        }
       }
 
       if (value.AI_TEXT_ENABLED === "true") {
@@ -513,6 +546,11 @@ export const apiConfigSchema = z.object({
   projectsEnabled: z.boolean(),
   projectsMutationLimitPerMinute: z.number().int().min(1),
   projectsInviteTtlDays: z.number().int().min(1).max(30),
+  memoryEnabled: z.boolean(),
+  memoryMutationLimitPerMinute: z.number().int().min(1),
+  memoryMaxActivePersonalItems: z.number().int().min(1).max(10_000),
+  memoryMaxActiveProjectItems: z.number().int().min(1).max(20_000),
+  memoryDerivedAuditRetentionDays: z.number().int().min(1).max(3_650),
   directChatsEnabled: z.boolean(),
   directChatsMutationLimitPerMinute: z.number().int().min(1),
   directChatsMaxCiphertextBytes: z.number().int().min(1024).max(262_144),

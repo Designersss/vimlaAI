@@ -123,7 +123,7 @@ Lint, typecheck, unit, integration, e2e, and build for the touched packages/apps
 - Revoked/compromised device may decrypt envelopes it already obtained.
 - Operator command plaintext lives on `OperatorRun.userText` for the planner/executor (not in Direct Chat storage, not in ordinary logs).
 - Normal Direct Chat history remains ciphertext-only on the server. A user-approved invocation may persist only its bounded disclosed plaintext subset in that execution's immutable `ContextSnapshot` so retries/crash recovery do not require a plaintext chat archive.
-- PR-16 does not enable automatic Direct Chat memory extraction. `E2EE_USER_DISCLOSURE` is the reserved provenance boundary for an explicit user-approved fact. The durable Memory record, lifecycle, retrieval and promotion endpoint are implemented with PR-17 because that is where Memory persistence exists; ordinary Direct Chat conversation never promotes itself.
+- Ordinary Direct Chat still does not feed automatic Memory extraction. PR-17 implements the durable half of Mode B at `POST /v1/memory/e2ee-promotions`: the user explicitly submits one approved fact plus the Direct Chat/message provenance, which is stored as `E2EE_USER_DISCLOSURE`. The rest of the conversation remains ciphertext-only and is not ingested into Memory.
 - No sealed-sender / metadata-hiding transport. No post-compromise recovery beyond Double Ratchet forward secrecy for later messages.
 - No QR/safety-number identity verification UX in this phase (TOFU on first prekey bundle).
 - Self-sent copies are kept in the client plaintext cache; the initiator ratchet cannot decrypt its own envelope.

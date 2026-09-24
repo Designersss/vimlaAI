@@ -3,6 +3,12 @@ import { shouldUseCompactedState } from "./budget.js";
 import type {
   ContextInvocationTargetKind,
 } from "./policy.js";
+import {
+  estimateConservativeTokens,
+} from "./token-estimate.js";
+import {
+  containsSensitivePersonalMemoryData,
+} from "./memory-sensitivity.js";
 import type {
   ContextSnapshotItemView,
   ContextSourceType,
@@ -113,7 +119,7 @@ export function packContextItems(
     if (
       usesModelContext(input.targetKind) &&
       !isImmediateUserMessage(item) &&
-      containsSensitiveData(item)
+      containsSensitiveData(item, input.targetKind)
     ) {
       exclusions.push({ item, reason: "SENSITIVE_DATA_FILTERED" });
       return false;
@@ -223,11 +229,10 @@ export function estimateItemTokens(item: ContextSnapshotItemView): number {
     return Math.max(1, Math.ceil(retrieval.estimatedTokens));
   }
 
-  const serialized = JSON.stringify(stripRetrievalMetadata(item.metadata));
-  return Math.max(
-    1,
-    new TextEncoder().encode(serialized).byteLength,
+  const serialized = JSON.stringify(
+    stripRetrievalMetadata(item.metadata),
   );
+  return estimateConservativeTokens(serialized);
 }
 
 function compareCandidates(
@@ -431,9 +436,29 @@ function isImmediateUserMessage(
   );
 }
 
-function containsSensitiveData(item: ContextSnapshotItemView): boolean {
-  return containsSensitiveContextData(
-    stripRetrievalMetadata(item.metadata),
+function containsSensitiveData(
+  item: ContextSnapshotItemView,
+  targetKind: ContextInvocationTargetKind,
+): boolean {
+  const content = stripRetrievalMetadata(item.metadata);
+  if (containsSensitiveContextData(content)) {
+    return true;
+  }
+  if (!isExternalModelTarget(targetKind)) {
+    return false;
+  }
+  return containsSensitivePersonalMemoryData(
+    collectSemanticText(content),
+  );
+}
+
+function isExternalModelTarget(
+  targetKind: ContextInvocationTargetKind,
+): boolean {
+  return (
+    targetKind === "AI_AUTO" ||
+    targetKind === "AI_MODEL" ||
+    targetKind === "AGENT"
   );
 }
 
