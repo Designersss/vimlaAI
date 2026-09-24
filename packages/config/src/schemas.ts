@@ -19,6 +19,19 @@ export type LogLevel = z.infer<typeof logLevelSchema>;
 
 const portSchema = z.coerce.number().int().min(1).max(65535);
 const integerStringSchema = z.string().regex(/^\d+$/);
+const cleanHttpUrlSchema = z.url().refine(
+  (value) => {
+    const url = new URL(value);
+    return (
+      (url.protocol === "http:" || url.protocol === "https:") &&
+      !url.username &&
+      !url.password &&
+      !url.search &&
+      !url.hash
+    );
+  },
+  "URL must be a clean http(s) endpoint without credentials, query, or hash",
+);
 
 function emptyToUndefined(value: unknown): unknown {
   return value === "" ? undefined : value;
@@ -641,7 +654,7 @@ export const workerEnvSchema = z
       .default("false"),
     VIMLA_CORE_BASE_URL: z.preprocess(
       emptyToUndefined,
-      z.url().optional(),
+      cleanHttpUrlSchema.optional(),
     ),
     VIMLA_CORE_MODEL: z.preprocess(
       emptyToUndefined,
@@ -881,7 +894,7 @@ export const workerConfigSchema = z.object({
     "deterministic",
     "internal-http",
   ]),
-  vimlaCoreBaseUrl: z.url().optional(),
+  vimlaCoreBaseUrl: cleanHttpUrlSchema.optional(),
   vimlaCoreModel: z.string().min(1).optional(),
   vimlaCoreApiKey: z.string().min(1).optional(),
   vimlaCoreTimeoutMs: z.number().int().min(1_000).max(600_000),
