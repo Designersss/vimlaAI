@@ -261,6 +261,7 @@ export class LocalInferenceProvider implements AiProvider {
     try {
       response = await this.fetchImpl(joinUrl(this.baseUrl, "chat/completions"), {
         method: "POST",
+        redirect: "error",
         headers: {
           "content-type": "application/json",
           accept: "text/event-stream",
@@ -424,6 +425,7 @@ export class LocalInferenceProvider implements AiProvider {
     );
     return this.fetchImpl(joinUrl(this.baseUrl, path), {
       method: "GET",
+      redirect: "error",
       headers: {
         accept: "application/json",
         ...(this.config.apiKey
