@@ -308,11 +308,23 @@ export class CompactedStateRetrievalProvider
       ) {
         continue;
       }
-      const scope = sourceScope(
-        input.actorUserId,
-        row.scopeKind,
-        row.projectId,
-      );
+      const conversationBelongsToCurrentProject =
+        input.currentProjectId !== null &&
+        input.currentProjectId !== undefined &&
+        row.scopeKind === "CONVERSATION" &&
+        (row.conversationId === input.conversationId ||
+          focusedConversationStateIds.has(row.id));
+      const scope: ContextSourceScope =
+        conversationBelongsToCurrentProject
+          ? {
+              kind: "PROJECT",
+              projectId: input.currentProjectId,
+            }
+          : sourceScope(
+              input.actorUserId,
+              row.scopeKind,
+              row.projectId,
+            );
       candidates.push({
         item: {
           sourceType: "COMPACTED_STATE",
