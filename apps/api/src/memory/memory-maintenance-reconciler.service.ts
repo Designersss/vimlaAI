@@ -10,6 +10,7 @@ import { MemoryMaintenanceService } from "./memory-maintenance.service.js";
 
 const RECONCILE_INTERVAL_MS = 15_000;
 const RECONCILE_BATCH_SIZE = 32;
+const HOUSEKEEPING_INTERVAL_MS = 6 * 60 * 60_000;
 
 @Injectable()
 export class MemoryMaintenanceReconciler
@@ -20,6 +21,7 @@ export class MemoryMaintenanceReconciler
   );
   private timer: ReturnType<typeof setInterval> | null = null;
   private running = false;
+  private lastHousekeepingAt = 0;
 
   constructor(
     @Inject(MemoryMaintenanceService)
@@ -49,6 +51,14 @@ export class MemoryMaintenanceReconciler
       await this.maintenance.reconcilePending(
         RECONCILE_BATCH_SIZE,
       );
+      const now = Date.now();
+      if (
+        now - this.lastHousekeepingAt >=
+        HOUSEKEEPING_INTERVAL_MS
+      ) {
+        await this.maintenance.redactExpiredDerivedAuditContent();
+        this.lastHousekeepingAt = now;
+      }
     } catch (error: unknown) {
       this.logger.warn({
         msg: "memory.reconcile.failed",
