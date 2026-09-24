@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import Redis from "ioredis";
+import { Redis } from "ioredis";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { RedisVimlaCoreFairUseLimiter } from "./vimla-core-planner.js";
 
