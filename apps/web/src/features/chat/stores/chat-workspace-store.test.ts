@@ -51,8 +51,18 @@ describe("persistent chat workspace", () => {
     const workspace = new ChatWorkspaceStore();
     workspace.conversation("a").setDraft("Private draft");
     workspace.conversation("a").setMessages(history, 0);
-    workspace.addConversation({ id: "b", title: "B", updatedAt: history[0]!.createdAt });
-    workspace.addConversation({ id: "b", title: "Updated B", updatedAt: history[0]!.createdAt });
+    workspace.addConversation({
+      id: "b",
+      projectId: null,
+      title: "B",
+      updatedAt: history[0]!.createdAt,
+    });
+    workspace.addConversation({
+      id: "b",
+      projectId: null,
+      title: "Updated B",
+      updatedAt: history[0]!.createdAt,
+    });
     expect(workspace.conversations).toHaveLength(1);
     expect(workspace.conversation("a").messages).toEqual(history);
     expect(workspace.conversation("a").draft).toBe("Private draft");
