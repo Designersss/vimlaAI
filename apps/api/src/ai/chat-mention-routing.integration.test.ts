@@ -64,8 +64,11 @@ describe("structured normal-chat mention routing", () => {
   it("keeps the parent AI thread target unchanged after a temporary @vimla workflow override", async () => {
     const user = await registerVerifiedUser(app, "thread-vimla-override");
     const model = await prisma.aiModel.findFirstOrThrow({
-      where: { active: true, visible: true },
-      orderBy: { slug: "asc" },
+      where: {
+        active: true,
+        visible: true,
+        slug: "claude-haiku-4-5",
+      },
     });
     const conversation = await prisma.conversation.create({
       data: {
