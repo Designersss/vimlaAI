@@ -249,8 +249,26 @@ export class ContextRetrievalService {
     }
 
     const sourceMessage = plan.message;
-    const currentProjectId =
+    const focusedProjectId =
       sourceMessage.conversation.projectId;
+    const currentProjectId = focusedProjectId
+      ? (
+          await this.db.project.findFirst({
+            where: {
+              id: focusedProjectId,
+              OR: [
+                { ownerUserId: input.actorUserId },
+                {
+                  members: {
+                    some: { userId: input.actorUserId },
+                  },
+                },
+              ],
+            },
+            select: { id: true },
+          })
+        )?.id ?? null
+      : null;
     const query = sourceMessage.content;
     const queryTokens = tokenize(query);
     const personalScope: ContextSourceScope = {
