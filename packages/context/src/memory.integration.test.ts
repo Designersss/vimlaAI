@@ -2092,50 +2092,110 @@ describe("durable memory context graph", () => {
     });
   });
 
-  it("fails closed for THREAD memory and rejects forged compaction message scopes", async () => {
+  it("authorizes THREAD memory/L2 only for owned AI threads and rejects forged scopes", async () => {
     const owner = await user("thread-owner");
+    const thread = await db.conversation.create({
+      data: {
+        userId: owner,
+        kind: "CHAT",
+        defaultTargetKind: "AI_AUTO",
+      },
+    });
+    const source = await db.message.create({
+      data: {
+        conversationId: thread.id,
+        role: "USER",
+        status: "COMPLETE",
+        content: "Thread context ".repeat(40),
+      },
+    });
     const memory = new MemoryService(db);
+    const stored = await memory.ingestCandidate({
+      actorUserId: owner,
+      scope: { kind: "THREAD", threadId: thread.id },
+      type: "THREAD_STATE",
+      slotKey: "state",
+      content: "Current AI thread state",
+      origin: "USER_EXPLICIT",
+      userConfirmed: true,
+      sourceRefs: [
+        {
+          provenance: "USER_EXPLICIT",
+          sourceType: "MESSAGE",
+          sourceId: source.id,
+          sourceVersion: source.updatedAt.toISOString(),
+          sourceScopeKind: "THREAD",
+          sourceScopeId: thread.id,
+        },
+      ],
+    });
+    await expect(
+      canReadMemoryItem(db, owner, stored.id),
+    ).resolves.toBe(true);
+
+    const compacted = await new CompactedStateService(db).refresh({
+      actorUserId: owner,
+      scope: { kind: "THREAD", threadId: thread.id },
+      classification: "PRIVATE",
+      content: "Thread summary",
+      sourceRefs: [
+        {
+          sourceType: "MESSAGE",
+          sourceId: source.id,
+          sourceVersion: source.updatedAt.toISOString(),
+          occurredAt: source.createdAt,
+          sourceScopeKind: "THREAD",
+          sourceScopeId: thread.id,
+        },
+      ],
+      budget: compactBudget,
+    });
+    expect(compacted.scopeKind).toBe("THREAD");
+    await expect(
+      canReadCompactedState(db, owner, compacted.id),
+    ).resolves.toBe(true);
+
+    const legacy = await message(
+      owner,
+      "Legacy conversation is not an AI thread.",
+    );
     await expect(
       memory.ingestCandidate({
         actorUserId: owner,
-        scope: { kind: "THREAD", threadId: randomUUID() },
+        scope: {
+          kind: "THREAD",
+          threadId: legacy.conversation.id,
+        },
         type: "THREAD_STATE",
-        slotKey: "state",
-        content: "Must wait for PR-18",
+        slotKey: "forged",
+        content: "Must not persist",
         origin: "USER_EXPLICIT",
         userConfirmed: true,
         sourceRefs: [
           {
             provenance: "USER_EXPLICIT",
-            sourceType: "USER_EXPLICIT",
-            sourceId: randomUUID(),
-            sourceScopeKind: "PERSONAL",
-            sourceScopeId: owner,
+            sourceType: "MESSAGE",
+            sourceId: legacy.row.id,
+            sourceVersion: legacy.row.updatedAt.toISOString(),
+            sourceScopeKind: "THREAD",
+            sourceScopeId: legacy.conversation.id,
           },
         ],
       }),
-    ).rejects.toMatchObject({ code: "DISABLED" });
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
 
-    const source = await message(
-      owner,
-      "Long enough raw history for forged compaction scope.",
-    );
     await expect(
       new CompactedStateService(db).refresh({
         actorUserId: owner,
-        scope: {
-          kind: "CONVERSATION",
-          conversationId: source.conversation.id,
-        },
+        scope: { kind: "THREAD", threadId: thread.id },
         classification: "PUBLIC",
-        content: "Summary",
+        content: "Forged summary",
         sourceRefs: [
           {
             sourceType: "MESSAGE",
-            sourceId: source.row.id,
-            sourceVersion:
-              source.row.updatedAt.toISOString(),
-            occurredAt: new Date(0),
+            sourceId: source.id,
+            sourceVersion: source.updatedAt.toISOString(),
+            occurredAt: source.createdAt,
             sourceScopeKind: "PROJECT",
             sourceScopeId: randomUUID(),
           },
