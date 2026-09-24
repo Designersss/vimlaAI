@@ -373,6 +373,8 @@ model Conversation {
   id         String      @id @default(cuid())
   userId     String
   user       User        @relation(fields: [userId], references: [id], onDelete: Restrict)
+  projectId  String?
+  project    Project?    @relation("ProjectConversations", fields: [projectId], references: [id], onDelete: SetNull)
   title      String?
   kind       String      @default("CHAT")
   createdAt  DateTime    @default(now())
@@ -387,6 +389,7 @@ model Conversation {
 
   @@index([userId, updatedAt])
   @@index([userId, kind])
+  @@index([projectId, updatedAt])
   @@map("conversation")
   // Partial unique index conversation_one_operator_per_user (userId WHERE kind = 'OPERATOR') is in SQL.
 }
@@ -756,6 +759,7 @@ model Project {
   invites     ProjectInvite[]
   memoryItems MemoryItem[]            @relation("ProjectMemory")
   compactedStates CompactedContextState[] @relation("ProjectCompactedState")
+  conversations Conversation[] @relation("ProjectConversations")
 
   @@index([ownerUserId, createdAt])
   @@map("project")
