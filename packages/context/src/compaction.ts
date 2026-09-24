@@ -402,7 +402,19 @@ async function compactedScopeReadable(
           })),
       );
     case "THREAD":
-      return false;
+      return Boolean(
+        row.threadId &&
+          row.ownerUserId === actorUserId &&
+          (await db.conversation.findFirst({
+            where: {
+              id: row.threadId,
+              userId: actorUserId,
+              kind: "CHAT",
+              defaultTargetKind: { in: ["AI_AUTO", "AI_MODEL"] },
+            },
+            select: { id: true },
+          })),
+      );
     case "PROJECT":
       return Boolean(
         row.projectId &&
@@ -451,7 +463,8 @@ async function compactedStateLineageCurrent(
     for (const ref of refs) {
       if (ref.sourceType === "MESSAGE") {
         if (
-          ref.sourceScopeKind !== "CONVERSATION"
+          ref.sourceScopeKind !== "CONVERSATION" &&
+          ref.sourceScopeKind !== "THREAD"
         ) {
           return false;
         }
@@ -462,6 +475,12 @@ async function compactedStateLineageCurrent(
             conversationId: ref.sourceScopeId,
             conversation: {
               userId: row.ownerUserId,
+              ...(ref.sourceScopeKind === "THREAD"
+                ? {
+                    kind: "CHAT",
+                    defaultTargetKind: { in: ["AI_AUTO", "AI_MODEL"] },
+                  }
+                : {}),
             },
           },
           select: { updatedAt: true },
@@ -512,11 +531,24 @@ async function assertCompactedScopeWritable(
   projectWriteAuthorizer?: MemoryProjectWriteAuthorizer,
 ): Promise<void> {
   switch (scope.kind) {
-    case "THREAD":
-      throw new MemoryError(
-        "DISABLED",
-        "Thread compaction requires the PR-18 thread authority model",
-      );
+    case "THREAD": {
+      const thread = await tx.conversation.findFirst({
+        where: {
+          id: scope.threadId ?? "",
+          userId: actorUserId,
+          kind: "CHAT",
+          defaultTargetKind: { in: ["AI_AUTO", "AI_MODEL"] },
+        },
+        select: { id: true },
+      });
+      if (!thread) {
+        throw new MemoryError(
+          "NOT_FOUND",
+          "Thread compaction scope not found",
+        );
+      }
+      return;
+    }
     case "CONVERSATION": {
       const conversation = await tx.conversation.findFirst({
         where: {
@@ -626,14 +658,27 @@ async function resolveCompactionSources(
           content: true,
           createdAt: true,
           updatedAt: true,
+          conversation: {
+            select: {
+              kind: true,
+              defaultTargetKind: true,
+            },
+          },
         },
       });
       if (
         !message ||
         message.updatedAt.toISOString() !==
           ref.sourceVersion ||
-        ref.sourceScopeKind !== "CONVERSATION" ||
-        ref.sourceScopeId !== message.conversationId
+        (ref.sourceScopeKind !== "CONVERSATION" &&
+          ref.sourceScopeKind !== "THREAD") ||
+        ref.sourceScopeId !== message.conversationId ||
+        (ref.sourceScopeKind === "THREAD" &&
+          !(
+            message.conversation.kind === "CHAT" &&
+            (message.conversation.defaultTargetKind === "AI_AUTO" ||
+              message.conversation.defaultTargetKind === "AI_MODEL")
+          ))
       ) {
         throw new MemoryError(
           "VALIDATION_ERROR",
@@ -645,7 +690,7 @@ async function resolveCompactionSources(
         sourceId: ref.sourceId,
         sourceVersion: message.updatedAt.toISOString(),
         occurredAt: message.createdAt,
-        sourceScopeKind: "CONVERSATION",
+        sourceScopeKind: ref.sourceScopeKind,
         sourceScopeId: message.conversationId,
         classification: "PRIVATE",
         inputTokenEstimate: estimateTokens(message.content),
@@ -706,6 +751,18 @@ async function resolveCompactionSources(
       throw new MemoryError(
         "FORBIDDEN",
         "Conversation compaction sources must belong to the target conversation",
+      );
+    }
+    if (
+      targetScope.kind === "THREAD" &&
+      !(
+        item.sourceScopeKind === "THREAD" &&
+        item.sourceScopeId === targetScope.threadId
+      )
+    ) {
+      throw new MemoryError(
+        "FORBIDDEN",
+        "Thread compaction sources must belong to the target thread",
       );
     }
     if (
