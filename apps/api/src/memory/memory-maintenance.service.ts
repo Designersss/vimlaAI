@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import {
   CompactedStateService,
@@ -53,6 +54,74 @@ export class MemoryMaintenanceService {
     this.extraction = new MemoryExtractionPipeline(
       memory.memory,
     );
+  }
+
+  async redactExpiredDerivedAuditContent(): Promise<{
+    memoryItems: number;
+    compactedStates: number;
+  }> {
+    if (!this.config.memoryEnabled) {
+      return { memoryItems: 0, compactedStates: 0 };
+    }
+
+    const now = new Date();
+    await this.db.memoryItem.updateMany({
+      where: {
+        state: "ACTIVE",
+        expiresAt: { lte: now },
+        invalidatedAt: null,
+      },
+      data: {
+        state: "INVALIDATED",
+        invalidatedAt: now,
+        invalidationReason: "EXPIRED",
+      },
+    });
+
+    const cutoff = new Date(
+      now.getTime() -
+        this.config.memoryDerivedAuditRetentionDays *
+          24 *
+          60 *
+          60_000,
+    );
+    const contentHash = createHash("sha256")
+      .update("")
+      .digest("hex");
+
+    const [memoryItems, compactedStates] =
+      await this.db.$transaction([
+        this.db.memoryItem.updateMany({
+          where: {
+            state: {
+              in: ["SUPERSEDED", "INVALIDATED"],
+            },
+            contentRedactedAt: null,
+            updatedAt: { lte: cutoff },
+          },
+          data: {
+            content: "",
+            contentHash,
+            contentRedactedAt: now,
+          },
+        }),
+        this.db.compactedContextState.updateMany({
+          where: {
+            invalidatedAt: { lte: cutoff },
+            contentRedactedAt: null,
+          },
+          data: {
+            content: "",
+            contentHash,
+            contentRedactedAt: now,
+          },
+        }),
+      ]);
+
+    return {
+      memoryItems: memoryItems.count,
+      compactedStates: compactedStates.count,
+    };
   }
 
   async reconcilePending(limit = 32): Promise<number> {
