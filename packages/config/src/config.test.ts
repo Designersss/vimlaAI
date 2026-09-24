@@ -72,6 +72,7 @@ describe("loadApiConfig", () => {
     expect(config.memoryMutationLimitPerMinute).toBe(30);
     expect(config.memoryMaxActivePersonalItems).toBe(1_000);
     expect(config.memoryMaxActiveProjectItems).toBe(2_000);
+    expect(config.memoryDerivedAuditRetentionDays).toBe(180);
     expect(config.directChatsEnabled).toBe(false);
     expect(config.directChatsMutationLimitPerMinute).toBe(60);
     expect(config.aiTextProvider).toBe("mock");
@@ -205,11 +206,40 @@ describe("loadApiConfig", () => {
       SEMANTIC_PLANNER_BASE_URL:
         "http://127.0.0.1:11434/v1",
       SEMANTIC_PLANNER_MODEL: "qwen-memory",
+      MEMORY_DERIVED_AUDIT_RETENTION_DAYS: "365",
     });
     expect(memoryReady.memoryEnabled).toBe(true);
     expect(memoryReady.semanticPlannerProvider).toBe(
       "internal-http",
     );
+    expect(
+      memoryReady.memoryDerivedAuditRetentionDays,
+    ).toBe(365);
+  });
+
+  it("requires an explicit Memory derived-audit retention period in staging/production", () => {
+    const productionBase = {
+      ...validSharedEnv,
+      ...productionPaymentEnv,
+      APP_ENV: "production",
+      BETTER_AUTH_SECRET: "production-secret-value-32-chars-min",
+      API_HOST: "127.0.0.1",
+      API_PORT: "3001",
+      AI_TEXT_ENABLED: "false",
+      EMAIL_PROVIDER: "smtp",
+      SMTP_HOST: "smtp.example.com",
+      SMTP_USER: "vimla",
+      SMTP_PASSWORD: "smtp-secret-value",
+      EMAIL_FROM: "noreply@vimla.example",
+      MEMORY_ENABLED: "true",
+      SEMANTIC_PLANNER_BASE_URL:
+        "http://127.0.0.1:11434/v1",
+      SEMANTIC_PLANNER_MODEL: "qwen-memory",
+    } as const;
+
+    expect(() =>
+      loadApiConfig(productionBase),
+    ).toThrow(/MEMORY_DERIVED_AUDIT_RETENTION_DAYS/);
   });
 
   it("requires a ProxyAPI key when AI is enabled in production", () => {
