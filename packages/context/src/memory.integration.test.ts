@@ -431,19 +431,13 @@ describe("durable memory context graph", () => {
       where: { id: source.row.id },
       data: { content: "Source changed" },
     });
-    const provider = new MemoryRetrievalProvider(db);
-    const hits = await provider.retrieve({
-      actorUserId: owner,
-      planId: randomUUID(),
-      query: "source-backed fact",
-      conversationId: source.conversation.id,
-      sourceMessageId: source.row.id,
-      sourceMessageCreatedAt:
-        source.row.createdAt.toISOString(),
-    });
-    expect(hits.map((hit) => hit.item.sourceId)).not.toContain(
-      stored.memory.id,
-    );
+    // The retrieval provider correctly excludes Memory created after
+    // this source-message Send boundary before lazy revalidation. Exercise
+    // source-currentness directly so this test verifies invalidation rather
+    // than conflating it with Send-cutoff filtering.
+    await expect(
+      canReadMemoryItem(db, owner, stored.memory.id),
+    ).resolves.toBe(false);
     expect(
       (
         await db.memoryItem.findUnique({
