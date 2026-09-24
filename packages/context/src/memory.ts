@@ -564,6 +564,7 @@ export class MemoryService {
           scope,
           input.sourceRefs,
           input.explicitProjectWrite?.projectId ?? null,
+          input.origin,
         );
       const classification = strongerClassification(
         requestedClassification,
@@ -1075,6 +1076,7 @@ async function assertSourceRefsValid(
   targetScope: NormalizedScope,
   refs: readonly MemorySourceRefInput[],
   explicitProjectWriteId: string | null,
+  origin: MemoryOrigin,
 ): Promise<MemoryClassification> {
   if (refs.length === 0) return "PUBLIC";
   if (refs.length > MAX_MEMORY_SOURCE_REFS) {
@@ -1091,6 +1093,16 @@ async function assertSourceRefsValid(
       actorUserId,
       ref,
     );
+    if (
+      origin === "AUTO_EXTRACTION" &&
+      targetScope.kind === "PERSONAL" &&
+      resolved.sourceProjectId
+    ) {
+      throw new MemoryError(
+        "FORBIDDEN",
+        "Project-scoped sources cannot be automatically promoted to Personal Memory",
+      );
+    }
     if (
       targetScope.kind === "CONVERSATION" &&
       !(
@@ -1132,6 +1144,7 @@ async function assertSourceRefValid(
   classification: MemoryClassification;
   scopeKind: MemoryScopeKind | "DIRECT_CHAT";
   scopeId: string | null;
+  sourceProjectId?: string | null;
 }> {
   switch (ref.sourceType) {
     case "USER_EXPLICIT":
@@ -1186,6 +1199,9 @@ async function assertSourceRefValid(
         select: {
           updatedAt: true,
           conversationId: true,
+          conversation: {
+            select: { projectId: true },
+          },
         },
       });
       if (
@@ -1210,6 +1226,7 @@ async function assertSourceRefValid(
         classification: "PRIVATE",
         scopeKind: "CONVERSATION",
         scopeId: row.conversationId,
+        sourceProjectId: row.conversation.projectId,
       };
     }
     case "WORKSPACE_OBJECT": {
