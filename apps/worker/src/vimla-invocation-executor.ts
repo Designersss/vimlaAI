@@ -83,7 +83,7 @@ export class DeterministicVimlaToolPlanner implements VimlaToolPlanner {
 
 export class VimlaAwareInvocationExecutorRegistry implements InvocationExecutorRegistry {
   constructor(
-    private readonly vimla: VimlaInvocationExecutor,
+    private readonly vimla: InvocationExecutorRegistry,
     private readonly fallback: InvocationExecutorRegistry,
   ) {}
 
