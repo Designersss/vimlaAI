@@ -27,9 +27,11 @@ describe("LocalInferenceProvider", () => {
   it("normalizes streamed text, tool calls and usage without paid-provider coupling", async () => {
     let seenUrl = "";
     let seenBody = "";
+    let seenRedirect: RequestRedirect | undefined;
     const fetchImpl: HttpFetch = async (url, init) => {
       seenUrl = url;
       seenBody = String(init.body ?? "");
+      seenRedirect = init.redirect;
       const toolPayload = JSON.stringify({
         choices: [{
           delta: {
@@ -72,6 +74,7 @@ describe("LocalInferenceProvider", () => {
 
     expect(seenUrl).toBe("http://127.0.0.1:18080/v1/chat/completions");
     expect(seenBody).toContain('"model":"qwen-local"');
+    expect(seenRedirect).toBe("error");
     expect(result.providerRequestId).toBe("local-1");
     expect(events).toContainEqual({ type: "delta", text: "hello" });
     expect(events).toContainEqual({
@@ -143,7 +146,9 @@ describe("LocalInferenceProvider", () => {
   });
 
   it("exposes bounded health, readiness and GPU/queue telemetry", async () => {
-    const fetchImpl: HttpFetch = async (url) => {
+    const probeRedirects: Array<RequestRedirect | undefined> = [];
+    const fetchImpl: HttpFetch = async (url, init) => {
+      probeRedirects.push(init.redirect);
       if (url.endsWith("/telemetry")) {
         return new Response(JSON.stringify({
           gpuUtilizationPercent: 73.5,
@@ -169,6 +174,7 @@ describe("LocalInferenceProvider", () => {
       adapterQueuedRequests: 0,
       circuitState: "CLOSED",
     });
+    expect(probeRedirects).toEqual(["error", "error", "error"]);
     expect(local.capabilityMatrix).toEqual({
       text: true,
       streaming: true,
