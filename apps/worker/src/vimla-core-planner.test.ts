@@ -11,6 +11,14 @@ import {
   RedisVimlaCoreFairUseLimiter,
   type VimlaCoreFairUseLimiter,
 } from "./vimla-core-planner.js";
+import { ExternalAiAwareInvocationExecutorRegistry } from "./external-ai-invocation-executor.js";
+import {
+  VimlaAwareInvocationExecutorRegistry,
+} from "./vimla-invocation-executor.js";
+import type {
+  InvocationExecutionInput,
+  InvocationExecutorRegistry,
+} from "./orchestration.js";
 
 const input = {
   actorUserId: "user-1",
@@ -151,5 +159,66 @@ describe("LocalInferenceVimlaToolPlanner", () => {
     const acquiredLeaseId = calls[0]?.args[6];
     expect(typeof acquiredLeaseId).toBe("string");
     expect(acquiredLeaseId).toBe(calls[1]?.args[1]);
+  });
+});
+
+describe("Vimla Core executor routing", () => {
+  it("never routes a VIMLA failure into the paid external executor or generic fallback", async () => {
+    let paidCalls = 0;
+    let vimlaCalls = 0;
+    let fallbackCalls = 0;
+
+    const paid: InvocationExecutorRegistry = {
+      execute: async () => {
+        paidCalls += 1;
+        return { status: "COMPLETED", outcome: "PAID" };
+      },
+    };
+    const vimla: InvocationExecutorRegistry = {
+      execute: async () => {
+        vimlaCalls += 1;
+        return {
+          status: "FAILED",
+          errorCode: "VIMLA_CORE_UNAVAILABLE",
+          retryable: true,
+        };
+      },
+    };
+    const fallback: InvocationExecutorRegistry = {
+      execute: async () => {
+        fallbackCalls += 1;
+        return {
+          status: "FAILED",
+          errorCode: "UNEXPECTED_FALLBACK",
+          retryable: false,
+        };
+      },
+    };
+
+    const registry = new ExternalAiAwareInvocationExecutorRegistry(
+      paid,
+      new VimlaAwareInvocationExecutorRegistry(vimla, fallback),
+    );
+    const execution: InvocationExecutionInput = {
+      planId: "plan-1",
+      invocationId: "invocation-1",
+      attempt: 1,
+      runId: "run-1",
+      idempotencyKey: "run-1:1",
+      target: {
+        kind: "VIMLA",
+        modelSlug: null,
+        agentId: null,
+      },
+    };
+
+    await expect(registry.execute(execution)).resolves.toEqual({
+      status: "FAILED",
+      errorCode: "VIMLA_CORE_UNAVAILABLE",
+      retryable: true,
+    });
+    expect(vimlaCalls).toBe(1);
+    expect(paidCalls).toBe(0);
+    expect(fallbackCalls).toBe(0);
   });
 });
