@@ -179,6 +179,24 @@ describe("LocalInferenceProvider", () => {
     });
   });
 
+  it("normalizes telemetry body failures instead of leaking transport errors", async () => {
+    const fetchImpl: HttpFetch = async () =>
+      new Response(
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.error(new Error("internal transport detail"));
+          },
+        }),
+        { status: 200 },
+      );
+    const local = provider(fetchImpl);
+
+    await expect(local.telemetry()).rejects.toMatchObject({
+      code: "UNAVAILABLE",
+      retryable: true,
+    });
+  });
+
   it("enforces the local request timeout without exposing provider details", async () => {
     const fetchImpl: HttpFetch = async (_url, init) =>
       new Promise<Response>((_resolve, reject) => {
