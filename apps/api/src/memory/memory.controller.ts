@@ -117,11 +117,17 @@ export class MemoryController {
   ): Promise<MemoryView> {
     this.memory.assertE2eePromotionEnabled();
     const input = promoteE2eeMemorySchema.parse(body);
+    if ("projectId" in input) {
+      this.memory.assertProjectMemoryEnabled();
+    }
     const created =
       await this.memory.memory.promoteE2eeDisclosure({
         actorUserId: user.id,
         directConversationId: input.directConversationId,
         sourceMessageId: input.sourceMessageId,
+        ...("projectId" in input
+          ? { projectId: input.projectId }
+          : {}),
         type: input.type,
         slotKey: input.slotKey,
         content: input.content,
