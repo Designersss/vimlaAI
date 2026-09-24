@@ -74,8 +74,6 @@ export interface LocalInferenceTelemetry {
 
 type QueueWaiter = {
   resolve: () => void;
-  reject: (error: Error) => void;
-  cleanup: () => void;
 };
 
 export class LocalInferenceProvider implements AiProvider {
@@ -383,7 +381,7 @@ export class LocalInferenceProvider implements AiProvider {
   private circuitState(): "CLOSED" | "OPEN" | "HALF_OPEN" {
     if (this.openUntilMs === 0) return "CLOSED";
     if (this.openUntilMs > Date.now()) return "OPEN";
-    return this.halfOpenInFlight ? "HALF_OPEN" : "HALF_OPEN";
+    return "HALF_OPEN";
   }
 
   private async acquireSlot(signal?: AbortSignal): Promise<void> {
@@ -429,13 +427,6 @@ export class LocalInferenceProvider implements AiProvider {
           this.activeRequests += 1;
           resolve();
         },
-        reject: (error) => {
-          if (settled) return;
-          settled = true;
-          cleanup();
-          reject(error);
-        },
-        cleanup,
       };
 
       const removeWaiter = (): void => {
