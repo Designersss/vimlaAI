@@ -236,6 +236,8 @@ CREATE UNIQUE INDEX "memory_extraction_receipt_source_key"
   ON "memory_extraction_receipt"("sourceType","sourceId","sourceVersion");
 CREATE INDEX "memory_extraction_receipt_owner_status_idx"
   ON "memory_extraction_receipt"("ownerUserId","status","updatedAt");
+CREATE INDEX "memory_extraction_receipt_source_status_idx"
+  ON "memory_extraction_receipt"("sourceType","status","updatedAt");
 ALTER TABLE "memory_extraction_receipt"
   ADD CONSTRAINT "memory_extraction_receipt_ownerUserId_fkey"
   FOREIGN KEY ("ownerUserId") REFERENCES "user"("id")
