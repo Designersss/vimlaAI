@@ -239,6 +239,30 @@ export const apiEnvSchema = z
       }
 
       if (
+        value.ORCHESTRATION_ENABLED === "true" &&
+        value.CONTEXT_RETRIEVAL_ENABLED !== "true"
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["CONTEXT_RETRIEVAL_ENABLED"],
+          message:
+            "Production orchestration requires explicit CONTEXT_RETRIEVAL_ENABLED=true",
+        });
+      }
+
+      if (
+        value.ORCHESTRATION_ENABLED === "true" &&
+        value.OPERATOR_ENABLED !== "true"
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["OPERATOR_ENABLED"],
+          message:
+            "Production orchestration requires explicit OPERATOR_ENABLED=true",
+        });
+      }
+
+      if (
         value.SEMANTIC_PLANNER_ENABLED === "true" &&
         (
           value.SEMANTIC_PLANNER_PROVIDER === "mock" ||
