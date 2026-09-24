@@ -344,8 +344,9 @@ model AiModel {
   maxOutputTokens     Int
   createdAt           DateTime               @default(now())
   updatedAt           DateTime               @updatedAt
-  priceVersions       AiModelPriceVersion[]
-  aiRequests          AiRequest[]
+  priceVersions               AiModelPriceVersion[]
+  aiRequests                  AiRequest[]
+  defaultTargetConversations  Conversation[] @relation("ConversationDefaultAiModel")
 
   @@map("ai_model")
 }
@@ -375,9 +376,12 @@ model Conversation {
   user       User        @relation(fields: [userId], references: [id], onDelete: Restrict)
   projectId  String?
   project    Project?    @relation("ProjectConversations", fields: [projectId], references: [id], onDelete: SetNull)
-  title      String?
-  kind       String      @default("CHAT")
-  createdAt  DateTime    @default(now())
+  title                String?
+  kind                 String      @default("CHAT")
+  defaultTargetKind    String?
+  defaultTargetModelId String?
+  defaultTargetModel   AiModel?    @relation("ConversationDefaultAiModel", fields: [defaultTargetModelId], references: [id], onDelete: Restrict)
+  createdAt            DateTime    @default(now())
   updatedAt  DateTime    @updatedAt
   messages                 Message[]
   aiRequests               AiRequest[]
@@ -390,6 +394,7 @@ model Conversation {
   @@index([userId, updatedAt])
   @@index([userId, kind])
   @@index([projectId, updatedAt])
+  @@index([defaultTargetModelId])
   @@map("conversation")
   // Partial unique index conversation_one_operator_per_user (userId WHERE kind = 'OPERATOR') is in SQL.
 }
