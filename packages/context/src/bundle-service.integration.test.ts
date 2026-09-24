@@ -191,7 +191,7 @@ describe("ContextBundleService", () => {
     ).rejects.toBeInstanceOf(ContextAccessDeniedError);
   });
 
-  it("treats project conversations as PROJECT surfaces and excludes unrelated personal history", async () => {
+  it("keeps project-focused conversations PERSONAL while restricting cross-chat retrieval to the focused project", async () => {
     const actorUserId = await createUser(
       prisma,
       "project-surface-actor",
@@ -280,11 +280,13 @@ describe("ContextBundleService", () => {
     const audience = snapshot.items.find(
       (item) => item.sourceType === "AUDIENCE",
     );
-    expect(audience?.sourceId).toBe(project.id);
+    expect(audience?.sourceId).toBe(
+      currentConversation.id,
+    );
     expect(audience?.metadata).toMatchObject({
-      kind: "PROJECT",
-      projectId: project.id,
+      kind: "PERSONAL",
       participantUserIds: [actorUserId],
+      focusedProjectId: project.id,
     });
 
     const related = snapshot.items.find(
@@ -294,15 +296,15 @@ describe("ContextBundleService", () => {
       (item) => item.sourceId === privateMessage.id,
     );
     expect(related).toBeDefined();
-    // Project-surface filtering happens before the snapshot is frozen,
-    // because semantic planning consumes snapshot.items directly.
+    // Cross-chat retrieval remains project-focused even though the response
+    // surface itself stays PERSONAL.
     expect(privateItem).toBeUndefined();
 
     const resolved = await bundles.resolveForInvocation({
       actorUserId,
       invocationId,
     });
-    expect(resolved.manifest.surfaceKind).toBe("PROJECT");
+    expect(resolved.manifest.surfaceKind).toBe("PERSONAL");
     expect(
       resolved.items.some(
         (item) => item.sourceId === relatedMessage.id,
