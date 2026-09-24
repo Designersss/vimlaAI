@@ -905,8 +905,9 @@ export class OrchestrationService {
   async approve(userId: string, id: string, body: unknown): Promise<ExecutionPlanView> {
     this.assertOrchestrationEnabled();
     const input = parseApprove(body);
+    const invocationId = invocationDbId(id, input.invocationId);
 
-    return this.prisma.client.$transaction(async (tx) => {
+    const approved = await this.prisma.client.$transaction(async (tx) => {
       const plan = await tx.executionPlan.findFirst({
         where: { id, userId },
         include: planInclude,
@@ -918,7 +919,6 @@ export class OrchestrationService {
         throw new ConflictException("Execution plan is not running");
       }
 
-      const invocationId = invocationDbId(id, input.invocationId);
       const invocation = plan.invocations.find((candidate) => candidate.id === invocationId);
       if (!invocation) {
         throw new NotFoundException("Invocation not found");
@@ -957,6 +957,15 @@ export class OrchestrationService {
       }
       return toView(approved);
     });
+    this.telemetry.emit({
+      event: "safety.policy",
+      planId: id,
+      invocationId,
+      action: "APPROVAL_GRANTED",
+      reason: "OTHER",
+      count: 1,
+    });
+    return approved;
   }
 
   async resolveHumanEvaluation(
@@ -974,9 +983,10 @@ export class OrchestrationService {
       throw new BadRequestException("Invalid invocation id");
     }
     const validatedInvocationId = parsedInvocationId.data;
+    const invocationId = invocationDbId(id, validatedInvocationId);
     const artifacts = new ArtifactService(this.prisma.client);
 
-    return this.prisma.client.$transaction(async (tx) => {
+    const resolvedPlan = await this.prisma.client.$transaction(async (tx) => {
       const plan = await tx.executionPlan.findFirst({
         where: { id, userId },
         include: planInclude,
@@ -985,7 +995,6 @@ export class OrchestrationService {
         throw new NotFoundException("Execution plan not found");
       }
 
-      const invocationId = invocationDbId(id, validatedInvocationId);
       const invocation = plan.invocations.find(
         (candidate) => candidate.id === invocationId,
       );
@@ -1176,6 +1185,15 @@ export class OrchestrationService {
       }
       return toView(resolved);
     });
+    this.telemetry.emit({
+      event: "safety.policy",
+      planId: id,
+      invocationId,
+      action: "APPROVAL_GRANTED",
+      reason: "OTHER",
+      count: 1,
+    });
+    return resolvedPlan;
   }
 
   private async ensureContextSnapshot(userId: string, planId: string): Promise<ContextSnapshotView> {
