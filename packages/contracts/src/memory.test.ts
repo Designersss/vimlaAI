@@ -124,6 +124,32 @@ describe("memory contracts", () => {
     ).toBe(true);
     expect(
       promoteE2eeMemorySchema.safeParse({
+        directConversationId:
+          "11111111-1111-4111-8111-111111111111",
+        sourceMessageId:
+          "22222222-2222-4222-8222-222222222222",
+        projectId:
+          "33333333-3333-4333-8333-333333333333",
+        type: "PROJECT_DECISION",
+        slotKey: "launch",
+        content: "Launch in October",
+      }).success,
+    ).toBe(true);
+    expect(
+      promoteE2eeMemorySchema.safeParse({
+        directConversationId:
+          "11111111-1111-4111-8111-111111111111",
+        sourceMessageId:
+          "22222222-2222-4222-8222-222222222222",
+        projectId:
+          "33333333-3333-4333-8333-333333333333",
+        type: "USER_PREFERENCE",
+        slotKey: "theme",
+        content: "Dark",
+      }).success,
+    ).toBe(false);
+    expect(
+      promoteE2eeMemorySchema.safeParse({
         directConversationId: "not-a-uuid",
         sourceMessageId:
           "22222222-2222-4222-8222-222222222222",
