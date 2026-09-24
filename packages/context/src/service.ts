@@ -50,7 +50,6 @@ export class ContextSnapshotService {
     const items = await this.collectExecutionPlanItems(
       input.actorUserId,
       input.planId,
-      input.currentProjectId ?? null,
     );
     return this.persistSnapshot({ ...input, items }, true);
   }
@@ -190,13 +189,11 @@ export class ContextSnapshotService {
   private async collectExecutionPlanItems(
     actorUserId: string,
     planId: string,
-    currentProjectId: string | null,
   ): Promise<ContextSnapshotItemInput[]> {
     const candidateSet =
       await this.retrieval.retrieveForExecutionPlan({
         actorUserId,
         planId,
-        currentProjectId,
       });
     const items = candidateSet.candidates.map(
       (candidate) => candidate.item,
