@@ -21,7 +21,9 @@ import {
 } from "@vimla/database";
 import type { SemanticPlannerModel } from "@vimla/orchestration";
 import { API_CONFIG, type ApiRuntimeConfig } from "../config/api-config.js";
+import { ApiTelemetrySink } from "../observability/telemetry.js";
 import { SEMANTIC_PLANNER_MODEL } from "../orchestration/semantic-planner.adapter.js";
+import { telemetryDurationMs } from "@vimla/shared";
 import { PrismaService } from "../persistence/prisma.service.js";
 import { MemoryFacade } from "./memory.facade.js";
 
@@ -47,6 +49,8 @@ export class MemoryMaintenanceService {
     private readonly config: ApiRuntimeConfig,
     @Inject(SEMANTIC_PLANNER_MODEL)
     private readonly model: SemanticPlannerModel,
+    @Inject(ApiTelemetrySink)
+    private readonly telemetry: ApiTelemetrySink,
   ) {
     this.db = prisma.client;
     this.budget = new ContextBudgetService(this.db);
@@ -64,8 +68,9 @@ export class MemoryMaintenanceService {
       return { memoryItems: 0, compactedStates: 0 };
     }
 
+    const startedAt = Date.now();
     const now = new Date();
-    await this.db.memoryItem.updateMany({
+    const expired = await this.db.memoryItem.updateMany({
       where: {
         state: "ACTIVE",
         expiresAt: { lte: now },
@@ -119,6 +124,23 @@ export class MemoryMaintenanceService {
         }),
       ]);
 
+    this.telemetry.emit({
+      event: "context.memory_maintenance",
+      sourceType: "OTHER",
+      outcome: "SUCCESS",
+      durationMs: telemetryDurationMs(startedAt),
+      extractedCount: 0,
+      createdCount: 0,
+      supersededCount: 0,
+      invalidatedCount:
+        expired.count + memoryItems.count + compactedStates.count,
+      staleCount: 0,
+      compactionCount: 0,
+      compactionInputTokens: 0,
+      compactionOutputTokens: 0,
+      compactionVersion: null,
+    });
+
     return {
       memoryItems: memoryItems.count,
       compactedStates: compactedStates.count,
@@ -128,6 +150,8 @@ export class MemoryMaintenanceService {
   async reconcilePending(limit = 32): Promise<number> {
     if (!this.config.memoryEnabled) return 0;
 
+    const startedAt = Date.now();
+    let staleCount = 0;
     const cutoff = new Date(
       Date.now() - RECEIPT_RECLAIM_MS,
     );
@@ -191,6 +215,7 @@ export class MemoryMaintenanceService {
       });
 
       if (!source) {
+        staleCount += 1;
         await this.db.memoryExtractionReceipt.updateMany({
           where: {
             id: receipt.id,
@@ -206,6 +231,7 @@ export class MemoryMaintenanceService {
 
       const currentVersion = source.updatedAt.toISOString();
       if (currentVersion !== receipt.sourceVersion) {
+        staleCount += 1;
         await this.db.$transaction(async (tx) => {
           await tx.memoryExtractionReceipt.updateMany({
             where: {
@@ -255,6 +281,22 @@ export class MemoryMaintenanceService {
       },
     });
 
+    this.telemetry.emit({
+      event: "context.memory_maintenance",
+      sourceType: "OTHER",
+      outcome: "SUCCESS",
+      durationMs: telemetryDurationMs(startedAt),
+      extractedCount: 0,
+      createdCount: 0,
+      supersededCount: 0,
+      invalidatedCount: 0,
+      staleCount,
+      compactionCount: 0,
+      compactionInputTokens: 0,
+      compactionOutputTokens: 0,
+      compactionVersion: null,
+    });
+
     return receipts.length;
   }
 
@@ -264,6 +306,15 @@ export class MemoryMaintenanceService {
     correlationId: string;
   }): Promise<void> {
     if (!this.config.memoryEnabled) return;
+
+    const startedAt = Date.now();
+    let extractedCount = 0;
+    let createdCount = 0;
+    let supersededCount = 0;
+    let compactionCount = 0;
+    let compactionInputTokens = 0;
+    let compactionOutputTokens = 0;
+    let compactionVersion: number | null = null;
 
     const source = await this.db.message.findFirst({
       where: {
@@ -310,16 +361,23 @@ export class MemoryMaintenanceService {
 
     if (!extracted) {
       try {
-        stored =
+        if (
           containsSensitiveContextData({
             content: source.content,
           }) ||
           containsSensitivePersonalMemoryData(source.content)
-            ? 0
-            : await this.extractMessage({
-              ...input,
-              source,
-            });
+        ) {
+          stored = 0;
+        } else {
+          const extraction = await this.extractMessage({
+            ...input,
+            source,
+          });
+          extractedCount = extraction.extractedCount;
+          createdCount = extraction.createdCount;
+          supersededCount = extraction.supersededCount;
+          stored = extraction.createdCount;
+        }
         const marked =
           await this.db.memoryExtractionReceipt.updateMany({
             where: {
@@ -345,10 +403,14 @@ export class MemoryMaintenanceService {
 
     if (!compacted) {
       try {
-        await this.compactConversation({
+        const compaction = await this.compactConversation({
           ...input,
           conversationId: source.conversationId,
         });
+        compactionCount = compaction.count;
+        compactionInputTokens = compaction.inputTokens;
+        compactionOutputTokens = compaction.outputTokens;
+        compactionVersion = compaction.version;
         const marked =
           await this.db.memoryExtractionReceipt.updateMany({
             where: {
@@ -385,6 +447,21 @@ export class MemoryMaintenanceService {
           errorCode: null,
         },
       });
+      this.telemetry.emit({
+        event: "context.memory_maintenance",
+        sourceType: "MESSAGE",
+        outcome: "SUCCESS",
+        durationMs: telemetryDurationMs(startedAt),
+        extractedCount,
+        createdCount,
+        supersededCount,
+        invalidatedCount: 0,
+        staleCount: 0,
+        compactionCount,
+        compactionInputTokens,
+        compactionOutputTokens,
+        compactionVersion,
+      });
       return;
     }
 
@@ -401,6 +478,21 @@ export class MemoryMaintenanceService {
             new Error("Memory maintenance stages did not complete"),
         ),
       },
+    });
+    this.telemetry.emit({
+      event: "context.memory_maintenance",
+      sourceType: "MESSAGE",
+      outcome: "FAILED",
+      durationMs: telemetryDurationMs(startedAt),
+      extractedCount,
+      createdCount,
+      supersededCount,
+      invalidatedCount: 0,
+      staleCount: 0,
+      compactionCount,
+      compactionInputTokens,
+      compactionOutputTokens,
+      compactionVersion,
     });
     this.logger.warn({
       msg: "memory.maintenance.failed",
@@ -420,7 +512,11 @@ export class MemoryMaintenanceService {
       updatedAt: Date;
       conversationId: string;
     };
-  }): Promise<number> {
+  }): Promise<{
+    extractedCount: number;
+    createdCount: number;
+    supersededCount: number;
+  }> {
     const sourceVersion =
       input.source.updatedAt.toISOString();
     const raw = await this.model.complete({
@@ -432,7 +528,8 @@ export class MemoryMaintenanceService {
       parseStrictJson(raw),
     );
 
-    let stored = 0;
+    let createdCount = 0;
+    let supersededCount = 0;
     for (const candidate of parsed.candidates) {
       const result = await this.extraction.process({
         actorUserId: input.userId,
@@ -460,23 +557,44 @@ export class MemoryMaintenanceService {
           },
         ],
       });
-      if (result.kind === "STORED") stored += 1;
+      if (result.kind === "STORED") {
+        createdCount += 1;
+        const stored = await this.db.memoryItem.findUnique({
+          where: { id: result.memory.id },
+          select: { supersedesId: true },
+        });
+        if (stored?.supersedesId) supersededCount += 1;
+      }
     }
-    return stored;
+    return {
+      extractedCount: parsed.candidates.length,
+      createdCount,
+      supersededCount,
+    };
   }
 
   private async compactConversation(input: {
     userId: string;
     conversationId: string;
     correlationId: string;
-  }): Promise<void> {
+  }): Promise<{
+    count: number;
+    inputTokens: number;
+    outputTokens: number;
+    version: number | null;
+  }> {
     const budget = await this.conservativeBudget();
     const pressure = await this.conversationPressure(
       input.userId,
       input.conversationId,
     );
     if (!shouldUseCompactedState(pressure, budget)) {
-      return;
+      return {
+        count: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        version: null,
+      };
     }
 
     const previous =
@@ -502,7 +620,14 @@ export class MemoryMaintenanceService {
         tailIds: tail,
         budget,
       });
-    if (raw.length === 0) return;
+    if (raw.length === 0) {
+      return {
+        count: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        version: null,
+      };
+    }
 
     const rawModel = await this.model.complete({
         prompt: buildCompactionPrompt(
@@ -522,7 +647,7 @@ export class MemoryMaintenanceService {
     );
 
     try {
-      await this.compaction.refresh({
+      const compacted = await this.compaction.refresh({
         actorUserId: input.userId,
         scope: {
           kind: "CONVERSATION",
@@ -559,12 +684,23 @@ export class MemoryMaintenanceService {
         ],
         budget,
       });
+      return {
+        count: 1,
+        inputTokens: compacted.inputTokenEstimate,
+        outputTokens: compacted.outputTokenEstimate,
+        version: compacted.version,
+      };
     } catch (error: unknown) {
       if (
         error instanceof MemoryError &&
         error.code === "SENSITIVE_CONTENT"
       ) {
-        return;
+        return {
+          count: 0,
+          inputTokens: 0,
+          outputTokens: 0,
+          version: null,
+        };
       }
       throw error;
     }
