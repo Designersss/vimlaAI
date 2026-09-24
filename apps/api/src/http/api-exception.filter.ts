@@ -184,6 +184,11 @@ function aiCodeToApi(code: AiErrorCode): ApiErrorCode {
       return "ai_disabled";
     case "AI_REQUEST_IN_PROGRESS":
       return "ai_request_in_progress";
+    case "IDEMPOTENCY_CONFLICT":
+    case "THREAD_TARGET_INVALID":
+      return "conflict";
+    case "THREAD_TARGET_REQUIRED":
+      return "validation_error";
     case "AI_REQUEST_COST_LIMIT":
       return "ai_request_cost_limit";
     case "AI_PROVIDER_BALANCE_UNAVAILABLE":
