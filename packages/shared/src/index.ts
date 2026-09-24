@@ -15,3 +15,17 @@ export {
   type VimlaLocale,
 } from "./locale.js";
 export { maskEmail } from "./email.js";
+
+export {
+  NOOP_TELEMETRY_SINK,
+  countTelemetryValues,
+  telemetryDurationMs,
+  telemetryRatioBps,
+  type TelemetryContextSelectionReason,
+  type TelemetryContextSource,
+  type TelemetryEvent,
+  type TelemetryOutcome,
+  type TelemetryPolicyDenialReason,
+  type TelemetrySink,
+  type TelemetryTargetKind,
+} from "./telemetry.js";
