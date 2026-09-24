@@ -154,6 +154,8 @@ A personal chat may opt into an authorized Project **focus** by storing a nullab
 
 Memory does not get automatic semantic-vector indexing in PR-17; semantic retrieval remains source-based and E2EE exclusions from PR-15/PR-16 remain unchanged.
 
+For model-bound context, credentials/secrets are filtered from retrieved history for every model target. Historical high-risk personal facts are additionally excluded from external `AI_AUTO` / `AI_MODEL` / `AGENT` targets; the internal Vimla model boundary may use them subject to ContextPolicy. The user's immediate current message remains explicit user-supplied input and is not silently removed by this historical-context filter.
+
 ## 9. Rollout
 
 Keep `MEMORY_ENABLED=false` until the PR-17 migration is deployed and validation is green. Enabling Memory affects future snapshot construction; already frozen snapshots remain immutable.
