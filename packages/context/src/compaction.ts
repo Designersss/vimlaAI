@@ -308,17 +308,19 @@ export class CompactedStateRetrievalProvider
       ) {
         continue;
       }
+      const focusedProjectId =
+        input.currentProjectId ?? null;
       const conversationBelongsToCurrentProject =
-        input.currentProjectId !== null &&
-        input.currentProjectId !== undefined &&
+        focusedProjectId !== null &&
         row.scopeKind === "CONVERSATION" &&
         (row.conversationId === input.conversationId ||
           focusedConversationStateIds.has(row.id));
       const scope: ContextSourceScope =
-        conversationBelongsToCurrentProject
+        conversationBelongsToCurrentProject &&
+        focusedProjectId !== null
           ? {
               kind: "PROJECT",
-              projectId: input.currentProjectId,
+              projectId: focusedProjectId,
             }
           : sourceScope(
               input.actorUserId,
