@@ -1,4 +1,4 @@
-import { createServer, type Server } from "node:http";
+import { createServer, type Server, type ServerResponse } from "node:http";
 
 export type WorkerReadinessProbe = () => Promise<boolean>;
 
@@ -22,7 +22,7 @@ export async function listenWorkerHealth(
 async function handleRequest(
   method: string | undefined,
   url: string | undefined,
-  response: import("node:http").ServerResponse,
+  response: ServerResponse,
   readinessProbe?: WorkerReadinessProbe,
 ): Promise<void> {
   if (method !== "GET") {
@@ -58,7 +58,7 @@ async function handleRequest(
 }
 
 function writeJson(
-  response: import("node:http").ServerResponse,
+  response: ServerResponse,
   status: number,
   payload: Record<string, string>,
 ): void {
