@@ -683,6 +683,21 @@ export const workerEnvSchema = z
     AI_MAX_PLAN_SETTLED_MICRORUB: integerStringSchema.default("80000000"),
     AI_MAX_PLAN_COMMITTED_MICRORUB: integerStringSchema.default("80000000"),
     AI_CANCELLATION_POLL_MS: z.coerce.number().int().min(10).max(5_000).default(250),
+    PROXYAPI_API_KEY: z.preprocess(
+      emptyToUndefined,
+      z.string().trim().min(1).optional(),
+    ),
+    PROXYAPI_BASE_URL: z.url().default("https://api.proxyapi.ru/v1"),
+    AI_TEXT_PROVIDER: z
+      .enum(["auto", "mock", "proxyapi"])
+      .default("auto"),
+    AI_PROVIDER_TIMEOUT_MS: z.coerce
+      .number()
+      .int()
+      .min(1_000)
+      .max(600_000)
+      .default(120_000),
+    OPERATOR_ENABLED: z.enum(["true", "false"]).default("false"),
     ORCHESTRATION_ENABLED: rolloutFlagSchema,
     CONTEXT_RETRIEVAL_ENABLED: rolloutFlagSchema,
     SEMANTIC_RETRIEVAL_ENABLED: rolloutFlagSchema,
@@ -806,6 +821,56 @@ export const workerEnvSchema = z
             "VIMLA_CORE_MODEL is required when VIMLA_CORE_PROVIDER=internal-http",
         });
       }
+    }
+
+    if (
+      (value.APP_ENV === "production" || value.APP_ENV === "staging") &&
+      value.AI_TEXT_PROVIDER === "mock"
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["AI_TEXT_PROVIDER"],
+        message:
+          "Mock AI provider is not allowed in staging/production worker orchestration",
+      });
+    }
+
+    if (
+      value.AI_TEXT_PROVIDER === "proxyapi" &&
+      !value.PROXYAPI_API_KEY
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["PROXYAPI_API_KEY"],
+        message:
+          "PROXYAPI_API_KEY is required when AI_TEXT_PROVIDER=proxyapi",
+      });
+    }
+
+    if (
+      (value.APP_ENV === "production" || value.APP_ENV === "staging") &&
+      value.ORCHESTRATION_ENABLED === "true" &&
+      value.CONTEXT_RETRIEVAL_ENABLED !== "true"
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["CONTEXT_RETRIEVAL_ENABLED"],
+        message:
+          "Production orchestration requires explicit CONTEXT_RETRIEVAL_ENABLED=true",
+      });
+    }
+
+    if (
+      (value.APP_ENV === "production" || value.APP_ENV === "staging") &&
+      value.ORCHESTRATION_ENABLED === "true" &&
+      value.OPERATOR_ENABLED !== "true"
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["OPERATOR_ENABLED"],
+        message:
+          "Production orchestration requires explicit OPERATOR_ENABLED=true",
+      });
     }
 
     if (
@@ -956,6 +1021,11 @@ export const workerConfigSchema = z.object({
   aiMaxPlanSettledMicroRub: z.string().regex(/^\d+$/),
   aiMaxPlanCommittedMicroRub: z.string().regex(/^\d+$/),
   aiCancellationPollMs: z.number().int().min(10).max(5_000),
+  aiTextProvider: z.enum(["disabled", "mock", "proxyapi"]),
+  proxyapiApiKey: z.string().min(1).optional(),
+  proxyapiBaseUrl: z.url(),
+  aiProviderTimeoutMs: z.number().int().min(1_000).max(600_000),
+  operatorEnabled: z.boolean(),
   orchestrationEnabled: z.boolean(),
   contextRetrievalEnabled: z.boolean(),
   semanticRetrievalEnabled: z.boolean(),
