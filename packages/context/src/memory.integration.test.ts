@@ -453,6 +453,51 @@ describe("durable memory context graph", () => {
     ).toBe("INVALIDATED");
   });
 
+  it("rejects high-risk automatic facts even when mislabeled NORMAL and restricts explicit retention", async () => {
+    const owner = await user("sensitive-policy-owner");
+    const source = await message(
+      owner,
+      "I was diagnosed with diabetes.",
+    );
+    const service = new MemoryService(db);
+    const extraction = new MemoryExtractionPipeline(service);
+
+    await expect(
+      extraction.process({
+        actorUserId: owner,
+        scope: { kind: "PERSONAL" },
+        type: "USER_FACT",
+        slotKey: "health fact",
+        content: "Was diagnosed with diabetes",
+        sensitivity: "NORMAL",
+        confidence: 0.99,
+        quality: 0.99,
+        sourceRefs: [
+          {
+            provenance: "AUTO_EXTRACTION",
+            sourceType: "MESSAGE",
+            sourceId: source.row.id,
+            sourceVersion: source.row.updatedAt.toISOString(),
+            sourceScopeKind: "CONVERSATION",
+            sourceScopeId: source.conversation.id,
+          },
+        ],
+      }),
+    ).resolves.toEqual({
+      kind: "SKIPPED",
+      reason: "SENSITIVE",
+    });
+
+    const explicit = await service.rememberPersonal({
+      actorUserId: owner,
+      type: "USER_FACT",
+      slotKey: "health fact",
+      content: "Was diagnosed with diabetes",
+    });
+    expect(explicit.sensitivity).toBe("SENSITIVE");
+    expect(explicit.classification).toBe("RESTRICTED");
+  });
+
   it("integrates current durable memory into immutable ContextSnapshot retrieval as DERIVED evidence", async () => {
     const owner = await user("snapshot-memory-owner");
     const service = new MemoryService(db);
