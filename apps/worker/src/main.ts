@@ -386,25 +386,29 @@ async function startOrchestrationRuntime(
           new VimlaAiGateway(createWorkerPaidAiProvider(config)),
           {
             budgetProfiles: {
-          SHORT: {
-            preferredOutputTokens: config.aiOutputShortPreferredTokens,
-            minimumOutputTokens: config.aiOutputShortMinTokens,
-          },
-          STANDARD: {
-            preferredOutputTokens: config.aiOutputStandardPreferredTokens,
-            minimumOutputTokens: config.aiOutputStandardMinTokens,
-          },
-          LONG: {
-            preferredOutputTokens: config.aiOutputLongPreferredTokens,
-            minimumOutputTokens: config.aiOutputLongMinTokens,
-          },
-        },
-        reservationSafetyBps: BigInt(config.aiReservationSafetyBps),
-        maxReservationMicroRub: BigInt(config.aiMaxReservationMicroRub),
-        maxProviderTurnsPerInvocation: config.aiMaxProviderTurnsPerInvocation,
-        maxPaidInvocationsPerPlan: config.aiMaxPaidInvocationsPerPlan,
-        maxSettledCostMicroRubPerPlan: BigInt(config.aiMaxPlanSettledMicroRub),
-        maxCommittedCostMicroRubPerPlan: BigInt(config.aiMaxPlanCommittedMicroRub),
+              SHORT: {
+                preferredOutputTokens: config.aiOutputShortPreferredTokens,
+                minimumOutputTokens: config.aiOutputShortMinTokens,
+              },
+              STANDARD: {
+                preferredOutputTokens: config.aiOutputStandardPreferredTokens,
+                minimumOutputTokens: config.aiOutputStandardMinTokens,
+              },
+              LONG: {
+                preferredOutputTokens: config.aiOutputLongPreferredTokens,
+                minimumOutputTokens: config.aiOutputLongMinTokens,
+              },
+            },
+            reservationSafetyBps: BigInt(config.aiReservationSafetyBps),
+            maxReservationMicroRub: BigInt(config.aiMaxReservationMicroRub),
+            maxProviderTurnsPerInvocation: config.aiMaxProviderTurnsPerInvocation,
+            maxPaidInvocationsPerPlan: config.aiMaxPaidInvocationsPerPlan,
+            maxSettledCostMicroRubPerPlan: BigInt(
+              config.aiMaxPlanSettledMicroRub,
+            ),
+            maxCommittedCostMicroRubPerPlan: BigInt(
+              config.aiMaxPlanCommittedMicroRub,
+            ),
             cancellationPollMs: config.aiCancellationPollMs,
           },
           undefined,
@@ -521,7 +525,7 @@ async function startOrchestrationRuntime(
       dispatchQueue: ORCHESTRATION_DISPATCH_QUEUE_NAME,
       executionQueue: INVOCATION_EXECUTE_QUEUE_NAME,
     },
-    "orchestration preview runtime ready",
+    "orchestration runtime ready",
   );
 
   return {
