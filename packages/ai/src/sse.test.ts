@@ -51,6 +51,24 @@ describe("OpenAiCompatSseParser", () => {
     ]);
   });
 
+  it("treats done as terminal even when malformed bytes follow in the same or later chunk", () => {
+    const parser = new OpenAiCompatSseParser();
+    expect(
+      parser.push(
+        encoder.encode(
+          "data: [DONE]\n\n" +
+            "data: {malformed json}\n\n",
+        ),
+      ),
+    ).toEqual([{ type: "done" }]);
+    expect(
+      parser.push(
+        encoder.encode('data: {"choices":[{"delta":{"content":"ignored"}}]}\n\n'),
+      ),
+    ).toEqual([]);
+    expect(parser.finish()).toEqual([]);
+  });
+
   it("parses streamed tool-call deltas", () => {
     const parser = new OpenAiCompatSseParser();
     const payload = {
