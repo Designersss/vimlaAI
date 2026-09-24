@@ -200,6 +200,7 @@ export class CompactedStateRetrievalProvider
 
     const [
       conversationState,
+      threadState,
       currentProjectState,
       focusedConversationStates,
       projectStates,
@@ -211,6 +212,19 @@ export class CompactedStateRetrievalProvider
           scopeKind: "CONVERSATION",
           ownerUserId: input.actorUserId,
           conversationId: input.conversationId,
+        },
+        orderBy: [
+          { validFrom: "desc" },
+          { version: "desc" },
+        ],
+      }),
+      this.db.compactedContextState.findFirst({
+        where: {
+          invalidatedAt: null,
+          validFrom: { lt: snapshotCutoff },
+          scopeKind: "THREAD",
+          ownerUserId: input.actorUserId,
+          threadId: input.conversationId,
         },
         orderBy: [
           { validFrom: "desc" },
@@ -292,6 +306,7 @@ export class CompactedStateRetrievalProvider
     );
     const rows = [
       ...(conversationState ? [conversationState] : []),
+      ...(threadState ? [threadState] : []),
       ...(currentProjectState ? [currentProjectState] : []),
       ...focusedConversationStates,
       ...projectStates,
@@ -338,8 +353,10 @@ export class CompactedStateRetrievalProvider
         lexicalScore: 0,
         directReference: false,
         currentSurface:
-          row.scopeKind === "CONVERSATION" &&
-          row.conversationId === input.conversationId,
+          (row.scopeKind === "CONVERSATION" &&
+            row.conversationId === input.conversationId) ||
+          (row.scopeKind === "THREAD" &&
+            row.threadId === input.conversationId),
         currentProject:
           (row.scopeKind === "PROJECT" &&
             row.projectId !== null &&
@@ -841,20 +858,31 @@ async function resolveCompactionPressureTokens(
   scope: NormalizedCompactedScope,
   fallback: number,
 ): Promise<number> {
-  if (scope.kind === "CONVERSATION") {
+  if (scope.kind === "CONVERSATION" || scope.kind === "THREAD") {
+    const conversationId =
+      scope.kind === "CONVERSATION"
+        ? scope.conversationId
+        : scope.threadId;
     const rows = await tx.$queryRaw<Array<{ byteCount: bigint }>>(
       Prisma.sql`
         SELECT
           COALESCE(SUM(GREATEST(OCTET_LENGTH("content"), 1)), 0)::bigint
             AS "byteCount"
         FROM "message"
-        WHERE "conversationId"=${scope.conversationId}
+        WHERE "conversationId"=${conversationId}
           AND "status"='COMPLETE'
           AND EXISTS (
             SELECT 1
             FROM "conversation"
-            WHERE "conversation"."id"=${scope.conversationId}
+            WHERE "conversation"."id"=${conversationId}
               AND "conversation"."userId"=${actorUserId}
+              AND (
+                ${scope.kind} <> 'THREAD'
+                OR (
+                  "conversation"."kind"='CHAT'
+                  AND "conversation"."defaultTargetKind" IN ('AI_AUTO','AI_MODEL')
+                )
+              )
           )
       `,
     );
