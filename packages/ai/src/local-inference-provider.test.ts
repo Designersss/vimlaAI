@@ -93,6 +93,31 @@ describe("LocalInferenceProvider", () => {
     });
   });
 
+  it("treats the OpenAI-compatible done event as terminal without waiting for EOF", async () => {
+    let canceled = false;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode("data: [DONE]\\n\\n"));
+      },
+      cancel() {
+        canceled = true;
+      },
+    });
+    const local = provider(async () => new Response(body, { status: 200 }));
+    const result = await local.streamChat({
+      providerModelId: "qwen-local",
+      messages: [{ role: "user", content: "hello" }],
+      maxOutputTokens: 32,
+      correlationId: "corr-done",
+    });
+    const events = [];
+    for await (const event of result.events) events.push(event);
+
+    expect(events).toEqual([{ type: "done" }]);
+    expect(canceled).toBe(true);
+    expect(local.runtimeState().adapterActiveRequests).toBe(0);
+  });
+
   it("exposes bounded health, readiness and GPU/queue telemetry", async () => {
     const fetchImpl: HttpFetch = async (url) => {
       if (url.endsWith("/telemetry")) {
