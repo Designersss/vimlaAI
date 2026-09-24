@@ -492,21 +492,21 @@ describe("durable memory context graph", () => {
     expect(explicit.classification).toBe("RESTRICTED");
   });
 
-  it("excludes Memory and L2 created after the source-message Send boundary", async () => {
+  it("excludes Memory and L2 created at or after the source-message Send boundary", async () => {
     const owner = await user("send-cutoff-owner");
     const source = await message(
       owner,
       "Build the request snapshot from what existed at Send.",
     );
     const cutoff = source.row.createdAt;
-    const future = new Date(cutoff.getTime() + 60_000);
+    const future = new Date(cutoff.getTime());
 
     const memory = await new MemoryService(db).ingestCandidate({
       actorUserId: owner,
       scope: { kind: "PERSONAL" },
       type: "USER_FACT",
       slotKey: "post send fact",
-      content: "Created after the source message",
+      content: "Created at the same timestamp as the source message",
       origin: "AUTO_EXTRACTION",
       validFrom: future,
       sourceRefs: [
@@ -529,7 +529,7 @@ describe("durable memory context graph", () => {
         conversationId: source.conversation.id,
         version: 1,
         classification: "PRIVATE",
-        content: "L2 created after Send",
+        content: "L2 created at the Send timestamp",
         contentHash: "future-l2-hash",
         sourceRefs: [
           {
