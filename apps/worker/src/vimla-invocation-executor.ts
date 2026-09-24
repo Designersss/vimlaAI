@@ -41,6 +41,8 @@ import type {
 } from "./orchestration.js";
 
 export interface VimlaToolPlannerInput {
+  actorUserId: string;
+  correlationId: string;
   userText: string;
   locale: VimlaLocale;
   snapshot: WorkspaceSnapshot;
@@ -49,6 +51,16 @@ export interface VimlaToolPlannerInput {
 
 export interface VimlaToolPlanner {
   plan(input: VimlaToolPlannerInput): Promise<PlannerPlan>;
+}
+
+export class VimlaPlannerError extends Error {
+  constructor(
+    readonly code: string,
+    readonly retryable: boolean,
+  ) {
+    super(code);
+    this.name = "VimlaPlannerError";
+  }
 }
 
 /**
@@ -168,6 +180,8 @@ export class VimlaInvocationExecutor implements InvocationExecutorRegistry {
         .filter((value): value is string => Boolean(value))
         .join("\n\n");
       const planned = await this.planner.plan({
+        actorUserId: invocation.plan.userId,
+        correlationId: input.idempotencyKey,
         userText: invocation.purpose,
         locale: plannerLocale,
         snapshot,
@@ -556,6 +570,13 @@ function personalTaskOwner(userId: string, hint?: string): TaskOwnerResolution {
 }
 
 function classifyVimlaExecutionError(error: unknown): InvocationExecutionResult {
+  if (error instanceof VimlaPlannerError) {
+    return {
+      status: "FAILED",
+      errorCode: error.code,
+      retryable: error.retryable,
+    };
+  }
   if (error instanceof RetryableVimlaExecutionError) {
     return {
       status: "FAILED",
