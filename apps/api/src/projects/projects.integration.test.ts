@@ -427,6 +427,14 @@ describe("projects API", () => {
       where: { id: created.id },
     });
     const now = new Date();
+    const focusedConversation = await prisma.conversation.create({
+      data: {
+        userId: owner.id,
+        projectId: project.id,
+        kind: "CHAT",
+        title: "Project-focused personal chat",
+      },
+    });
 
     const memory = await prisma.memoryItem.create({
       data: {
@@ -494,6 +502,14 @@ describe("projects API", () => {
       await prisma.project.findUnique({
         where: { id: project.id },
       }),
+    ).toBeNull();
+    expect(
+      (
+        await prisma.conversation.findUniqueOrThrow({
+          where: { id: focusedConversation.id },
+          select: { projectId: true },
+        })
+      ).projectId,
     ).toBeNull();
 
     const retainedMemory =
