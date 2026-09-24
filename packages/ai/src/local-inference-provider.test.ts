@@ -258,6 +258,58 @@ describe("LocalInferenceProvider", () => {
     });
   });
 
+  it("does not let an older in-flight success close a circuit opened by another request", async () => {
+    let calls = 0;
+    let resolveFirst: ((response: Response) => void) | undefined;
+    const fetchImpl: HttpFetch = async () => {
+      calls += 1;
+      if (calls === 1) {
+        return new Promise<Response>((resolve) => {
+          resolveFirst = resolve;
+        });
+      }
+      return new Response("{}", { status: 503 });
+    };
+    const local = provider(fetchImpl, {
+      maxConcurrentRequests: 2,
+      circuitBreakerFailureThreshold: 1,
+      circuitBreakerResetMs: 30_000,
+    });
+    const request = {
+      providerModelId: "qwen-local",
+      messages: [{ role: "user" as const, content: "hello" }],
+      maxOutputTokens: 32,
+      correlationId: "corr-circuit-race",
+    };
+
+    const older = local.streamChat(request);
+    await Promise.resolve();
+
+    await expect(local.streamChat({
+      ...request,
+      correlationId: "corr-circuit-opener",
+    })).rejects.toMatchObject({
+      code: "UNAVAILABLE",
+      retryable: true,
+    });
+
+    resolveFirst?.(new Response("data: [DONE]\n\n", { status: 200 }));
+    const olderResult = await older;
+    for await (const _event of olderResult.events) {
+      // Drain the older request after the newer failure has opened the circuit.
+    }
+
+    expect(local.runtimeState().circuitState).toBe("OPEN");
+    await expect(local.streamChat({
+      ...request,
+      correlationId: "corr-circuit-blocked",
+    })).rejects.toMatchObject({
+      code: "CIRCUIT_OPEN",
+      retryable: true,
+    });
+    expect(calls).toBe(2);
+  });
+
   it("releases a half-open circuit lease when a recovery stream is abandoned", async () => {
     let calls = 0;
     const fetchImpl: HttpFetch = async () => {
