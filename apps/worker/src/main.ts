@@ -1,5 +1,10 @@
 import { SemanticIndexer } from "@vimla/context";
-import { InternalHttpEmbeddingProvider, MockAiProvider, VimlaAiGateway } from "@vimla/ai";
+import {
+  InternalHttpEmbeddingProvider,
+  LocalInferenceProvider,
+  MockAiProvider,
+  VimlaAiGateway,
+} from "@vimla/ai";
 import type { BillingEngine } from "@vimla/billing";
 import type { WorkerConfig } from "@vimla/config";
 import { loadWorkerConfig } from "@vimla/config/server";
@@ -32,7 +37,13 @@ import {
   DeterministicVimlaToolPlanner,
   VimlaAwareInvocationExecutorRegistry,
   VimlaInvocationExecutor,
+  type VimlaToolPlanner,
 } from "./vimla-invocation-executor.js";
+import {
+  DisabledVimlaToolPlanner,
+  LocalInferenceVimlaToolPlanner,
+  RedisVimlaCoreFairUseLimiter,
+} from "./vimla-core-planner.js";
 import {
   createWorkerBillingEngine,
   createWorkerPaymentService,
@@ -68,6 +79,7 @@ type OrchestrationResources = {
   dispatchConnection: Redis;
   executionConnection: Redis;
   reconcileTimer: NodeJS.Timeout;
+  vimlaCoreProvider?: LocalInferenceProvider;
 };
 
 async function bootstrap(): Promise<void> {
@@ -219,6 +231,7 @@ async function bootstrap(): Promise<void> {
       ? await startOrchestrationRuntime(
           prisma,
           queueConnection,
+          storeConnection,
           redisOptions.url,
           billingLogger,
           config,
@@ -273,7 +286,15 @@ async function bootstrap(): Promise<void> {
 
   const healthServer =
     config.workerHealthPort !== undefined
-      ? await listenWorkerHealth(config.workerHealthPort)
+      ? await listenWorkerHealth(
+          config.workerHealthPort,
+          "127.0.0.1",
+          orchestrationResources?.vimlaCoreProvider
+            ? async () =>
+                (await orchestrationResources.vimlaCoreProvider?.readiness())?.ok ??
+                false
+            : undefined,
+        )
       : undefined;
 
   logger.info(
@@ -281,6 +302,9 @@ async function bootstrap(): Promise<void> {
       maintenanceQueue: MAINTENANCE_QUEUE_NAME,
       notificationQueue: NOTIFICATIONS_QUEUE_NAME,
       orchestrationPreviewEnabled: orchestrationResources !== undefined,
+      vimlaCoreProvider: config.vimlaCoreProvider,
+      vimlaCoreCapabilities:
+        orchestrationResources?.vimlaCoreProvider?.capabilityMatrix ?? null,
       workerHealthPort: config.workerHealthPort ?? null,
     },
     "worker ready",
@@ -325,6 +349,7 @@ async function bootstrap(): Promise<void> {
 async function startOrchestrationRuntime(
   prisma: ReturnType<typeof createPrismaClient>,
   queueConnection: Redis,
+  storeConnection: Redis,
   redisUrl: string,
   runtimeLogger: RuntimeLogger,
   config: WorkerConfig,
@@ -334,6 +359,7 @@ async function startOrchestrationRuntime(
   const executionConnection = new Redis(redisUrl, { maxRetriesPerRequest: null });
   const dispatchQueue = new Queue(ORCHESTRATION_DISPATCH_QUEUE_NAME, { connection: queueConnection });
   const executionQueue = new Queue(INVOCATION_EXECUTE_QUEUE_NAME, { connection: queueConnection });
+  const vimlaCore = createVimlaCore(config, storeConnection);
   const baseExecutorRegistry = new ExternalAiAwareInvocationExecutorRegistry(
     new ExternalAiInvocationExecutor(
       prisma,
@@ -368,7 +394,7 @@ async function startOrchestrationRuntime(
     new VimlaAwareInvocationExecutorRegistry(
       new VimlaInvocationExecutor(
         prisma,
-        new DeterministicVimlaToolPlanner(),
+        vimlaCore.planner,
         config.authDefaultLocale,
       ),
       new EvaluationAwareInvocationExecutorRegistry(
@@ -483,6 +509,57 @@ async function startOrchestrationRuntime(
     dispatchConnection,
     executionConnection,
     reconcileTimer,
+    ...(vimlaCore.provider ? { vimlaCoreProvider: vimlaCore.provider } : {}),
+  };
+}
+
+function createVimlaCore(
+  config: WorkerConfig,
+  storeConnection: Redis,
+): {
+  planner: VimlaToolPlanner;
+  provider?: LocalInferenceProvider;
+} {
+  if (config.vimlaCoreProvider === "deterministic") {
+    return { planner: new DeterministicVimlaToolPlanner() };
+  }
+  if (config.vimlaCoreProvider === "disabled") {
+    return { planner: new DisabledVimlaToolPlanner() };
+  }
+  if (!config.vimlaCoreBaseUrl || !config.vimlaCoreModel) {
+    throw new Error(
+      "Internal Vimla Core provider requires vimlaCoreBaseUrl and vimlaCoreModel",
+    );
+  }
+
+  const provider = new LocalInferenceProvider({
+    baseUrl: config.vimlaCoreBaseUrl,
+    timeoutMs: config.vimlaCoreTimeoutMs,
+    maxRequestBytes: config.vimlaCoreMaxRequestBytes,
+    maxConcurrentRequests: config.vimlaCoreMaxConcurrentRequests,
+    maxQueueDepth: config.vimlaCoreMaxQueueDepth,
+    circuitBreakerFailureThreshold:
+      config.vimlaCoreCircuitFailureThreshold,
+    circuitBreakerResetMs: config.vimlaCoreCircuitResetMs,
+    toolUse: config.vimlaCoreToolUseEnabled,
+    apiKey: config.vimlaCoreApiKey,
+  });
+  const fairUse = new RedisVimlaCoreFairUseLimiter(
+    async (script, numberOfKeys, ...args) =>
+      storeConnection.eval(script, numberOfKeys, ...args),
+    config.vimlaCoreFairUseRequestsPerMinute,
+    config.vimlaCoreFairUseMaxConcurrentPerUser,
+    Math.max(60_000, config.vimlaCoreTimeoutMs * 2),
+  );
+
+  return {
+    planner: new LocalInferenceVimlaToolPlanner(
+      new VimlaAiGateway(provider),
+      config.vimlaCoreModel,
+      config.vimlaCoreMaxOutputTokens,
+      fairUse,
+    ),
+    provider,
   };
 }
 
