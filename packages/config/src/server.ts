@@ -209,6 +209,19 @@ function resolveAiTextProvider(parsed: {
     : "mock";
 }
 
+function resolveWorkerAiTextProvider(parsed: {
+  APP_ENV: "local" | "test" | "staging" | "production";
+  AI_TEXT_PROVIDER: "auto" | "mock" | "proxyapi";
+  PROXYAPI_API_KEY?: string;
+}): "disabled" | "mock" | "proxyapi" {
+  if (parsed.AI_TEXT_PROVIDER === "mock") return "mock";
+  if (parsed.AI_TEXT_PROVIDER === "proxyapi") return "proxyapi";
+  if (parsed.PROXYAPI_API_KEY) return "proxyapi";
+  return parsed.APP_ENV === "local" || parsed.APP_ENV === "test"
+    ? "mock"
+    : "disabled";
+}
+
 function resolveVimlaCoreProvider(parsed: {
   APP_ENV: "local" | "test" | "staging" | "production";
   VIMLA_CORE_PROVIDER: "auto" | "disabled" | "deterministic" | "internal-http";
@@ -303,6 +316,11 @@ export function loadWorkerConfig(
     aiMaxPlanSettledMicroRub: parsed.AI_MAX_PLAN_SETTLED_MICRORUB,
     aiMaxPlanCommittedMicroRub: parsed.AI_MAX_PLAN_COMMITTED_MICRORUB,
     aiCancellationPollMs: parsed.AI_CANCELLATION_POLL_MS,
+    aiTextProvider: resolveWorkerAiTextProvider(parsed),
+    proxyapiApiKey: parsed.PROXYAPI_API_KEY,
+    proxyapiBaseUrl: parsed.PROXYAPI_BASE_URL.replace(/\/$/, ""),
+    aiProviderTimeoutMs: parsed.AI_PROVIDER_TIMEOUT_MS,
+    operatorEnabled: parsed.OPERATOR_ENABLED === "true",
     orchestrationEnabled: resolveRolloutFlag(
       parsed.ORCHESTRATION_ENABLED,
       parsed.APP_ENV,
