@@ -224,13 +224,47 @@ export class ContextSnapshotService {
         // membership + consent gate. Generic snapshot access must fail closed.
         return false;
       case "CONVERSATION":
-      case "AUDIENCE":
         return Boolean(
           await this.db.conversation.findFirst({
             where: { id: check.sourceId, userId: check.actorUserId },
             select: { id: true },
           }),
         );
+      case "AUDIENCE": {
+        const [conversation, project, direct] = await Promise.all([
+          this.db.conversation.findFirst({
+            where: {
+              id: check.sourceId,
+              userId: check.actorUserId,
+            },
+            select: { id: true },
+          }),
+          this.db.project.findFirst({
+            where: {
+              id: check.sourceId,
+              OR: [
+                { ownerUserId: check.actorUserId },
+                {
+                  members: {
+                    some: { userId: check.actorUserId },
+                  },
+                },
+              ],
+            },
+            select: { id: true },
+          }),
+          this.db.directConversationMember.findUnique({
+            where: {
+              conversationId_userId: {
+                conversationId: check.sourceId,
+                userId: check.actorUserId,
+              },
+            },
+            select: { id: true },
+          }),
+        ]);
+        return Boolean(conversation || project || direct);
+      }
       case "PARTICIPANT":
       case "LOCALE_TIMEZONE":
         return check.sourceId === check.actorUserId;
