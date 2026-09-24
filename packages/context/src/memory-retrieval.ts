@@ -9,7 +9,7 @@ import {
   estimateConservativeTokens as estimateTokens,
 } from "./token-estimate.js";
 import {
-  ensureMemoryCurrent,
+  canReadMemoryItem,
   type MemoryScopeKind,
 } from "./memory.js";
 
@@ -213,7 +213,13 @@ export class MemoryRetrievalProvider
       if (selected.length >= MAX_RETURNED) break;
       if (seen.has(candidate.row.id)) continue;
       seen.add(candidate.row.id);
-      if (!(await ensureMemoryCurrent(this.db, candidate.row))) {
+      if (
+        !(await canReadMemoryItem(
+          this.db,
+          input.actorUserId,
+          candidate.row.id,
+        ))
+      ) {
         continue;
       }
       selected.push(candidate);
