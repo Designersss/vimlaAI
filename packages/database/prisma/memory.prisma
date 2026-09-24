@@ -117,5 +117,6 @@ model MemoryExtractionReceipt {
 
   @@unique([sourceType, sourceId, sourceVersion])
   @@index([ownerUserId, status, updatedAt])
+  @@index([sourceType, status, updatedAt])
   @@map("memory_extraction_receipt")
 }
