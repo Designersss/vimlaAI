@@ -927,10 +927,19 @@ export class ContextRetrievalService {
       }
     }
 
+    const surfaceCandidates = currentProjectId
+      ? candidates.filter(
+          (candidateValue) =>
+            candidateValue.sourceScope.kind === "PROJECT" &&
+            candidateValue.sourceScope.projectId ===
+              currentProjectId,
+        )
+      : candidates;
+
     return {
       query,
       candidates: normalizeCandidates(
-        candidates,
+        surfaceCandidates,
         this.options.maxCandidates,
       ),
     };
