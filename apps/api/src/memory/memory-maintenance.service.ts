@@ -3,6 +3,7 @@ import {
   CompactedStateService,
   ContextBudgetService,
   containsSensitiveContextData,
+  containsSensitivePersonalMemoryData,
   MemoryError,
   MemoryExtractionPipeline,
   estimateConservativeTokens as estimateTokens,
@@ -239,11 +240,13 @@ export class MemoryMaintenanceService {
 
     if (!extracted) {
       try {
-        stored = containsSensitiveContextData({
-          content: source.content,
-        })
-          ? 0
-          : await this.extractMessage({
+        stored =
+          containsSensitiveContextData({
+            content: source.content,
+          }) ||
+          containsSensitivePersonalMemoryData(source.content)
+            ? 0
+            : await this.extractMessage({
               ...input,
               source,
             });
@@ -752,7 +755,8 @@ export class MemoryMaintenanceService {
 function sanitizeModelBoundContent(
   content: string,
 ): string {
-  return containsSensitiveContextData({ content })
+  return containsSensitiveContextData({ content }) ||
+    containsSensitivePersonalMemoryData(content)
     ? SENSITIVE_DATA_REDACTION
     : content;
 }
