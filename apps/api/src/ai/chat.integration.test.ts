@@ -476,6 +476,51 @@ describe("AI chat integration", () => {
     expect(response.body).toContain("event: done");
   });
 
+  it("rejects reusing one clientRequestId across different conversations", async () => {
+    const user = await registerUser(app, "cross-conversation-idempotency");
+    await purchasePro(app, user.cookies);
+    const firstConversation = await createConversation(app, user.cookies);
+    const secondConversation = await createConversation(app, user.cookies);
+    const modelId = await firstModelId(app, user.cookies);
+    const clientRequestId = randomUUID();
+    provider.scenario = "success";
+
+    await chat.streamMessage({
+      userId: user.id,
+      conversationId: firstConversation.id,
+      body: { clientRequestId, modelId, content: "First conversation" },
+      correlationId: randomUUID(),
+      sink: collectingSink([]),
+    });
+
+    await expect(
+      chat.streamMessage({
+        userId: user.id,
+        conversationId: secondConversation.id,
+        body: { clientRequestId, modelId, content: "Second conversation" },
+        correlationId: randomUUID(),
+        sink: collectingSink([]),
+      }),
+    ).rejects.toMatchObject({ code: "IDEMPOTENCY_CONFLICT" });
+
+    const prisma = createPrismaClient(testDatabaseUrl);
+    expect(
+      await prisma.aiRequest.count({
+        where: { userId: user.id, clientRequestId },
+      }),
+    ).toBe(1);
+    expect(
+      await prisma.message.count({
+        where: {
+          conversationId: secondConversation.id,
+          role: "USER",
+          content: "Second conversation",
+        },
+      }),
+    ).toBe(0);
+    await prisma.$disconnect();
+  });
+
   it("calls the provider at most once for duplicate clientRequestId, including parallel calls", async () => {
     const user = await registerUser(app, "dup");
     await purchasePro(app, user.cookies);
