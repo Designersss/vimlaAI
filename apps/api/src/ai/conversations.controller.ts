@@ -118,6 +118,7 @@ export class ConversationsController {
 
   @Post(":id/default-target")
   @SensitiveMutation()
+  @UseGuards(AiRateLimitGuard)
   @HttpCode(200)
   async setDefaultTarget(
     @AuthUser() user: AuthenticatedUser,
