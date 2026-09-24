@@ -70,17 +70,11 @@ describe("AI chat integration", () => {
     const user = await registerUser(app, "thread-target-race");
     await purchasePro(app, user.cookies);
     const conversation = await createConversation(app, user.cookies);
+    const [firstModelId, secondModelId] = await firstTwoRetailModelIds(
+      app,
+      user.cookies,
+    );
     const prisma = createPrismaClient(testDatabaseUrl);
-    const models = await prisma.aiModel.findMany({
-      where: { active: true, visible: true },
-      orderBy: { slug: "asc" },
-      take: 2,
-    });
-    const firstModel = models[0];
-    const secondModel = models[1];
-    if (!firstModel || !secondModel) {
-      throw new Error("Expected at least two AI models");
-    }
     provider.scenario = "success";
 
     await Promise.all([
@@ -89,7 +83,7 @@ describe("AI chat integration", () => {
         conversationId: conversation.id,
         body: {
           clientRequestId: randomUUID(),
-          modelId: firstModel.id,
+          modelId: firstModelId,
           content: "Concurrent first turn A",
         },
         correlationId: randomUUID(),
@@ -100,7 +94,7 @@ describe("AI chat integration", () => {
         conversationId: conversation.id,
         body: {
           clientRequestId: randomUUID(),
-          modelId: secondModel.id,
+          modelId: secondModelId,
           content: "Concurrent first turn B",
         },
         correlationId: randomUUID(),
@@ -116,7 +110,7 @@ describe("AI chat integration", () => {
     if (!targetModelId) {
       throw new Error("Expected a persisted thread model");
     }
-    expect([firstModel.id, secondModel.id]).toContain(targetModelId);
+    expect([firstModelId, secondModelId]).toContain(targetModelId);
     const requests = await prisma.aiRequest.findMany({
       where: { userId: user.id, conversationId: conversation.id },
     });
@@ -1120,10 +1114,10 @@ async function createConversation(
   return response.json() as { id: string };
 }
 
-async function firstModelId(
+async function firstTwoRetailModelIds(
   app: NestFastifyApplication,
   cookies: Record<string, string>,
-): Promise<string> {
+): Promise<[string, string]> {
   const response = await app.inject({
     method: "GET",
     url: "/v1/ai/models",
@@ -1132,9 +1126,18 @@ async function firstModelId(
   });
   expect(response.statusCode).toBe(200);
   const payload = response.json() as { models: Array<{ id: string }> };
-  const model = payload.models[0];
-  if (!model) {
-    throw new Error("Expected at least one retail model");
+  const first = payload.models[0];
+  const second = payload.models[1];
+  if (!first || !second) {
+    throw new Error("Expected at least two retail models");
   }
-  return model.id;
+  return [first.id, second.id];
+}
+
+async function firstModelId(
+  app: NestFastifyApplication,
+  cookies: Record<string, string>,
+): Promise<string> {
+  const [modelId] = await firstTwoRetailModelIds(app, cookies);
+  return modelId;
 }
