@@ -1337,6 +1337,35 @@ describe("durable memory context graph", () => {
     ).toBe("SOURCE_STALE_OR_INACCESSIBLE");
   });
 
+  it("upgrades sensitive compacted output to RESTRICTED even if the caller requests a weaker classification", async () => {
+    const owner = await user("sensitive-compaction-owner");
+    const source = await message(
+      owner,
+      "Long private source history for sensitive compaction classification.",
+    );
+    const state = await new CompactedStateService(db).refresh({
+      actorUserId: owner,
+      scope: {
+        kind: "CONVERSATION",
+        conversationId: source.conversation.id,
+      },
+      classification: "PUBLIC",
+      content: "The user was diagnosed with diabetes.",
+      sourceRefs: [
+        {
+          sourceType: "MESSAGE",
+          sourceId: source.row.id,
+          sourceVersion: source.row.updatedAt.toISOString(),
+          occurredAt: source.row.createdAt,
+          sourceScopeKind: "CONVERSATION",
+          sourceScopeId: source.conversation.id,
+        },
+      ],
+      budget: compactBudget,
+    });
+    expect(state.classification).toBe("RESTRICTED");
+  });
+
   it("rejects missing versions and forged scopes while preventing classification downgrade", async () => {
     const owner = await user("provenance-owner");
     const source = await message(
