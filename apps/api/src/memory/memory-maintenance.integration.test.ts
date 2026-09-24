@@ -963,7 +963,7 @@ describe("memory maintenance runtime", () => {
     });
   });
 
-  it("never auto-promotes project-linked chat facts into Personal Memory", async () => {
+  it("keeps project-focused private-chat extraction in Personal Memory only", async () => {
     const userId = await createUser("runtime-project-scope");
     const project = await db.project.create({
       data: {
@@ -983,15 +983,31 @@ describe("memory maintenance runtime", () => {
     const source = await createMessage({
       conversationId,
       content:
-        "Project launch region is Europe and this must stay project-scoped.",
+        "I prefer concise release summaries while working on this project.",
     });
 
     let modelCalls = 0;
     const model: SemanticPlannerModel = {
-      complete: () => {
+      complete: ({ prompt }) => {
         modelCalls += 1;
-        return Promise.reject(
-          new Error("Project chat extraction must not call the model"),
+        if (prompt.startsWith("You extract durable personal memory")) {
+          return Promise.resolve(
+            JSON.stringify({
+              candidates: [
+                {
+                  type: "USER_PREFERENCE",
+                  slotKey: "release summary style",
+                  content: "Prefers concise release summaries",
+                  confidence: 0.95,
+                  sensitivity: "NORMAL",
+                  transient: false,
+                },
+              ],
+            }),
+          );
+        }
+        return Promise.resolve(
+          JSON.stringify({ summary: "Project-focused private chat" }),
         );
       },
     };
@@ -1009,10 +1025,32 @@ describe("memory maintenance runtime", () => {
       correlationId: "runtime-project-scope",
     });
 
-    expect(modelCalls).toBe(0);
+    expect(modelCalls).toBeGreaterThanOrEqual(1);
+    const stored = await db.memoryItem.findFirstOrThrow({
+      where: {
+        ownerUserId: userId,
+        slotKey: "release summary style",
+      },
+      include: { sourceRefs: true },
+    });
+    expect(stored).toMatchObject({
+      scopeKind: "PERSONAL",
+      projectId: null,
+      origin: "AUTO_EXTRACTION",
+      content: "Prefers concise release summaries",
+    });
+    expect(stored.sourceRefs[0]).toMatchObject({
+      sourceType: "MESSAGE",
+      sourceId: source.id,
+      sourceScopeKind: "CONVERSATION",
+      sourceScopeId: conversationId,
+    });
     expect(
       await db.memoryItem.count({
-        where: { ownerUserId: userId },
+        where: {
+          projectId: project.id,
+          state: "ACTIVE",
+        },
       }),
     ).toBe(0);
     expect(
@@ -1027,7 +1065,7 @@ describe("memory maintenance runtime", () => {
       }),
     ).toMatchObject({
       status: "COMPLETED",
-      candidateCount: 0,
+      candidateCount: 1,
     });
   });
 
