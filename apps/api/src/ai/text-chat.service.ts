@@ -228,11 +228,27 @@ export class TextChatService {
 
     this.assertMessageSize(input.body.content);
 
-    const model = await this.resolveThreadModel({
-      userId: input.userId,
-      conversation,
-      legacyModelId: input.body.modelId,
+    const existingRequest = await this.prisma.aiRequest.findUnique({
+      where: {
+        userId_clientRequestId: {
+          userId: input.userId,
+          clientRequestId: input.body.clientRequestId,
+        },
+      },
+      select: {
+        modelId: true,
+        conversationId: true,
+      },
     });
+    const model =
+      existingRequest?.conversationId === conversation.id
+        ? await this.resolveModel(existingRequest.modelId)
+        : await this.resolveThreadModel({
+            userId: input.userId,
+            conversation,
+            legacyModelId: input.body.modelId,
+            pendingContent: input.body.content,
+          });
     const outcome = await this.beginOrReuseRequest({
       userId: input.userId,
       conversationId: conversation.id,
@@ -769,6 +785,13 @@ export class TextChatService {
     if (!existing) {
       throw new AiError("AI_REQUEST_IN_PROGRESS", "Duplicate request could not be loaded", 409);
     }
+    if (existing.conversationId !== input.conversationId) {
+      throw new AiError(
+        "IDEMPOTENCY_CONFLICT",
+        "clientRequestId was already used in another conversation",
+        409,
+      );
+    }
 
     if (existing.status === "SUCCEEDED") {
       const assistant = existing.messages[0];
@@ -800,6 +823,7 @@ export class TextChatService {
       defaultTargetModelId: string | null;
     };
     legacyModelId?: string;
+    pendingContent: string;
   }): Promise<ResolvedModel> {
     let targetKind = input.conversation.defaultTargetKind;
     let targetModelId = input.conversation.defaultTargetModelId;
@@ -850,7 +874,11 @@ export class TextChatService {
       return this.resolveModel(targetModelId);
     }
     if (targetKind === "AI_AUTO" && targetModelId === null) {
-      return this.resolveAutoModel(input.userId, input.conversation.id);
+      return this.resolveAutoModel(
+        input.userId,
+        input.conversation.id,
+        input.pendingContent,
+      );
     }
 
     throw new AiError(
@@ -863,6 +891,7 @@ export class TextChatService {
   private async resolveAutoModel(
     userId: string,
     conversationId: string,
+    pendingContent: string,
   ): Promise<ResolvedModel> {
     const history = await this.prisma.message.findMany({
       where: { conversationId, status: "COMPLETE" },
@@ -872,12 +901,13 @@ export class TextChatService {
       history,
       this.config.aiMaxContextBytes,
     );
-    const providerMessages: ProviderChatMessage[] = context.map(
-      (message) => ({
-        role: message.role === "ASSISTANT" ? "assistant" : "user",
+    const providerMessages: ProviderChatMessage[] = [
+      ...context.map((message) => ({
+        role: message.role === "ASSISTANT" ? "assistant" as const : "user" as const,
         content: message.content,
-      }),
-    );
+      })),
+      { role: "user", content: pendingContent },
+    ];
     const estimatedInputTokens =
       estimateProviderRequestInputTokens(providerMessages);
     const now = new Date();
