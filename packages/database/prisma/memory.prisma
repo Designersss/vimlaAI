@@ -15,6 +15,7 @@ model MemoryItem {
   slotKey           String
   content           String
   contentHash       String
+  contentRedactedAt DateTime?
   classification    String
   sensitivity       String
   confidence        Float
@@ -40,6 +41,7 @@ model MemoryItem {
   @@index([conversationId, state, validFrom])
   @@index([scopeKey, state, validFrom])
   @@index([type, state, validFrom])
+  @@index([state, contentRedactedAt, updatedAt])
   @@map("memory_item")
 }
 
@@ -77,6 +79,7 @@ model CompactedContextState {
   classification     String
   content            String
   contentHash        String
+  contentRedactedAt DateTime?
   sourceRefs         Json
   sourceFingerprint  String
   coveredFromSourceId String
@@ -96,6 +99,7 @@ model CompactedContextState {
   @@index([projectId, invalidatedAt, validFrom])
   @@index([conversationId, invalidatedAt, validFrom])
   @@index([scopeKey, invalidatedAt, version])
+  @@index([invalidatedAt, contentRedactedAt])
   @@map("compacted_context_state")
 }
 
