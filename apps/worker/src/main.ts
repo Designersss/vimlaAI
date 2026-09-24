@@ -91,7 +91,16 @@ async function bootstrap(): Promise<void> {
       correlationId: createCorrelationId(),
     },
     redact: {
-      paths: ["*.password", "*.secret", "*.apiKey", "*.authorization", "*.Token", "tbankPassword"],
+      paths: [
+        "*.password",
+        "*.secret",
+        "*.apiKey",
+        "*.authorization",
+        "*.Token",
+        "tbankPassword",
+        "vimlaCoreApiKey",
+        "*.vimlaCoreApiKey",
+      ],
       remove: true,
     },
   });
