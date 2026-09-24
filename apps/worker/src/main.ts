@@ -16,11 +16,12 @@ import {
   RECONCILE_JOB_NAME,
   RECONCILE_SCHEDULER_ID,
 } from "@vimla/notifications";
-import { createCorrelationId } from "@vimla/shared";
+import { createCorrelationId, type TelemetrySink } from "@vimla/shared";
 import { Queue, Worker } from "bullmq";
 import { Redis } from "ioredis";
 import pino from "pino";
 import { ContextAwareInvocationExecutorRegistry } from "./context-aware-invocation-executor.js";
+import { createWorkerTelemetrySink } from "./telemetry.js";
 import { closeHttpServer, listenWorkerHealth } from "./health.js";
 import { AiArtifactRecovery } from "./ai-artifact-recovery.js";
 import { createAiReconciler } from "./ai-reconciliation.js";
@@ -80,6 +81,7 @@ type OrchestrationResources = {
   dispatchConnection: Redis;
   executionConnection: Redis;
   reconcileTimer: NodeJS.Timeout;
+  localAiTelemetryTimer?: NodeJS.Timeout;
   vimlaCoreProvider?: LocalInferenceProvider;
 };
 
@@ -138,6 +140,20 @@ async function bootstrap(): Promise<void> {
       logger.error(fields, message);
     },
   };
+  const telemetry = createWorkerTelemetrySink(billingLogger);
+  for (const [gate, enabled] of [
+    ["ORCHESTRATION_ENABLED", config.orchestrationEnabled],
+    ["CONTEXT_RETRIEVAL_ENABLED", config.contextRetrievalEnabled],
+    ["SEMANTIC_RETRIEVAL_ENABLED", config.semanticRetrievalEnabled],
+    ["LOCAL_AI_ENABLED", config.localAiEnabled],
+  ] as const) {
+    telemetry.emit({
+      event: "rollout.gate",
+      gate,
+      enabled,
+      appEnv: config.appEnv,
+    });
+  }
   const embeddingIndexer =
     config.semanticRetrievalEnabled && config.embeddings
       ? new SemanticIndexer(
@@ -250,6 +266,7 @@ async function bootstrap(): Promise<void> {
         billingLogger,
         config,
         billingEngine,
+        telemetry,
       )
     : undefined;
 
@@ -335,6 +352,9 @@ async function bootstrap(): Promise<void> {
     clearInterval(aiReconciliationTimer);
     if (orchestrationResources) {
       clearInterval(orchestrationResources.reconcileTimer);
+      if (orchestrationResources.localAiTelemetryTimer) {
+        clearInterval(orchestrationResources.localAiTelemetryTimer);
+      }
     }
     await closeHttpServer(healthServer);
     if (orchestrationResources) {
@@ -371,6 +391,7 @@ async function startOrchestrationRuntime(
   runtimeLogger: RuntimeLogger,
   config: WorkerConfig,
   billingEngine: BillingEngine,
+  telemetry: TelemetrySink,
 ): Promise<OrchestrationResources> {
   const dispatchConnection = new Redis(redisUrl, { maxRetriesPerRequest: null });
   const executionConnection = new Redis(redisUrl, { maxRetriesPerRequest: null });
@@ -413,6 +434,7 @@ async function startOrchestrationRuntime(
           },
           undefined,
           runtimeLogger,
+          telemetry,
         );
   const baseExecutorRegistry = new ExternalAiAwareInvocationExecutorRegistry(
     paidAiExecutor,
@@ -436,13 +458,14 @@ async function startOrchestrationRuntime(
     baseExecutorRegistry,
     undefined,
     config.contextRetrievalEnabled,
+    telemetry,
   );
   const runtime = new OrchestrationRuntime(
     prisma,
     queuePublisher(dispatchQueue),
     queuePublisher(executionQueue),
     runtimeLogger,
-    { executorRegistry },
+    { executorRegistry, telemetry },
   );
 
   const dispatchWorker = new Worker(
@@ -528,6 +551,37 @@ async function startOrchestrationRuntime(
     "orchestration runtime ready",
   );
 
+  const emitLocalAiTelemetry = async (): Promise<void> => {
+    if (!vimlaCore.provider) return;
+    try {
+      const state = await vimlaCore.provider.telemetry();
+      telemetry.emit({
+        event: "local_ai.runtime",
+        outcome: "SUCCESS",
+        ...state,
+      });
+    } catch {
+      const state = vimlaCore.provider.runtimeState();
+      telemetry.emit({
+        event: "local_ai.runtime",
+        outcome: "FAILED",
+        ...state,
+        providerActiveRequests: null,
+        providerQueueDepth: null,
+        gpuUtilizationPercent: null,
+        gpuMemoryUsedBytes: null,
+        gpuMemoryTotalBytes: null,
+      });
+    }
+  };
+  const localAiTelemetryTimer = vimlaCore.provider
+    ? setInterval(() => {
+        void emitLocalAiTelemetry();
+      }, 30_000)
+    : undefined;
+  localAiTelemetryTimer?.unref?.();
+  void emitLocalAiTelemetry();
+
   return {
     dispatchQueue,
     executionQueue,
@@ -536,6 +590,7 @@ async function startOrchestrationRuntime(
     dispatchConnection,
     executionConnection,
     reconcileTimer,
+    ...(localAiTelemetryTimer ? { localAiTelemetryTimer } : {}),
     ...(vimlaCore.provider ? { vimlaCoreProvider: vimlaCore.provider } : {}),
   };
 }
