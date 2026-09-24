@@ -99,9 +99,37 @@ export class TextChatService {
       }));
   }
 
-  async createConversation(userId: string, title?: string) {
+  async createConversation(
+    userId: string,
+    title?: string,
+    projectId?: string,
+  ) {
+    if (projectId) {
+      if (!this.config.projectsEnabled) {
+        throw new NotFoundException("Project was not found");
+      }
+      const project = await this.prisma.project.findFirst({
+        where: {
+          id: projectId,
+          OR: [
+            { ownerUserId: userId },
+            { members: { some: { userId } } },
+          ],
+        },
+        select: { id: true },
+      });
+      if (!project) {
+        throw new NotFoundException("Project was not found");
+      }
+    }
+
     return this.prisma.conversation.create({
-      data: { userId, title: title ?? null, kind: "CHAT" },
+      data: {
+        userId,
+        projectId: projectId ?? null,
+        title: title ?? null,
+        kind: "CHAT",
+      },
     });
   }
 
