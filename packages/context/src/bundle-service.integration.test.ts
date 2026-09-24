@@ -191,6 +191,136 @@ describe("ContextBundleService", () => {
     ).rejects.toBeInstanceOf(ContextAccessDeniedError);
   });
 
+  it("treats project conversations as PROJECT surfaces and excludes unrelated personal history", async () => {
+    const actorUserId = await createUser(
+      prisma,
+      "project-surface-actor",
+    );
+    const project = await prisma.project.create({
+      data: {
+        ownerUserId: actorUserId,
+        name: "Zephyr Project",
+        members: {
+          create: {
+            userId: actorUserId,
+            role: "OWNER",
+          },
+        },
+      },
+    });
+
+    const relatedConversation =
+      await prisma.conversation.create({
+        data: {
+          userId: actorUserId,
+          projectId: project.id,
+          title: "Earlier Zephyr project chat",
+        },
+      });
+    const relatedMessage = await prisma.message.create({
+      data: {
+        conversationId: relatedConversation.id,
+        role: "ASSISTANT",
+        content:
+          "Zephyr launch architecture uses the violet rollout gate.",
+        status: "COMPLETE",
+      },
+    });
+
+    const privateConversation =
+      await prisma.conversation.create({
+        data: {
+          userId: actorUserId,
+          title: "Private unrelated chat",
+        },
+      });
+    const privateMessage = await prisma.message.create({
+      data: {
+        conversationId: privateConversation.id,
+        role: "ASSISTANT",
+        content:
+          "Zephyr launch architecture private note uses a violet rollout gate.",
+        status: "COMPLETE",
+      },
+    });
+
+    const currentConversation =
+      await prisma.conversation.create({
+        data: {
+          userId: actorUserId,
+          projectId: project.id,
+          title: "Current Zephyr project chat",
+        },
+      });
+    const sourceMessage = await prisma.message.create({
+      data: {
+        conversationId: currentConversation.id,
+        role: "USER",
+        content:
+          "What is the Zephyr launch architecture violet rollout gate?",
+        status: "COMPLETE",
+      },
+    });
+    const { planId, invocationIds } = await createPlan(
+      prisma,
+      actorUserId,
+      currentConversation.id,
+      sourceMessage.id,
+      1,
+    );
+    const invocationId = invocationIds[0];
+    if (!invocationId) {
+      throw new Error("Expected project context invocation");
+    }
+
+    const snapshot = await snapshots.createForExecutionPlan({
+      actorUserId,
+      planId,
+    });
+    const audience = snapshot.items.find(
+      (item) => item.sourceType === "AUDIENCE",
+    );
+    expect(audience?.sourceId).toBe(project.id);
+    expect(audience?.metadata).toMatchObject({
+      kind: "PROJECT",
+      projectId: project.id,
+      participantUserIds: [actorUserId],
+    });
+
+    const related = snapshot.items.find(
+      (item) => item.sourceId === relatedMessage.id,
+    );
+    const privateItem = snapshot.items.find(
+      (item) => item.sourceId === privateMessage.id,
+    );
+    expect(related).toBeDefined();
+    expect(privateItem).toBeDefined();
+
+    const resolved = await bundles.resolveForInvocation({
+      actorUserId,
+      invocationId,
+    });
+    expect(resolved.manifest.surfaceKind).toBe("PROJECT");
+    expect(
+      resolved.items.some(
+        (item) => item.sourceId === relatedMessage.id,
+      ),
+    ).toBe(true);
+    expect(
+      resolved.items.some(
+        (item) => item.sourceId === privateMessage.id,
+      ),
+    ).toBe(false);
+    expect(resolved.manifest.denials).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sourceType: "MESSAGE",
+          reason: "SOURCE_SCOPE_DENIED",
+        }),
+      ]),
+    );
+  });
+
   it("rejects a shared audience descriptor whose source does not match its surface id", async () => {
     const actorUserId = await createUser(prisma, "audience-source-actor");
     const peerUserId = await createUser(prisma, "audience-source-peer");
