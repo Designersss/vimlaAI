@@ -1118,7 +1118,15 @@ async function assertSourceRefsValid(
   refs: readonly MemorySourceRefInput[],
   explicitProjectWriteId: string | null,
 ): Promise<MemoryClassification> {
-  if (refs.length === 0) return "PUBLIC";
+  if (refs.length === 0) {
+    if (targetScope.kind !== "PERSONAL") {
+      throw new MemoryError(
+        "VALIDATION_ERROR",
+        "Scoped memory requires source provenance",
+      );
+    }
+    return "PUBLIC";
+  }
   if (refs.length > MAX_MEMORY_SOURCE_REFS) {
     throw new MemoryError(
       "VALIDATION_ERROR",
