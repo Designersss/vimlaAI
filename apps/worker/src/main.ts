@@ -3,6 +3,7 @@ import {
   InternalHttpEmbeddingProvider,
   LocalInferenceProvider,
   MockAiProvider,
+  ProxyApiProvider,
   VimlaAiGateway,
 } from "@vimla/ai";
 import type { BillingEngine } from "@vimla/billing";
@@ -137,9 +138,14 @@ async function bootstrap(): Promise<void> {
       logger.error(fields, message);
     },
   };
-  const embeddingIndexer = config.embeddings
-    ? new SemanticIndexer(prisma, new InternalHttpEmbeddingProvider(config.embeddings), billingLogger)
-    : undefined;
+  const embeddingIndexer =
+    config.semanticRetrievalEnabled && config.embeddings
+      ? new SemanticIndexer(
+          prisma,
+          new InternalHttpEmbeddingProvider(config.embeddings),
+          billingLogger,
+        )
+      : undefined;
   let embeddingRun: Promise<unknown> | undefined;
   const runEmbeddings = (): void => {
     if (!embeddingIndexer || embeddingRun) return;
@@ -235,18 +241,17 @@ async function bootstrap(): Promise<void> {
   const startupCounters = await notifications.reconciler.reconcile();
   logger.info(startupCounters, "reminder.reconcile.startup");
 
-  const orchestrationResources =
-    config.appEnv === "local" || config.appEnv === "test"
-      ? await startOrchestrationRuntime(
-          prisma,
-          queueConnection,
-          storeConnection,
-          redisOptions.url,
-          billingLogger,
-          config,
-          billingEngine,
-        )
-      : undefined;
+  const orchestrationResources = config.orchestrationEnabled
+    ? await startOrchestrationRuntime(
+        prisma,
+        queueConnection,
+        storeConnection,
+        redisOptions.url,
+        billingLogger,
+        config,
+        billingEngine,
+      )
+    : undefined;
 
   const paymentTimer = setInterval(() => {
     void payments
@@ -310,7 +315,10 @@ async function bootstrap(): Promise<void> {
     {
       maintenanceQueue: MAINTENANCE_QUEUE_NAME,
       notificationQueue: NOTIFICATIONS_QUEUE_NAME,
-      orchestrationPreviewEnabled: orchestrationResources !== undefined,
+      orchestrationEnabled: orchestrationResources !== undefined,
+      contextRetrievalEnabled: config.contextRetrievalEnabled,
+      semanticRetrievalEnabled: config.semanticRetrievalEnabled,
+      localAiEnabled: config.localAiEnabled,
       vimlaCoreProvider: config.vimlaCoreProvider,
       vimlaCoreCapabilities:
         orchestrationResources?.vimlaCoreProvider?.capabilityMatrix ?? null,
@@ -369,13 +377,15 @@ async function startOrchestrationRuntime(
   const dispatchQueue = new Queue(ORCHESTRATION_DISPATCH_QUEUE_NAME, { connection: queueConnection });
   const executionQueue = new Queue(INVOCATION_EXECUTE_QUEUE_NAME, { connection: queueConnection });
   const vimlaCore = createVimlaCore(config, storeConnection);
-  const baseExecutorRegistry = new ExternalAiAwareInvocationExecutorRegistry(
-    new ExternalAiInvocationExecutor(
-      prisma,
-      billingEngine,
-      new VimlaAiGateway(new MockAiProvider()),
-      {
-        budgetProfiles: {
+  const paidAiExecutor =
+    config.aiTextProvider === "disabled"
+      ? new FailClosedInvocationExecutorRegistry()
+      : new ExternalAiInvocationExecutor(
+          prisma,
+          billingEngine,
+          new VimlaAiGateway(createWorkerPaidAiProvider(config)),
+          {
+            budgetProfiles: {
           SHORT: {
             preferredOutputTokens: config.aiOutputShortPreferredTokens,
             minimumOutputTokens: config.aiOutputShortMinTokens,
@@ -395,11 +405,13 @@ async function startOrchestrationRuntime(
         maxPaidInvocationsPerPlan: config.aiMaxPaidInvocationsPerPlan,
         maxSettledCostMicroRubPerPlan: BigInt(config.aiMaxPlanSettledMicroRub),
         maxCommittedCostMicroRubPerPlan: BigInt(config.aiMaxPlanCommittedMicroRub),
-        cancellationPollMs: config.aiCancellationPollMs,
-      },
-      undefined,
-      runtimeLogger,
-    ),
+            cancellationPollMs: config.aiCancellationPollMs,
+          },
+          undefined,
+          runtimeLogger,
+        );
+  const baseExecutorRegistry = new ExternalAiAwareInvocationExecutorRegistry(
+    paidAiExecutor,
     new VimlaAwareInvocationExecutorRegistry(
       new VimlaInvocationExecutor(
         prisma,
@@ -418,6 +430,8 @@ async function startOrchestrationRuntime(
   const executorRegistry = new ContextAwareInvocationExecutorRegistry(
     prisma,
     baseExecutorRegistry,
+    undefined,
+    config.contextRetrievalEnabled,
   );
   const runtime = new OrchestrationRuntime(
     prisma,
@@ -529,6 +543,9 @@ function createVimlaCore(
   planner: VimlaToolPlanner;
   provider?: LocalInferenceProvider;
 } {
+  if (!config.localAiEnabled || !config.operatorEnabled) {
+    return { planner: new DisabledVimlaToolPlanner() };
+  }
   if (config.vimlaCoreProvider === "deterministic") {
     return { planner: new DeterministicVimlaToolPlanner() };
   }
@@ -570,6 +587,25 @@ function createVimlaCore(
     ),
     provider,
   };
+}
+
+function createWorkerPaidAiProvider(
+  config: WorkerConfig,
+): MockAiProvider | ProxyApiProvider {
+  if (config.aiTextProvider === "mock") {
+    return new MockAiProvider();
+  }
+  if (config.aiTextProvider === "proxyapi" && config.proxyapiApiKey) {
+    return new ProxyApiProvider(
+      config.proxyapiApiKey,
+      config.proxyapiBaseUrl,
+      config.aiProviderTimeoutMs,
+      (url, init) => fetch(url, init),
+    );
+  }
+  throw new Error(
+    "Paid AI provider is not configured for orchestration",
+  );
 }
 
 function createAiEvaluationModel(config: WorkerConfig): AiEvaluationModel {
