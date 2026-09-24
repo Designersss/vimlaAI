@@ -308,25 +308,11 @@ export class CompactedStateRetrievalProvider
       ) {
         continue;
       }
-      const focusedProjectId =
-        input.currentProjectId ?? null;
-      const conversationBelongsToCurrentProject =
-        focusedProjectId !== null &&
-        row.scopeKind === "CONVERSATION" &&
-        (row.conversationId === input.conversationId ||
-          focusedConversationStateIds.has(row.id));
-      const scope: ContextSourceScope =
-        conversationBelongsToCurrentProject &&
-        focusedProjectId !== null
-          ? {
-              kind: "PROJECT",
-              projectId: focusedProjectId,
-            }
-          : sourceScope(
-              input.actorUserId,
-              row.scopeKind,
-              row.projectId,
-            );
+      const scope: ContextSourceScope = sourceScope(
+        input.actorUserId,
+        row.scopeKind,
+        row.projectId,
+      );
       candidates.push({
         item: {
           sourceType: "COMPACTED_STATE",
