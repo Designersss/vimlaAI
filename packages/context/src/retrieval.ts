@@ -698,12 +698,14 @@ export class ContextRetrievalService {
             },
           },
           sourceKind: "CROSS_CONVERSATION",
-          sourceScope: message.conversation.projectId
-            ? {
-                kind: "PROJECT",
-                projectId: message.conversation.projectId,
-              }
-            : personalScope,
+          sourceScope:
+            currentProjectId !== null &&
+            message.conversation.projectId === currentProjectId
+              ? {
+                  kind: "PROJECT",
+                  projectId: currentProjectId,
+                }
+              : personalScope,
           reason:
             "same-user cross-conversation lexical retrieval",
           lexicalScore: score,
