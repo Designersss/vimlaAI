@@ -191,6 +191,13 @@ export class CompactedStateRetrievalProvider
   async retrieve(
     input: ContextRetrievalProviderInput,
   ): Promise<readonly ContextCandidate[]> {
+    const snapshotCutoff = new Date(
+      input.sourceMessageCreatedAt,
+    );
+    if (!Number.isFinite(snapshotCutoff.getTime())) {
+      return [];
+    }
+
     const [
       conversationState,
       currentProjectState,
