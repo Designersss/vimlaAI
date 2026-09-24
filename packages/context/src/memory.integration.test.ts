@@ -891,6 +891,52 @@ describe("durable memory context graph", () => {
     ).resolves.toBe(false);
   });
 
+  it("rejects automatic Project-chat sources writing into Personal Memory", async () => {
+    const owner = await user("project-auto-boundary-owner");
+    const project = await db.project.create({
+      data: {
+        ownerUserId: owner,
+        name: "Project Auto Boundary",
+      },
+    });
+    const conversation = await db.conversation.create({
+      data: {
+        userId: owner,
+        kind: "CHAT",
+        projectId: project.id,
+      },
+    });
+    const source = await db.message.create({
+      data: {
+        conversationId: conversation.id,
+        role: "USER",
+        status: "COMPLETE",
+        content: "Project-only launch decision",
+      },
+    });
+
+    await expect(
+      new MemoryService(db).ingestCandidate({
+        actorUserId: owner,
+        scope: { kind: "PERSONAL" },
+        type: "USER_FACT",
+        slotKey: "launch decision",
+        content: "Project-only launch decision",
+        origin: "AUTO_EXTRACTION",
+        sourceRefs: [
+          {
+            provenance: "AUTO_EXTRACTION",
+            sourceType: "MESSAGE",
+            sourceId: source.id,
+            sourceVersion: source.updatedAt.toISOString(),
+            sourceScopeKind: "CONVERSATION",
+            sourceScopeId: conversation.id,
+          },
+        ],
+      }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
   it("rejects cross-conversation Memory and L2 provenance even for the same owner", async () => {
     const owner = await user("conversation-scope-owner");
     const target = await db.conversation.create({
