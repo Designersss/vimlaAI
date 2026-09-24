@@ -485,6 +485,12 @@ describe("memory API", () => {
         data: {
           ownerUserId: owner.id,
           name: "Project Memory Cap",
+          members: {
+            create: {
+              userId: owner.id,
+              role: "OWNER",
+            },
+          },
         },
       });
 
