@@ -651,6 +651,53 @@ describe("durable memory context graph", () => {
     ).rejects.toThrow();
   });
 
+  it("does not retrieve unrelated confirmed private Memory into a snapshot", async () => {
+    const owner = await user("unrelated-confirmed-memory");
+    const service = new MemoryService(db);
+    const remembered = await service.rememberPersonal({
+      actorUserId: owner,
+      type: "USER_PREFERENCE",
+      slotKey: "coffee preference",
+      content: "Prefers black coffee",
+    });
+    const current = await message(
+      owner,
+      "Explain PostgreSQL advisory locks and transaction scope.",
+    );
+    const planId = randomUUID();
+    await db.executionPlan.create({
+      data: {
+        id: planId,
+        messageId: current.row.id,
+        userId: owner,
+        conversationId: current.conversation.id,
+        schemaVersion: 1,
+        version: 1,
+        planHash: "planning:unrelated-memory:v1",
+        goal: "Explain database locking",
+        status: "PLANNING",
+        maxParallelism: 1,
+      },
+    });
+
+    const snapshot = await new ContextSnapshotService(
+      db,
+      undefined,
+      new ContextRetrievalService(db, [
+        new MemoryRetrievalProvider(db),
+      ]),
+    ).createForExecutionPlan({
+      actorUserId: owner,
+      planId,
+    });
+
+    expect(
+      snapshot.items.some(
+        (item) => item.sourceId === remembered.id,
+      ),
+    ).toBe(false);
+  });
+
   it("keeps project memory audience-isolated and invalidates personal project-derived memory after access revoke", async () => {
     const owner = await user("project-owner");
     const member = await user("project-member");
@@ -1343,6 +1390,21 @@ describe("durable memory context graph", () => {
         content: "Should not be promoted",
       }),
     ).rejects.toBeInstanceOf(MemoryError);
+
+    await db.directMessage.delete({
+      where: { id: source.id },
+    });
+    await expect(
+      canReadMemoryItem(db, actor, promoted.id),
+    ).resolves.toBe(false);
+    expect(
+      await db.memoryItem.findUniqueOrThrow({
+        where: { id: promoted.id },
+      }),
+    ).toMatchObject({
+      state: "INVALIDATED",
+      invalidationReason: "SOURCE_STALE_OR_INACCESSIBLE",
+    });
   });
 
   it("versions incremental compacted state from authoritative pressure and recursively invalidates stale raw provenance", async () => {
@@ -1791,6 +1853,66 @@ describe("durable memory context graph", () => {
     ).rejects.toMatchObject({ code: "STORAGE_LIMIT" });
   });
 
+  it("does not bypass the Personal Memory cap by replacing an expired slot", async () => {
+    const owner = await user("expired-personal-cap-owner");
+    const service = new MemoryService(
+      db,
+      undefined,
+      1,
+    );
+    const now = Date.now();
+    await service.ingestCandidate({
+      actorUserId: owner,
+      scope: { kind: "PERSONAL" },
+      type: "USER_FACT",
+      slotKey: "expired slot",
+      content: "Expired fact",
+      origin: "USER_EXPLICIT",
+      userConfirmed: true,
+      validFrom: new Date(now - 120_000),
+      expiresAt: new Date(now - 60_000),
+      sourceRefs: [
+        {
+          provenance: "USER_EXPLICIT",
+          sourceType: "USER_EXPLICIT",
+          sourceId: randomUUID(),
+          sourceScopeKind: "PERSONAL",
+          sourceScopeId: owner,
+          disclosedAt: new Date(now - 120_000),
+        },
+      ],
+    });
+    await service.rememberPersonal({
+      actorUserId: owner,
+      type: "USER_FACT",
+      slotKey: "capacity",
+      content: "Current active fact",
+    });
+
+    await expect(
+      service.rememberPersonal({
+        actorUserId: owner,
+        type: "USER_FACT",
+        slotKey: "expired slot",
+        content: "Replacement fact",
+      }),
+    ).rejects.toMatchObject({ code: "STORAGE_LIMIT" });
+
+    expect(
+      await db.memoryItem.count({
+        where: {
+          ownerUserId: owner,
+          scopeKind: "PERSONAL",
+          state: "ACTIVE",
+          OR: [
+            { expiresAt: null },
+            { expiresAt: { gt: new Date() } },
+          ],
+        },
+      }),
+    ).toBe(1);
+  });
+
   it("enforces the active Project Memory storage cap inside the shared project scope", async () => {
     const owner = await user("project-cap-owner");
     const project = await db.project.create({
@@ -1827,6 +1949,82 @@ describe("durable memory context graph", () => {
         content: "Second project decision",
       }),
     ).rejects.toMatchObject({ code: "STORAGE_LIMIT" });
+  });
+
+  it("does not bypass the Project Memory cap by replacing an expired slot", async () => {
+    const owner = await user("expired-project-cap-owner");
+    const project = await db.project.create({
+      data: {
+        ownerUserId: owner,
+        name: "Expired Capped Project",
+        members: {
+          create: {
+            userId: owner,
+            role: "OWNER",
+          },
+        },
+      },
+    });
+    const service = new MemoryService(
+      db,
+      projectWriteAuthorizer(),
+      1_000,
+      1,
+    );
+    const now = Date.now();
+    await service.ingestCandidate({
+      actorUserId: owner,
+      scope: { kind: "PROJECT", projectId: project.id },
+      type: "PROJECT_FACT",
+      slotKey: "expired slot",
+      content: "Expired project fact",
+      origin: "USER_EXPLICIT",
+      userConfirmed: true,
+      validFrom: new Date(now - 120_000),
+      expiresAt: new Date(now - 60_000),
+      explicitProjectWrite: { projectId: project.id },
+      sourceRefs: [
+        {
+          provenance: "USER_EXPLICIT",
+          sourceType: "PROJECT",
+          sourceId: project.id,
+          sourceVersion: project.updatedAt.toISOString(),
+          sourceScopeKind: "PROJECT",
+          sourceScopeId: project.id,
+          disclosedAt: new Date(now - 120_000),
+        },
+      ],
+    });
+    await service.rememberProject({
+      actorUserId: owner,
+      projectId: project.id,
+      type: "PROJECT_FACT",
+      slotKey: "capacity",
+      content: "Current active project fact",
+    });
+
+    await expect(
+      service.rememberProject({
+        actorUserId: owner,
+        projectId: project.id,
+        type: "PROJECT_FACT",
+        slotKey: "expired slot",
+        content: "Replacement project fact",
+      }),
+    ).rejects.toMatchObject({ code: "STORAGE_LIMIT" });
+
+    expect(
+      await db.memoryItem.count({
+        where: {
+          scopeKey: `PROJECT:${project.id}`,
+          state: "ACTIVE",
+          OR: [
+            { expiresAt: null },
+            { expiresAt: { gt: new Date() } },
+          ],
+        },
+      }),
+    ).toBe(1);
   });
 
   it("skips automatic extraction at the Personal Memory cap instead of retrying it as an outage", async () => {
