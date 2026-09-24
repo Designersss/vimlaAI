@@ -1,7 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { sendMessageSchema, createConversationSchema } from "./chat.js";
+import {
+  conversationDefaultTargetSchema,
+  createConversationSchema,
+  sendMessageSchema,
+} from "./chat.js";
 
 describe("sendMessageSchema", () => {
+  it("accepts continuation without a legacy model id", () => {
+    expect(
+      sendMessageSchema.safeParse({
+        clientRequestId: "11111111-1111-4111-8111-111111111111",
+        content: "Continue",
+      }).success,
+    ).toBe(true);
+  });
+
   it("accepts the browser DTO and rejects injection fields", () => {
     expect(
       sendMessageSchema.safeParse({
@@ -65,6 +78,29 @@ describe("sendMessageSchema", () => {
             targetId: "forged-target",
           },
         ],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("accepts strict persistent AI thread targets", () => {
+    expect(
+      createConversationSchema.safeParse({
+        title: "Claude thread",
+        defaultTarget: {
+          kind: "AI_MODEL",
+          modelId: "model-claude",
+        },
+      }).success,
+    ).toBe(true);
+    expect(
+      conversationDefaultTargetSchema.safeParse({
+        kind: "AI_AUTO",
+      }).success,
+    ).toBe(true);
+    expect(
+      conversationDefaultTargetSchema.safeParse({
+        kind: "AI_AUTO",
+        modelId: "forged-model",
       }).success,
     ).toBe(false);
   });

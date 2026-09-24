@@ -1,6 +1,7 @@
 import { makeAutoObservable } from "mobx";
 import type {
   ChatMessage,
+  ConversationDefaultTarget,
   ConversationSummary,
   DirectConversationSummary,
   OperatorRunView,
@@ -14,6 +15,7 @@ export class ConversationState {
   draft = "";
   streaming = false;
   operatorBusy = false;
+  defaultTarget: ConversationDefaultTarget | null = null;
   error: string | null = null;
   revision = 0;
   private streamingMessageId: string | null = null;
@@ -35,6 +37,10 @@ export class ConversationState {
 
   setOperatorBusy(value: boolean): void {
     this.operatorBusy = value;
+  }
+
+  setDefaultTarget(target: ConversationDefaultTarget | null): void {
+    this.defaultTarget = target;
   }
 
   beginUserMessage(content: string): void {

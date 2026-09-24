@@ -200,6 +200,7 @@ export class CompactedStateRetrievalProvider
 
     const [
       conversationState,
+      threadState,
       currentProjectState,
       focusedConversationStates,
       projectStates,
@@ -211,6 +212,19 @@ export class CompactedStateRetrievalProvider
           scopeKind: "CONVERSATION",
           ownerUserId: input.actorUserId,
           conversationId: input.conversationId,
+        },
+        orderBy: [
+          { validFrom: "desc" },
+          { version: "desc" },
+        ],
+      }),
+      this.db.compactedContextState.findFirst({
+        where: {
+          invalidatedAt: null,
+          validFrom: { lt: snapshotCutoff },
+          scopeKind: "THREAD",
+          ownerUserId: input.actorUserId,
+          threadId: input.conversationId,
         },
         orderBy: [
           { validFrom: "desc" },
@@ -292,6 +306,7 @@ export class CompactedStateRetrievalProvider
     );
     const rows = [
       ...(conversationState ? [conversationState] : []),
+      ...(threadState ? [threadState] : []),
       ...(currentProjectState ? [currentProjectState] : []),
       ...focusedConversationStates,
       ...projectStates,
@@ -338,8 +353,10 @@ export class CompactedStateRetrievalProvider
         lexicalScore: 0,
         directReference: false,
         currentSurface:
-          row.scopeKind === "CONVERSATION" &&
-          row.conversationId === input.conversationId,
+          (row.scopeKind === "CONVERSATION" &&
+            row.conversationId === input.conversationId) ||
+          (row.scopeKind === "THREAD" &&
+            row.threadId === input.conversationId),
         currentProject:
           (row.scopeKind === "PROJECT" &&
             row.projectId !== null &&
@@ -402,7 +419,19 @@ async function compactedScopeReadable(
           })),
       );
     case "THREAD":
-      return false;
+      return Boolean(
+        row.threadId &&
+          row.ownerUserId === actorUserId &&
+          (await db.conversation.findFirst({
+            where: {
+              id: row.threadId,
+              userId: actorUserId,
+              kind: "CHAT",
+              defaultTargetKind: { in: ["AI_AUTO", "AI_MODEL"] },
+            },
+            select: { id: true },
+          })),
+      );
     case "PROJECT":
       return Boolean(
         row.projectId &&
@@ -451,7 +480,8 @@ async function compactedStateLineageCurrent(
     for (const ref of refs) {
       if (ref.sourceType === "MESSAGE") {
         if (
-          ref.sourceScopeKind !== "CONVERSATION"
+          ref.sourceScopeKind !== "CONVERSATION" &&
+          ref.sourceScopeKind !== "THREAD"
         ) {
           return false;
         }
@@ -462,6 +492,12 @@ async function compactedStateLineageCurrent(
             conversationId: ref.sourceScopeId,
             conversation: {
               userId: row.ownerUserId,
+              ...(ref.sourceScopeKind === "THREAD"
+                ? {
+                    kind: "CHAT",
+                    defaultTargetKind: { in: ["AI_AUTO", "AI_MODEL"] },
+                  }
+                : {}),
             },
           },
           select: { updatedAt: true },
@@ -512,11 +548,24 @@ async function assertCompactedScopeWritable(
   projectWriteAuthorizer?: MemoryProjectWriteAuthorizer,
 ): Promise<void> {
   switch (scope.kind) {
-    case "THREAD":
-      throw new MemoryError(
-        "DISABLED",
-        "Thread compaction requires the PR-18 thread authority model",
-      );
+    case "THREAD": {
+      const thread = await tx.conversation.findFirst({
+        where: {
+          id: scope.threadId ?? "",
+          userId: actorUserId,
+          kind: "CHAT",
+          defaultTargetKind: { in: ["AI_AUTO", "AI_MODEL"] },
+        },
+        select: { id: true },
+      });
+      if (!thread) {
+        throw new MemoryError(
+          "NOT_FOUND",
+          "Thread compaction scope not found",
+        );
+      }
+      return;
+    }
     case "CONVERSATION": {
       const conversation = await tx.conversation.findFirst({
         where: {
@@ -626,14 +675,27 @@ async function resolveCompactionSources(
           content: true,
           createdAt: true,
           updatedAt: true,
+          conversation: {
+            select: {
+              kind: true,
+              defaultTargetKind: true,
+            },
+          },
         },
       });
       if (
         !message ||
         message.updatedAt.toISOString() !==
           ref.sourceVersion ||
-        ref.sourceScopeKind !== "CONVERSATION" ||
-        ref.sourceScopeId !== message.conversationId
+        (ref.sourceScopeKind !== "CONVERSATION" &&
+          ref.sourceScopeKind !== "THREAD") ||
+        ref.sourceScopeId !== message.conversationId ||
+        (ref.sourceScopeKind === "THREAD" &&
+          !(
+            message.conversation.kind === "CHAT" &&
+            (message.conversation.defaultTargetKind === "AI_AUTO" ||
+              message.conversation.defaultTargetKind === "AI_MODEL")
+          ))
       ) {
         throw new MemoryError(
           "VALIDATION_ERROR",
@@ -645,7 +707,7 @@ async function resolveCompactionSources(
         sourceId: ref.sourceId,
         sourceVersion: message.updatedAt.toISOString(),
         occurredAt: message.createdAt,
-        sourceScopeKind: "CONVERSATION",
+        sourceScopeKind: ref.sourceScopeKind,
         sourceScopeId: message.conversationId,
         classification: "PRIVATE",
         inputTokenEstimate: estimateTokens(message.content),
@@ -706,6 +768,18 @@ async function resolveCompactionSources(
       throw new MemoryError(
         "FORBIDDEN",
         "Conversation compaction sources must belong to the target conversation",
+      );
+    }
+    if (
+      targetScope.kind === "THREAD" &&
+      !(
+        item.sourceScopeKind === "THREAD" &&
+        item.sourceScopeId === targetScope.threadId
+      )
+    ) {
+      throw new MemoryError(
+        "FORBIDDEN",
+        "Thread compaction sources must belong to the target thread",
       );
     }
     if (
@@ -784,20 +858,31 @@ async function resolveCompactionPressureTokens(
   scope: NormalizedCompactedScope,
   fallback: number,
 ): Promise<number> {
-  if (scope.kind === "CONVERSATION") {
+  if (scope.kind === "CONVERSATION" || scope.kind === "THREAD") {
+    const conversationId =
+      scope.kind === "CONVERSATION"
+        ? scope.conversationId
+        : scope.threadId;
     const rows = await tx.$queryRaw<Array<{ byteCount: bigint }>>(
       Prisma.sql`
         SELECT
           COALESCE(SUM(GREATEST(OCTET_LENGTH("content"), 1)), 0)::bigint
             AS "byteCount"
         FROM "message"
-        WHERE "conversationId"=${scope.conversationId}
+        WHERE "conversationId"=${conversationId}
           AND "status"='COMPLETE'
           AND EXISTS (
             SELECT 1
             FROM "conversation"
-            WHERE "conversation"."id"=${scope.conversationId}
+            WHERE "conversation"."id"=${conversationId}
               AND "conversation"."userId"=${actorUserId}
+              AND (
+                ${scope.kind} <> 'THREAD'
+                OR (
+                  "conversation"."kind"='CHAT'
+                  AND "conversation"."defaultTargetKind" IN ('AI_AUTO','AI_MODEL')
+                )
+              )
           )
       `,
     );

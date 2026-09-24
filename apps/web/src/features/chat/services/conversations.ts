@@ -1,7 +1,9 @@
 import {
   conversationCreatedSchema,
+  conversationDefaultTargetSchema,
   conversationDetailSchema,
   conversationsResponseSchema,
+  type ConversationDefaultTarget,
   type ConversationDetail,
   type ConversationSummary,
 } from "@vimla/contracts";
@@ -61,4 +63,28 @@ export async function fetchConversation(
     throw new Error("Unable to load the conversation");
   }
   return conversationDetailSchema.parse(await response.json());
+}
+
+
+export async function updateConversationDefaultTarget(
+  id: string,
+  target: ConversationDefaultTarget,
+  fetchImpl: typeof fetch = fetch,
+): Promise<ConversationDefaultTarget> {
+  const response = await fetchImpl(
+    `${publicWebConfig.apiBaseUrl}/v1/conversations/${id}/default-target`,
+    {
+      method: "POST",
+      credentials: "include",
+      headers: headers(),
+      body: JSON.stringify(target),
+    },
+  );
+  if (response.status === 401) {
+    throw new AuthRequiredError();
+  }
+  if (!response.ok) {
+    throw new Error("Unable to update the conversation target");
+  }
+  return conversationDefaultTargetSchema.parse(await response.json());
 }

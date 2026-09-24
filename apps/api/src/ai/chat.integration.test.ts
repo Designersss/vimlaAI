@@ -66,6 +66,296 @@ describe("AI chat integration", () => {
     const response = await app.inject({ method: "GET", url: "/v1/ai/models", headers: { origin } });
     expect(response.statusCode).toBe(401);
   });
+  it("serializes concurrent legacy first turns onto one persistent thread target", async () => {
+    const user = await registerUser(app, "thread-target-race");
+    await purchasePro(app, user.cookies);
+    const conversation = await createConversation(app, user.cookies);
+    const [firstModelId, secondModelId] = await firstTwoRetailModelIds(
+      app,
+      user.cookies,
+    );
+    const prisma = createPrismaClient(testDatabaseUrl);
+    provider.scenario = "success";
+
+    await Promise.all([
+      chat.streamMessage({
+        userId: user.id,
+        conversationId: conversation.id,
+        body: {
+          clientRequestId: randomUUID(),
+          modelId: firstModelId,
+          content: "Concurrent first turn A",
+        },
+        correlationId: randomUUID(),
+        sink: collectingSink([]),
+      }),
+      chat.streamMessage({
+        userId: user.id,
+        conversationId: conversation.id,
+        body: {
+          clientRequestId: randomUUID(),
+          modelId: secondModelId,
+          content: "Concurrent first turn B",
+        },
+        correlationId: randomUUID(),
+        sink: collectingSink([]),
+      }),
+    ]);
+
+    const persisted = await prisma.conversation.findUniqueOrThrow({
+      where: { id: conversation.id },
+    });
+    expect(persisted.defaultTargetKind).toBe("AI_MODEL");
+    const targetModelId = persisted.defaultTargetModelId;
+    if (!targetModelId) {
+      throw new Error("Expected a persisted thread model");
+    }
+    expect([firstModelId, secondModelId]).toContain(targetModelId);
+    const requests = await prisma.aiRequest.findMany({
+      where: { userId: user.id, conversationId: conversation.id },
+    });
+    expect(requests).toHaveLength(2);
+    expect(
+      new Set(requests.map((request) => request.modelId)),
+    ).toEqual(new Set([targetModelId]));
+    await prisma.$disconnect();
+  });
+
+  it("persists an AI_MODEL thread target and ignores legacy per-message model changes", async () => {
+    const user = await registerUser(app, "thread-model-default");
+    await purchasePro(app, user.cookies);
+    const [threadModelId, legacyOtherModelId] =
+      await firstTwoRetailModelIds(app, user.cookies);
+    const prisma = createPrismaClient(testDatabaseUrl);
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/v1/conversations",
+      headers: { origin, "content-type": "application/json" },
+      cookies: user.cookies,
+      payload: {
+        defaultTarget: {
+          kind: "AI_MODEL",
+          modelId: threadModelId,
+        },
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    expect(created.json().defaultTarget).toEqual({
+      kind: "AI_MODEL",
+      modelId: threadModelId,
+    });
+    const conversationId = String(created.json().id);
+
+    provider.scenario = "success";
+    await chat.streamMessage({
+      userId: user.id,
+      conversationId,
+      body: {
+        clientRequestId: randomUUID(),
+        modelId: legacyOtherModelId,
+        content: "Continue this thread",
+      },
+      correlationId: randomUUID(),
+      sink: collectingSink([]),
+    });
+
+    const request = await prisma.aiRequest.findFirstOrThrow({
+      where: { userId: user.id, conversationId },
+      orderBy: { createdAt: "desc" },
+    });
+    expect(request.modelId).toBe(threadModelId);
+
+    const detail = await app.inject({
+      method: "GET",
+      url: `/v1/conversations/${conversationId}`,
+      headers: { origin },
+      cookies: user.cookies,
+    });
+    expect(detail.statusCode).toBe(200);
+    expect(detail.json().defaultTarget).toEqual({
+      kind: "AI_MODEL",
+      modelId: threadModelId,
+    });
+    await prisma.$disconnect();
+  });
+
+  it("AI_AUTO may change the actual model while preserving one thread history", async () => {
+    const user = await registerUser(app, "thread-auto-default");
+    await purchasePro(app, user.cookies);
+    const created = await app.inject({
+      method: "POST",
+      url: "/v1/conversations",
+      headers: { origin, "content-type": "application/json" },
+      cookies: user.cookies,
+      payload: { defaultTarget: { kind: "AI_AUTO" } },
+    });
+    expect(created.statusCode).toBe(201);
+    const conversationId = String(created.json().id);
+    const prisma = createPrismaClient(testDatabaseUrl);
+
+    provider.scenario = "success";
+    await chat.streamMessage({
+      userId: user.id,
+      conversationId,
+      body: {
+        clientRequestId: randomUUID(),
+        content: "First auto turn",
+      },
+      correlationId: randomUUID(),
+      sink: collectingSink([]),
+    });
+    const first = await prisma.aiRequest.findFirstOrThrow({
+      where: { userId: user.id, conversationId },
+      orderBy: { createdAt: "desc" },
+      include: { model: true },
+    });
+
+    await prisma.aiModel.update({
+      where: { id: first.modelId },
+      data: { active: false },
+    });
+    try {
+      await chat.streamMessage({
+        userId: user.id,
+        conversationId,
+        body: {
+          clientRequestId: randomUUID(),
+          content: "Second auto turn",
+        },
+        correlationId: randomUUID(),
+        sink: collectingSink([]),
+      });
+    } finally {
+      await prisma.aiModel.update({
+        where: { id: first.modelId },
+        data: { active: true },
+      });
+    }
+
+    const requests = await prisma.aiRequest.findMany({
+      where: { userId: user.id, conversationId },
+      orderBy: { createdAt: "asc" },
+      include: { model: true },
+    });
+    expect(requests).toHaveLength(2);
+    expect(requests[0]?.modelId).toBe(first.modelId);
+    expect(requests[1]?.modelId).not.toBe(first.modelId);
+    expect(requests.every((request) => request.conversationId === conversationId)).toBe(true);
+    expect(requests[0]?.providerModelId).toBe(requests[0]?.model.providerModelId);
+    expect(requests[1]?.providerModelId).toBe(requests[1]?.model.providerModelId);
+    expect(provider.lastRequest?.messages.some(
+      (message) => message.content.includes("First auto turn"),
+    )).toBe(true);
+
+    const detail = await app.inject({
+      method: "GET",
+      url: `/v1/conversations/${conversationId}`,
+      headers: { origin },
+      cookies: user.cookies,
+    });
+    expect(detail.json().defaultTarget).toEqual({ kind: "AI_AUTO" });
+    await prisma.$disconnect();
+  });
+
+
+  it("authorizes persistent target changes only for the owning conversation", async () => {
+    const owner = await registerUser(app, "thread-target-owner");
+    const outsider = await registerUser(app, "thread-target-outsider");
+    const modelId = await firstModelId(app, owner.cookies);
+    const created = await app.inject({
+      method: "POST",
+      url: "/v1/conversations",
+      headers: { origin, "content-type": "application/json" },
+      cookies: owner.cookies,
+      payload: {
+        defaultTarget: { kind: "AI_MODEL", modelId },
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    const conversationId = String(created.json().id);
+
+    const denied = await app.inject({
+      method: "POST",
+      url: `/v1/conversations/${conversationId}/default-target`,
+      headers: { origin, "content-type": "application/json" },
+      cookies: outsider.cookies,
+      payload: { kind: "AI_AUTO" },
+    });
+    expect(denied.statusCode).toBe(404);
+
+    const changed = await app.inject({
+      method: "POST",
+      url: `/v1/conversations/${conversationId}/default-target`,
+      headers: { origin, "content-type": "application/json" },
+      cookies: owner.cookies,
+      payload: { kind: "AI_AUTO" },
+    });
+    expect(changed.statusCode).toBe(200);
+    expect(changed.json()).toEqual({ kind: "AI_AUTO" });
+
+    const invalid = await app.inject({
+      method: "POST",
+      url: `/v1/conversations/${conversationId}/default-target`,
+      headers: { origin, "content-type": "application/json" },
+      cookies: owner.cookies,
+      payload: {
+        kind: "AI_MODEL",
+        modelId: "missing-thread-model",
+      },
+    });
+    expect(invalid.statusCode).toBe(400);
+
+    const detail = await app.inject({
+      method: "GET",
+      url: `/v1/conversations/${conversationId}`,
+      headers: { origin },
+      cookies: owner.cookies,
+    });
+    expect(detail.statusCode).toBe(200);
+    expect(detail.json().defaultTarget).toEqual({ kind: "AI_AUTO" });
+  });
+
+  it("enforces valid persistent target shapes in PostgreSQL", async () => {
+    const user = await registerUser(app, "thread-target-constraints");
+    const prisma = createPrismaClient(testDatabaseUrl);
+    const model = await prisma.aiModel.findFirstOrThrow({
+      where: { active: true, visible: true },
+    });
+
+    await expect(
+      prisma.conversation.create({
+        data: {
+          userId: user.id,
+          kind: "CHAT",
+          defaultTargetKind: "AI_AUTO",
+          defaultTargetModelId: model.id,
+        },
+      }),
+    ).rejects.toThrow();
+
+    await expect(
+      prisma.conversation.create({
+        data: {
+          userId: user.id,
+          kind: "CHAT",
+          defaultTargetKind: "AI_MODEL",
+        },
+      }),
+    ).rejects.toThrow();
+
+    await expect(
+      prisma.conversation.create({
+        data: {
+          userId: user.id,
+          kind: "OPERATOR",
+          defaultTargetKind: "AI_AUTO",
+        },
+      }),
+    ).rejects.toThrow();
+
+    await prisma.$disconnect();
+  });
 
   it("persists project focus only for current project members", async () => {
     const owner = await registerUser(app, "project-focus-owner");
@@ -329,6 +619,51 @@ describe("AI chat integration", () => {
     expect(response.body).toContain("Hello fr");
     expect(response.body).toContain("om Vimla");
     expect(response.body).toContain("event: done");
+  });
+
+  it("rejects reusing one clientRequestId across different conversations", async () => {
+    const user = await registerUser(app, "cross-conversation-idempotency");
+    await purchasePro(app, user.cookies);
+    const firstConversation = await createConversation(app, user.cookies);
+    const secondConversation = await createConversation(app, user.cookies);
+    const modelId = await firstModelId(app, user.cookies);
+    const clientRequestId = randomUUID();
+    provider.scenario = "success";
+
+    await chat.streamMessage({
+      userId: user.id,
+      conversationId: firstConversation.id,
+      body: { clientRequestId, modelId, content: "First conversation" },
+      correlationId: randomUUID(),
+      sink: collectingSink([]),
+    });
+
+    await expect(
+      chat.streamMessage({
+        userId: user.id,
+        conversationId: secondConversation.id,
+        body: { clientRequestId, modelId, content: "Second conversation" },
+        correlationId: randomUUID(),
+        sink: collectingSink([]),
+      }),
+    ).rejects.toMatchObject({ code: "IDEMPOTENCY_CONFLICT" });
+
+    const prisma = createPrismaClient(testDatabaseUrl);
+    expect(
+      await prisma.aiRequest.count({
+        where: { userId: user.id, clientRequestId },
+      }),
+    ).toBe(1);
+    expect(
+      await prisma.message.count({
+        where: {
+          conversationId: secondConversation.id,
+          role: "USER",
+          content: "Second conversation",
+        },
+      }),
+    ).toBe(0);
+    await prisma.$disconnect();
   });
 
   it("calls the provider at most once for duplicate clientRequestId, including parallel calls", async () => {
@@ -771,10 +1106,10 @@ async function createConversation(
   return response.json() as { id: string };
 }
 
-async function firstModelId(
+async function firstTwoRetailModelIds(
   app: NestFastifyApplication,
   cookies: Record<string, string>,
-): Promise<string> {
+): Promise<[string, string]> {
   const response = await app.inject({
     method: "GET",
     url: "/v1/ai/models",
@@ -783,9 +1118,18 @@ async function firstModelId(
   });
   expect(response.statusCode).toBe(200);
   const payload = response.json() as { models: Array<{ id: string }> };
-  const model = payload.models[0];
-  if (!model) {
-    throw new Error("Expected at least one retail model");
+  const first = payload.models[0];
+  const second = payload.models[1];
+  if (!first || !second) {
+    throw new Error("Expected at least two retail models");
   }
-  return model.id;
+  return [first.id, second.id];
+}
+
+async function firstModelId(
+  app: NestFastifyApplication,
+  cookies: Record<string, string>,
+): Promise<string> {
+  const [modelId] = await firstTwoRetailModelIds(app, cookies);
+  return modelId;
 }

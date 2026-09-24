@@ -21,7 +21,10 @@ import {
 import { AuthRequiredError } from "../../../auth/services/current-user";
 import { fetchUsage } from "../../../billing/services/usage";
 import { fetchAiModels } from "../../services/models";
-import { fetchConversation } from "../../services/conversations";
+import {
+  fetchConversation,
+  updateConversationDefaultTarget,
+} from "../../services/conversations";
 import { fetchMentionSuggestions } from "../../services/mentions";
 import {
   createComposerMention,
@@ -107,6 +110,13 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
         if (cancelled) return;
         workspace.hydrate(usage, models);
         store.setMessages(detail.messages, revision);
+        store.setDefaultTarget(detail.defaultTarget);
+        if (detail.defaultTarget?.kind === "AI_MODEL") {
+          workspace.setModel(detail.defaultTarget.modelId);
+          setMode("pro");
+        } else if (detail.defaultTarget?.kind === "AI_AUTO") {
+          setMode("auto");
+        }
         setTitle(detail.title);
         setBoot("ready");
       })
@@ -169,9 +179,13 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
     };
   }, [activeMention, conversationId, router]);
 
+  const selectedModelId =
+    store.defaultTarget?.kind === "AI_MODEL"
+      ? store.defaultTarget.modelId
+      : workspace.selectedModelId;
   const selectedModel = useMemo(
-    () => workspace.models.find((model) => model.id === workspace.selectedModelId),
-    [workspace.models, workspace.selectedModelId],
+    () => workspace.models.find((model) => model.id === selectedModelId),
+    [workspace.models, selectedModelId],
   );
 
   const mentionOptions = useMemo(
@@ -272,8 +286,13 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
     }
     closeMentionPicker();
 
-    const modelId = workspace.selectedModelId;
-    if (!modelId) {
+    const modelId =
+      store.defaultTarget?.kind === "AI_AUTO"
+        ? undefined
+        : store.defaultTarget?.kind === "AI_MODEL"
+          ? store.defaultTarget.modelId
+          : workspace.selectedModelId;
+    if (!modelId && store.defaultTarget?.kind !== "AI_AUTO") {
       return;
     }
 
@@ -325,6 +344,7 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
         if (!failed) {
           const detail = await fetchConversation(conversationId);
           store.setMessages(detail.messages, revision);
+          store.setDefaultTarget(detail.defaultTarget);
           setTitle(detail.title);
           setWorkflowRefreshToken((value) => value + 1);
         }
@@ -349,6 +369,9 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
         onDelta: (text) => store.appendAssistantDelta(text),
         onDone: () => {
           store.finishAssistant();
+          if (store.defaultTarget === null && modelId) {
+            store.setDefaultTarget({ kind: "AI_MODEL", modelId });
+          }
           setWorkflowRefreshToken((value) => value + 1);
           void fetchUsage().then((usage) => workspace.setUsage(usage));
         },
@@ -467,11 +490,18 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
                 if (!CONSUMER_FEATURES.autoRouter) {
                   return;
                 }
-                setMode("auto");
-                setAutoLevel(level);
+                void updateConversationDefaultTarget(
+                  conversationId,
+                  { kind: "AI_AUTO" },
+                )
+                  .then((target) => {
+                    store.setDefaultTarget(target);
+                    setMode("auto");
+                    setAutoLevel(level);
+                  })
+                  .catch(() => store.failAssistant("internal_error"));
               }}
               onSelectPro={() => {
-                setMode("pro");
                 setPickerOpen(true);
               }}
             />
@@ -490,8 +520,19 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
         emptyLabel={t("chat.noModels")}
         closeLabel={t("common.close")}
         models={workspace.models}
-        selectedId={workspace.selectedModelId}
-        onApply={(id) => workspace.setModel(id)}
+        selectedId={selectedModelId}
+        onApply={(id) => {
+          void updateConversationDefaultTarget(
+            conversationId,
+            { kind: "AI_MODEL", modelId: id },
+          )
+            .then((target) => {
+              workspace.setModel(id);
+              store.setDefaultTarget(target);
+              setMode("pro");
+            })
+            .catch(() => store.failAssistant("internal_error"));
+        }}
       />
     </section>
   );

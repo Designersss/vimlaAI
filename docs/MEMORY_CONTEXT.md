@@ -21,7 +21,7 @@ Schema scopes:
 - `CONVERSATION`
 - `THREAD`
 
-`THREAD` is reserved in the PR-17 data model but remains fail-closed at runtime until PR-18 supplies thread authority/ACL semantics.
+`THREAD` becomes active in PR-18 for owned AI threads. An AI thread is an owned `Conversation(kind='CHAT')` with a persisted `AI_MODEL` or `AI_AUTO` default target. Thread Memory/L2 is PERSONAL audience context, reuses that Conversation id as `threadId`, and re-checks current ownership plus the persisted target before reads/writes. Legacy chats without a thread target remain fail-closed for `THREAD` scope.
 
 Initial types:
 

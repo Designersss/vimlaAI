@@ -55,12 +55,14 @@ describe("persistent chat workspace", () => {
       id: "b",
       projectId: null,
       title: "B",
+      defaultTarget: null,
       updatedAt: history[0]!.createdAt,
     });
     workspace.addConversation({
       id: "b",
       projectId: null,
       title: "Updated B",
+      defaultTarget: null,
       updatedAt: history[0]!.createdAt,
     });
     expect(workspace.conversations).toHaveLength(1);

@@ -61,6 +61,58 @@ describe("structured normal-chat mention routing", () => {
     expect(routing.routeFor(resolved)).toBe("CHAT");
   });
 
+  it("keeps the parent AI thread target unchanged after a temporary @vimla workflow override", async () => {
+    const user = await registerVerifiedUser(app, "thread-vimla-override");
+    const model = await prisma.aiModel.findFirstOrThrow({
+      where: {
+        active: true,
+        visible: true,
+        slug: "claude-haiku-4-5",
+      },
+    });
+    const conversation = await prisma.conversation.create({
+      data: {
+        userId: user.id,
+        title: "Claude-like thread",
+        defaultTargetKind: "AI_MODEL",
+        defaultTargetModelId: model.id,
+      },
+    });
+    const vimla = await prisma.handle.findUniqueOrThrow({
+      where: { normalized: "vimla" },
+    });
+
+    const routed = await routing.persist({
+      userId: user.id,
+      conversationId: conversation.id,
+      clientRequestId: crypto.randomUUID(),
+      content: "@vimla do this once",
+      mentions: [
+        {
+          handleId: vimla.id,
+          kind: "SYSTEM_AGENT",
+          canonicalHandle: "vimla",
+          startOffset: 0,
+          endOffset: 6,
+        },
+      ],
+    });
+    expect(routed.route).toBe("ORCHESTRATION");
+
+    await orchestration.planMessage(
+      user.id,
+      routed.messageId,
+      routed.mentions,
+      crypto.randomUUID(),
+    );
+
+    const after = await prisma.conversation.findUniqueOrThrow({
+      where: { id: conversation.id },
+    });
+    expect(after.defaultTargetKind).toBe("AI_MODEL");
+    expect(after.defaultTargetModelId).toBe(model.id);
+  });
+
   it("routes a validated selected @vimla mention into orchestration", async () => {
     const user = await registerVerifiedUser(app, "structured-vimla");
     const conversation = await prisma.conversation.create({ data: { userId: user.id, title: "Routing" } });
