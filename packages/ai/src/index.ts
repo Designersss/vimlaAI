@@ -2,6 +2,17 @@ export { AI_GATEWAY_BOUNDARY } from "./provider.js";
 export type { AiCapability, AiGateway, AiProvider as LegacyAiProvider, AiProviderId } from "./provider.js";
 export { VimlaAiGateway } from "./gateway.js";
 export { ProxyApiProvider } from "./proxyapi-provider.js";
+export {
+  LocalInferenceError,
+  LocalInferenceProvider,
+} from "./local-inference-provider.js";
+export type {
+  LocalInferenceCapabilityMatrix,
+  LocalInferenceErrorCode,
+  LocalInferenceProbe,
+  LocalInferenceProviderConfig,
+  LocalInferenceTelemetry,
+} from "./local-inference-provider.js";
 export { MockAiProvider, type MockProviderScenario } from "./mock-provider.js";
 export { isOperatorPlannerPrompt, mockOperatorPlannerResponse } from "./mock-operator-plan.js";
 export { OpenAiCompatibleSemanticPlannerModel } from "./semantic-planner-model.js";
