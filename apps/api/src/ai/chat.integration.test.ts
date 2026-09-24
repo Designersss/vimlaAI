@@ -66,6 +66,151 @@ describe("AI chat integration", () => {
     const response = await app.inject({ method: "GET", url: "/v1/ai/models", headers: { origin } });
     expect(response.statusCode).toBe(401);
   });
+  it("persists an AI_MODEL thread target and ignores legacy per-message model changes", async () => {
+    const user = await registerUser(app, "thread-model-default");
+    await purchasePro(app, user.cookies);
+    const prisma = createPrismaClient(testDatabaseUrl);
+    const models = await prisma.aiModel.findMany({
+      where: { active: true, visible: true },
+      orderBy: { slug: "asc" },
+      take: 2,
+    });
+    const threadModel = models[0];
+    const legacyOtherModel = models[1];
+    if (!threadModel || !legacyOtherModel) {
+      throw new Error("Expected at least two AI models");
+    }
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/v1/conversations",
+      headers: { origin, "content-type": "application/json" },
+      cookies: user.cookies,
+      payload: {
+        defaultTarget: {
+          kind: "AI_MODEL",
+          modelId: threadModel.id,
+        },
+      },
+    });
+    expect(created.statusCode).toBe(201);
+    expect(created.json().defaultTarget).toEqual({
+      kind: "AI_MODEL",
+      modelId: threadModel.id,
+    });
+    const conversationId = String(created.json().id);
+
+    provider.scenario = "success";
+    await chat.streamMessage({
+      userId: user.id,
+      conversationId,
+      body: {
+        clientRequestId: randomUUID(),
+        modelId: legacyOtherModel.id,
+        content: "Continue this thread",
+      },
+      correlationId: randomUUID(),
+      sink: collectingSink([]),
+    });
+
+    const request = await prisma.aiRequest.findFirstOrThrow({
+      where: { userId: user.id, conversationId },
+      orderBy: { createdAt: "desc" },
+    });
+    expect(request.modelId).toBe(threadModel.id);
+
+    const detail = await app.inject({
+      method: "GET",
+      url: `/v1/conversations/${conversationId}`,
+      headers: { origin },
+      cookies: user.cookies,
+    });
+    expect(detail.statusCode).toBe(200);
+    expect(detail.json().defaultTarget).toEqual({
+      kind: "AI_MODEL",
+      modelId: threadModel.id,
+    });
+    await prisma.$disconnect();
+  });
+
+  it("AI_AUTO may change the actual model while preserving one thread history", async () => {
+    const user = await registerUser(app, "thread-auto-default");
+    await purchasePro(app, user.cookies);
+    const created = await app.inject({
+      method: "POST",
+      url: "/v1/conversations",
+      headers: { origin, "content-type": "application/json" },
+      cookies: user.cookies,
+      payload: { defaultTarget: { kind: "AI_AUTO" } },
+    });
+    expect(created.statusCode).toBe(201);
+    const conversationId = String(created.json().id);
+    const prisma = createPrismaClient(testDatabaseUrl);
+
+    provider.scenario = "success";
+    await chat.streamMessage({
+      userId: user.id,
+      conversationId,
+      body: {
+        clientRequestId: randomUUID(),
+        content: "First auto turn",
+      },
+      correlationId: randomUUID(),
+      sink: collectingSink([]),
+    });
+    const first = await prisma.aiRequest.findFirstOrThrow({
+      where: { userId: user.id, conversationId },
+      orderBy: { createdAt: "desc" },
+      include: { model: true },
+    });
+
+    await prisma.aiModel.update({
+      where: { id: first.modelId },
+      data: { active: false },
+    });
+    try {
+      await chat.streamMessage({
+        userId: user.id,
+        conversationId,
+        body: {
+          clientRequestId: randomUUID(),
+          content: "Second auto turn",
+        },
+        correlationId: randomUUID(),
+        sink: collectingSink([]),
+      });
+    } finally {
+      await prisma.aiModel.update({
+        where: { id: first.modelId },
+        data: { active: true },
+      });
+    }
+
+    const requests = await prisma.aiRequest.findMany({
+      where: { userId: user.id, conversationId },
+      orderBy: { createdAt: "asc" },
+      include: { model: true },
+    });
+    expect(requests).toHaveLength(2);
+    expect(requests[0]?.modelId).toBe(first.modelId);
+    expect(requests[1]?.modelId).not.toBe(first.modelId);
+    expect(requests.every((request) => request.conversationId === conversationId)).toBe(true);
+    expect(requests[0]?.providerModelId).toBe(requests[0]?.model.providerModelId);
+    expect(requests[1]?.providerModelId).toBe(requests[1]?.model.providerModelId);
+    expect(provider.lastRequest?.messages.some(
+      (message) => message.content.includes("First auto turn"),
+    )).toBe(true);
+
+    const detail = await app.inject({
+      method: "GET",
+      url: `/v1/conversations/${conversationId}`,
+      headers: { origin },
+      cookies: user.cookies,
+    });
+    expect(detail.json().defaultTarget).toEqual({ kind: "AI_AUTO" });
+    await prisma.$disconnect();
+  });
+
 
   it("persists project focus only for current project members", async () => {
     const owner = await registerUser(app, "project-focus-owner");
