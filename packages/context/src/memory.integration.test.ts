@@ -498,6 +498,100 @@ describe("durable memory context graph", () => {
     expect(explicit.classification).toBe("RESTRICTED");
   });
 
+  it("excludes Memory and L2 created after the source-message Send boundary", async () => {
+    const owner = await user("send-cutoff-owner");
+    const source = await message(
+      owner,
+      "Build the request snapshot from what existed at Send.",
+    );
+    const cutoff = source.row.createdAt;
+    const future = new Date(cutoff.getTime() + 60_000);
+
+    const memory = await new MemoryService(db).ingestCandidate({
+      actorUserId: owner,
+      scope: { kind: "PERSONAL" },
+      type: "USER_FACT",
+      slotKey: "post send fact",
+      content: "Created after the source message",
+      origin: "AUTO_EXTRACTION",
+      validFrom: future,
+      sourceRefs: [
+        {
+          provenance: "AUTO_EXTRACTION",
+          sourceType: "MESSAGE",
+          sourceId: source.row.id,
+          sourceVersion: source.row.updatedAt.toISOString(),
+          sourceScopeKind: "CONVERSATION",
+          sourceScopeId: source.conversation.id,
+        },
+      ],
+    });
+
+    const state = await db.compactedContextState.create({
+      data: {
+        ownerUserId: owner,
+        scopeKind: "CONVERSATION",
+        scopeKey: `CONVERSATION:${source.conversation.id}`,
+        conversationId: source.conversation.id,
+        version: 1,
+        classification: "PRIVATE",
+        content: "L2 created after Send",
+        contentHash: "future-l2-hash",
+        sourceRefs: [
+          {
+            sourceType: "MESSAGE",
+            sourceId: source.row.id,
+            sourceVersion:
+              source.row.updatedAt.toISOString(),
+            occurredAt: source.row.createdAt.toISOString(),
+            sourceScopeKind: "CONVERSATION",
+            sourceScopeId: source.conversation.id,
+          },
+        ],
+        sourceFingerprint: "future-l2-fingerprint",
+        coveredFromSourceId: source.row.id,
+        coveredToSourceId: source.row.id,
+        coveredFromAt: source.row.createdAt,
+        coveredToAt: source.row.createdAt,
+        sourceCount: 1,
+        inputTokenEstimate: 100,
+        outputTokenEstimate: 10,
+        validFrom: future,
+      },
+    });
+
+    const providerInput = {
+      actorUserId: owner,
+      planId: randomUUID(),
+      query: "post send fact",
+      conversationId: source.conversation.id,
+      sourceMessageId: source.row.id,
+      sourceMessageCreatedAt: cutoff.toISOString(),
+      currentProjectId: null,
+    };
+
+    expect(
+      (
+        await new MemoryRetrievalProvider(db).retrieve(
+          providerInput,
+        )
+      ).some(
+        (candidate) =>
+          candidate.item.sourceId === memory.id,
+      ),
+    ).toBe(false);
+    expect(
+      (
+        await new CompactedStateRetrievalProvider(
+          db,
+        ).retrieve(providerInput)
+      ).some(
+        (candidate) =>
+          candidate.item.sourceId === state.id,
+      ),
+    ).toBe(false);
+  });
+
   it("integrates current durable memory into immutable ContextSnapshot retrieval as DERIVED evidence", async () => {
     const owner = await user("snapshot-memory-owner");
     const service = new MemoryService(db);
