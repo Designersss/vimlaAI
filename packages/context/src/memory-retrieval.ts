@@ -242,19 +242,11 @@ export class MemoryRetrievalProvider
 
     return selected.map(
       ({ row, score, directReference }): ContextCandidate => {
-        const sourceScope: ContextSourceScope =
-          input.currentProjectId &&
-          row.scopeKind === "CONVERSATION" &&
-          row.conversationId === input.conversationId
-            ? {
-                kind: "PROJECT",
-                projectId: input.currentProjectId,
-              }
-            : memorySourceScope(
-                input.actorUserId,
-                row.scopeKind as MemoryScopeKind,
-                row.projectId,
-              );
+        const sourceScope = memorySourceScope(
+          input.actorUserId,
+          row.scopeKind as MemoryScopeKind,
+          row.projectId,
+        );
         return {
           item: {
             sourceType: "MEMORY",
@@ -293,8 +285,12 @@ export class MemoryRetrievalProvider
             row.scopeKind === "CONVERSATION" &&
             row.conversationId === input.conversationId,
           currentProject:
-            sourceScope.kind === "PROJECT" &&
-            sourceScope.projectId === input.currentProjectId,
+            (sourceScope.kind === "PROJECT" &&
+              sourceScope.projectId === input.currentProjectId) ||
+            (input.currentProjectId !== null &&
+              input.currentProjectId !== undefined &&
+              row.scopeKind === "CONVERSATION" &&
+              row.conversationId === input.conversationId),
           authority: "DERIVED",
           occurredAt: row.validFrom.toISOString(),
           estimatedTokens: estimateTokens(row.content),
