@@ -82,7 +82,11 @@ CREATE TABLE "memory_item" (
   ),
   CONSTRAINT "memory_item_redaction_check" CHECK (
     "contentRedactedAt" IS NULL
-    OR ("state"<>'ACTIVE' AND "content"='')
+    OR (
+      "state"<>'ACTIVE'
+      AND "content"=''
+      AND "slotKey"='[REDACTED]'
+    )
   )
 );
 
