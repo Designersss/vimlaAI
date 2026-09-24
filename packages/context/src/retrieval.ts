@@ -251,30 +251,39 @@ export class ContextRetrievalService {
     const sourceMessage = plan.message;
     const focusedProjectId =
       sourceMessage.conversation.projectId;
-    const currentProjectId = focusedProjectId
-      ? (
-          await this.db.project.findFirst({
-            where: {
-              id: focusedProjectId,
-              OR: [
-                { ownerUserId: input.actorUserId },
-                {
-                  members: {
-                    some: { userId: input.actorUserId },
-                  },
+    const currentProject = focusedProjectId
+      ? await this.db.project.findFirst({
+          where: {
+            id: focusedProjectId,
+            OR: [
+              { ownerUserId: input.actorUserId },
+              {
+                members: {
+                  some: { userId: input.actorUserId },
                 },
-              ],
-            },
-            select: { id: true },
-          })
-        )?.id ?? null
+              },
+            ],
+          },
+          select: {
+            id: true,
+            updatedAt: true,
+          },
+        })
       : null;
+    const currentProjectId = currentProject?.id ?? null;
     const query = sourceMessage.content;
     const queryTokens = tokenize(query);
     const personalScope: ContextSourceScope = {
       kind: "PERSONAL",
       ownerUserId: input.actorUserId,
     };
+    const currentSurfaceScope: ContextSourceScope =
+      currentProjectId
+        ? {
+            kind: "PROJECT",
+            projectId: currentProjectId,
+          }
+        : personalScope;
 
     const recentMessages = await this.db.message.findMany({
       where: {
@@ -513,12 +522,12 @@ export class ContextRetrievalService {
           },
         },
         sourceKind: "IMMEDIATE",
-        sourceScope: personalScope,
+        sourceScope: currentSurfaceScope,
         reason: "current user message",
         lexicalScore: 1,
         directReference: true,
         currentSurface: true,
-        currentProject: false,
+        currentProject: currentProjectId !== null,
         authority: "RAW",
         occurredAt: sourceMessage.createdAt.toISOString(),
       }),
@@ -538,7 +547,7 @@ export class ContextRetrievalService {
           },
         },
         sourceKind: "IMMEDIATE",
-        sourceScope: personalScope,
+        sourceScope: currentSurfaceScope,
         reason: "current conversation",
         lexicalScore: lexicalScore(
           queryTokens,
@@ -546,7 +555,7 @@ export class ContextRetrievalService {
         ),
         directReference: true,
         currentSurface: true,
-        currentProject: false,
+        currentProject: currentProjectId !== null,
         authority: "AUTHORITATIVE",
         occurredAt:
           sourceMessage.conversation.updatedAt.toISOString(),
@@ -601,24 +610,34 @@ export class ContextRetrievalService {
       candidate({
         item: {
           sourceType: "AUDIENCE",
-          sourceId: sourceMessage.conversation.id,
+          sourceId:
+            currentProjectId ??
+            sourceMessage.conversation.id,
           sourceVersion:
+            currentProject?.updatedAt.toISOString() ??
             sourceMessage.conversation.updatedAt.toISOString(),
           classification: "PRIVATE",
-          metadata: {
-            kind: "PERSONAL",
-            participantUserIds: [input.actorUserId],
-          },
+          metadata: currentProjectId
+            ? {
+                kind: "PROJECT",
+                projectId: currentProjectId,
+                participantUserIds: [input.actorUserId],
+              }
+            : {
+                kind: "PERSONAL",
+                participantUserIds: [input.actorUserId],
+              },
         },
         sourceKind: "IMMEDIATE",
-        sourceScope: personalScope,
+        sourceScope: currentSurfaceScope,
         reason: "response audience",
         lexicalScore: 0,
         directReference: true,
         currentSurface: true,
-        currentProject: false,
+        currentProject: currentProjectId !== null,
         authority: "AUTHORITATIVE",
         occurredAt:
+          currentProject?.updatedAt.toISOString() ??
           sourceMessage.conversation.updatedAt.toISOString(),
       }),
       ...recentMessages
@@ -626,11 +645,13 @@ export class ContextRetrievalService {
         .map((message) =>
           messageCandidate(
             message,
-            personalScope,
+            currentSurfaceScope,
             "L1_RAW",
             "recent raw current-conversation history",
             queryTokens,
             true,
+            undefined,
+            currentProjectId !== null,
           ),
         ),
     ];
@@ -643,12 +664,13 @@ export class ContextRetrievalService {
       ).map(({ message, score }) =>
         messageCandidate(
           message,
-          personalScope,
+          currentSurfaceScope,
           "OLDER_HISTORY",
           "lexically relevant older current-conversation message",
           queryTokens,
           true,
           score,
+          currentProjectId !== null,
         ),
       ),
     );
@@ -676,7 +698,12 @@ export class ContextRetrievalService {
             },
           },
           sourceKind: "CROSS_CONVERSATION",
-          sourceScope: personalScope,
+          sourceScope: message.conversation.projectId
+            ? {
+                kind: "PROJECT",
+                projectId: message.conversation.projectId,
+              }
+            : personalScope,
           reason:
             "same-user cross-conversation lexical retrieval",
           lexicalScore: score,
@@ -1032,6 +1059,7 @@ function messageCandidate(
   queryTokens: readonly string[],
   currentSurface: boolean,
   score = lexicalScore(queryTokens, tokenize(message.content)),
+  currentProject = false,
 ): ContextCandidate {
   return candidate({
     item: {
@@ -1053,7 +1081,7 @@ function messageCandidate(
     lexicalScore: score,
     directReference: false,
     currentSurface,
-    currentProject: false,
+    currentProject,
     authority: "RAW",
     occurredAt: message.createdAt.toISOString(),
   });
