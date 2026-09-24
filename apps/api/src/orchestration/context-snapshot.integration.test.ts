@@ -47,7 +47,7 @@ describe("execution plan context snapshot", () => {
     if (prisma) await prisma.$disconnect();
   });
 
-  it("derives current project from persisted conversation focus and excludes unrelated personal Memory", async () => {
+  it("keeps project-focused personal conversations PERSONAL while ranking current Project Memory first", async () => {
     const owner = await registerVerifiedUser(
       app,
       "context-current-project",
@@ -127,9 +127,8 @@ describe("execution plan context snapshot", () => {
         item.sourceId === personal.id,
     );
     expect(projectIndex).toBeGreaterThanOrEqual(0);
-    // Project snapshots are audience-scoped before semantic planning.
-    // Unrelated Personal Memory must never enter this immutable snapshot.
-    expect(personalIndex).toBe(-1);
+    expect(personalIndex).toBeGreaterThanOrEqual(0);
+    expect(projectIndex).toBeLessThan(personalIndex);
     expect(
       snapshot.items[projectIndex]?.metadata,
     ).toMatchObject({
@@ -141,6 +140,22 @@ describe("execution plan context snapshot", () => {
         },
       },
     });
+    const audience = snapshot.items.find(
+      (item) => item.sourceType === "AUDIENCE",
+    );
+    expect(audience?.sourceId).toBe(conversation.id);
+    expect(audience?.metadata).toMatchObject({
+      kind: "PERSONAL",
+      participantUserIds: [owner.id],
+      focusedProjectId: project.id,
+    });
+    expect(
+      snapshot.items.some(
+        (item) =>
+          item.sourceType === "PARTICIPANT" &&
+          item.sourceId === owner.id,
+      ),
+    ).toBe(true);
   });
 
   it("creates the snapshot before start and preserves it across source edits and create replay", async () => {
