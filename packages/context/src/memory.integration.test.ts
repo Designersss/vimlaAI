@@ -12,6 +12,7 @@ import {
 } from "@vimla/database";
 import type { ContextBudget } from "./budget.js";
 import {
+  CompactedStateRetrievalProvider,
   CompactedStateService,
   canReadCompactedState,
 } from "./compaction.js";
@@ -893,6 +894,85 @@ describe("durable memory context graph", () => {
     expect(
       retrieval.candidates[projectIndex]?.sourceKind,
     ).toBe("PROJECT_MEMORY");
+  });
+
+  it("retrieves L2 from another personal conversation focused on the current Project", async () => {
+    const owner = await user("project-l2-owner");
+    const project = await db.project.create({
+      data: {
+        ownerUserId: owner,
+        name: "Multi-chat Project",
+      },
+    });
+    const historicalConversation =
+      await db.conversation.create({
+        data: {
+          userId: owner,
+          projectId: project.id,
+          kind: "CHAT",
+        },
+      });
+    const historicalMessage = await db.message.create({
+      data: {
+        conversationId: historicalConversation.id,
+        role: "USER",
+        status: "COMPLETE",
+        content:
+          "The deployment decision is to use the European region for launch.",
+      },
+    });
+    const compacted =
+      await new CompactedStateService(db).refresh({
+        actorUserId: owner,
+        scope: {
+          kind: "CONVERSATION",
+          conversationId: historicalConversation.id,
+        },
+        classification: "PRIVATE",
+        content:
+          "Deployment decision: use the European region for launch.",
+        sourceRefs: [
+          {
+            sourceType: "MESSAGE",
+            sourceId: historicalMessage.id,
+            sourceVersion:
+              historicalMessage.updatedAt.toISOString(),
+            occurredAt: historicalMessage.createdAt,
+            sourceScopeKind: "CONVERSATION",
+            sourceScopeId: historicalConversation.id,
+          },
+        ],
+        budget: compactBudget,
+      });
+
+    const currentConversation =
+      await db.conversation.create({
+        data: {
+          userId: owner,
+          projectId: project.id,
+          kind: "CHAT",
+        },
+      });
+    const hits =
+      await new CompactedStateRetrievalProvider(db).retrieve({
+        actorUserId: owner,
+        planId: randomUUID(),
+        query: "What was the deployment decision?",
+        conversationId: currentConversation.id,
+        sourceMessageId: randomUUID(),
+        sourceMessageCreatedAt: new Date().toISOString(),
+        currentProjectId: project.id,
+      });
+    const hit = hits.find(
+      (candidate) =>
+        candidate.item.sourceId === compacted.id,
+    );
+    expect(hit).toMatchObject({
+      sourceKind: "L2_COMPACTED",
+      currentSurface: false,
+      currentProject: true,
+      authority: "DERIVED",
+    });
   });
 
   it("promotes only an explicit E2EE fact with disclosure provenance", async () => {
