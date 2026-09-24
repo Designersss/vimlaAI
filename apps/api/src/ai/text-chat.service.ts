@@ -235,20 +235,57 @@ export class TextChatService {
           clientRequestId: input.body.clientRequestId,
         },
       },
-      select: {
-        modelId: true,
-        conversationId: true,
+      include: {
+        messages: {
+          where: { role: "ASSISTANT" },
+          orderBy: { createdAt: "asc" },
+        },
       },
     });
-    const model =
-      existingRequest?.conversationId === conversation.id
-        ? await this.resolveModel(existingRequest.modelId)
-        : await this.resolveThreadModel({
-            userId: input.userId,
-            conversation,
-            legacyModelId: input.body.modelId,
-            pendingContent: input.body.content,
-          });
+    if (existingRequest) {
+      if (existingRequest.conversationId !== conversation.id) {
+        throw new AiError(
+          "IDEMPOTENCY_CONFLICT",
+          "clientRequestId was already used in another conversation",
+          409,
+        );
+      }
+      if (existingRequest.status === "SUCCEEDED") {
+        const assistant = existingRequest.messages[0];
+        this.writeEvent(input.sink, "start", {
+          aiRequestId: existingRequest.id,
+        });
+        const text =
+          assistant?.content || existingRequest.outputText || "";
+        if (text.length > 0) {
+          this.writeEvent(input.sink, "delta", { text });
+        }
+        this.writeEvent(input.sink, "done", {
+          messageId: assistant?.id ?? existingRequest.id,
+          aiRequestId: existingRequest.id,
+        });
+        return;
+      }
+      if (IN_PROGRESS_STATUSES.has(existingRequest.status)) {
+        throw new AiError(
+          "AI_REQUEST_IN_PROGRESS",
+          "This request is already in progress",
+          409,
+        );
+      }
+      throw new AiError(
+        "AI_RECONCILIATION_REQUIRED",
+        "Retry this request with a new clientRequestId",
+        409,
+      );
+    }
+
+    const model = await this.resolveThreadModel({
+      userId: input.userId,
+      conversation,
+      legacyModelId: input.body.modelId,
+      pendingContent: input.body.content,
+    });
     const outcome = await this.beginOrReuseRequest({
       userId: input.userId,
       conversationId: conversation.id,
@@ -929,6 +966,8 @@ export class TextChatService {
     });
     const capacity =
       await this.engine.getSpendableUsageState(userId);
+    const preferredOutputTokens =
+      this.config.aiDefaultMaxOutputTokens;
     const candidates = rows.flatMap((model) => {
       const price = model.priceVersions[0];
       const policy = VIMLA_AI_MODEL_CATALOG.find(
@@ -956,6 +995,7 @@ export class TextChatService {
       const minimumOutputTokens = Math.min(
         DEFAULT_AI_EXECUTION_BUDGET_PROFILES.STANDARD
           .minimumOutputTokens,
+        preferredOutputTokens,
         model.maxOutputTokens,
       );
       if (modelMaxOutputTokens < minimumOutputTokens) {
@@ -982,7 +1022,13 @@ export class TextChatService {
       };
       const budget = resolveAiExecutionBudget({
         profile: "STANDARD",
-        profiles: DEFAULT_AI_EXECUTION_BUDGET_PROFILES,
+        profiles: {
+          ...DEFAULT_AI_EXECUTION_BUDGET_PROFILES,
+          STANDARD: {
+            preferredOutputTokens,
+            minimumOutputTokens,
+          },
+        },
         modelMaxOutputTokens,
         estimatedInputTokens,
         availableMicroRub: capacity.availableMicroRub,
