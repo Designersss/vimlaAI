@@ -195,6 +195,10 @@ describe("VimlaInvocationExecutor", () => {
     await expect(
       executor.execute(executionInput(seeded, 1)),
     ).resolves.toEqual({ status: "COMPLETED", outcome: "PASS" });
+    expect(planner.input?.actorUserId).toBe(seeded.userId);
+    expect(planner.input?.correlationId).toBe(
+      seeded.runIdempotencyKey,
+    );
     expect(planner.input?.dependencyContext).toContain("INPUT prompt");
     expect(planner.input?.dependencyContext).toContain("PROMPT");
     expect(planner.input?.dependencyContext).toContain(
