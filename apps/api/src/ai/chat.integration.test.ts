@@ -124,17 +124,9 @@ describe("AI chat integration", () => {
   it("persists an AI_MODEL thread target and ignores legacy per-message model changes", async () => {
     const user = await registerUser(app, "thread-model-default");
     await purchasePro(app, user.cookies);
+    const [threadModelId, legacyOtherModelId] =
+      await firstTwoRetailModelIds(app, user.cookies);
     const prisma = createPrismaClient(testDatabaseUrl);
-    const models = await prisma.aiModel.findMany({
-      where: { active: true, visible: true },
-      orderBy: { slug: "asc" },
-      take: 2,
-    });
-    const threadModel = models[0];
-    const legacyOtherModel = models[1];
-    if (!threadModel || !legacyOtherModel) {
-      throw new Error("Expected at least two AI models");
-    }
 
     const created = await app.inject({
       method: "POST",
@@ -144,14 +136,14 @@ describe("AI chat integration", () => {
       payload: {
         defaultTarget: {
           kind: "AI_MODEL",
-          modelId: threadModel.id,
+          modelId: threadModelId,
         },
       },
     });
     expect(created.statusCode).toBe(201);
     expect(created.json().defaultTarget).toEqual({
       kind: "AI_MODEL",
-      modelId: threadModel.id,
+      modelId: threadModelId,
     });
     const conversationId = String(created.json().id);
 
@@ -161,7 +153,7 @@ describe("AI chat integration", () => {
       conversationId,
       body: {
         clientRequestId: randomUUID(),
-        modelId: legacyOtherModel.id,
+        modelId: legacyOtherModelId,
         content: "Continue this thread",
       },
       correlationId: randomUUID(),
@@ -172,7 +164,7 @@ describe("AI chat integration", () => {
       where: { userId: user.id, conversationId },
       orderBy: { createdAt: "desc" },
     });
-    expect(request.modelId).toBe(threadModel.id);
+    expect(request.modelId).toBe(threadModelId);
 
     const detail = await app.inject({
       method: "GET",
@@ -183,7 +175,7 @@ describe("AI chat integration", () => {
     expect(detail.statusCode).toBe(200);
     expect(detail.json().defaultTarget).toEqual({
       kind: "AI_MODEL",
-      modelId: threadModel.id,
+      modelId: threadModelId,
     });
     await prisma.$disconnect();
   });
