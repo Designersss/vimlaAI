@@ -136,6 +136,7 @@ export class MemoryRetrievalProvider
                     { expiresAt: { gt: now } },
                   ],
                 },
+                { validFrom: { lte: snapshotCutoff } },
                 priorityScope,
                 lexicalFilter,
               ],
