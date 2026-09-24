@@ -414,6 +414,129 @@ describe("memory API", () => {
     ).toBe(0);
   });
 
+  it("promotes one explicit E2EE fact into Project Memory only with current project write access", async () => {
+    const actor = await registerVerifiedUser(
+      app,
+      "memory-e2ee-project-actor",
+    );
+    const peer = await registerVerifiedUser(
+      app,
+      "memory-e2ee-project-peer",
+    );
+    const viewer = await registerVerifiedUser(
+      app,
+      "memory-e2ee-project-viewer",
+    );
+    const db = app.get(PrismaService).client;
+    const device = await db.userCryptoDevice.create({
+      data: {
+        userId: actor.id,
+        identityEd25519Public: "ed25519-project-promotion",
+        identityX25519Public: "x25519-project-promotion",
+        signedPrekeyId: 1,
+        signedPrekeyPublic: "signed-prekey-project-promotion",
+        signedPrekeySignature: "signature-project-promotion",
+      },
+    });
+    const directConversation =
+      await db.directConversation.create({
+        data: {
+          pairKey: [actor.id, peer.id].sort().join(":"),
+          members: {
+            create: [
+              { userId: actor.id },
+              { userId: peer.id },
+            ],
+          },
+        },
+      });
+    const source = await db.directMessage.create({
+      data: {
+        conversationId: directConversation.id,
+        senderUserId: actor.id,
+        senderDeviceId: device.id,
+        clientMessageId: randomUUID(),
+        kind: "HUMAN",
+      },
+    });
+    const project = await db.project.create({
+      data: {
+        ownerUserId: actor.id,
+        name: "E2EE Project Promotion",
+        members: {
+          create: [
+            { userId: actor.id, role: "OWNER" },
+            { userId: viewer.id, role: "MEMBER" },
+          ],
+        },
+      },
+    });
+
+    const promoted = await app.inject({
+      method: "POST",
+      url: "/v1/memory/e2ee-promotions",
+      headers: jsonHeaders(),
+      cookies: actor.cookies,
+      payload: {
+        directConversationId: directConversation.id,
+        sourceMessageId: source.id,
+        projectId: project.id,
+        type: "PROJECT_DECISION",
+        slotKey: "launch decision",
+        content: "Launch after the privacy review",
+      },
+    });
+    expect(promoted.statusCode).toBe(201);
+    const memory = promoted.json() as {
+      id: string;
+      scopeKind: string;
+      projectId: string | null;
+      origin: string;
+    };
+    expect(memory).toMatchObject({
+      scopeKind: "PROJECT",
+      projectId: project.id,
+      origin: "E2EE_USER_DISCLOSURE",
+    });
+    const persisted = await db.memoryItem.findUniqueOrThrow({
+      where: { id: memory.id },
+      include: { sourceRefs: true },
+    });
+    expect(persisted.sourceRefs).toHaveLength(1);
+    expect(persisted.sourceRefs[0]).toMatchObject({
+      provenance: "E2EE_USER_DISCLOSURE",
+      sourceType: "E2EE_USER_DISCLOSURE",
+      sourceId: source.id,
+      sourceScopeKind: "DIRECT_CHAT",
+      sourceScopeId: directConversation.id,
+    });
+
+    const denied = await app.inject({
+      method: "POST",
+      url: "/v1/memory/e2ee-promotions",
+      headers: jsonHeaders(),
+      cookies: viewer.cookies,
+      payload: {
+        directConversationId: directConversation.id,
+        sourceMessageId: source.id,
+        projectId: project.id,
+        type: "PROJECT_FACT",
+        slotKey: "forbidden",
+        content: "Must not persist",
+      },
+    });
+    expect(denied.statusCode).toBe(404);
+    expect(
+      await db.memoryItem.count({
+        where: {
+          ownerUserId: viewer.id,
+          projectId: project.id,
+          origin: "E2EE_USER_DISCLOSURE",
+        },
+      }),
+    ).toBe(0);
+  });
+
   it("rate-limits memory mutations per user", async () => {
     const config = loadApiConfig({
       ...process.env,
