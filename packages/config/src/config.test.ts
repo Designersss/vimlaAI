@@ -436,6 +436,17 @@ describe("loadWorkerConfig", () => {
     ).toThrow(/VIMLA_CORE_BASE_URL|VIMLA_CORE_MODEL/);
   });
 
+  it("rejects a partial auto Vimla Core configuration instead of silently falling back", () => {
+    expect(() =>
+      loadWorkerConfig({
+        ...validSharedEnv,
+        VIMLA_CORE_PROVIDER: "auto",
+        VIMLA_CORE_INTERNAL_CONFIRMED: "true",
+        VIMLA_CORE_BASE_URL: "http://127.0.0.1:18080/v1",
+      }),
+    ).toThrow(/VIMLA_CORE_MODEL/);
+  });
+
   it("rejects deterministic Vimla Core in staging and production", () => {
     expect(() =>
       loadWorkerConfig({
