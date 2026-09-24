@@ -81,7 +81,9 @@ The extraction contract requires the included/internal model to classify health/
 
 Automatic candidates require source provenance. Same-content automatic facts retain at most 32 independent supporting MESSAGE refs; one stale source does not invalidate a fact while another supporting source is still current. Updating/deleting/revoking all supporting sources makes the Memory item ineligible and lazily invalidates it before retrieval.
 
-Receipt retries are bounded to five attempts. Completed/skipped/terminal failed maintenance receipts are technical coordination data and are pruned after 30 days; Memory/L2 provenance history is not pruned by this housekeeping.
+Receipt retries are bounded to five attempts. Completed/skipped/terminal failed maintenance receipts are technical coordination data and are pruned after 30 days.
+
+Superseded/invalidated Memory and L2 keep lineage, provenance, versions, covered ranges and invalidation metadata for audit, but their derived plaintext is not retained indefinitely. `MEMORY_DERIVED_AUDIT_RETENTION_DAYS` controls when inactive derived `content` is redacted and marked with `contentRedactedAt`. Local/test defaults to 180 days; staging/production must explicitly choose a value before `MEMORY_ENABLED=true` is accepted. Active/current Memory and L2 are never redacted by this housekeeping.
 
 ## 5. Project isolation and cross-scope writes
 
