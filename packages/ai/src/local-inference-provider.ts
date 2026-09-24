@@ -164,7 +164,7 @@ export class LocalInferenceProvider implements AiProvider {
       throw new LocalInferenceError("UNAVAILABLE", true);
     }
     if (!response.ok) {
-      await discardResponseBody(response);
+      discardResponseBody(response);
       throw new LocalInferenceError(
         response.status >= 500 ? "UNAVAILABLE" : "REJECTED",
         response.status >= 500,
@@ -228,7 +228,7 @@ export class LocalInferenceProvider implements AiProvider {
       ? AbortSignal.any([request.abortSignal, timeout])
       : timeout;
 
-    const permit = this.claimCircuitPermission();
+    let permit = this.claimCircuitPermission();
     try {
       await this.acquireSlot(signal);
     } catch (error: unknown) {
@@ -242,6 +242,14 @@ export class LocalInferenceProvider implements AiProvider {
       slotReleased = true;
       this.releaseSlot();
     };
+
+    try {
+      permit = this.refreshCircuitPermit(permit);
+    } catch (error: unknown) {
+      releaseSlotOnce();
+      this.releaseHalfOpenPermit(permit);
+      throw error;
+    }
 
     let response: Response;
     try {
@@ -271,7 +279,7 @@ export class LocalInferenceProvider implements AiProvider {
 
     if (!response.ok) {
       releaseSlotOnce();
-      await discardResponseBody(response);
+      discardResponseBody(response);
       const error = classifyHttpError(response.status);
       if (error.retryable) this.recordFailure(permit);
       else this.recordSuccess(permit);
@@ -384,7 +392,7 @@ export class LocalInferenceProvider implements AiProvider {
     try {
       const response = await this.fetchWithProbeTimeout(path);
       const ok = response.ok;
-      await discardResponseBody(response);
+      discardResponseBody(response);
       return {
         ok,
         latencyMs: Math.max(0, Date.now() - started),
@@ -432,6 +440,14 @@ export class LocalInferenceProvider implements AiProvider {
       generation: this.circuitGeneration,
       halfOpen: false,
     };
+  }
+
+  private refreshCircuitPermit(permit: CircuitPermit): CircuitPermit {
+    if (permit.generation === this.circuitGeneration) {
+      return permit;
+    }
+    this.releaseHalfOpenPermit(permit);
+    return this.claimCircuitPermission();
   }
 
   private recordSuccess(permit: CircuitPermit): void {
@@ -606,13 +622,9 @@ function classifyAbortSignal(signal: AbortSignal): LocalInferenceError {
   return new LocalInferenceError("CANCELED", false);
 }
 
-async function discardResponseBody(response: Response): Promise<void> {
+function discardResponseBody(response: Response): void {
   if (!response.body) return;
-  try {
-    await response.body.cancel();
-  } catch {
-    // Best-effort connection cleanup must not replace the provider result.
-  }
+  void response.body.cancel().catch(() => undefined);
 }
 
 async function readBoundedJson(
@@ -632,7 +644,7 @@ async function readBoundedJson(
       if (!value) continue;
       total += value.byteLength;
       if (total > maxBytes) {
-        await reader.cancel();
+        void reader.cancel().catch(() => undefined);
         throw new LocalInferenceError("INVALID_RESPONSE", true);
       }
       chunks.push(value);
