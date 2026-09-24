@@ -188,6 +188,42 @@ describe("LocalInferenceProvider", () => {
     });
   });
 
+  it("rejects a successful HTTP response that contains no provider events", async () => {
+    let calls = 0;
+    const local = provider(async () => {
+      calls += 1;
+      return new Response("not an SSE event", { status: 200 });
+    }, {
+      circuitBreakerFailureThreshold: 1,
+    });
+
+    const request = {
+      providerModelId: "qwen-local",
+      messages: [{ role: "user" as const, content: "hello" }],
+      maxOutputTokens: 32,
+      correlationId: "corr-empty-stream",
+    };
+
+    const result = await local.streamChat(request);
+    await expect(async () => {
+      for await (const _event of result.events) {
+        // Drain the provider stream.
+      }
+    }).rejects.toMatchObject({
+      code: "INVALID_RESPONSE",
+      retryable: true,
+    });
+    expect(local.runtimeState().circuitState).toBe("OPEN");
+    await expect(local.streamChat({
+      ...request,
+      correlationId: "corr-empty-stream-blocked",
+    })).rejects.toMatchObject({
+      code: "CIRCUIT_OPEN",
+      retryable: true,
+    });
+    expect(calls).toBe(1);
+  });
+
   it("normalizes telemetry body failures instead of leaking transport errors", async () => {
     const fetchImpl: HttpFetch = async () =>
       new Response(
