@@ -1012,21 +1012,23 @@ describe("durable memory context graph", () => {
       actorUserId: owner,
       planId,
     });
-    const projectIndex = retrieval.candidates.findIndex(
+    const projectHit = retrieval.candidates.find(
       (candidate) => candidate.item.sourceId === memory.id,
     );
-    const personalIndex = retrieval.candidates.findIndex(
+    const personalHit = retrieval.candidates.find(
       (candidate) => candidate.item.sourceId === personal.id,
     );
-    expect(projectIndex).toBeGreaterThanOrEqual(0);
-    expect(personalIndex).toBeGreaterThanOrEqual(0);
-    expect(projectIndex).toBeLessThan(personalIndex);
-    expect(
-      retrieval.candidates[projectIndex]?.currentProject,
-    ).toBe(true);
-    expect(
-      retrieval.candidates[projectIndex]?.sourceKind,
-    ).toBe("PROJECT_MEMORY");
+    expect(projectHit).toMatchObject({
+      sourceKind: "PROJECT_MEMORY",
+      currentProject: true,
+      sourceScope: {
+        kind: "PROJECT",
+        projectId: project.id,
+      },
+    });
+    // Project snapshots are filtered before semantic planning, so unrelated
+    // personal/global Memory never reaches the planner at all.
+    expect(personalHit).toBeUndefined();
   });
 
   it("drops current-project ranking after Project access is revoked while retaining the user's own chat as personal context", async () => {
@@ -1202,6 +1204,10 @@ describe("durable memory context graph", () => {
     );
     expect(hit).toMatchObject({
       sourceKind: "L2_COMPACTED",
+      sourceScope: {
+        kind: "PROJECT",
+        projectId: project.id,
+      },
       currentSurface: false,
       currentProject: true,
       authority: "DERIVED",
