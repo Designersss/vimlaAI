@@ -385,6 +385,7 @@ describe("loadWorkerConfig", () => {
     const configured = loadWorkerConfig({
       ...validSharedEnv,
       VIMLA_CORE_PROVIDER: "internal-http",
+      VIMLA_CORE_INTERNAL_CONFIRMED: "true",
       VIMLA_CORE_BASE_URL: "http://127.0.0.1:18080/v1/",
       VIMLA_CORE_MODEL: "qwen-vimla-core",
       VIMLA_CORE_API_KEY: "internal-only-secret",
@@ -416,11 +417,21 @@ describe("loadWorkerConfig", () => {
     expect(configured.vimlaCoreFairUseMaxConcurrentPerUser).toBe(1);
   });
 
-  it("requires endpoint and model for an explicit internal Vimla Core provider", () => {
+  it("requires explicit self-hosted confirmation, endpoint, and model for Vimla Core", () => {
     expect(() =>
       loadWorkerConfig({
         ...validSharedEnv,
         VIMLA_CORE_PROVIDER: "internal-http",
+        VIMLA_CORE_BASE_URL: "http://127.0.0.1:18080/v1",
+        VIMLA_CORE_MODEL: "qwen-vimla-core",
+      }),
+    ).toThrow(/VIMLA_CORE_INTERNAL_CONFIRMED/);
+
+    expect(() =>
+      loadWorkerConfig({
+        ...validSharedEnv,
+        VIMLA_CORE_PROVIDER: "internal-http",
+        VIMLA_CORE_INTERNAL_CONFIRMED: "true",
       }),
     ).toThrow(/VIMLA_CORE_BASE_URL|VIMLA_CORE_MODEL/);
   });
