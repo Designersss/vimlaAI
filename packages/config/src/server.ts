@@ -112,6 +112,8 @@ export function loadApiConfig(
     memoryMutationLimitPerMinute: parsed.MEMORY_MUTATION_LIMIT_PER_MINUTE,
     memoryMaxActivePersonalItems: parsed.MEMORY_MAX_ACTIVE_PERSONAL_ITEMS,
     memoryMaxActiveProjectItems: parsed.MEMORY_MAX_ACTIVE_PROJECT_ITEMS,
+    memoryDerivedAuditRetentionDays:
+      parsed.MEMORY_DERIVED_AUDIT_RETENTION_DAYS ?? 180,
     directChatsEnabled: parsed.DIRECT_CHATS_ENABLED === "true",
     directChatsMutationLimitPerMinute: parsed.DIRECT_CHATS_MUTATION_LIMIT_PER_MINUTE,
     directChatsMaxCiphertextBytes: parsed.DIRECT_CHATS_MAX_CIPHERTEXT_BYTES,
