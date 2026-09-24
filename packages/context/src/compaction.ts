@@ -183,71 +183,98 @@ export class CompactedStateRetrievalProvider
   async retrieve(
     input: ContextRetrievalProviderInput,
   ): Promise<readonly ContextCandidate[]> {
-    const [conversationState, currentProjectState, projectStates] =
-      await Promise.all([
-        this.db.compactedContextState.findFirst({
-          where: {
-            invalidatedAt: null,
-            scopeKind: "CONVERSATION",
-            ownerUserId: input.actorUserId,
-            conversationId: input.conversationId,
-          },
-          orderBy: [
-            { validFrom: "desc" },
-            { version: "desc" },
-          ],
-        }),
-        input.currentProjectId
-          ? this.db.compactedContextState.findFirst({
-              where: {
-                invalidatedAt: null,
-                scopeKind: "PROJECT",
-                projectId: input.currentProjectId,
-                project: {
-                  OR: [
-                    { ownerUserId: input.actorUserId },
-                    {
-                      members: {
-                        some: { userId: input.actorUserId },
-                      },
+    const [
+      conversationState,
+      currentProjectState,
+      focusedConversationStates,
+      projectStates,
+    ] = await Promise.all([
+      this.db.compactedContextState.findFirst({
+        where: {
+          invalidatedAt: null,
+          scopeKind: "CONVERSATION",
+          ownerUserId: input.actorUserId,
+          conversationId: input.conversationId,
+        },
+        orderBy: [
+          { validFrom: "desc" },
+          { version: "desc" },
+        ],
+      }),
+      input.currentProjectId
+        ? this.db.compactedContextState.findFirst({
+            where: {
+              invalidatedAt: null,
+              scopeKind: "PROJECT",
+              projectId: input.currentProjectId,
+              project: {
+                OR: [
+                  { ownerUserId: input.actorUserId },
+                  {
+                    members: {
+                      some: { userId: input.actorUserId },
                     },
-                  ],
+                  },
+                ],
+              },
+            },
+            orderBy: [
+              { validFrom: "desc" },
+              { version: "desc" },
+            ],
+          })
+        : Promise.resolve(null),
+      input.currentProjectId
+        ? this.db.compactedContextState.findMany({
+            where: {
+              invalidatedAt: null,
+              scopeKind: "CONVERSATION",
+              ownerUserId: input.actorUserId,
+              conversationId: { not: input.conversationId },
+              conversation: {
+                userId: input.actorUserId,
+                projectId: input.currentProjectId,
+              },
+            },
+            orderBy: [
+              { validFrom: "desc" },
+              { version: "desc" },
+            ],
+            take: 8,
+          })
+        : Promise.resolve([]),
+      this.db.compactedContextState.findMany({
+        where: {
+          invalidatedAt: null,
+          scopeKind: "PROJECT",
+          ...(input.currentProjectId
+            ? { projectId: { not: input.currentProjectId } }
+            : {}),
+          project: {
+            OR: [
+              { ownerUserId: input.actorUserId },
+              {
+                members: {
+                  some: { userId: input.actorUserId },
                 },
               },
-              orderBy: [
-                { validFrom: "desc" },
-                { version: "desc" },
-              ],
-            })
-          : Promise.resolve(null),
-        this.db.compactedContextState.findMany({
-          where: {
-            invalidatedAt: null,
-            scopeKind: "PROJECT",
-            ...(input.currentProjectId
-              ? { projectId: { not: input.currentProjectId } }
-              : {}),
-            project: {
-              OR: [
-                { ownerUserId: input.actorUserId },
-                {
-                  members: {
-                    some: { userId: input.actorUserId },
-                  },
-                },
-              ],
-            },
+            ],
           },
-          orderBy: [
-            { validFrom: "desc" },
-            { version: "desc" },
-          ],
-          take: 15,
-        }),
-      ]);
+        },
+        orderBy: [
+          { validFrom: "desc" },
+          { version: "desc" },
+        ],
+        take: 15,
+      }),
+    ]);
+    const focusedConversationStateIds = new Set(
+      focusedConversationStates.map((state) => state.id),
+    );
     const rows = [
       ...(conversationState ? [conversationState] : []),
       ...(currentProjectState ? [currentProjectState] : []),
+      ...focusedConversationStates,
       ...projectStates,
     ];
 
@@ -295,9 +322,10 @@ export class CompactedStateRetrievalProvider
           row.scopeKind === "CONVERSATION" &&
           row.conversationId === input.conversationId,
         currentProject:
-          row.scopeKind === "PROJECT" &&
-          row.projectId !== null &&
-          row.projectId === input.currentProjectId,
+          (row.scopeKind === "PROJECT" &&
+            row.projectId !== null &&
+            row.projectId === input.currentProjectId) ||
+          focusedConversationStateIds.has(row.id),
         authority: "DERIVED",
         occurredAt: row.validFrom.toISOString(),
         estimatedTokens: row.outputTokenEstimate,
