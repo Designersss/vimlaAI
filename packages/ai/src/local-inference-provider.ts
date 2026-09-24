@@ -10,6 +10,7 @@ import type {
 
 const DEFAULT_PROBE_TIMEOUT_MS = 5_000;
 const MAX_PROBE_RESPONSE_BYTES = 32 * 1024;
+const MAX_STREAM_RESPONSE_BYTES = 4 * 1024 * 1024;
 
 export type LocalInferenceErrorCode =
   | "CANCELED"
@@ -281,6 +282,9 @@ export class LocalInferenceProvider implements AiProvider {
 
     const releaseOnAbort = (): void => releaseSlotOnce();
     signal.addEventListener("abort", releaseOnAbort, { once: true });
+    if (signal.aborted) {
+      releaseOnAbort();
+    }
 
     return {
       providerRequestId,
@@ -303,15 +307,30 @@ export class LocalInferenceProvider implements AiProvider {
   ): AsyncIterable<ProviderStreamEvent> {
     const parser = new OpenAiCompatSseParser();
     const reader = body.getReader();
+    let responseBytes = 0;
+    const abortReader = (): void => {
+      void reader.cancel(signal.reason).catch(() => undefined);
+    };
+    signal.addEventListener("abort", abortReader, { once: true });
     try {
       for (;;) {
+        if (signal.aborted) {
+          throw classifyAbortSignal(signal);
+        }
         const { done, value } = await reader.read();
+        if (signal.aborted) {
+          throw classifyAbortSignal(signal);
+        }
         if (done) {
           yield* parser.finish();
           this.recordSuccess();
           return;
         }
         if (value) {
+          responseBytes += value.byteLength;
+          if (responseBytes > MAX_STREAM_RESPONSE_BYTES) {
+            throw new LocalInferenceError("INVALID_RESPONSE", true);
+          }
           yield* parser.push(value);
         }
       }
@@ -327,6 +346,7 @@ export class LocalInferenceProvider implements AiProvider {
       }
       throw classified;
     } finally {
+      signal.removeEventListener("abort", abortReader);
       reader.releaseLock();
       removeAbortListener();
       releaseSlot();
