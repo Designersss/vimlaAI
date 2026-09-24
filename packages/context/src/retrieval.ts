@@ -195,7 +195,6 @@ export class ContextRetrievalService {
   async retrieveForExecutionPlan(input: {
     actorUserId: string;
     planId: string;
-    currentProjectId?: string | null;
   }): Promise<ContextCandidateSet> {
     const plan = await this.db.executionPlan.findFirst({
       where: {
@@ -215,6 +214,7 @@ export class ContextRetrievalService {
             conversation: {
               select: {
                 id: true,
+                projectId: true,
                 title: true,
                 kind: true,
                 createdAt: true,
@@ -249,6 +249,8 @@ export class ContextRetrievalService {
     }
 
     const sourceMessage = plan.message;
+    const currentProjectId =
+      sourceMessage.conversation.projectId;
     const query = sourceMessage.content;
     const queryTokens = tokenize(query);
     const personalScope: ContextSourceScope = {
@@ -663,9 +665,9 @@ export class ContextRetrievalService {
           directReference: false,
           currentSurface: false,
           currentProject:
-            input.currentProjectId !== null &&
-            input.currentProjectId !== undefined &&
-            message.conversation.projectId === input.currentProjectId,
+            currentProjectId !== null &&
+            currentProjectId !== undefined &&
+            message.conversation.projectId === currentProjectId,
           authority: "RAW",
           occurredAt: message.createdAt.toISOString(),
         }),
@@ -744,7 +746,7 @@ export class ContextRetrievalService {
           directReference,
           currentSurface: false,
           currentProject:
-            project.id === input.currentProjectId,
+            project.id === currentProjectId,
           authority: "AUTHORITATIVE",
           occurredAt: project.updatedAt.toISOString(),
         }),
@@ -865,7 +867,7 @@ export class ContextRetrievalService {
       sourceMessageId: sourceMessage.id,
       sourceMessageCreatedAt:
         sourceMessage.createdAt.toISOString(),
-      currentProjectId: input.currentProjectId ?? null,
+      currentProjectId: currentProjectId ?? null,
     };
     if (this.semanticSearch) {
       const semantic = await this.semanticSearch.retrieve(providerInput);
