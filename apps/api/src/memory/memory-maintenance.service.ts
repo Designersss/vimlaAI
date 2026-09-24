@@ -27,6 +27,7 @@ const RECEIPT_RECLAIM_MS = 5 * 60_000;
 const RECEIPT_RETENTION_MS = 30 * 24 * 60 * 60_000;
 const MAX_RECEIPT_ATTEMPTS = 5;
 const MAX_SEGMENT_SCAN = 256;
+const SENSITIVE_DATA_REDACTION = "[SENSITIVE_DATA_REDACTED]";
 
 @Injectable()
 export class MemoryMaintenanceService {
@@ -435,11 +436,9 @@ export class MemoryMaintenanceService {
           previous?.content ?? null,
           raw.map((message) => ({
             role: message.role,
-            content: containsSensitiveContextData({
-              content: message.content,
-            })
-              ? "[SENSITIVE_DATA_REDACTED]"
-              : message.content,
+            content: sanitizeModelBoundContent(
+              message.content,
+            ),
           })),
         ),
         correlationId:
@@ -734,7 +733,9 @@ export class MemoryMaintenanceService {
     const selected: typeof rows = [];
     let used = 0;
     for (const row of rows) {
-      const size = estimateTokens(row.content);
+      const size = estimateTokens(
+        sanitizeModelBoundContent(row.content),
+      );
       if (
         selected.length > 0 &&
         used + size > target
@@ -746,6 +747,14 @@ export class MemoryMaintenanceService {
     }
     return selected;
   }
+}
+
+function sanitizeModelBoundContent(
+  content: string,
+): string {
+  return containsSensitiveContextData({ content })
+    ? SENSITIVE_DATA_REDACTION
+    : content;
 }
 
 function buildExtractionPrompt(content: string): string {
