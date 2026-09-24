@@ -167,6 +167,7 @@ export const apiEnvSchema = z
     MEMORY_MUTATION_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).default(30),
     MEMORY_MAX_ACTIVE_PERSONAL_ITEMS: z.coerce.number().int().min(1).max(10_000).default(1_000),
     MEMORY_MAX_ACTIVE_PROJECT_ITEMS: z.coerce.number().int().min(1).max(20_000).default(2_000),
+    MEMORY_DERIVED_AUDIT_RETENTION_DAYS: z.coerce.number().int().min(1).max(3_650).optional(),
     DIRECT_CHATS_ENABLED: z.enum(["true", "false"]).default("false"),
     DIRECT_CHATS_MUTATION_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).default(60),
     DIRECT_CHATS_MAX_CIPHERTEXT_BYTES: z.coerce.number().int().min(1024).max(262_144).default(65_536),
@@ -230,6 +231,19 @@ export const apiEnvSchema = z
             path: ["MEMORY_ENABLED"],
             message:
               "MEMORY_ENABLED in staging/production requires the configured internal semantic planner",
+          });
+        }
+        if (
+          value.MEMORY_DERIVED_AUDIT_RETENTION_DAYS ===
+          undefined
+        ) {
+          ctx.addIssue({
+            code: "custom",
+            path: [
+              "MEMORY_DERIVED_AUDIT_RETENTION_DAYS",
+            ],
+            message:
+              "MEMORY_ENABLED in staging/production requires an explicit derived-audit retention period",
           });
         }
       }
@@ -536,6 +550,7 @@ export const apiConfigSchema = z.object({
   memoryMutationLimitPerMinute: z.number().int().min(1),
   memoryMaxActivePersonalItems: z.number().int().min(1).max(10_000),
   memoryMaxActiveProjectItems: z.number().int().min(1).max(20_000),
+  memoryDerivedAuditRetentionDays: z.number().int().min(1).max(3_650),
   directChatsEnabled: z.boolean(),
   directChatsMutationLimitPerMinute: z.number().int().min(1),
   directChatsMaxCiphertextBytes: z.number().int().min(1024).max(262_144),
