@@ -135,6 +135,8 @@ Each state preserves:
 
 A new version invalidates the previous active L2 state. Updating a covered raw source or losing source access makes the current state ineligible and invalidates it. Raw history stays authoritative and retrievable.
 
+High-risk personal content is redacted from automatic compaction input. If a compactor nevertheless emits a sensitive personal fact, the compacted-state persistence boundary upgrades the state to `RESTRICTED`, so external targets cannot receive it through ContextPolicy.
+
 ## 8. Context retrieval
 
 When `MEMORY_ENABLED=true`, orchestration adds two derived providers to the existing Context retrieval pipeline:
