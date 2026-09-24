@@ -282,7 +282,12 @@ export class LocalInferenceProvider implements AiProvider {
       response.headers.get("x-request-id") ??
       response.headers.get("x-provider-request-id");
 
-    const releaseOnAbort = (): void => releaseSlotOnce();
+    const releaseOnAbort = (): void => {
+      releaseSlotOnce();
+      if (halfOpen && this.openUntilMs > 0) {
+        this.halfOpenInFlight = false;
+      }
+    };
     signal.addEventListener("abort", releaseOnAbort, { once: true });
     if (signal.aborted) {
       releaseOnAbort();
@@ -352,6 +357,9 @@ export class LocalInferenceProvider implements AiProvider {
       reader.releaseLock();
       removeAbortListener();
       releaseSlot();
+      if (halfOpen && this.openUntilMs > 0) {
+        this.halfOpenInFlight = false;
+      }
     }
   }
 
