@@ -5,7 +5,7 @@ import { AuthRequiredError } from "../../auth/services/current-user";
 export async function streamAssistantMessage(input: {
   conversationId: string;
   clientRequestId: string;
-  modelId: string;
+  modelId?: string;
   content: string;
   mentions?: MessageMentionInput[];
   onDelta: (text: string) => void;
@@ -22,7 +22,7 @@ export async function streamAssistantMessage(input: {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
         clientRequestId: input.clientRequestId,
-        modelId: input.modelId,
+        ...(input.modelId ? { modelId: input.modelId } : {}),
         content: input.content,
         mentions: input.mentions ?? [],
       }),
