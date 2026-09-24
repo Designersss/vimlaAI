@@ -110,12 +110,14 @@ client already decrypted Direct Chat
  -> user explicitly selects/approves one fact to remember
  -> POST /v1/memory/e2ee-promotions
  -> server verifies actor currently belongs to the referenced Direct Chat
+ -> optional projectId selects an explicit Project Memory target
+ -> Project target additionally requires current Project write capability
  -> stores only the submitted approved fact
  -> MemorySourceRef provenance = E2EE_USER_DISCLOSURE
  -> source conversation/message metadata retained, unrelated plaintext not retained
 ```
 
-This is Mode B from PR-16/PR-17. It does not index the rest of the Direct Chat, does not create a server plaintext archive, and does not enable automatic E2EE extraction.
+This is Mode B from PR-16/PR-17. The approved fact may become Personal Memory or, with an explicit projectId and current write authorization, Project Memory. It does not index the rest of the Direct Chat, does not create a server plaintext archive, and does not enable automatic E2EE extraction.
 
 ## 7. Budget-driven L2 compacted state
 
