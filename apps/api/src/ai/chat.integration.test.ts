@@ -66,6 +66,65 @@ describe("AI chat integration", () => {
     const response = await app.inject({ method: "GET", url: "/v1/ai/models", headers: { origin } });
     expect(response.statusCode).toBe(401);
   });
+  it("serializes concurrent legacy first turns onto one persistent thread target", async () => {
+    const user = await registerUser(app, "thread-target-race");
+    await purchasePro(app, user.cookies);
+    const conversation = await createConversation(app, user.cookies);
+    const prisma = createPrismaClient(testDatabaseUrl);
+    const models = await prisma.aiModel.findMany({
+      where: { active: true, visible: true },
+      orderBy: { slug: "asc" },
+      take: 2,
+    });
+    const firstModel = models[0];
+    const secondModel = models[1];
+    if (!firstModel || !secondModel) {
+      throw new Error("Expected at least two AI models");
+    }
+    provider.scenario = "success";
+
+    await Promise.all([
+      chat.streamMessage({
+        userId: user.id,
+        conversationId: conversation.id,
+        body: {
+          clientRequestId: randomUUID(),
+          modelId: firstModel.id,
+          content: "Concurrent first turn A",
+        },
+        correlationId: randomUUID(),
+        sink: collectingSink([]),
+      }),
+      chat.streamMessage({
+        userId: user.id,
+        conversationId: conversation.id,
+        body: {
+          clientRequestId: randomUUID(),
+          modelId: secondModel.id,
+          content: "Concurrent first turn B",
+        },
+        correlationId: randomUUID(),
+        sink: collectingSink([]),
+      }),
+    ]);
+
+    const persisted = await prisma.conversation.findUniqueOrThrow({
+      where: { id: conversation.id },
+    });
+    expect(persisted.defaultTargetKind).toBe("AI_MODEL");
+    expect([firstModel.id, secondModel.id]).toContain(
+      persisted.defaultTargetModelId,
+    );
+    const requests = await prisma.aiRequest.findMany({
+      where: { userId: user.id, conversationId: conversation.id },
+    });
+    expect(requests).toHaveLength(2);
+    expect(
+      new Set(requests.map((request) => request.modelId)),
+    ).toEqual(new Set([persisted.defaultTargetModelId!]));
+    await prisma.$disconnect();
+  });
+
   it("persists an AI_MODEL thread target and ignores legacy per-message model changes", async () => {
     const user = await registerUser(app, "thread-model-default");
     await purchasePro(app, user.cookies);
