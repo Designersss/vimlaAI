@@ -184,6 +184,23 @@ function resolveAiTextProvider(parsed: {
     : "mock";
 }
 
+function resolveVimlaCoreProvider(parsed: {
+  APP_ENV: "local" | "test" | "staging" | "production";
+  VIMLA_CORE_PROVIDER: "auto" | "disabled" | "deterministic" | "internal-http";
+  VIMLA_CORE_BASE_URL?: string;
+  VIMLA_CORE_MODEL?: string;
+}): "disabled" | "deterministic" | "internal-http" {
+  if (parsed.VIMLA_CORE_PROVIDER !== "auto") {
+    return parsed.VIMLA_CORE_PROVIDER;
+  }
+  if (parsed.VIMLA_CORE_BASE_URL && parsed.VIMLA_CORE_MODEL) {
+    return "internal-http";
+  }
+  return parsed.APP_ENV === "local" || parsed.APP_ENV === "test"
+    ? "deterministic"
+    : "disabled";
+}
+
 function resolveEmailProvider(parsed: {
   APP_ENV: string;
   EMAIL_PROVIDER?: "memory" | "smtp";
@@ -261,6 +278,25 @@ export function loadWorkerConfig(
     aiMaxPlanSettledMicroRub: parsed.AI_MAX_PLAN_SETTLED_MICRORUB,
     aiMaxPlanCommittedMicroRub: parsed.AI_MAX_PLAN_COMMITTED_MICRORUB,
     aiCancellationPollMs: parsed.AI_CANCELLATION_POLL_MS,
+    vimlaCoreProvider: resolveVimlaCoreProvider(parsed),
+    vimlaCoreBaseUrl: parsed.VIMLA_CORE_BASE_URL?.replace(/\/$/, ""),
+    vimlaCoreModel: parsed.VIMLA_CORE_MODEL,
+    vimlaCoreApiKey: parsed.VIMLA_CORE_API_KEY,
+    vimlaCoreTimeoutMs: parsed.VIMLA_CORE_TIMEOUT_MS,
+    vimlaCoreMaxOutputTokens: parsed.VIMLA_CORE_MAX_OUTPUT_TOKENS,
+    vimlaCoreMaxRequestBytes: parsed.VIMLA_CORE_MAX_REQUEST_BYTES,
+    vimlaCoreMaxConcurrentRequests:
+      parsed.VIMLA_CORE_MAX_CONCURRENT_REQUESTS,
+    vimlaCoreMaxQueueDepth: parsed.VIMLA_CORE_MAX_QUEUE_DEPTH,
+    vimlaCoreCircuitFailureThreshold:
+      parsed.VIMLA_CORE_CIRCUIT_FAILURE_THRESHOLD,
+    vimlaCoreCircuitResetMs: parsed.VIMLA_CORE_CIRCUIT_RESET_MS,
+    vimlaCoreToolUseEnabled:
+      parsed.VIMLA_CORE_TOOL_USE_ENABLED === "true",
+    vimlaCoreFairUseRequestsPerMinute:
+      parsed.VIMLA_CORE_FAIR_USE_REQUESTS_PER_MINUTE,
+    vimlaCoreFairUseMaxConcurrentPerUser:
+      parsed.VIMLA_CORE_FAIR_USE_MAX_CONCURRENT_PER_USER,
     evaluatorProvider: parsed.EVALUATOR_PROVIDER,
     evaluatorBaseUrl: parsed.EVALUATOR_BASE_URL?.replace(/\/$/, ""),
     evaluatorModel: parsed.EVALUATOR_MODEL,
