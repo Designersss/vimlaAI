@@ -83,7 +83,7 @@ Automatic candidates require source provenance. Same-content automatic facts ret
 
 Receipt retries are bounded to five attempts. Completed/skipped/terminal failed maintenance receipts are technical coordination data and are pruned after 30 days.
 
-Superseded/invalidated Memory and L2 keep lineage, provenance, versions, covered ranges and invalidation metadata for audit, but their derived plaintext is not retained indefinitely. `MEMORY_DERIVED_AUDIT_RETENTION_DAYS` controls when inactive derived `content` is redacted and marked with `contentRedactedAt`. Local/test defaults to 180 days; staging/production must explicitly choose a value before `MEMORY_ENABLED=true` is accepted. Active/current Memory and L2 are never redacted by this housekeeping.
+Superseded/invalidated Memory and L2 keep lineage, provenance, versions, covered ranges and invalidation metadata for audit, but their derived plaintext is not retained indefinitely. `MEMORY_DERIVED_AUDIT_RETENTION_DAYS` controls when inactive derived Memory `content` and semantic `slotKey` (plus L2 `content`) are redacted and marked with `contentRedactedAt`. Local/test defaults to 180 days; staging/production must explicitly choose a value before `MEMORY_ENABLED=true` is accepted. Active/current Memory and L2 are never redacted by this housekeeping.
 
 ## 5. Project isolation and cross-scope writes
 
