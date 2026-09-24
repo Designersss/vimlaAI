@@ -231,47 +231,6 @@ describe("memory API", () => {
       app,
       "memory-project-owner",
     );
-    const db = app.get(PrismaService).client;
-    const project = await db.project.create({
-      data: {
-        ownerUserId: owner.id,
-        name: "Memory Project",
-        members: {
-          create: {
-            userId: owner.id,
-            role: "OWNER",
-          },
-        },
-      },
-    });
-
-    const response = await app.inject({
-      method: "POST",
-      url: `/v1/memory/projects/${project.id}`,
-      headers: jsonHeaders(),
-      cookies: owner.cookies,
-      payload: {
-        type: "PROJECT_DECISION",
-        slotKey: "launch window",
-        content: "Launch window is October",
-      },
-    });
-    expect(response.statusCode).toBe(201);
-    expect(response.json()).toMatchObject({
-      scopeKind: "PROJECT",
-      projectId: project.id,
-      type: "PROJECT_DECISION",
-      slotKey: "launch window",
-      content: "Launch window is October",
-      origin: "USER_EXPLICIT",
-    });
-  });
-
-  it("creates Project Memory only through an explicit authorized project write", async () => {
-    const owner = await registerVerifiedUser(
-      app,
-      "memory-project-owner",
-    );
     const outsider = await registerVerifiedUser(
       app,
       "memory-project-outsider",
