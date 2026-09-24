@@ -436,6 +436,24 @@ describe("loadWorkerConfig", () => {
     ).toThrow(/VIMLA_CORE_BASE_URL|VIMLA_CORE_MODEL/);
   });
 
+  it("rejects Vimla Core endpoints with embedded authority or URL decorations", () => {
+    for (const baseUrl of [
+      "http://user:pass@127.0.0.1:18080/v1",
+      "http://127.0.0.1:18080/v1?token=secret",
+      "http://127.0.0.1:18080/v1#fragment",
+    ]) {
+      expect(() =>
+        loadWorkerConfig({
+          ...validSharedEnv,
+          VIMLA_CORE_PROVIDER: "internal-http",
+          VIMLA_CORE_INTERNAL_CONFIRMED: "true",
+          VIMLA_CORE_BASE_URL: baseUrl,
+          VIMLA_CORE_MODEL: "qwen-vimla-core",
+        }),
+      ).toThrow(/clean http\(s\) endpoint/);
+    }
+  });
+
   it("rejects a partial auto Vimla Core configuration instead of silently falling back", () => {
     expect(() =>
       loadWorkerConfig({
