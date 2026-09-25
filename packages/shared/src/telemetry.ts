@@ -193,6 +193,165 @@ export type TelemetryEvent =
       appEnv: "local" | "test" | "staging" | "production";
     };
 
+const SAFE_TELEMETRY_FIELDS: Record<
+  TelemetryEvent["event"],
+  readonly string[]
+> = {
+  "planner.completed": [
+    "event",
+    "correlationId",
+    "planId",
+    "outcome",
+    "durationMs",
+    "nodeCount",
+    "edgeCount",
+    "depth",
+    "maxParallelism",
+    "validationFailureCode",
+    "replayed",
+  ],
+  "planner.feedback": [
+    "event",
+    "planId",
+    "action",
+    "count",
+  ],
+  "context.snapshot": [
+    "event",
+    "planId",
+    "outcome",
+    "durationMs",
+    "itemCount",
+    "metadataBytes",
+    "sourceDistribution",
+  ],
+  "context.bundle": [
+    "event",
+    "planId",
+    "invocationId",
+    "targetKind",
+    "outcome",
+    "durationMs",
+    "candidateCountBeforePolicy",
+    "candidateCountAfterPolicy",
+    "selectedItemCount",
+    "deniedItemCount",
+    "packingExcludedCount",
+    "artifactDeniedCount",
+    "budgetTokens",
+    "usedTokens",
+    "budgetUtilizationBps",
+    "rawHistoryTokens",
+    "l1RawTokens",
+    "l2CompactedTokens",
+    "sourceDistribution",
+    "selectionDistribution",
+    "denialDistribution",
+  ],
+  "context.semantic_retrieval": [
+    "event",
+    "planId",
+    "outcome",
+    "candidateCount",
+    "selectedCount",
+    "currentSurfaceCount",
+    "crossSurfaceCount",
+    "currentProjectCount",
+    "durationMs",
+  ],
+  "context.memory_maintenance": [
+    "event",
+    "sourceType",
+    "outcome",
+    "durationMs",
+    "extractedCount",
+    "createdCount",
+    "supersededCount",
+    "invalidatedCount",
+    "staleCount",
+    "compactionCount",
+    "compactionInputTokens",
+    "compactionOutputTokens",
+    "compactionVersion",
+  ],
+  "runtime.invocation": [
+    "event",
+    "planId",
+    "invocationId",
+    "runId",
+    "targetKind",
+    "outcome",
+    "durationMs",
+    "queueDelayMs",
+    "attempt",
+    "retryable",
+    "errorCode",
+  ],
+  "runtime.reconciliation": [
+    "event",
+    "outcome",
+    "recoveredPlanningShells",
+    "recoveredInvocationRuns",
+    "recoveredStuckWorkflows",
+    "durationMs",
+  ],
+  "economics.ai": [
+    "event",
+    "planId",
+    "invocationId",
+    "aiRequestId",
+    "providerClass",
+    "modelClass",
+    "outcome",
+    "providerActualCostMicroRub",
+    "userSettledUsageMicroRub",
+    "marginMicroRub",
+  ],
+  "safety.policy": [
+    "event",
+    "planId",
+    "invocationId",
+    "action",
+    "reason",
+    "count",
+  ],
+  "local_ai.runtime": [
+    "event",
+    "outcome",
+    "circuitState",
+    "adapterActiveRequests",
+    "adapterQueuedRequests",
+    "providerActiveRequests",
+    "providerQueueDepth",
+    "gpuUtilizationPercent",
+    "gpuMemoryUsedBytes",
+    "gpuMemoryTotalBytes",
+  ],
+  "rollout.gate": [
+    "event",
+    "gate",
+    "enabled",
+    "appEnv",
+  ],
+};
+
+export function safeTelemetryFields(
+  event: TelemetryEvent,
+): Record<string, unknown> {
+  const allowed = SAFE_TELEMETRY_FIELDS[event.event];
+  if (!allowed) {
+    return { event: "telemetry.invalid" };
+  }
+  const source = event as unknown as Record<string, unknown>;
+  const result: Record<string, unknown> = {};
+  for (const key of allowed) {
+    if (key in source) {
+      result[key] = source[key];
+    }
+  }
+  return result;
+}
+
 export interface TelemetrySink {
   emit(event: TelemetryEvent): void;
 }
