@@ -25,7 +25,7 @@ import type {
   MessageMentionInput,
   WireEnvelopeDto,
 } from "@vimla/contracts";
-import { fetchPrekeyBundles, registerCryptoDevice, sendDirectMessage } from "./api";
+import { fetchPrekeyBundles, fetchPrekeyStatus, registerCryptoDevice, replenishOneTimePrekeys, sendDirectMessage } from "./api";
 import {
   acknowledgeRatchetHandshake,
   commitDecryptedRatchet,
@@ -52,26 +52,36 @@ import {
 } from "./ratchet-coordination";
 import { decodeDirectPlaintext, encodeDirectPlaintext, type DirectPlaintextPayload } from "./payload";
 
-export async function ensureLocalDevice(): Promise<StoredDeviceMaterial> {
+const PREKEY_LOW_WATER = 8;
+const PREKEY_TARGET = 16;
+const PREKEY_STATUS_MAX_AGE_MS = 5 * 60_000;
+
+export async function ensureLocalDevice(
+  options: { forcePrekeyCheck?: boolean } = {},
+): Promise<StoredDeviceMaterial> {
   return withLocalDeviceBootstrapLock(async () => {
     const existing = await loadDeviceMaterial();
     if (existing) {
-      if (existing.registrationState === "PENDING") {
-        await registerStoredDevice(existing);
-        const registered = {
-          ...existing,
+      let current = existing;
+      if (current.registrationState === "PENDING") {
+        await registerStoredDevice(current);
+        current = {
+          ...current,
           registrationState: "REGISTERED" as const,
+          prekeyStatusCheckedAt: new Date().toISOString(),
         };
-        await saveDeviceMaterial(registered);
-        return registered;
+        await saveDeviceMaterial(current);
       }
-      return existing;
+      return ensurePrekeySupply(
+        current,
+        options.forcePrekeyCheck === true,
+      );
     }
 
     const identity = generateIdentity();
     const signed = generateSignedPreKey(identity, 1);
     const oneTime = Array.from(
-      { length: 16 },
+      { length: PREKEY_TARGET },
       (_, index) => generateOneTimePreKey(index + 1),
     );
     const material: StoredDeviceMaterial = {
@@ -97,13 +107,134 @@ export async function ensureLocalDevice(): Promise<StoredDeviceMaterial> {
     };
     await saveDeviceMaterial(material);
     await registerStoredDevice(material);
-    const registered = {
+    const registered: StoredDeviceMaterial = {
       ...material,
-      registrationState: "REGISTERED" as const,
+      registrationState: "REGISTERED",
+      prekeyStatusCheckedAt: new Date().toISOString(),
     };
     await saveDeviceMaterial(registered);
     return registered;
   });
+}
+
+async function ensurePrekeySupply(
+  material: StoredDeviceMaterial,
+  forceCheck: boolean,
+): Promise<StoredDeviceMaterial> {
+  let current = material;
+  const pendingIds =
+    current.pendingOneTimePrekeyIds ?? [];
+  if (pendingIds.length > 0) {
+    await uploadPendingOneTimePrekeys(
+      current,
+      pendingIds,
+    );
+    current = {
+      ...current,
+      pendingOneTimePrekeyIds: [],
+      prekeyStatusCheckedAt: new Date().toISOString(),
+    };
+    await saveDeviceMaterial(current);
+  }
+
+  const checkedAt = current.prekeyStatusCheckedAt
+    ? Date.parse(current.prekeyStatusCheckedAt)
+    : Number.NaN;
+  if (
+    !forceCheck &&
+    Number.isFinite(checkedAt) &&
+    Date.now() - checkedAt < PREKEY_STATUS_MAX_AGE_MS
+  ) {
+    return current;
+  }
+
+  const status = await fetchPrekeyStatus(
+    current.deviceId,
+  );
+  if (status.available >= PREKEY_LOW_WATER) {
+    const checked: StoredDeviceMaterial = {
+      ...current,
+      prekeyStatusCheckedAt: new Date().toISOString(),
+    };
+    await saveDeviceMaterial(checked);
+    return checked;
+  }
+
+  const needed = Math.min(
+    PREKEY_TARGET - status.available,
+    32,
+  );
+  const existingIds = Object.keys(
+    current.oneTimePrekeys,
+  )
+    .map(Number)
+    .filter(Number.isSafeInteger);
+  const maxId =
+    existingIds.length > 0
+      ? Math.max(...existingIds)
+      : 0;
+  if (maxId + needed > 1_000_000) {
+    throw new Error("Local E2EE prekey id space exhausted");
+  }
+  const generated = Array.from(
+    { length: needed },
+    (_, index) =>
+      generateOneTimePreKey(maxId + index + 1),
+  );
+  const next: StoredDeviceMaterial = {
+    ...current,
+    oneTimePrekeys: {
+      ...current.oneTimePrekeys,
+      ...Object.fromEntries(
+        generated.map((key) => [
+          String(key.keyId),
+          {
+            secret: bytesToB64(key.secret),
+            publicKey: bytesToB64(key.publicKey),
+          },
+        ]),
+      ),
+    },
+    pendingOneTimePrekeyIds: generated.map(
+      (key) => key.keyId,
+    ),
+  };
+  await saveDeviceMaterial(next);
+  await uploadPendingOneTimePrekeys(
+    next,
+    next.pendingOneTimePrekeyIds ?? [],
+  );
+  const completed: StoredDeviceMaterial = {
+    ...next,
+    pendingOneTimePrekeyIds: [],
+    prekeyStatusCheckedAt: new Date().toISOString(),
+  };
+  await saveDeviceMaterial(completed);
+  return completed;
+}
+
+async function uploadPendingOneTimePrekeys(
+  material: StoredDeviceMaterial,
+  ids: readonly number[],
+): Promise<void> {
+  if (ids.length === 0) return;
+  const oneTimePrekeys = ids.map((keyId) => {
+    const key =
+      material.oneTimePrekeys[String(keyId)];
+    if (!key) {
+      throw new Error(
+        "Pending local E2EE prekey material is missing",
+      );
+    }
+    return {
+      keyId,
+      publicKey: key.publicKey,
+    };
+  });
+  await replenishOneTimePrekeys(
+    material.deviceId,
+    { oneTimePrekeys },
+  );
 }
 
 async function registerStoredDevice(
