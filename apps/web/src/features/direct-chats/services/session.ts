@@ -335,7 +335,10 @@ export async function encryptForDevices(input: {
       ? serializeDirectRoutingMentions(input.mentions)
       : undefined;
 
-  return withRatchetRetryScopes(scopes, async () => {
+  let consumedSelfOtk = false;
+  const pending = await withRatchetRetryScopes(
+    scopes,
+    async () => {
     const envelopes: WireEnvelopeDto[] = [];
     const updates: OutboundRatchetUpdate[] = [];
 
@@ -420,14 +423,22 @@ export async function encryptForDevices(input: {
       plaintext: input.plaintext,
       createdAt: new Date().toISOString(),
     };
-    await commitOutboundRatchets({
-      conversationId: input.conversationId,
-      localDeviceId: material.deviceId,
-      updates,
-      pendingSend: pending,
-    });
+    consumedSelfOtk =
+      (await commitOutboundRatchets({
+        conversationId: input.conversationId,
+        localDeviceId: material.deviceId,
+        updates,
+        pendingSend: pending,
+      })) || consumedSelfOtk;
     return pending;
-  });
+    },
+  );
+  if (consumedSelfOtk) {
+    void ensureLocalDevice({
+      forcePrekeyCheck: true,
+    }).catch(() => undefined);
+  }
+  return pending;
 }
 
 export async function finalizePendingSend(
