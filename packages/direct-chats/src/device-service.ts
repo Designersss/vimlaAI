@@ -1,4 +1,4 @@
-import type { CryptoDeviceView, PrekeyBundle, RegisterCryptoDevice, RotatePrekeys } from "@vimla/contracts";
+import type { CryptoDeviceView, PrekeyBundle, RegisterCryptoDevice, ReplenishOneTimePrekeys, RotatePrekeys } from "@vimla/contracts";
 import { b64ToBytes, verifySignedPreKey } from "@vimla/e2ee";
 import { DirectChatError } from "./errors.js";
 import type { ActorContext, DbClient } from "./types.js";
@@ -68,6 +68,72 @@ export class DeviceService {
     });
     await this.replaceUnusedPrekeys(device.id, input.oneTimePrekeys);
     return toDeviceView(updated);
+  }
+
+  async prekeyStatus(
+    actor: ActorContext,
+    deviceId: string,
+  ): Promise<{ deviceId: string; available: number }> {
+    const device = await this.requireOwnActiveDevice(
+      actor.userId,
+      deviceId,
+    );
+    const available =
+      await this.db.directOneTimePrekey.count({
+        where: {
+          deviceId: device.id,
+          consumedAt: null,
+        },
+      });
+    return { deviceId: device.id, available };
+  }
+
+  async replenishOneTimePrekeys(
+    actor: ActorContext,
+    deviceId: string,
+    input: ReplenishOneTimePrekeys,
+  ): Promise<{ deviceId: string; available: number }> {
+    const device = await this.requireOwnActiveDevice(
+      actor.userId,
+      deviceId,
+    );
+    const ids = input.oneTimePrekeys.map(
+      (key) => key.keyId,
+    );
+    const existing =
+      await this.db.directOneTimePrekey.findMany({
+        where: {
+          deviceId: device.id,
+          keyId: { in: ids },
+        },
+        select: {
+          keyId: true,
+          publicKey: true,
+        },
+      });
+    const requestedById = new Map(
+      input.oneTimePrekeys.map((key) => [
+        key.keyId,
+        key.publicKey,
+      ]),
+    );
+    for (const row of existing) {
+      if (requestedById.get(row.keyId) !== row.publicKey) {
+        throw new DirectChatError(
+          "TAMPERED",
+          "One-time prekey id cannot be replaced",
+        );
+      }
+    }
+    await this.db.directOneTimePrekey.createMany({
+      data: input.oneTimePrekeys.map((key) => ({
+        deviceId: device.id,
+        keyId: key.keyId,
+        publicKey: key.publicKey,
+      })),
+      skipDuplicates: true,
+    });
+    return this.prekeyStatus(actor, device.id);
   }
 
   async listMine(actor: ActorContext): Promise<CryptoDeviceView[]> {
