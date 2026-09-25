@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { NestFastifyApplication } from "@nestjs/platform-fastify";
 import { loadApiConfig } from "@vimla/config/server";
 import { createPrismaClient, type PrismaClient } from "@vimla/database";
 import { createVimlaApiApp } from "../create-app.js";
+import { ApiTelemetrySink } from "../observability/telemetry.js";
 import { registerVerifiedUser } from "../test/identity-helpers.js";
 import type { ExecutionPlanDefinition } from "./contracts.js";
 
@@ -452,6 +453,8 @@ describe("execution plan API", () => {
   });
 
   it("supports explicit approval without executing the invocation", async () => {
+    const telemetry = app.get(ApiTelemetrySink);
+    const emit = vi.spyOn(telemetry, "emit");
     const owner = await registerVerifiedUser(app, "orchestration-approval");
     const messageId = await createSourceMessage(owner.id);
     const plan = approvalPlan();
@@ -500,6 +503,15 @@ describe("execution plan API", () => {
       where: { invocation: { planId } },
     });
     expect(runs).toBe(0);
+    expect(
+      emit.mock.calls.filter(
+        ([event]) =>
+          event.event === "safety.policy" &&
+          event.action === "APPROVAL_GRANTED" &&
+          event.planId === planId,
+      ),
+    ).toHaveLength(1);
+    emit.mockRestore();
   });
 
   it("resolves HUMAN_APPROVAL evaluators through a dedicated idempotent decision endpoint", async () => {
