@@ -190,47 +190,58 @@ export class DirectChatService {
     };
   }
 
+  async replay(
+    actor: ActorContext,
+    conversationId: string,
+    input: SendDirectMessage,
+  ): Promise<DirectMessageView | null> {
+    await this.requireMemberConversation(
+      actor.userId,
+      conversationId,
+    );
+    return this.findExactReplay(
+      actor.userId,
+      conversationId,
+      input,
+    );
+  }
+
   async send(
     actor: ActorContext,
     conversationId: string,
     input: SendDirectMessage,
     resolvedMentions: MessageMentionView[] = [],
   ): Promise<DirectMessageView> {
-    const conversation = await this.requireMemberConversation(actor.userId, conversationId);
-    const existing = await this.db.directMessage.findUnique({
-      where: {
-        conversationId_senderUserId_clientMessageId: {
-          conversationId,
-          senderUserId: actor.userId,
-          clientMessageId: input.clientMessageId,
-        },
-      },
-      include: { envelopes: true },
-    });
-    if (existing) {
-      if (existing.senderDeviceId !== input.senderDeviceId) {
-        throw new DirectChatError(
-          "TAMPERED",
-          "Message replay sender device does not match",
-        );
-      }
-      const mentions = await this.readMentionMap([existing.id]);
-      const existingMentions = mentions.get(existing.id) ?? [];
-      if (
-        existing.kind !== input.kind ||
-        !sameReplayEnvelopes(existing.envelopes, input.envelopes) ||
-        !sameReplayMentions(existingMentions, input.mentions)
-      ) {
-        throw new DirectChatError(
-          "TAMPERED",
-          "Message replay payload does not match the original",
-        );
-      }
-      return toMessageView(
-        existing,
-        input.senderDeviceId,
-        existingMentions,
-      );
+    return (
+      await this.sendWithStatus(
+        actor,
+        conversationId,
+        input,
+        resolvedMentions,
+      )
+    ).message;
+  }
+
+  async sendWithStatus(
+    actor: ActorContext,
+    conversationId: string,
+    input: SendDirectMessage,
+    resolvedMentions: MessageMentionView[] = [],
+  ): Promise<{
+    message: DirectMessageView;
+    replayed: boolean;
+  }> {
+    const conversation = await this.requireMemberConversation(
+      actor.userId,
+      conversationId,
+    );
+    const replay = await this.findExactReplay(
+      actor.userId,
+      conversationId,
+      input,
+    );
+    if (replay) {
+      return { message: replay, replayed: true };
     }
 
     const senderDevice = await this.requireActiveDevice(actor.userId, input.senderDeviceId);
@@ -311,24 +322,28 @@ export class DirectChatService {
         });
         return message;
       });
-      return toMessageView(created, senderDevice.id, resolvedMentions);
+      return {
+        message: toMessageView(
+          created,
+          senderDevice.id,
+          resolvedMentions,
+        ),
+        replayed: false,
+      };
     } catch (error: unknown) {
       if (isUnique(error)) {
-        const replay = await this.db.directMessage.findUnique({
-          where: {
-            conversationId_senderUserId_clientMessageId: {
-              conversationId,
-              senderUserId: actor.userId,
-              clientMessageId: input.clientMessageId,
-            },
-          },
-          include: { envelopes: { where: { recipientDeviceId: senderDevice.id } } },
-        });
+        const replay = await this.findExactReplay(
+          actor.userId,
+          conversationId,
+          input,
+        );
         if (replay) {
-          const mentions = await this.readMentionMap([replay.id]);
-          return toMessageView(replay, senderDevice.id, mentions.get(replay.id) ?? []);
+          return { message: replay, replayed: true };
         }
-        throw new DirectChatError("TAMPERED", "Message envelope was rejected");
+        throw new DirectChatError(
+          "TAMPERED",
+          "Message envelope was rejected",
+        );
       }
       throw error;
     }
@@ -461,6 +476,53 @@ export class DirectChatService {
       peerShareOwnHistoryWithVimla: peer.shareOwnHistoryWithVimla,
       memberIds: conversation.members.map((member) => member.userId),
     };
+  }
+
+  private async findExactReplay(
+    userId: string,
+    conversationId: string,
+    input: SendDirectMessage,
+  ): Promise<DirectMessageView | null> {
+    const existing = await this.db.directMessage.findUnique({
+      where: {
+        conversationId_senderUserId_clientMessageId: {
+          conversationId,
+          senderUserId: userId,
+          clientMessageId: input.clientMessageId,
+        },
+      },
+      include: { envelopes: true },
+    });
+    if (!existing) return null;
+    if (existing.senderDeviceId !== input.senderDeviceId) {
+      throw new DirectChatError(
+        "TAMPERED",
+        "Message replay sender device does not match",
+      );
+    }
+    const mentions = await this.readMentionMap([existing.id]);
+    const existingMentions = mentions.get(existing.id) ?? [];
+    if (
+      existing.kind !== input.kind ||
+      !sameReplayEnvelopes(
+        existing.envelopes,
+        input.envelopes,
+      ) ||
+      !sameReplayMentions(
+        existingMentions,
+        input.mentions,
+      )
+    ) {
+      throw new DirectChatError(
+        "TAMPERED",
+        "Message replay payload does not match the original",
+      );
+    }
+    return toMessageView(
+      existing,
+      input.senderDeviceId,
+      existingMentions,
+    );
   }
 
   private async readMentionMap(messageIds: string[]): Promise<Map<string, MessageMentionView[]>> {
