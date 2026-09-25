@@ -697,7 +697,12 @@ async function fetchLatestDecryptedPage(
 }
 
 async function decryptPage(detail: DirectConversationView, items: DirectMessageView[]): Promise<DecryptedRow[]> {
-  const map = new Map(detail.devices.map((device) => [device.id, device.identityEd25519Public]));
+  const identityByDevice = new Map(
+    detail.devices.map((device) => [
+      device.id,
+      device.identityEd25519Public,
+    ]),
+  );
   const byId = new Map<string, DecryptedRow>();
   const chronological = [...items].sort(
     (left, right) =>
@@ -706,9 +711,23 @@ async function decryptPage(detail: DirectConversationView, items: DirectMessageV
       left.id.localeCompare(right.id),
   );
   for (const message of chronological) {
-    const senderPublic = map.get(message.senderDeviceId) ?? message.envelope?.x3dhInit?.identityEd25519Public ?? "";
+    const initIdentity =
+      message.envelope?.x3dhInit
+        ?.identityEd25519Public;
+    if (initIdentity) {
+      identityByDevice.set(
+        message.senderDeviceId,
+        initIdentity,
+      );
+    }
+    const senderPublic =
+      identityByDevice.get(message.senderDeviceId) ?? "";
     const payload = senderPublic
-      ? await decryptMessage({ conversationId: detail.id, message, senderIdentityEd25519Public: senderPublic })
+      ? await decryptMessage({
+          conversationId: detail.id,
+          message,
+          senderIdentityEd25519Public: senderPublic,
+        })
       : null;
     byId.set(message.id, { message, payload });
   }
