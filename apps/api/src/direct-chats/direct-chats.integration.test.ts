@@ -1,5 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import type { NestFastifyApplication } from "@nestjs/platform-fastify";
 import {
   bytesToB64,
@@ -30,6 +37,7 @@ import { loadApiConfig } from "@vimla/config/server";
 import { createPrismaClient } from "@vimla/database";
 import { createVimlaApiApp } from "../create-app.js";
 import { PrismaService } from "../persistence/prisma.service.js";
+import { DirectChatRealtimeService } from "./direct-chat-realtime.service.js";
 import { registerVerifiedUser } from "../test/identity-helpers.js";
 
 const testDatabaseUrl = process.env.TEST_DATABASE_URL;
@@ -363,16 +371,18 @@ describe("direct chats API", () => {
 
     const [first, second] = await Promise.all([
       app.inject({
-        method: "GET",
-        url: `/v1/direct-chats/users/${alice.id}/prekeys?deviceId=${device.deviceId}`,
-        headers: { origin },
+        method: "POST",
+        url: `/v1/direct-chats/users/${alice.id}/prekeys/claim`,
+        headers: jsonHeaders(),
         cookies: alice.cookies,
+        payload: { deviceId: device.deviceId },
       }),
       app.inject({
-        method: "GET",
-        url: `/v1/direct-chats/users/${alice.id}/prekeys?deviceId=${device.deviceId}`,
-        headers: { origin },
+        method: "POST",
+        url: `/v1/direct-chats/users/${alice.id}/prekeys/claim`,
+        headers: jsonHeaders(),
         cookies: alice.cookies,
+        payload: { deviceId: device.deviceId },
       }),
     ]);
     expect(first.statusCode).toBe(200);
@@ -392,7 +402,13 @@ describe("direct chats API", () => {
       cookies: alice.cookies,
     });
     expect(emptyStatus.statusCode).toBe(200);
-    expect(emptyStatus.json().available).toBe(0);
+    expect(emptyStatus.json()).toEqual(
+      expect.objectContaining({
+        available: 0,
+        availableKeyIds: [],
+        recentlyConsumedKeyIds: [1],
+      }),
+    );
 
     const refill = [
       generateOneTimePreKey(2),
@@ -692,6 +708,11 @@ describe("direct chats API", () => {
     ).toEqual([201, 400]);
 
     const secondNikitaDevice = await registerHarness(app, nikita);
+    const realtime = app.get(
+      DirectChatRealtimeService,
+    );
+    const publishSpy = vi.spyOn(realtime, "publish");
+    publishSpy.mockClear();
     const replay = await app.inject({
       method: "POST",
       url: `/v1/direct-chats/${chat.id}/messages`,
@@ -701,6 +722,15 @@ describe("direct chats API", () => {
     });
     expect(replay.statusCode).toBe(201);
     expect(replay.json().id).toBe(sent.json().id);
+    expect(publishSpy).toHaveBeenCalledWith(
+      expect.arrayContaining([alice.id, nikita.id]),
+      expect.objectContaining({
+        type: "direct_message",
+        conversationId: chat.id,
+        messageId: sent.json().id,
+      }),
+    );
+    publishSpy.mockRestore();
 
     const mismatchedReplay = await app.inject({
       method: "POST",
@@ -1824,10 +1854,11 @@ async function encryptTo(
   let x3dhInit: WireEnvelope["x3dhInit"] = null;
   if (!state) {
     const bundles = await app.inject({
-      method: "GET",
-      url: `/v1/direct-chats/users/${recipient.userId}/prekeys?deviceId=${recipient.id}`,
-      headers: { origin },
+      method: "POST",
+      url: `/v1/direct-chats/users/${recipient.userId}/prekeys/claim`,
+      headers: jsonHeaders(),
       cookies: sender.cookies,
+      payload: { deviceId: recipient.id },
     });
     expect(bundles.statusCode).toBe(200);
     const bundle = (bundles.json().bundles as Array<Record<string, unknown>>).find((item) => item.deviceId === recipient.id);
