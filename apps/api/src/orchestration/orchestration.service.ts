@@ -328,6 +328,15 @@ export class OrchestrationService {
           };
         }
         await this.failPlanningClaim(userId, shell.id, claim.claimHash);
+        this.telemetry.emit({
+          event: "planner.completed",
+          correlationId,
+          planId: shell.id,
+          outcome: "FAILED",
+          durationMs: telemetryDurationMs(plannerStartedAt),
+          ...plannerTelemetryShape(result.plan),
+          replayed: false,
+        });
         throw error;
       }
 
@@ -368,6 +377,15 @@ export class OrchestrationService {
           }
         }
         await this.failPlanningClaim(userId, shell.id, claim.claimHash);
+        this.telemetry.emit({
+          event: "planner.completed",
+          correlationId,
+          planId: shell.id,
+          outcome: "FAILED",
+          durationMs: telemetryDurationMs(plannerStartedAt),
+          ...plannerTelemetryShape(executablePlan),
+          replayed: false,
+        });
         throw error;
       }
     } finally {
