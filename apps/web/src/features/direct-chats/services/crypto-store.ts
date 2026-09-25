@@ -300,24 +300,6 @@ export async function loadRatchet(
   return decodeStoredRatchet(legacy, localDeviceId);
 }
 
-export async function saveRatchet(
-  conversationId: string,
-  localDeviceId: string,
-  peerDeviceId: string,
-  expectedVersion: number,
-  state: SerializedRatchetState,
-  pendingX3dhInit: X3dhInitHeader | null,
-): Promise<RatchetSnapshot> {
-  return commitRatchet({
-    conversationId,
-    localDeviceId,
-    peerDeviceId,
-    expectedVersion,
-    state,
-    pendingX3dhInit,
-  });
-}
-
 export async function commitDecryptedRatchet(input: {
   conversationId: string;
   localDeviceId: string;
@@ -628,14 +610,6 @@ export async function loadPlaintext(
     (store) => store.get(messageId),
   );
   return value ?? null;
-}
-
-export async function savePlaintext(
-  row: StoredPlaintext,
-): Promise<void> {
-  await withStore("plaintexts", "readwrite", (store) => {
-    store.put(row, row.messageId);
-  });
 }
 
 export async function loadConversationPlaintexts(
