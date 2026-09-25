@@ -141,6 +141,69 @@ test.describe("Secure Direct Chats", () => {
       timeout: 20_000,
     });
 
+    let abortBeforeServer = true;
+    await alicePage.route(
+      "**/v1/direct-chats/*/messages",
+      async (route) => {
+        if (
+          abortBeforeServer &&
+          route.request().method() === "POST"
+        ) {
+          abortBeforeServer = false;
+          await route.abort("failed");
+          return;
+        }
+        await route.continue();
+      },
+    );
+    await composer.fill("pending before peer device change");
+    await alicePage.getByTestId("chat-composer-send").click();
+    await expect.poll(() => abortBeforeServer).toBe(false);
+    await alicePage.unroute(
+      "**/v1/direct-chats/*/messages",
+    );
+
+    const nikitaSecondContext = await browser.newContext({
+      storageState: await nikitaContext.storageState(),
+    });
+    const nikitaSecondPage =
+      await nikitaSecondContext.newPage();
+    await nikitaSecondPage.goto(directUrl);
+    await expect(
+      nikitaSecondPage.getByTestId("direct-chat-shell"),
+    ).toBeVisible({ timeout: 20_000 });
+    const nikitaSecondDeviceId =
+      await readLocalDeviceId(nikitaSecondPage);
+    const nikitaFirstDeviceId =
+      await readLocalDeviceId(nikitaPage);
+    expect(nikitaSecondDeviceId).not.toBe(
+      nikitaFirstDeviceId,
+    );
+
+    await alicePage.reload();
+    await expect(
+      alicePage.getByTestId("direct-chat-shell"),
+    ).toBeVisible({ timeout: 20_000 });
+    await expect(
+      alicePage
+        .getByTestId("direct-message-human")
+        .filter({
+          hasText: "pending before peer device change",
+        }),
+    ).toHaveCount(1);
+    for (const page of [
+      nikitaPage,
+      nikitaSecondPage,
+    ]) {
+      await expect(
+        page
+          .getByTestId("direct-message-human")
+          .filter({
+            hasText: "pending before peer device change",
+          }),
+      ).toBeVisible({ timeout: 20_000 });
+    }
+
     const aliceFallbackPage = await aliceContext.newPage();
     const nikitaFallbackPage = await nikitaContext.newPage();
     await disableWebLocks(aliceFallbackPage);
@@ -349,6 +412,7 @@ test.describe("Secure Direct Chats", () => {
     expect(registrations).toBe(1);
     await coldContext.close();
 
+    await nikitaSecondContext.close();
     await aliceContext.close();
     await nikitaContext.close();
   });
