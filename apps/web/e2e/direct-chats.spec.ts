@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { purchasePro, signUp, uniqueEmail, verifyEmail, webOrigin, apiBase } from "./helpers";
 import { assertNoDocumentOverflow, assertReachable } from "./responsive-helpers";
 
@@ -78,6 +78,73 @@ test.describe("Secure Direct Chats", () => {
       timeout: 20_000,
     });
 
+    const aliceFallbackPage = await aliceContext.newPage();
+    const nikitaFallbackPage = await nikitaContext.newPage();
+    await disableWebLocks(aliceFallbackPage);
+    await disableWebLocks(nikitaFallbackPage);
+    await Promise.all([
+      aliceFallbackPage.goto(directUrl),
+      nikitaFallbackPage.goto(directUrl),
+    ]);
+    await expect(aliceFallbackPage.getByTestId("direct-chat-shell")).toBeVisible({
+      timeout: 20_000,
+    });
+    await expect(nikitaFallbackPage.getByTestId("direct-chat-shell")).toBeVisible({
+      timeout: 20_000,
+    });
+
+    const aliceLocalDeviceId = await readLocalDeviceId(aliceFallbackPage);
+    const detailResponse = await alicePage.request.get(
+      `${apiBase}/v1/direct-chats/${directConversationId(directUrl)}`,
+    );
+    expect(detailResponse.ok()).toBe(true);
+    const detailPayload = (await detailResponse.json()) as {
+      devices: Array<{ id: string }>;
+    };
+    const peerDeviceId = detailPayload.devices.find(
+      (device) => device.id !== aliceLocalDeviceId,
+    )?.id;
+    expect(peerDeviceId).toBeTruthy();
+    if (!peerDeviceId) {
+      throw new Error("Direct Chat peer device is missing");
+    }
+    await seedExpiredRatchetLease(aliceFallbackPage, {
+      conversationId: directConversationId(directUrl),
+      localDeviceId: aliceLocalDeviceId,
+      peerDeviceId,
+    });
+
+    const primaryComposer = alicePage.getByPlaceholder(
+      /сообщение этому человеку|message this person/i,
+    );
+    const fallbackComposer = aliceFallbackPage.getByPlaceholder(
+      /сообщение этому человеку|message this person/i,
+    );
+    await primaryComposer.fill("parallel ratchet one");
+    await fallbackComposer.fill("parallel ratchet two");
+    await Promise.all([
+      alicePage.getByTestId("chat-composer-send").click(),
+      aliceFallbackPage.getByTestId("chat-composer-send").click(),
+    ]);
+
+    for (const page of [nikitaPage, nikitaFallbackPage]) {
+      await expect(
+        page
+          .getByTestId("direct-message-human")
+          .filter({ hasText: "parallel ratchet one" }),
+      ).toBeVisible({ timeout: 20_000 });
+      await expect(
+        page
+          .getByTestId("direct-message-human")
+          .filter({ hasText: "parallel ratchet two" }),
+      ).toBeVisible({ timeout: 20_000 });
+      await expect(
+        page.getByTestId("direct-message-undecryptable"),
+      ).toHaveCount(0);
+    }
+    await aliceFallbackPage.close();
+    await nikitaFallbackPage.close();
+
     await expect(alicePage.getByTestId("direct-mention-vimla")).toHaveCount(0);
     await composer.fill("@vimla");
     await expect(alicePage.getByTestId("composer-mention-highlight")).toHaveText("@vimla", { timeout: 20_000 });
@@ -128,3 +195,80 @@ test.describe("Secure Direct Chats", () => {
     await nikitaContext.close();
   });
 });
+
+function directConversationId(url: string): string {
+  const id = new URL(url).pathname.split("/").filter(Boolean).at(-1);
+  if (!id) {
+    throw new Error("Direct Chat URL is missing a conversation id");
+  }
+  return id;
+}
+
+async function disableWebLocks(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, "locks", {
+      configurable: true,
+      value: undefined,
+    });
+  });
+}
+
+async function readLocalDeviceId(page: Page): Promise<string> {
+  return page.evaluate(async () => {
+    const db = await openE2eeDb();
+    try {
+      return await new Promise<string>((resolve, reject) => {
+        const tx = db.transaction("device", "readonly");
+        const request = tx.objectStore("device").get("local");
+        request.onsuccess = () => {
+          const value = request.result as { deviceId?: unknown } | undefined;
+          if (!value || typeof value.deviceId !== "string") {
+            reject(new Error("Local E2EE device is missing"));
+            return;
+          }
+          resolve(value.deviceId);
+        };
+        request.onerror = () =>
+          reject(request.error ?? new Error("Local E2EE device read failed"));
+      });
+    } finally {
+      db.close();
+    }
+  });
+}
+
+async function seedExpiredRatchetLease(
+  page: Page,
+  input: {
+    conversationId: string;
+    localDeviceId: string;
+    peerDeviceId: string;
+  },
+): Promise<void> {
+  await page.evaluate(async (value) => {
+    const db = await openE2eeDb();
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction("ratchetLocks", "readwrite");
+        tx.objectStore("ratchetLocks").put(
+          {
+            owner: "simulated-crashed-tab",
+            expiresAt: Date.now() - 1_000,
+          },
+          [
+            "vimla-ratchet",
+            value.conversationId,
+            value.localDeviceId,
+            value.peerDeviceId,
+          ].join(":"),
+        );
+        tx.oncomplete = () => resolve();
+        tx.onerror = () =>
+          reject(tx.error ?? new Error("Ratchet lease seed failed"));
+      });
+    } finally {
+      db.close();
+    }
+  }, input);
+}
+
