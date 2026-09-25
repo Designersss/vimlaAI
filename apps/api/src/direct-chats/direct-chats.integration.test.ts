@@ -31,7 +31,10 @@ import {
   ContextAccessDeniedError,
   ContextSnapshotService,
 } from "@vimla/context";
-import type { MessageMentionInput } from "@vimla/contracts";
+import {
+  DIRECT_CHAT_LIMITS,
+  type MessageMentionInput,
+} from "@vimla/contracts";
 import { seedVimlaPlans } from "@vimla/billing";
 import { loadApiConfig } from "@vimla/config/server";
 import { createPrismaClient } from "@vimla/database";
@@ -702,32 +705,56 @@ describe("direct chats API", () => {
   });
 
   it("rate-limits mutating OTK claims", async () => {
-    const alice = await readyUser(
-      app,
-      "dc-prekey-claim-limit",
-      "Alice",
-    );
-    const device = await registerHarness(app, alice);
-    const statuses: number[] = [];
-    for (let index = 0; index < 65; index += 1) {
-      const response = await app.inject({
-        method: "POST",
-        url: `/v1/direct-chats/users/${alice.id}/prekeys/claim`,
-        headers: jsonHeaders(),
-        cookies: alice.cookies,
-        payload: { deviceId: device.deviceId },
-      });
-      statuses.push(response.statusCode);
-    }
-    expect(statuses).toContain(429);
+    const previousLimit =
+      process.env.DIRECT_CHATS_MUTATION_LIMIT_PER_MINUTE;
+    process.env.DIRECT_CHATS_MUTATION_LIMIT_PER_MINUTE =
+      "5";
+    const isolatedConfig = loadApiConfig(process.env);
+    process.env.DIRECT_CHATS_MUTATION_LIMIT_PER_MINUTE =
+      previousLimit ?? "500";
 
-    const legacyGet = await app.inject({
-      method: "GET",
-      url: `/v1/direct-chats/users/${alice.id}/prekeys?deviceId=${device.deviceId}`,
-      headers: { origin },
-      cookies: alice.cookies,
-    });
-    expect(legacyGet.statusCode).toBe(404);
+    const isolated = await createVimlaApiApp(
+      isolatedConfig,
+      { quiet: true },
+    );
+    await isolated.init();
+    await isolated
+      .getHttpAdapter()
+      .getInstance()
+      .ready();
+    try {
+      const alice = await readyUser(
+        isolated,
+        "dc-prekey-claim-limit",
+        "Alice",
+      );
+      const device = await registerHarness(
+        isolated,
+        alice,
+      );
+      const statuses: number[] = [];
+      for (let index = 0; index < 6; index += 1) {
+        const response = await isolated.inject({
+          method: "POST",
+          url: `/v1/direct-chats/users/${alice.id}/prekeys/claim`,
+          headers: jsonHeaders(),
+          cookies: alice.cookies,
+          payload: { deviceId: device.deviceId },
+        });
+        statuses.push(response.statusCode);
+      }
+      expect(statuses).toContain(429);
+
+      const legacyGet = await isolated.inject({
+        method: "GET",
+        url: `/v1/direct-chats/users/${alice.id}/prekeys?deviceId=${device.deviceId}`,
+        headers: { origin },
+        cookies: alice.cookies,
+      });
+      expect(legacyGet.statusCode).toBe(404);
+    } finally {
+      await isolated.close();
+    }
   });
 
   it("keeps read receipts outside the security mutation budget", async () => {
@@ -1858,7 +1885,10 @@ interface Harness {
   deviceId: string;
   identity: IdentityKeyPair;
   signed: SignedPreKeyPair;
-  otk: ReturnType<typeof generateOneTimePreKey>;
+  otks: Map<
+    number,
+    ReturnType<typeof generateOneTimePreKey>
+  >;
   ratchets: Map<string, RatchetState>;
 }
 
@@ -1904,14 +1934,26 @@ function createHarnessFixture(): {
 } {
   const identity = generateIdentity();
   const signed = generateSignedPreKey(identity, 1);
-  const otk = generateOneTimePreKey(1);
+  const oneTimePrekeys = Array.from(
+    {
+      length:
+        DIRECT_CHAT_LIMITS.prekeysTarget,
+    },
+    (_, index) =>
+      generateOneTimePreKey(index + 1),
+  );
   const deviceId = randomUUID();
   return {
     harness: {
       deviceId,
       identity,
       signed,
-      otk,
+      otks: new Map(
+        oneTimePrekeys.map((key) => [
+          key.keyId,
+          key,
+        ]),
+      ),
       ratchets: new Map(),
     },
     payload: {
@@ -1929,10 +1971,12 @@ function createHarnessFixture(): {
       signedPrekeySignature: bytesToB64(
         signed.signature,
       ),
-      oneTimePrekeys: [{
-        keyId: otk.keyId,
-        publicKey: bytesToB64(otk.publicKey),
-      }],
+      oneTimePrekeys: oneTimePrekeys.map(
+        (key) => ({
+          keyId: key.keyId,
+          publicKey: bytesToB64(key.publicKey),
+        }),
+      ),
       label: "test",
     },
   };
@@ -2127,12 +2171,29 @@ function decryptFor(
 ): string {
   let state = recipient.ratchets.get(sender.deviceId) ?? null;
   if (!state && envelope.x3dhInit) {
+    const oneTimePrekeyId =
+      envelope.x3dhInit.oneTimePrekeyId;
+    const oneTimePrekey =
+      oneTimePrekeyId === null
+        ? null
+        : recipient.otks.get(oneTimePrekeyId) ?? null;
+    if (
+      oneTimePrekeyId !== null &&
+      !oneTimePrekey
+    ) {
+      throw new Error(
+        "missing one-time prekey fixture",
+      );
+    }
     const shared = x3dhRespond(
       recipient.identity,
       recipient.signed.secret,
-      envelope.x3dhInit.oneTimePrekeyId ? recipient.otk.secret : null,
+      oneTimePrekey?.secret ?? null,
       envelope.x3dhInit,
     );
+    if (oneTimePrekeyId !== null) {
+      recipient.otks.delete(oneTimePrekeyId);
+    }
     state = initRatchetResponder(shared.sharedKey, {
       secret: recipient.signed.secret,
       publicKey: recipient.signed.publicKey,
