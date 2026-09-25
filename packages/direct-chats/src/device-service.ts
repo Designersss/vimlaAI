@@ -156,9 +156,16 @@ export class DeviceService {
     return toDeviceView(updated);
   }
 
-  async prekeyBundlesForUser(userId: string): Promise<PrekeyBundle[]> {
+  async prekeyBundlesForUser(
+    userId: string,
+    deviceId?: string,
+  ): Promise<PrekeyBundle[]> {
     const devices = await this.db.userCryptoDevice.findMany({
-      where: { userId, revokedAt: null },
+      where: {
+        userId,
+        revokedAt: null,
+        ...(deviceId ? { id: deviceId } : {}),
+      },
       orderBy: { createdAt: "asc" },
     });
     const bundles: PrekeyBundle[] = [];
