@@ -198,24 +198,50 @@ test.describe("Secure Direct Chats", () => {
     const fallbackComposer = aliceFallbackPage.getByPlaceholder(
       /сообщение этому человеку|message this person/i,
     );
-    await primaryComposer.fill("parallel ratchet one");
-    await fallbackComposer.fill("parallel ratchet two");
+    const stressCount = 4;
     await Promise.all([
-      alicePage.getByTestId("chat-composer-send").click(),
-      aliceFallbackPage.getByTestId("chat-composer-send").click(),
+      (async () => {
+        for (let index = 0; index < stressCount; index += 1) {
+          const text = `parallel web-lock ${index}`;
+          await primaryComposer.fill(text);
+          await expect(
+            alicePage.getByTestId("chat-composer-send"),
+          ).toBeEnabled();
+          await alicePage.getByTestId("chat-composer-send").click();
+          await expect(
+            alicePage
+              .getByTestId("direct-message-human")
+              .filter({ hasText: text }),
+          ).toBeVisible({ timeout: 20_000 });
+        }
+      })(),
+      (async () => {
+        for (let index = 0; index < stressCount; index += 1) {
+          const text = `parallel fallback ${index}`;
+          await fallbackComposer.fill(text);
+          await expect(
+            aliceFallbackPage.getByTestId("chat-composer-send"),
+          ).toBeEnabled();
+          await aliceFallbackPage.getByTestId("chat-composer-send").click();
+          await expect(
+            aliceFallbackPage
+              .getByTestId("direct-message-human")
+              .filter({ hasText: text }),
+          ).toBeVisible({ timeout: 20_000 });
+        }
+      })(),
     ]);
 
     for (const page of [nikitaPage, nikitaFallbackPage]) {
-      await expect(
-        page
-          .getByTestId("direct-message-human")
-          .filter({ hasText: "parallel ratchet one" }),
-      ).toBeVisible({ timeout: 20_000 });
-      await expect(
-        page
-          .getByTestId("direct-message-human")
-          .filter({ hasText: "parallel ratchet two" }),
-      ).toBeVisible({ timeout: 20_000 });
+      for (const prefix of ["parallel web-lock", "parallel fallback"]) {
+        for (let index = 0; index < stressCount; index += 1) {
+          await expect(
+            page
+              .getByTestId("direct-message-human")
+              .filter({ hasText: `${prefix} ${index}` }),
+          ).toBeVisible({ timeout: 20_000 });
+        }
+      }
       await expect(
         page.getByTestId("direct-message-undecryptable"),
       ).toHaveCount(0);
@@ -234,13 +260,15 @@ test.describe("Secure Direct Chats", () => {
       }>;
     };
     const parallelMessageNumbers = senderCopyPayload.items
-      .slice(0, 2)
+      .slice(0, stressCount * 2)
       .map((message) => message.envelope?.messageNumber);
-    expect(parallelMessageNumbers).toHaveLength(2);
+    expect(parallelMessageNumbers).toHaveLength(stressCount * 2);
     expect(parallelMessageNumbers.every(
       (messageNumber) => typeof messageNumber === "number",
     )).toBe(true);
-    expect(new Set(parallelMessageNumbers).size).toBe(2);
+    expect(new Set(parallelMessageNumbers).size).toBe(
+      stressCount * 2,
+    );
 
     const migratedRatchet = await readRatchetRecordVersion(
       aliceFallbackPage,
