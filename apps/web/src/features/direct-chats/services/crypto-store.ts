@@ -67,6 +67,7 @@ export interface StoredPlaintext {
 export interface StoredPendingSend {
   conversationId: string;
   clientMessageId: string;
+  senderUserId: string;
   senderDeviceId: string;
   kind: DirectMessageKind;
   envelopes: WireEnvelopeDto[];
@@ -233,7 +234,7 @@ export async function completePendingSend(input: {
         messageId: input.messageId,
         text: input.pending.plaintext,
         kind: input.pending.kind,
-        senderUserId: "",
+        senderUserId: input.pending.senderUserId,
         createdAt: input.serverCreatedAt,
       } satisfies StoredPlaintext,
       input.messageId,
