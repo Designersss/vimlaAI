@@ -307,13 +307,13 @@ export class DeviceService {
 
   async prekeyBundlesForUser(
     userId: string,
-    deviceId?: string,
+    deviceId: string,
   ): Promise<PrekeyBundle[]> {
     const devices = await this.db.userCryptoDevice.findMany({
       where: {
         userId,
         revokedAt: null,
-        ...(deviceId ? { id: deviceId } : {}),
+        id: deviceId,
       },
       orderBy: { createdAt: "asc" },
     });
