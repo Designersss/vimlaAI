@@ -602,6 +602,23 @@ export async function withLocalDeviceBootstrapLock<T>(
   );
 }
 
+export async function withPendingSendRecoveryLock<T>(
+  input: {
+    conversationId: string;
+    localDeviceId: string;
+  },
+  fn: () => Promise<T>,
+): Promise<T> {
+  return withCoordinationLock(
+    [
+      "vimla-pending-send-recovery",
+      input.conversationId,
+      input.localDeviceId,
+    ].join(":"),
+    fn,
+  );
+}
+
 export async function loadPlaintext(
   messageId: string,
 ): Promise<StoredPlaintext | null> {
