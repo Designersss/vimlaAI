@@ -7,7 +7,6 @@ import {
   directMessageViewSchema,
   directMessagesResponseSchema,
   prekeyBundlesResponseSchema,
-  prekeyStatusResponseSchema,
   type CreateDirectConversation,
   type CryptoDeviceView,
   type DirectConversationView,
@@ -15,12 +14,15 @@ import {
   type DirectMessageView,
   type DirectMessagesResponse,
   type PrekeyBundlesResponse,
-  type PrekeyStatusResponse,
   type RegisterCryptoDevice,
-  type ReplenishOneTimePrekeys,
   type SendDirectMessage,
   type UpdateDirectChatPrivacy,
 } from "@vimla/contracts";
+import {
+  prekeyStatusResponseSchema,
+  type PrekeyStatusResponse,
+  type ReplenishOneTimePrekeys,
+} from "@vimla/contracts/direct-chats";
 import { publicWebConfig } from "../../../shared/config/public-env";
 import { AuthRequiredError } from "../../auth/services/current-user";
 
