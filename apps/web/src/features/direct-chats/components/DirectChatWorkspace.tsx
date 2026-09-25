@@ -485,11 +485,6 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         envelopes,
         mentions,
       });
-      await acknowledgeSentRatchets({
-        conversationId: latest.id,
-        localDeviceId: device.deviceId,
-        envelopes,
-      });
       await savePlaintext({
         conversationId: latest.id,
         messageId: created.id,
@@ -497,6 +492,11 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         kind,
         senderUserId: userId,
         createdAt: created.createdAt,
+      });
+      void acknowledgeSentRatchets({
+        conversationId: latest.id,
+        localDeviceId: device.deviceId,
+        envelopes,
       });
       setRows((current) => mergeDecryptedRows(current, [
         { message: created, payload: decodeDirectPlaintext(kind, plaintext) },
