@@ -14,6 +14,8 @@ export const DIRECT_CHAT_LIMITS = {
   contextTextMax: 4_000,
   contextCharsMax: 32_000,
   prekeysMax: 32,
+  prekeysAvailableMax: 64,
+  consumedPrekeysRetainedMax: 256,
   deviceLabelMax: 80,
   peerEmailMax: 254,
 } as const;
@@ -136,7 +138,19 @@ export type ReplenishOneTimePrekeys = z.infer<
 export const prekeyStatusResponseSchema = z
   .object({
     deviceId: z.string().uuid(),
-    available: z.number().int().min(0),
+    available: z
+      .number()
+      .int()
+      .min(0)
+      .max(DIRECT_CHAT_LIMITS.prekeysAvailableMax),
+    availableKeyIds: z
+      .array(z.number().int().min(1).max(1_000_000))
+      .max(DIRECT_CHAT_LIMITS.prekeysAvailableMax),
+    recentlyConsumedKeyIds: z
+      .array(z.number().int().min(1).max(1_000_000))
+      .max(
+        DIRECT_CHAT_LIMITS.consumedPrekeysRetainedMax,
+      ),
   })
   .strict();
 export type PrekeyStatusResponse = z.infer<
