@@ -576,7 +576,9 @@ export async function decryptMessage(input: {
     return decodeDirectPlaintext(input.message.kind, cached.text);
   }
   const envelope = input.message.envelope;
-  if (!envelope || !input.senderIdentityEd25519Public) {
+  const senderIdentityEd25519Public =
+    input.senderIdentityEd25519Public;
+  if (!envelope || !senderIdentityEd25519Public) {
     return null;
   }
   const material = await ensureLocalDevice();
@@ -650,7 +652,7 @@ export async function decryptMessage(input: {
             : undefined;
         const opened = decryptEnvelope({
           senderIdentityEd25519Public: b64ToBytes(
-            input.senderIdentityEd25519Public,
+            senderIdentityEd25519Public,
           ),
           state,
           envelope: toWire(envelope),
