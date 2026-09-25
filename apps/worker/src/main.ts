@@ -578,13 +578,18 @@ async function startOrchestrationRuntime(
       });
     }
   };
+  let localAiTelemetryRun: Promise<void> | undefined;
+  const runLocalAiTelemetry = (): void => {
+    if (!vimlaCore.provider || localAiTelemetryRun) return;
+    localAiTelemetryRun = emitLocalAiTelemetry().finally(() => {
+      localAiTelemetryRun = undefined;
+    });
+  };
   const localAiTelemetryTimer = vimlaCore.provider
-    ? setInterval(() => {
-        void emitLocalAiTelemetry();
-      }, 30_000)
+    ? setInterval(runLocalAiTelemetry, 30_000)
     : undefined;
   localAiTelemetryTimer?.unref?.();
-  void emitLocalAiTelemetry();
+  runLocalAiTelemetry();
 
   return {
     dispatchQueue,
