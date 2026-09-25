@@ -18,8 +18,9 @@ import {
   type PublicPreKeyBundle,
   type WireEnvelope,
 } from "@vimla/e2ee";
-import type {
-  CryptoDeviceView,
+import {
+  DIRECT_CHAT_LIMITS,
+  type CryptoDeviceView,
   DirectEnvelopeView,
   DirectMessageView,
   MessageMentionInput,
@@ -61,10 +62,6 @@ import {
 } from "./ratchet-coordination";
 import { decodeDirectPlaintext, encodeDirectPlaintext, type DirectPlaintextPayload } from "./payload";
 
-const PREKEY_LOW_WATER = 8;
-const PREKEY_TARGET = 16;
-const PREKEY_STATUS_MAX_AGE_MS = 5 * 60_000;
-
 export async function ensureLocalDevice(
   options: { forcePrekeyCheck?: boolean } = {},
 ): Promise<StoredDeviceMaterial> {
@@ -90,13 +87,13 @@ export async function ensureLocalDevice(
     const identity = generateIdentity();
     const signed = generateSignedPreKey(identity, 1);
     const oneTime = Array.from(
-      { length: PREKEY_TARGET },
+      { length: DIRECT_CHAT_LIMITS.prekeysTarget },
       (_, index) => generateOneTimePreKey(index + 1),
     );
     const material: StoredDeviceMaterial = {
       deviceId: crypto.randomUUID(),
       registrationState: "PENDING",
-      nextOneTimePrekeyId: PREKEY_TARGET + 1,
+      nextOneTimePrekeyId: DIRECT_CHAT_LIMITS.prekeysTarget + 1,
       identity: encodeIdentity(identity),
       signedPrekeys: {
         [String(signed.keyId)]: {
@@ -172,7 +169,7 @@ async function ensurePrekeySupply(
   if (
     !forceCheck &&
     Number.isFinite(checkedAt) &&
-    Date.now() - checkedAt < PREKEY_STATUS_MAX_AGE_MS
+    Date.now() - checkedAt < DIRECT_CHAT_LIMITS.prekeyStatusMaxAgeMs
   ) {
     return current;
   }
@@ -202,7 +199,7 @@ async function ensurePrekeySupply(
     await saveDeviceMaterial(current);
   }
 
-  if (status.available >= PREKEY_LOW_WATER) {
+  if (status.available >= DIRECT_CHAT_LIMITS.prekeysLowWater) {
     const checked: StoredDeviceMaterial = {
       ...current,
       prekeyStatusCheckedAt: new Date().toISOString(),
@@ -212,7 +209,7 @@ async function ensurePrekeySupply(
   }
 
   const needed = Math.min(
-    PREKEY_TARGET - status.available,
+    DIRECT_CHAT_LIMITS.prekeysTarget - status.available,
     32,
   );
   const nextOneTimePrekeyId =
