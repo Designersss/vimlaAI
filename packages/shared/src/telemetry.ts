@@ -345,9 +345,16 @@ export function safeTelemetryFields(
   const source = event as unknown as Record<string, unknown>;
   const result: Record<string, unknown> = {};
   for (const key of allowed) {
-    if (key in source) {
-      result[key] = source[key];
+    if (!(key in source)) continue;
+    const value = source[key];
+    if (
+      key === "correlationId" &&
+      (typeof value !== "string" ||
+        !/^[A-Za-z0-9._:-]{1,128}$/.test(value))
+    ) {
+      continue;
     }
+    result[key] = value;
   }
   return result;
 }
