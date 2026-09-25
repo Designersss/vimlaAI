@@ -25,7 +25,9 @@ import {
   listDirectConversationsQuerySchema,
   listDirectMessagesQuerySchema,
   prekeyBundlesResponseSchema,
+  prekeyStatusResponseSchema,
   registerCryptoDeviceSchema,
+  replenishOneTimePrekeysSchema,
   rotatePrekeysSchema,
   sendDirectMessageSchema,
   updateDirectChatPrivacySchema,
@@ -36,6 +38,7 @@ import {
   type DirectMessageView,
   type DirectMessagesResponse,
   type PrekeyBundlesResponse,
+  type PrekeyStatusResponse,
 } from "@vimla/contracts";
 import type { Observable } from "rxjs";
 import { AuthGuard } from "../auth/auth.guard.js";
@@ -70,6 +73,46 @@ export class DirectChatDevicesController {
     const device = await this.directChats.devices.register(this.directChats.actor(user), input);
     this.directChats.logMutation("device.register", user.id);
     return cryptoDeviceViewSchema.parse(device);
+  }
+
+  @Get(":deviceId/prekeys/status")
+  async prekeyStatus(
+    @AuthUser() user: AuthenticatedUser,
+    @Param("deviceId") deviceId: string,
+  ): Promise<PrekeyStatusResponse> {
+    this.directChats.assertEnabled();
+    return prekeyStatusResponseSchema.parse(
+      await this.directChats.devices.prekeyStatus(
+        this.directChats.actor(user),
+        deviceId,
+      ),
+    );
+  }
+
+  @Post(":deviceId/prekeys/replenish")
+  @HttpCode(200)
+  async replenishPrekeys(
+    @AuthUser() user: AuthenticatedUser,
+    @Param("deviceId") deviceId: string,
+    @Body() body: unknown,
+  ): Promise<PrekeyStatusResponse> {
+    this.directChats.assertEnabled();
+    const input = parseRequest(
+      replenishOneTimePrekeysSchema,
+      body,
+      "Invalid one-time prekey payload",
+    );
+    const status =
+      await this.directChats.devices.replenishOneTimePrekeys(
+        this.directChats.actor(user),
+        deviceId,
+        input,
+      );
+    this.directChats.logMutation(
+      "device.prekeys.replenish",
+      user.id,
+    );
+    return prekeyStatusResponseSchema.parse(status);
   }
 
   @Post(":deviceId/rotate")
