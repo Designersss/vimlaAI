@@ -761,7 +761,7 @@ function sameReplayEnvelopes(
 
 function sameReplayMentions(
   stored: readonly MessageMentionView[],
-  incoming: readonly SendDirectMessage["mentions"],
+  incoming: Readonly<SendDirectMessage["mentions"]>,
 ): boolean {
   if (stored.length !== incoming.length) return false;
   const canonical = (
@@ -781,14 +781,16 @@ function sameReplayMentions(
       mention.startOffset,
       mention.endOffset,
     ].join("\u0000");
-  return [...stored]
+  const storedCanonical = [...stored]
     .map(canonical)
-    .sort()
-    .every(
-      (value, index) =>
-        value ===
-        [...incoming].map(canonical).sort()[index],
-    );
+    .sort();
+  const incomingCanonical = [...incoming]
+    .map(canonical)
+    .sort();
+  return storedCanonical.every(
+    (value, index) =>
+      value === incomingCanonical[index],
+  );
 }
 
 
