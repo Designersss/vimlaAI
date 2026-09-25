@@ -3,6 +3,7 @@ import {
   b64ToBytes,
   type IdentityKeyPair,
   type SerializedRatchetState,
+  type X3dhInitHeader,
 } from "@vimla/e2ee";
 import {
   RatchetLockLostError,
@@ -179,6 +180,7 @@ export async function saveRatchet(
   peerDeviceId: string,
   expectedVersion: number,
   state: SerializedRatchetState,
+  pendingX3dhInit: X3dhInitHeader | null,
 ): Promise<RatchetSnapshot> {
   return commitRatchet({
     conversationId,
@@ -186,6 +188,7 @@ export async function saveRatchet(
     peerDeviceId,
     expectedVersion,
     state,
+    pendingX3dhInit,
   });
 }
 
@@ -195,9 +198,31 @@ export async function commitDecryptedRatchet(input: {
   peerDeviceId: string;
   expectedVersion: number;
   state: SerializedRatchetState;
+  pendingX3dhInit: X3dhInitHeader | null;
   plaintext: StoredPlaintext;
 }): Promise<RatchetSnapshot> {
   return commitRatchet(input);
+}
+
+export async function acknowledgeRatchetHandshake(input: {
+  conversationId: string;
+  localDeviceId: string;
+  peerDeviceId: string;
+}): Promise<void> {
+  await withRatchetSessionLock(input, async () => {
+    const current = await loadRatchet(
+      input.conversationId,
+      input.localDeviceId,
+      input.peerDeviceId,
+    );
+    if (!current?.pendingX3dhInit) return;
+    await commitRatchet({
+      ...input,
+      expectedVersion: current.stateVersion,
+      state: current.state,
+      pendingX3dhInit: null,
+    });
+  });
 }
 
 export async function withRatchetSessionLock<T>(
@@ -323,6 +348,7 @@ async function commitRatchet(input: {
   peerDeviceId: string;
   expectedVersion: number;
   state: SerializedRatchetState;
+  pendingX3dhInit: X3dhInitHeader | null;
   plaintext?: StoredPlaintext;
 }): Promise<RatchetSnapshot> {
   const db = await openDb();
@@ -355,6 +381,7 @@ async function commitRatchet(input: {
             localDeviceId: input.localDeviceId,
             stateVersion: nextVersion,
             state: input.state,
+            pendingX3dhInit: input.pendingX3dhInit,
           }),
           key,
         );
@@ -382,6 +409,7 @@ async function commitRatchet(input: {
       resolve({
         stateVersion: nextVersion,
         state: input.state,
+        pendingX3dhInit: input.pendingX3dhInit,
       });
     };
     tx.onabort = () => {
