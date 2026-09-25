@@ -56,7 +56,6 @@ import {
 } from "../services/api";
 import {
   loadConversationPlaintexts,
-  savePlaintext,
 } from "../services/crypto-store";
 import {
   boundDirectChatContextBefore,
@@ -65,10 +64,11 @@ import {
 import { decodeDirectPlaintext, encodeDirectPlaintext, type DirectPlaintextPayload } from "../services/payload";
 import { subscribeDirectChatEvents } from "../services/realtime";
 import {
-  acknowledgeSentRatchets,
   decryptMessage,
   encryptForDevices,
   ensureLocalDevice,
+  finalizePendingSend,
+  recoverPendingSends,
 } from "../services/session";
 import { useChatWorkspace, usePrepareChatDevice } from "../../chat/components/ChatWorkspace/ChatWorkspaceProvider";
 import { ChatConversationHeader } from "../../chat/components/ChatWorkspace/ChatConversationHeader";
@@ -160,8 +160,12 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
           return;
         }
         await prepareDevice();
-        const detail = await fetchDirectConversation(conversationId);
         const device = await ensureLocalDevice();
+        await recoverPendingSends({
+          conversationId,
+          localDeviceId: device.deviceId,
+        });
+        const detail = await fetchDirectConversation(conversationId);
         const page = await fetchDirectMessages(conversationId, device.deviceId);
         const decrypted = await decryptPage(detail, page.items);
         if (cancelled) return;
@@ -470,34 +474,24 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
     try {
       const latest = await reloadConversation();
       const device = await ensureLocalDevice();
-      const envelopes = await encryptForDevices({
+      const pending = await encryptForDevices({
         conversationId: latest.id,
         senderUserId: userId,
+        clientMessageId: crypto.randomUUID(),
+        localDevice: device,
         kind,
         plaintext,
         devices: latest.devices,
         mentions,
       });
       const created = await sendDirectMessage(latest.id, {
-        clientMessageId: crypto.randomUUID(),
-        senderDeviceId: device.deviceId,
-        kind,
-        envelopes,
-        mentions,
+        clientMessageId: pending.clientMessageId,
+        senderDeviceId: pending.senderDeviceId,
+        kind: pending.kind,
+        envelopes: pending.envelopes,
+        mentions: pending.mentions,
       });
-      await savePlaintext({
-        conversationId: latest.id,
-        messageId: created.id,
-        text: plaintext,
-        kind,
-        senderUserId: userId,
-        createdAt: created.createdAt,
-      });
-      void acknowledgeSentRatchets({
-        conversationId: latest.id,
-        localDeviceId: device.deviceId,
-        envelopes,
-      });
+      await finalizePendingSend(pending, created);
       setRows((current) => mergeDecryptedRows(current, [
         { message: created, payload: decodeDirectPlaintext(kind, plaintext) },
       ]));
