@@ -86,4 +86,33 @@ describe("worker telemetry adapter", () => {
       "telemetry",
     );
   });
+
+  it("drops unexpected sensitive fields at the runtime telemetry boundary", () => {
+    const event = {
+      event: "runtime.invocation",
+      planId: "plan-1",
+      invocationId: "inv-1",
+      runId: "run-1",
+      targetKind: "VIMLA",
+      outcome: "SUCCESS",
+      durationMs: 12,
+      queueDelayMs: 3,
+      attempt: 1,
+      retryable: false,
+      prompt: "never log this prompt",
+      secret: "never log this secret",
+      authorization: "Bearer never-log",
+    } as TelemetryEvent;
+
+    const fields = toTelemetryLogFields(event);
+
+    expect(fields).toMatchObject({
+      event: "runtime.invocation",
+      planId: "plan-1",
+      invocationId: "inv-1",
+    });
+    expect(fields).not.toHaveProperty("prompt");
+    expect(fields).not.toHaveProperty("secret");
+    expect(fields).not.toHaveProperty("authorization");
+  });
 });
