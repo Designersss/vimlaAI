@@ -8,51 +8,82 @@ export class DeviceService {
   constructor(private readonly db: DbClient) {}
 
   async register(actor: ActorContext, input: RegisterCryptoDevice): Promise<CryptoDeviceView> {
-    assertSignedPrekey(input.identityEd25519Public, input.signedPrekeyId, input.signedPrekeyPublic, input.signedPrekeySignature);
-    const existing = await this.db.userCryptoDevice.findUnique({ where: { id: input.deviceId } });
-    if (existing && existing.userId !== actor.userId) {
-      throw new DirectChatError("FORBIDDEN", "Device id is already registered");
+    assertSignedPrekey(
+      input.identityEd25519Public,
+      input.signedPrekeyId,
+      input.signedPrekeyPublic,
+      input.signedPrekeySignature,
+    );
+
+    let existing = await this.db.userCryptoDevice.findUnique({
+      where: { id: input.deviceId },
+    });
+    if (!existing) {
+      try {
+        const created = await this.db.userCryptoDevice.create({
+          data: {
+            id: input.deviceId,
+            userId: actor.userId,
+            identityEd25519Public: input.identityEd25519Public,
+            identityX25519Public: input.identityX25519Public,
+            signedPrekeyId: input.signedPrekeyId,
+            signedPrekeyPublic: input.signedPrekeyPublic,
+            signedPrekeySignature: input.signedPrekeySignature,
+            label: input.label ?? null,
+            oneTimePrekeys: {
+              create: input.oneTimePrekeys.map((key) => ({
+                keyId: key.keyId,
+                publicKey: key.publicKey,
+              })),
+            },
+          },
+        });
+        return toDeviceView(created);
+      } catch (error: unknown) {
+        existing = await this.db.userCryptoDevice.findUnique({
+          where: { id: input.deviceId },
+        });
+        if (!existing) {
+          throw error;
+        }
+      }
     }
-    if (existing?.revokedAt) {
-      throw new DirectChatError("DEVICE_REVOKED", "This device was revoked");
+
+    if (existing.userId !== actor.userId) {
+      throw new DirectChatError(
+        "FORBIDDEN",
+        "Device id is already registered",
+      );
+    }
+    if (existing.revokedAt) {
+      throw new DirectChatError(
+        "DEVICE_REVOKED",
+        "This device was revoked",
+      );
     }
     if (
-      existing &&
-      (existing.identityEd25519Public !== input.identityEd25519Public ||
-        existing.identityX25519Public !== input.identityX25519Public)
+      existing.identityEd25519Public !== input.identityEd25519Public ||
+      existing.identityX25519Public !== input.identityX25519Public ||
+      existing.signedPrekeyId !== input.signedPrekeyId ||
+      existing.signedPrekeyPublic !== input.signedPrekeyPublic ||
+      existing.signedPrekeySignature !== input.signedPrekeySignature
     ) {
       throw new DirectChatError(
         "TAMPERED",
-        "Registered device identity cannot be replaced",
+        "Registered device key material cannot be replaced",
       );
     }
 
-    const saved = await this.db.userCryptoDevice.upsert({
-      where: { id: input.deviceId },
-      create: {
-        id: input.deviceId,
-        userId: actor.userId,
-        identityEd25519Public: input.identityEd25519Public,
-        identityX25519Public: input.identityX25519Public,
-        signedPrekeyId: input.signedPrekeyId,
-        signedPrekeyPublic: input.signedPrekeyPublic,
-        signedPrekeySignature: input.signedPrekeySignature,
-        label: input.label ?? null,
-        oneTimePrekeys: {
-          create: input.oneTimePrekeys.map((key) => ({ keyId: key.keyId, publicKey: key.publicKey })),
-        },
-      },
-      update: {
-        signedPrekeyId: input.signedPrekeyId,
-        signedPrekeyPublic: input.signedPrekeyPublic,
-        signedPrekeySignature: input.signedPrekeySignature,
+    await this.replaceUnusedPrekeys(
+      existing.id,
+      input.oneTimePrekeys,
+    );
+    const saved = await this.db.userCryptoDevice.update({
+      where: { id: existing.id },
+      data: {
         label: input.label ?? undefined,
       },
     });
-
-    if (existing) {
-      await this.replaceUnusedPrekeys(saved.id, input.oneTimePrekeys);
-    }
     return toDeviceView(saved);
   }
 
@@ -134,6 +165,29 @@ export class DeviceService {
       })),
       skipDuplicates: true,
     });
+    const persisted =
+      await this.db.directOneTimePrekey.findMany({
+        where: {
+          deviceId: device.id,
+          keyId: { in: ids },
+        },
+        select: {
+          keyId: true,
+          publicKey: true,
+        },
+      });
+    if (
+      persisted.length !== ids.length ||
+      persisted.some(
+        (row) =>
+          requestedById.get(row.keyId) !== row.publicKey,
+      )
+    ) {
+      throw new DirectChatError(
+        "TAMPERED",
+        "One-time prekey id cannot be replaced",
+      );
+    }
     return this.prekeyStatus(actor, device.id);
   }
 
