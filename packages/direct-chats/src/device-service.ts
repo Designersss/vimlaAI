@@ -133,26 +133,62 @@ export class DeviceService {
   async prekeyStatus(
     actor: ActorContext,
     deviceId: string,
-  ): Promise<{ deviceId: string; available: number }> {
+  ): Promise<{
+    deviceId: string;
+    available: number;
+    availableKeyIds: number[];
+    recentlyConsumedKeyIds: number[];
+  }> {
     const device = await this.requireOwnActiveDevice(
       actor.userId,
       deviceId,
     );
-    const available =
-      await this.db.directOneTimePrekey.count({
-        where: {
-          deviceId: device.id,
-          consumedAt: null,
-        },
-      });
-    return { deviceId: device.id, available };
+    const [availableRows, consumedRows] =
+      await Promise.all([
+        this.db.directOneTimePrekey.findMany({
+          where: {
+            deviceId: device.id,
+            consumedAt: null,
+          },
+          orderBy: { keyId: "asc" },
+          select: { keyId: true },
+        }),
+        this.db.directOneTimePrekey.findMany({
+          where: {
+            deviceId: device.id,
+            consumedAt: { not: null },
+          },
+          orderBy: [
+            { consumedAt: "desc" },
+            { keyId: "desc" },
+          ],
+          take:
+            DIRECT_CHAT_LIMITS.consumedPrekeysRetainedMax,
+          select: { keyId: true },
+        }),
+      ]);
+    return {
+      deviceId: device.id,
+      available: availableRows.length,
+      availableKeyIds: availableRows.map(
+        (row) => row.keyId,
+      ),
+      recentlyConsumedKeyIds: consumedRows.map(
+        (row) => row.keyId,
+      ),
+    };
   }
 
   async replenishOneTimePrekeys(
     actor: ActorContext,
     deviceId: string,
     input: ReplenishOneTimePrekeys,
-  ): Promise<{ deviceId: string; available: number }> {
+  ): Promise<{
+    deviceId: string;
+    available: number;
+    availableKeyIds: number[];
+    recentlyConsumedKeyIds: number[];
+  }> {
     const device = await this.requireOwnActiveDevice(
       actor.userId,
       deviceId,
@@ -160,62 +196,92 @@ export class DeviceService {
     const ids = input.oneTimePrekeys.map(
       (key) => key.keyId,
     );
-    const existing =
-      await this.db.directOneTimePrekey.findMany({
-        where: {
-          deviceId: device.id,
-          keyId: { in: ids },
-        },
-        select: {
-          keyId: true,
-          publicKey: true,
-        },
-      });
     const requestedById = new Map(
       input.oneTimePrekeys.map((key) => [
         key.keyId,
         key.publicKey,
       ]),
     );
-    for (const row of existing) {
-      if (requestedById.get(row.keyId) !== row.publicKey) {
+
+    await this.runSerializable(async (tx) => {
+      const [existing, availableCount] =
+        await Promise.all([
+          tx.directOneTimePrekey.findMany({
+            where: {
+              deviceId: device.id,
+              keyId: { in: ids },
+            },
+            select: {
+              keyId: true,
+              publicKey: true,
+            },
+          }),
+          tx.directOneTimePrekey.count({
+            where: {
+              deviceId: device.id,
+              consumedAt: null,
+            },
+          }),
+        ]);
+
+      for (const row of existing) {
+        if (
+          requestedById.get(row.keyId) !==
+          row.publicKey
+        ) {
+          throw new DirectChatError(
+            "TAMPERED",
+            "One-time prekey id cannot be replaced",
+          );
+        }
+      }
+
+      const newCount = ids.length - existing.length;
+      if (
+        availableCount + newCount >
+        DIRECT_CHAT_LIMITS.prekeysAvailableMax
+      ) {
+        throw new DirectChatError(
+          "CONFLICT",
+          "One-time prekey pool limit reached",
+        );
+      }
+
+      await tx.directOneTimePrekey.createMany({
+        data: input.oneTimePrekeys.map((key) => ({
+          deviceId: device.id,
+          keyId: key.keyId,
+          publicKey: key.publicKey,
+        })),
+        skipDuplicates: true,
+      });
+
+      const persisted =
+        await tx.directOneTimePrekey.findMany({
+          where: {
+            deviceId: device.id,
+            keyId: { in: ids },
+          },
+          select: {
+            keyId: true,
+            publicKey: true,
+          },
+        });
+      if (
+        persisted.length !== ids.length ||
+        persisted.some(
+          (row) =>
+            requestedById.get(row.keyId) !==
+            row.publicKey,
+        )
+      ) {
         throw new DirectChatError(
           "TAMPERED",
           "One-time prekey id cannot be replaced",
         );
       }
-    }
-    await this.db.directOneTimePrekey.createMany({
-      data: input.oneTimePrekeys.map((key) => ({
-        deviceId: device.id,
-        keyId: key.keyId,
-        publicKey: key.publicKey,
-      })),
-      skipDuplicates: true,
     });
-    const persisted =
-      await this.db.directOneTimePrekey.findMany({
-        where: {
-          deviceId: device.id,
-          keyId: { in: ids },
-        },
-        select: {
-          keyId: true,
-          publicKey: true,
-        },
-      });
-    if (
-      persisted.length !== ids.length ||
-      persisted.some(
-        (row) =>
-          requestedById.get(row.keyId) !== row.publicKey,
-      )
-    ) {
-      throw new DirectChatError(
-        "TAMPERED",
-        "One-time prekey id cannot be replaced",
-      );
-    }
+
     return this.prekeyStatus(actor, device.id);
   }
 
@@ -288,51 +354,59 @@ export class DeviceService {
     userId: string,
     input: RegisterCryptoDevice,
   ) {
+    return this.runSerializable(async (tx) => {
+      const activeCount =
+        await tx.userCryptoDevice.count({
+          where: {
+            userId,
+            revokedAt: null,
+          },
+        });
+      if (
+        activeCount >=
+        DIRECT_CHAT_LIMITS.activeDevicesPerUserMax
+      ) {
+        throw new DirectChatError(
+          "CONFLICT",
+          "Active crypto device limit reached",
+        );
+      }
+      return tx.userCryptoDevice.create({
+        data: {
+          id: input.deviceId,
+          userId,
+          identityEd25519Public:
+            input.identityEd25519Public,
+          identityX25519Public:
+            input.identityX25519Public,
+          signedPrekeyId: input.signedPrekeyId,
+          signedPrekeyPublic:
+            input.signedPrekeyPublic,
+          signedPrekeySignature:
+            input.signedPrekeySignature,
+          label: input.label ?? null,
+          oneTimePrekeys: {
+            create: input.oneTimePrekeys.map(
+              (key) => ({
+                keyId: key.keyId,
+                publicKey: key.publicKey,
+              }),
+            ),
+          },
+        },
+      });
+    });
+  }
+
+  private async runSerializable<T>(
+    operation: (
+      tx: Prisma.TransactionClient,
+    ) => Promise<T>,
+  ): Promise<T> {
     for (let attempt = 0; attempt < 3; attempt += 1) {
       try {
         return await this.db.$transaction(
-          async (tx) => {
-            const activeCount =
-              await tx.userCryptoDevice.count({
-                where: {
-                  userId,
-                  revokedAt: null,
-                },
-              });
-            if (
-              activeCount >=
-              DIRECT_CHAT_LIMITS.activeDevicesPerUserMax
-            ) {
-              throw new DirectChatError(
-                "CONFLICT",
-                "Active crypto device limit reached",
-              );
-            }
-            return tx.userCryptoDevice.create({
-              data: {
-                id: input.deviceId,
-                userId,
-                identityEd25519Public:
-                  input.identityEd25519Public,
-                identityX25519Public:
-                  input.identityX25519Public,
-                signedPrekeyId: input.signedPrekeyId,
-                signedPrekeyPublic:
-                  input.signedPrekeyPublic,
-                signedPrekeySignature:
-                  input.signedPrekeySignature,
-                label: input.label ?? null,
-                oneTimePrekeys: {
-                  create: input.oneTimePrekeys.map(
-                    (key) => ({
-                      keyId: key.keyId,
-                      publicKey: key.publicKey,
-                    }),
-                  ),
-                },
-              },
-            });
-          },
+          operation,
           {
             isolationLevel:
               Prisma.TransactionIsolationLevel.Serializable,
@@ -348,7 +422,9 @@ export class DeviceService {
         throw error;
       }
     }
-    throw new Error("Active crypto device registration failed");
+    throw new Error(
+      "Serializable Direct Chat transaction failed",
+    );
   }
 
   private async claimOneTimePrekey(
