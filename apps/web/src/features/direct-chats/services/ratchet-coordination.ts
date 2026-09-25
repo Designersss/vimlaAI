@@ -51,7 +51,7 @@ export function decodeStoredRatchet(
   }
   if (isStoredRatchetRecord(value)) {
     if (value.localDeviceId !== localDeviceId) {
-      return null;
+      throw new RatchetStateCorruptError();
     }
     return {
       stateVersion: value.stateVersion,
