@@ -26,6 +26,7 @@ describe("ratchet coordination", () => {
     expect(decodeStoredRatchet(state, "device-a")).toEqual({
       stateVersion: 0,
       state,
+      pendingX3dhInit: null,
     });
   });
 
@@ -34,10 +35,12 @@ describe("ratchet coordination", () => {
       localDeviceId: "device-a",
       stateVersion: 4,
       state,
+      pendingX3dhInit: null,
     });
     expect(decodeStoredRatchet(stored, "device-a")).toEqual({
       stateVersion: 4,
       state,
+      pendingX3dhInit: null,
     });
     expect(decodeStoredRatchet(stored, "device-b")).toBeNull();
   });
@@ -46,6 +49,7 @@ describe("ratchet coordination", () => {
     const current = {
       stateVersion: 5,
       state,
+      pendingX3dhInit: null,
     };
     expect(() => assertRatchetVersion(current, 4)).toThrow(
       RatchetStateConflictError,
