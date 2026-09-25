@@ -7,6 +7,7 @@ import {
   it,
 } from "vitest";
 import type { SemanticPlannerModel } from "@vimla/orchestration";
+import { NOOP_TELEMETRY_SINK } from "@vimla/shared";
 import { loadApiConfig } from "@vimla/config/server";
 import {
   createPrismaClient,
@@ -137,6 +138,7 @@ describe("memory maintenance runtime", () => {
       facade,
       config,
       model,
+      NOOP_TELEMETRY_SINK,
     );
 
     await maintenance.observeConversationMessage({
@@ -244,6 +246,7 @@ describe("memory maintenance runtime", () => {
       new MemoryFacade(prisma, config),
       config,
       model,
+      NOOP_TELEMETRY_SINK,
     );
 
     await expect(
@@ -300,6 +303,7 @@ describe("memory maintenance runtime", () => {
       new MemoryFacade(prisma, config),
       config,
       model,
+      NOOP_TELEMETRY_SINK,
     );
 
     await maintenance.observeConversationMessage({
@@ -353,6 +357,7 @@ describe("memory maintenance runtime", () => {
       new MemoryFacade(prisma, config),
       config,
       model,
+      NOOP_TELEMETRY_SINK,
     );
 
     await maintenance.observeConversationMessage({
@@ -401,6 +406,7 @@ describe("memory maintenance runtime", () => {
       new MemoryFacade(prisma, config),
       config,
       model,
+      NOOP_TELEMETRY_SINK,
     );
     await expect(
       maintenance.observeConversationMessage({
@@ -478,6 +484,7 @@ describe("memory maintenance runtime", () => {
       new MemoryFacade(prisma, config),
       config,
       model,
+      NOOP_TELEMETRY_SINK,
     );
 
     await maintenance.observeConversationMessage({
@@ -545,6 +552,7 @@ describe("memory maintenance runtime", () => {
       new MemoryFacade(prisma, config),
       config,
       model,
+      NOOP_TELEMETRY_SINK,
     );
 
     const firstTrigger = firstBatch[8];
@@ -663,6 +671,7 @@ describe("memory maintenance runtime", () => {
       new MemoryFacade(prisma, config),
       config,
       model,
+      NOOP_TELEMETRY_SINK,
     );
 
     await maintenance.reconcilePending(10);
@@ -746,6 +755,7 @@ describe("memory maintenance runtime", () => {
       new MemoryFacade(prisma, config),
       config,
       model,
+      NOOP_TELEMETRY_SINK,
     );
 
     await maintenance.observeConversationMessage({
@@ -905,6 +915,7 @@ describe("memory maintenance runtime", () => {
             JSON.stringify({ candidates: [] }),
           ),
       },
+      NOOP_TELEMETRY_SINK,
     );
 
     await expect(
@@ -1017,6 +1028,7 @@ describe("memory maintenance runtime", () => {
       new MemoryFacade(prisma, config),
       config,
       model,
+      NOOP_TELEMETRY_SINK,
     );
 
     await maintenance.observeConversationMessage({
@@ -1119,6 +1131,7 @@ describe("memory maintenance runtime", () => {
       new MemoryFacade(prisma, config),
       config,
       model,
+      NOOP_TELEMETRY_SINK,
     );
     await maintenance.observeConversationMessage({
       userId,
