@@ -477,6 +477,7 @@ export async function decryptMessage(input: {
         let state = stateRecord
           ? deserializeRatchet(stateRecord.state)
           : null;
+        let consumedOneTimePrekeyId: number | null = null;
         if (!state && envelope.x3dhInit) {
           const signed =
             material.signedPrekeys[
@@ -485,12 +486,18 @@ export async function decryptMessage(input: {
           if (!signed) {
             return null;
           }
+          const oneTimePrekeyId =
+            envelope.x3dhInit.oneTimePrekeyId;
           const otk =
-            envelope.x3dhInit.oneTimePrekeyId !== null
+            oneTimePrekeyId !== null
               ? material.oneTimePrekeys[
-                  String(envelope.x3dhInit.oneTimePrekeyId)
+                  String(oneTimePrekeyId)
                 ]
               : null;
+          if (oneTimePrekeyId !== null && !otk) {
+            return null;
+          }
+          consumedOneTimePrekeyId = oneTimePrekeyId;
           const shared = x3dhRespond(
             identity,
             b64ToBytes(signed.secret),
@@ -544,6 +551,7 @@ export async function decryptMessage(input: {
           state: serializeRatchet(state),
           pendingX3dhInit:
             stateRecord?.pendingX3dhInit ?? null,
+          consumedOneTimePrekeyId,
           plaintext: row,
         });
         return decodeDirectPlaintext(
