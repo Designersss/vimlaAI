@@ -323,10 +323,13 @@ export async function encryptForDevices(input: {
         ? deserializeRatchet(existing.state)
         : null;
       if (!state) {
-        let bundlesRequest = bundleRequests.get(device.userId);
+        let bundlesRequest = bundleRequests.get(device.id);
         if (!bundlesRequest) {
-          bundlesRequest = fetchPrekeyBundles(device.userId);
-          bundleRequests.set(device.userId, bundlesRequest);
+          bundlesRequest = fetchPrekeyBundles(
+            device.userId,
+            device.id,
+          );
+          bundleRequests.set(device.id, bundlesRequest);
         }
         const bundles = await bundlesRequest;
         const bundle = bundles.bundles.find(
