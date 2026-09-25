@@ -1012,7 +1012,7 @@ describe("orchestration runtime", () => {
             attempt: 1,
             idempotencyKey: `stale-${randomUUID()}`,
             status: "RUNNING",
-            startedAt: new Date(Date.now() - 60_000),
+            startedAt: new Date(Date.now() - 24 * 60 * 60_000),
           },
         }),
       ),
@@ -1021,7 +1021,7 @@ describe("orchestration runtime", () => {
     const executionQueue = new MemoryQueue();
     const telemetry = recordingTelemetry();
     const runtime = new OrchestrationRuntime(prisma, dispatchQueue, executionQueue, logger, {
-      staleAfterMs: 1_000,
+      staleAfterMs: 12 * 60 * 60_000,
       maxAttempts: 3,
       telemetry: telemetry.sink,
     });
