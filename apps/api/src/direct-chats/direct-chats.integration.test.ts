@@ -609,6 +609,114 @@ describe("direct chats API", () => {
     ).toEqual([201, 403]);
   });
 
+  it("caps active devices under concurrent registration", async () => {
+    const alice = await readyUser(
+      app,
+      "dc-device-cap",
+      "Alice",
+    );
+    for (let index = 0; index < 15; index += 1) {
+      await registerHarness(app, alice);
+    }
+
+    const first = createHarnessFixture();
+    const second = createHarnessFixture();
+    const [firstResponse, secondResponse] =
+      await Promise.all([
+        registerHarnessFixture(app, alice, first),
+        registerHarnessFixture(app, alice, second),
+      ]);
+    expect(
+      [
+        firstResponse.statusCode,
+        secondResponse.statusCode,
+      ].sort(),
+    ).toEqual([201, 409]);
+
+    const listed = await app.inject({
+      method: "GET",
+      url: "/v1/direct-chats/devices",
+      headers: { origin },
+      cookies: alice.cookies,
+    });
+    expect(listed.statusCode).toBe(200);
+    expect(
+      listed.json().items.filter(
+        (device: { revoked: boolean }) =>
+          !device.revoked,
+      ),
+    ).toHaveLength(16);
+  });
+
+  it("rate-limits mutating OTK claims", async () => {
+    const alice = await readyUser(
+      app,
+      "dc-prekey-claim-limit",
+      "Alice",
+    );
+    const device = await registerHarness(app, alice);
+    const statuses: number[] = [];
+    for (let index = 0; index < 65; index += 1) {
+      const response = await app.inject({
+        method: "POST",
+        url: `/v1/direct-chats/users/${alice.id}/prekeys/claim`,
+        headers: jsonHeaders(),
+        cookies: alice.cookies,
+        payload: { deviceId: device.deviceId },
+      });
+      statuses.push(response.statusCode);
+    }
+    expect(statuses).toContain(429);
+
+    const legacyGet = await app.inject({
+      method: "GET",
+      url: `/v1/direct-chats/users/${alice.id}/prekeys?deviceId=${device.deviceId}`,
+      headers: { origin },
+      cookies: alice.cookies,
+    });
+    expect(legacyGet.statusCode).toBe(404);
+  });
+
+  it("keeps read receipts outside the security mutation budget", async () => {
+    const alice = await readyUser(
+      app,
+      "dc-read-bucket-alice",
+      "Alice",
+    );
+    const nikita = await readyUser(
+      app,
+      "dc-read-bucket-nikita",
+      "Nikita",
+    );
+    await registerHarness(app, alice);
+    await registerHarness(app, nikita);
+    const chat = await createChat(
+      app,
+      alice.cookies,
+      nikita.email,
+    );
+
+    for (let index = 0; index < 60; index += 1) {
+      const read = await app.inject({
+        method: "POST",
+        url: `/v1/direct-chats/${chat.id}/read`,
+        headers: jsonHeaders(),
+        cookies: alice.cookies,
+        payload: {},
+      });
+      expect(read.statusCode).toBe(200);
+    }
+
+    const privacy = await app.inject({
+      method: "PATCH",
+      url: `/v1/direct-chats/${chat.id}/privacy`,
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: { shareOwnHistoryWithVimla: true },
+    });
+    expect(privacy.statusCode).toBe(200);
+  });
+
   it("keeps old messages device-scoped and replays committed sends before current device-set validation", async () => {
     const alice = await readyUser(app, "dc-replay-alice", "Alice");
     const nikita = await readyUser(app, "dc-replay-nikita", "Nikita");
@@ -1725,32 +1833,84 @@ async function readyUser(app: NestFastifyApplication, label: string, displayName
   return user;
 }
 
-async function registerHarness(
-  app: NestFastifyApplication,
-  user: { cookies: Record<string, string> },
-): Promise<Harness> {
+function createHarnessFixture(): {
+  harness: Harness;
+  payload: {
+    deviceId: string;
+    identityEd25519Public: string;
+    identityX25519Public: string;
+    signedPrekeyId: number;
+    signedPrekeyPublic: string;
+    signedPrekeySignature: string;
+    oneTimePrekeys: Array<{
+      keyId: number;
+      publicKey: string;
+    }>;
+    label: string;
+  };
+} {
   const identity = generateIdentity();
   const signed = generateSignedPreKey(identity, 1);
   const otk = generateOneTimePreKey(1);
   const deviceId = randomUUID();
-  const registered = await app.inject({
+  return {
+    harness: {
+      deviceId,
+      identity,
+      signed,
+      otk,
+      ratchets: new Map(),
+    },
+    payload: {
+      deviceId,
+      identityEd25519Public: bytesToB64(
+        identity.ed25519Public,
+      ),
+      identityX25519Public: bytesToB64(
+        identity.x25519Public,
+      ),
+      signedPrekeyId: signed.keyId,
+      signedPrekeyPublic: bytesToB64(
+        signed.publicKey,
+      ),
+      signedPrekeySignature: bytesToB64(
+        signed.signature,
+      ),
+      oneTimePrekeys: [{
+        keyId: otk.keyId,
+        publicKey: bytesToB64(otk.publicKey),
+      }],
+      label: "test",
+    },
+  };
+}
+
+async function registerHarnessFixture(
+  app: NestFastifyApplication,
+  user: { cookies: Record<string, string> },
+  fixture: ReturnType<typeof createHarnessFixture>,
+) {
+  return app.inject({
     method: "POST",
     url: "/v1/direct-chats/devices",
     headers: jsonHeaders(),
     cookies: user.cookies,
-    payload: {
-      deviceId,
-      identityEd25519Public: bytesToB64(identity.ed25519Public),
-      identityX25519Public: bytesToB64(identity.x25519Public),
-      signedPrekeyId: signed.keyId,
-      signedPrekeyPublic: bytesToB64(signed.publicKey),
-      signedPrekeySignature: bytesToB64(signed.signature),
-      oneTimePrekeys: [{ keyId: otk.keyId, publicKey: bytesToB64(otk.publicKey) }],
-      label: "test",
-    },
+    payload: fixture.payload,
   });
+}
+
+async function registerHarness(
+  app: NestFastifyApplication,
+  user: { cookies: Record<string, string> },
+): Promise<Harness> {
+  const fixture = createHarnessFixture();
+  const registered = await registerHarnessFixture(
+    app,
+    user,
+    fixture,
+  );
   expect(registered.statusCode).toBe(201);
-  return { deviceId, identity, signed, otk, ratchets: new Map() };
+  return fixture.harness;
 }
 
 async function createChat(
