@@ -7,6 +7,7 @@ import {
   directMessageViewSchema,
   directMessagesResponseSchema,
   prekeyBundlesResponseSchema,
+  prekeyStatusResponseSchema,
   type CreateDirectConversation,
   type CryptoDeviceView,
   type DirectConversationView,
@@ -14,7 +15,9 @@ import {
   type DirectMessageView,
   type DirectMessagesResponse,
   type PrekeyBundlesResponse,
+  type PrekeyStatusResponse,
   type RegisterCryptoDevice,
+  type ReplenishOneTimePrekeys,
   type SendDirectMessage,
   type UpdateDirectChatPrivacy,
 } from "@vimla/contracts";
@@ -147,6 +150,35 @@ export async function fetchMyCryptoDevices(fetchImpl: typeof fetch = fetch): Pro
     fetchImpl,
   );
   return page.items;
+}
+
+export async function fetchPrekeyStatus(
+  deviceId: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<PrekeyStatusResponse> {
+  return request(
+    `/v1/direct-chats/devices/${deviceId}/prekeys/status`,
+    {},
+    (payload) => prekeyStatusResponseSchema.parse(payload),
+    fetchImpl,
+  );
+}
+
+export async function replenishOneTimePrekeys(
+  deviceId: string,
+  input: ReplenishOneTimePrekeys,
+  fetchImpl: typeof fetch = fetch,
+): Promise<PrekeyStatusResponse> {
+  return request(
+    `/v1/direct-chats/devices/${deviceId}/prekeys/replenish`,
+    {
+      method: "POST",
+      headers: jsonHeaders(),
+      body: JSON.stringify(input),
+    },
+    (payload) => prekeyStatusResponseSchema.parse(payload),
+    fetchImpl,
+  );
 }
 
 export async function fetchPrekeyBundles(userId: string, fetchImpl: typeof fetch = fetch): Promise<PrekeyBundlesResponse> {
