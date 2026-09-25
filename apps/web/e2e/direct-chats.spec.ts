@@ -39,8 +39,6 @@ test.describe("Secure Direct Chats", () => {
     const aliceList = alicePage.getByRole("region", { name: /список разговоров|conversation list/i, includeHidden: true });
     await expect(aliceList).toBeVisible();
     await expect(aliceList.getByTestId("direct-conversation-row")).toHaveAttribute("aria-current", "page");
-    const persistentList = await aliceList.elementHandle();
-
     const composer = alicePage.getByPlaceholder(/сообщение этому человеку|message this person/i);
     await composer.fill("@");
     const mentionPicker = alicePage.getByTestId("mention-picker");
@@ -397,7 +395,10 @@ test.describe("Secure Direct Chats", () => {
         await aliceList.getByTestId("direct-conversation-row").click();
         await expect(alicePage).toHaveURL(directUrl);
         await expect(alicePage.getByTestId("direct-chat-shell")).toBeVisible();
-        expect(await persistentList?.evaluate((el) => el.isConnected)).toBe(true);
+        await expect(aliceList).toBeHidden();
+        await expect(
+          alicePage.getByTestId("direct-chat-shell"),
+        ).toBeVisible();
       } else {
         await expect(aliceList).toBeVisible();
       }
