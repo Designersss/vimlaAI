@@ -87,6 +87,7 @@ export async function ensureLocalDevice(
     const material: StoredDeviceMaterial = {
       deviceId: crypto.randomUUID(),
       registrationState: "PENDING",
+      nextOneTimePrekeyId: PREKEY_TARGET + 1,
       identity: encodeIdentity(identity),
       signedPrekeys: {
         [String(signed.keyId)]: {
@@ -122,6 +123,25 @@ async function ensurePrekeySupply(
   forceCheck: boolean,
 ): Promise<StoredDeviceMaterial> {
   let current = material;
+  if (
+    current.nextOneTimePrekeyId === undefined ||
+    !Number.isSafeInteger(current.nextOneTimePrekeyId) ||
+    current.nextOneTimePrekeyId < 1
+  ) {
+    const existingIds = Object.keys(
+      current.oneTimePrekeys,
+    )
+      .map(Number)
+      .filter(Number.isSafeInteger);
+    current = {
+      ...current,
+      nextOneTimePrekeyId:
+        (existingIds.length > 0
+          ? Math.max(...existingIds)
+          : 0) + 1,
+    };
+    await saveDeviceMaterial(current);
+  }
   const pendingIds =
     current.pendingOneTimePrekeyIds ?? [];
   if (pendingIds.length > 0) {
@@ -164,22 +184,20 @@ async function ensurePrekeySupply(
     PREKEY_TARGET - status.available,
     32,
   );
-  const existingIds = Object.keys(
-    current.oneTimePrekeys,
-  )
-    .map(Number)
-    .filter(Number.isSafeInteger);
-  const maxId =
-    existingIds.length > 0
-      ? Math.max(...existingIds)
-      : 0;
-  if (maxId + needed > 1_000_000) {
+  const nextOneTimePrekeyId =
+    current.nextOneTimePrekeyId ?? 1;
+  if (
+    nextOneTimePrekeyId + needed - 1 >
+    1_000_000
+  ) {
     throw new Error("Local E2EE prekey id space exhausted");
   }
   const generated = Array.from(
     { length: needed },
     (_, index) =>
-      generateOneTimePreKey(maxId + index + 1),
+      generateOneTimePreKey(
+        nextOneTimePrekeyId + index,
+      ),
   );
   const next: StoredDeviceMaterial = {
     ...current,
@@ -198,6 +216,8 @@ async function ensurePrekeySupply(
     pendingOneTimePrekeyIds: generated.map(
       (key) => key.keyId,
     ),
+    nextOneTimePrekeyId:
+      nextOneTimePrekeyId + generated.length,
   };
   await saveDeviceMaterial(next);
   await uploadPendingOneTimePrekeys(
