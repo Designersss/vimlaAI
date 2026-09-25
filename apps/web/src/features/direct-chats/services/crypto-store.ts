@@ -336,7 +336,7 @@ export async function commitOutboundRatchets(input: {
   localDeviceId: string;
   updates: OutboundRatchetUpdate[];
   pendingSend: StoredPendingSend;
-}): Promise<void> {
+}): Promise<boolean> {
   if (input.updates.length === 0) {
     throw new Error("Outbound ratchet update set is empty");
   }
@@ -347,13 +347,32 @@ export async function commitOutboundRatchets(input: {
     throw new Error("Outbound ratchet update set contains duplicates");
   }
 
+  const selfConsumedOneTimePrekeyIds = [
+    ...new Set(
+      input.updates
+        .filter(
+          (update) =>
+            update.peerDeviceId === input.localDeviceId,
+        )
+        .map(
+          (update) =>
+            update.pendingX3dhInit?.oneTimePrekeyId ??
+            null,
+        )
+        .filter((id): id is number => id !== null),
+    ),
+  ];
   const db = await openDb();
-  await new Promise<void>((resolve, reject) => {
+  return new Promise<boolean>((resolve, reject) => {
     let failure: Error | null = null;
-    const tx = db.transaction(
-      ["ratchets", "pendingSends"],
-      "readwrite",
-    );
+    const stores: StoreName[] = [
+      "ratchets",
+      "pendingSends",
+    ];
+    if (selfConsumedOneTimePrekeyIds.length > 0) {
+      stores.push("device");
+    }
+    const tx = db.transaction(stores, "readwrite");
     const ratchets = tx.objectStore("ratchets");
     const reads = input.updates.map((update) => {
       const key = ratchetStorageKey(
@@ -375,9 +394,15 @@ export async function commitOutboundRatchets(input: {
         legacyReady: false,
       };
     });
+    const deviceRequest =
+      selfConsumedOneTimePrekeyIds.length > 0
+        ? tx.objectStore("device").get("local")
+        : null;
+    let deviceReady = deviceRequest === null;
 
     const apply = (): void => {
       if (
+        !deviceReady ||
         reads.some(
           (read) =>
             !read.currentReady || !read.legacyReady,
@@ -416,6 +441,34 @@ export async function commitOutboundRatchets(input: {
             ratchets.delete(read.legacyKey);
           }
         }
+        if (deviceRequest) {
+          const material =
+            deviceRequest.result as
+              | StoredDeviceMaterial
+              | undefined;
+          if (
+            !material ||
+            material.deviceId !== input.localDeviceId
+          ) {
+            throw new Error(
+              "Local E2EE device state is invalid",
+            );
+          }
+          const oneTimePrekeys = {
+            ...material.oneTimePrekeys,
+          };
+          for (const id of selfConsumedOneTimePrekeyIds) {
+            delete oneTimePrekeys[String(id)];
+          }
+          tx.objectStore("device").put(
+            {
+              ...material,
+              oneTimePrekeys,
+              prekeyStatusCheckedAt: undefined,
+            } satisfies StoredDeviceMaterial,
+            "local",
+          );
+        }
         tx.objectStore("pendingSends").put(
           input.pendingSend,
           input.pendingSend.clientMessageId,
@@ -428,6 +481,19 @@ export async function commitOutboundRatchets(input: {
         tx.abort();
       }
     };
+
+    if (deviceRequest) {
+      deviceRequest.onsuccess = () => {
+        deviceReady = true;
+        apply();
+      };
+      deviceRequest.onerror = () => {
+        failure =
+          deviceRequest.error ??
+          new Error("Local E2EE device state could not be read");
+        tx.abort();
+      };
+    }
 
     for (const read of reads) {
       read.current.onsuccess = () => {
@@ -454,7 +520,7 @@ export async function commitOutboundRatchets(input: {
 
     tx.oncomplete = () => {
       db.close();
-      resolve();
+      resolve(selfConsumedOneTimePrekeyIds.length > 0);
     };
     tx.onabort = () => {
       db.close();
