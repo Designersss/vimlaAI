@@ -87,6 +87,28 @@ describe("worker telemetry adapter", () => {
     );
   });
 
+  it("drops a malformed client-controlled correlation id", () => {
+    const fields = toTelemetryLogFields({
+      event: "planner.completed",
+      correlationId: "Bearer secret should never be telemetry",
+      planId: "plan-1",
+      outcome: "SUCCESS",
+      durationMs: 10,
+      nodeCount: 1,
+      edgeCount: 0,
+      depth: 1,
+      maxParallelism: 1,
+      replayed: false,
+    });
+
+    expect(fields).toMatchObject({
+      event: "planner.completed",
+      planId: "plan-1",
+      outcome: "SUCCESS",
+    });
+    expect(fields).not.toHaveProperty("correlationId");
+  });
+
   it("drops unexpected sensitive fields at the runtime telemetry boundary", () => {
     const event = {
       event: "runtime.invocation",
