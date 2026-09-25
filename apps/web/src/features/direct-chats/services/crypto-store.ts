@@ -39,6 +39,8 @@ type StoreName =
 export interface StoredDeviceMaterial {
   deviceId: string;
   registrationState?: "PENDING" | "REGISTERED";
+  prekeyStatusCheckedAt?: string;
+  pendingOneTimePrekeyIds?: number[];
   identity: {
     ed25519Secret: string;
     ed25519Public: string;
