@@ -202,7 +202,12 @@ describe("orchestration runtime", () => {
     const promptJob = executionQueue.take(INVOCATION_EXECUTE_JOB_NAME);
     expect(promptJob.data.invocationId).toBe(seeded.invocationIds.prompt);
 
-    await runtime.processInvocation(promptJob.data.planId ?? "", promptJob.data.invocationId ?? "");
+    const promptQueuedAt = Date.now() - 100;
+    await runtime.processInvocation(
+      promptJob.data.planId ?? "",
+      promptJob.data.invocationId ?? "",
+      promptQueuedAt,
+    );
     await runtime.processInvocation(promptJob.data.planId ?? "", promptJob.data.invocationId ?? "");
     expect(executor.calls).toHaveLength(1);
 
@@ -230,6 +235,15 @@ describe("orchestration runtime", () => {
         }),
       ]),
     );
+    const promptTelemetry = telemetry.events.find(
+      (event) =>
+        event.event === "runtime.invocation" &&
+        event.invocationId === seeded.invocationIds.prompt,
+    );
+    expect(promptTelemetry?.event).toBe("runtime.invocation");
+    if (promptTelemetry?.event === "runtime.invocation") {
+      expect(promptTelemetry.queueDelayMs).toBeGreaterThanOrEqual(100);
+    }
   });
 
   it("emits approval-required telemetry when a runnable invocation waits for user confirmation", async () => {
@@ -989,9 +1003,11 @@ describe("orchestration runtime", () => {
     });
     const dispatchQueue = new MemoryQueue();
     const executionQueue = new MemoryQueue();
+    const telemetry = recordingTelemetry();
     const runtime = new OrchestrationRuntime(prisma, dispatchQueue, executionQueue, logger, {
       staleAfterMs: 1_000,
       maxAttempts: 3,
+      telemetry: telemetry.sink,
     });
 
     await runtime.reconcile();
@@ -1007,6 +1023,15 @@ describe("orchestration runtime", () => {
     expect(invocation.status).toBe("READY");
     expect(run).toEqual({ status: "FAILED", errorCode: "WORKER_INTERRUPTED" });
     expect(dispatchQueue.count(ORCHESTRATION_DISPATCH_JOB_NAME)).toBeGreaterThanOrEqual(1);
+    expect(telemetry.events).toContainEqual(
+      expect.objectContaining({
+        event: "runtime.reconciliation",
+        outcome: "RECOVERED",
+        recoveredPlanningShells: 0,
+        recoveredInvocationRuns: 1,
+        recoveredStuckWorkflows: 1,
+      }),
+    );
   });
 });
 
