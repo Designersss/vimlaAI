@@ -24,11 +24,8 @@ import {
   directMessagesResponseSchema,
   listDirectConversationsQuerySchema,
   listDirectMessagesQuerySchema,
-  prekeyBundlesQuerySchema,
   prekeyBundlesResponseSchema,
-  prekeyStatusResponseSchema,
   registerCryptoDeviceSchema,
-  replenishOneTimePrekeysSchema,
   rotatePrekeysSchema,
   sendDirectMessageSchema,
   updateDirectChatPrivacySchema,
@@ -39,8 +36,13 @@ import {
   type DirectMessageView,
   type DirectMessagesResponse,
   type PrekeyBundlesResponse,
-  type PrekeyStatusResponse,
 } from "@vimla/contracts";
+import {
+  prekeyBundlesQuerySchema,
+  prekeyStatusResponseSchema,
+  replenishOneTimePrekeysSchema,
+  type PrekeyStatusResponse,
+} from "@vimla/contracts/direct-chats";
 import type { Observable } from "rxjs";
 import { AuthGuard } from "../auth/auth.guard.js";
 import { AuthUser } from "../auth/current-user.decorator.js";
