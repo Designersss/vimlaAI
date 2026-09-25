@@ -375,12 +375,14 @@ describe("direct chats API", () => {
         cookies: alice.cookies,
       }),
     ]);
-    expect(first.statusCode).toBe(200);
-    expect(second.statusCode).toBe(200);
-    const claimed = [first, second]
-      .map((response) => response.json().bundles[0]?.oneTimePrekeyId)
-      .filter((value): value is number => typeof value === "number");
-    expect(claimed).toEqual([1]);
+    const statuses = [first.statusCode, second.statusCode].sort();
+    expect(statuses).toEqual([200, 409]);
+    const successful = [first, second].find(
+      (response) => response.statusCode === 200,
+    );
+    expect(
+      successful?.json().bundles[0]?.oneTimePrekeyId,
+    ).toBe(1);
 
     const emptyStatus = await app.inject({
       method: "GET",
