@@ -199,6 +199,12 @@ export const prekeyBundleSchema = z.object({
 });
 export type PrekeyBundle = z.infer<typeof prekeyBundleSchema>;
 
+export const prekeyBundlesQuerySchema = z
+  .object({
+    deviceId: z.string().uuid().optional(),
+  })
+  .strict();
+
 export const prekeyBundlesResponseSchema = z.object({
   userId: z.string(),
   bundles: z.array(prekeyBundleSchema),
