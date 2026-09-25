@@ -74,6 +74,9 @@ test.describe("Secure Direct Chats", () => {
     await alicePage.unroute("**/v1/direct-chats/*/messages");
 
     await composer.fill("hello from alice");
+    await expect(
+      alicePage.getByTestId("chat-composer-send"),
+    ).toBeEnabled();
     await alicePage.getByTestId("chat-composer-send").click();
     await expect(alicePage.getByTestId("direct-message-human").filter({ hasText: "hello from alice" })).toBeVisible({
       timeout: 20_000,
