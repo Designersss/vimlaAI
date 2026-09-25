@@ -27,6 +27,7 @@ import type {
 } from "@vimla/contracts";
 import { fetchPrekeyBundles, registerCryptoDevice } from "./api";
 import {
+  acknowledgeRatchetHandshake,
   encodeIdentity,
   identityFromMaterial,
   loadDeviceMaterial,
@@ -112,7 +113,8 @@ export async function encryptForDevices(input: {
           material.deviceId,
           device.id,
         );
-        let x3dhInit: WireEnvelope["x3dhInit"] = null;
+        let x3dhInit: WireEnvelope["x3dhInit"] =
+          existing?.pendingX3dhInit ?? null;
         let state = existing
           ? deserializeRatchet(existing.state)
           : null;
@@ -154,6 +156,7 @@ export async function encryptForDevices(input: {
           device.id,
           existing?.stateVersion ?? 0,
           serializeRatchet(state),
+          x3dhInit,
         );
         return nextEnvelope;
       },
@@ -276,6 +279,8 @@ export async function decryptMessage(input: {
           peerDeviceId: input.message.senderDeviceId,
           expectedVersion: stateRecord?.stateVersion ?? 0,
           state: serializeRatchet(state),
+          pendingX3dhInit:
+            stateRecord?.pendingX3dhInit ?? null,
           plaintext: row,
         });
         return decodeDirectPlaintext(
@@ -289,6 +294,25 @@ export async function decryptMessage(input: {
       return null;
     }
     return null;
+  }
+}
+
+export async function acknowledgeSentRatchets(input: {
+  conversationId: string;
+  envelopes: readonly WireEnvelopeDto[];
+}): Promise<void> {
+  const pendingRecipients = input.envelopes
+    .filter((envelope) => envelope.x3dhInit !== null)
+    .map((envelope) => envelope.recipientDeviceId);
+  if (pendingRecipients.length === 0) return;
+
+  const material = await ensureLocalDevice();
+  for (const peerDeviceId of pendingRecipients) {
+    await acknowledgeRatchetHandshake({
+      conversationId: input.conversationId,
+      localDeviceId: material.deviceId,
+      peerDeviceId,
+    }).catch(() => undefined);
   }
 }
 
