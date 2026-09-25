@@ -34,7 +34,6 @@ import {
   loadPlaintext,
   loadRatchet,
   saveDeviceMaterial,
-  savePlaintext,
   saveRatchet,
   withRatchetSessionLock,
   type StoredDeviceMaterial,
