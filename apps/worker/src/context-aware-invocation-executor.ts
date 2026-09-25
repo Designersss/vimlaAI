@@ -134,7 +134,7 @@ export class ContextAwareInvocationExecutorRegistry
         manifest.budget.effectiveHistoryBudgetTokens,
       ),
       rawHistoryTokens: manifest.rawHistoryTokens,
-      l1RawTokens: manifest.rawHistoryTokens,
+      l1RawTokens: selectedL1RawTokens(bundle),
       l2CompactedTokens: manifest.allowedItems
         .filter((item) => item.sourceType === "COMPACTED_STATE")
         .reduce((total, item) => total + item.estimatedTokens, 0),
@@ -158,6 +158,41 @@ export class ContextAwareInvocationExecutorRegistry
       contextBundle: bundle,
     });
   }
+}
+
+function selectedL1RawTokens(bundle: ContextBundleView): number {
+  const itemById = new Map(
+    bundle.items.map((item) => [item.id, item]),
+  );
+  return bundle.manifest.allowedItems.reduce(
+    (total, allowed) => {
+      const item = itemById.get(allowed.snapshotItemId);
+      return retrievalSourceKind(item?.metadata) === "L1_RAW"
+        ? total + allowed.estimatedTokens
+        : total;
+    },
+    0,
+  );
+}
+
+function retrievalSourceKind(metadata: unknown): string | null {
+  if (
+    metadata === null ||
+    typeof metadata !== "object" ||
+    Array.isArray(metadata)
+  ) {
+    return null;
+  }
+  const retrieval = (metadata as Record<string, unknown>).retrieval;
+  if (
+    retrieval === null ||
+    typeof retrieval !== "object" ||
+    Array.isArray(retrieval)
+  ) {
+    return null;
+  }
+  const sourceKind = (retrieval as Record<string, unknown>).sourceKind;
+  return typeof sourceKind === "string" ? sourceKind : null;
 }
 
 function persistedTargetMatches(
