@@ -23,7 +23,7 @@ import type { SemanticPlannerModel } from "@vimla/orchestration";
 import { API_CONFIG, type ApiRuntimeConfig } from "../config/api-config.js";
 import { ApiTelemetrySink } from "../observability/telemetry.js";
 import { SEMANTIC_PLANNER_MODEL } from "../orchestration/semantic-planner.adapter.js";
-import { telemetryDurationMs } from "@vimla/shared";
+import { telemetryDurationMs, type TelemetrySink } from "@vimla/shared";
 import { PrismaService } from "../persistence/prisma.service.js";
 import { MemoryFacade } from "./memory.facade.js";
 
@@ -50,7 +50,7 @@ export class MemoryMaintenanceService {
     @Inject(SEMANTIC_PLANNER_MODEL)
     private readonly model: SemanticPlannerModel,
     @Inject(ApiTelemetrySink)
-    private readonly telemetry: ApiTelemetrySink,
+    private readonly telemetry: TelemetrySink,
   ) {
     this.db = prisma.client;
     this.budget = new ContextBudgetService(this.db);
