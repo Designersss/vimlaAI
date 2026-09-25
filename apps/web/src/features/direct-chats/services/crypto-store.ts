@@ -57,6 +57,7 @@ export interface StoredPlaintext {
 
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
+    let blocked = false;
     const request = indexedDB.open(DB_NAME, DB_VERSION);
     request.onupgradeneeded = () => {
       const db = request.result;
@@ -86,6 +87,7 @@ function openDb(): Promise<IDBDatabase> {
       }
     };
     request.onblocked = () => {
+      blocked = true;
       reject(
         new Error(
           "E2EE storage upgrade is blocked by another browser context",
@@ -94,6 +96,10 @@ function openDb(): Promise<IDBDatabase> {
     };
     request.onsuccess = () => {
       const db = request.result;
+      if (blocked) {
+        db.close();
+        return;
+      }
       db.onversionchange = () => db.close();
       resolve(db);
     };
