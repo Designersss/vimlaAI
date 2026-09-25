@@ -36,6 +36,7 @@ import {
   loadRatchet,
   saveDeviceMaterial,
   saveRatchet,
+  withLocalDeviceBootstrapLock,
   withRatchetSessionLock,
   type StoredDeviceMaterial,
   type StoredPlaintext,
@@ -47,43 +48,95 @@ import {
 import { decodeDirectPlaintext, encodeDirectPlaintext, type DirectPlaintextPayload } from "./payload";
 
 export async function ensureLocalDevice(): Promise<StoredDeviceMaterial> {
-  const existing = await loadDeviceMaterial();
-  if (existing) {
-    return existing;
-  }
-  const identity = generateIdentity();
-  const signed = generateSignedPreKey(identity, 1);
-  const oneTime = Array.from({ length: 16 }, (_, index) => generateOneTimePreKey(index + 1));
-  const deviceId = crypto.randomUUID();
-  const material: StoredDeviceMaterial = {
-    deviceId,
-    identity: encodeIdentity(identity),
-    signedPrekeys: {
-      [String(signed.keyId)]: {
-        secret: bytesToB64(signed.secret),
-        publicKey: bytesToB64(signed.publicKey),
-        signature: bytesToB64(signed.signature),
+  return withLocalDeviceBootstrapLock(async () => {
+    const existing = await loadDeviceMaterial();
+    if (existing) {
+      if (existing.registrationState === "PENDING") {
+        await registerStoredDevice(existing);
+        const registered = {
+          ...existing,
+          registrationState: "REGISTERED" as const,
+        };
+        await saveDeviceMaterial(registered);
+        return registered;
+      }
+      return existing;
+    }
+
+    const identity = generateIdentity();
+    const signed = generateSignedPreKey(identity, 1);
+    const oneTime = Array.from(
+      { length: 16 },
+      (_, index) => generateOneTimePreKey(index + 1),
+    );
+    const material: StoredDeviceMaterial = {
+      deviceId: crypto.randomUUID(),
+      registrationState: "PENDING",
+      identity: encodeIdentity(identity),
+      signedPrekeys: {
+        [String(signed.keyId)]: {
+          secret: bytesToB64(signed.secret),
+          publicKey: bytesToB64(signed.publicKey),
+          signature: bytesToB64(signed.signature),
+        },
       },
-    },
-    oneTimePrekeys: Object.fromEntries(
-      oneTime.map((key) => [
-        String(key.keyId),
-        { secret: bytesToB64(key.secret), publicKey: bytesToB64(key.publicKey) },
-      ]),
-    ),
-  };
+      oneTimePrekeys: Object.fromEntries(
+        oneTime.map((key) => [
+          String(key.keyId),
+          {
+            secret: bytesToB64(key.secret),
+            publicKey: bytesToB64(key.publicKey),
+          },
+        ]),
+      ),
+    };
+    await saveDeviceMaterial(material);
+    await registerStoredDevice(material);
+    const registered = {
+      ...material,
+      registrationState: "REGISTERED" as const,
+    };
+    await saveDeviceMaterial(registered);
+    return registered;
+  });
+}
+
+async function registerStoredDevice(
+  material: StoredDeviceMaterial,
+): Promise<void> {
+  const signedEntry = Object.entries(material.signedPrekeys)[0];
+  if (!signedEntry) {
+    throw new Error("Local E2EE signed prekey is missing");
+  }
+  const [signedPrekeyIdRaw, signed] = signedEntry;
+  const signedPrekeyId = Number(signedPrekeyIdRaw);
+  if (!Number.isSafeInteger(signedPrekeyId) || signedPrekeyId < 1) {
+    throw new Error("Local E2EE signed prekey id is invalid");
+  }
+  const oneTimePrekeys = Object.entries(material.oneTimePrekeys)
+    .map(([keyIdRaw, key]) => ({
+      keyId: Number(keyIdRaw),
+      publicKey: key.publicKey,
+    }))
+    .filter(
+      (key) =>
+        Number.isSafeInteger(key.keyId) &&
+        key.keyId >= 1,
+    )
+    .sort((left, right) => left.keyId - right.keyId);
+  if (oneTimePrekeys.length === 0) {
+    throw new Error("Local E2EE one-time prekeys are missing");
+  }
   await registerCryptoDevice({
-    deviceId,
+    deviceId: material.deviceId,
     identityEd25519Public: material.identity.ed25519Public,
     identityX25519Public: material.identity.x25519Public,
-    signedPrekeyId: signed.keyId,
-    signedPrekeyPublic: bytesToB64(signed.publicKey),
-    signedPrekeySignature: bytesToB64(signed.signature),
-    oneTimePrekeys: oneTime.map((key) => ({ keyId: key.keyId, publicKey: bytesToB64(key.publicKey) })),
+    signedPrekeyId,
+    signedPrekeyPublic: signed.publicKey,
+    signedPrekeySignature: signed.signature,
+    oneTimePrekeys,
     label: "browser",
   });
-  await saveDeviceMaterial(material);
-  return material;
 }
 
 export async function encryptForDevices(input: {
