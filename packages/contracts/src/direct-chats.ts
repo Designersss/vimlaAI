@@ -14,8 +14,11 @@ export const DIRECT_CHAT_LIMITS = {
   contextTextMax: 4_000,
   contextCharsMax: 32_000,
   prekeysMax: 32,
+  prekeysLowWater: 8,
+  prekeysTarget: 16,
   prekeysAvailableMax: 64,
   consumedPrekeysRetainedMax: 256,
+  prekeyStatusMaxAgeMs: 300_000,
   deviceLabelMax: 80,
   peerEmailMax: 254,
 } as const;
