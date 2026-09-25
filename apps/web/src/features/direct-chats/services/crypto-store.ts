@@ -1,3 +1,8 @@
+import type {
+  DirectMessageKind,
+  MessageMentionInput,
+  WireEnvelopeDto,
+} from "@vimla/contracts";
 import {
   bytesToB64,
   b64ToBytes,
@@ -16,7 +21,7 @@ import {
 } from "./ratchet-coordination";
 
 const DB_NAME = "vimla-direct-e2ee";
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 const PLAINTEXT_CONVERSATION_TIME_INDEX = "conversation-created-at";
 const RATCHET_LOCK_LEASE_MS = 5_000;
 const RATCHET_LOCK_HEARTBEAT_MS = 1_000;
@@ -28,6 +33,7 @@ type StoreName =
   | "device"
   | "ratchets"
   | "ratchetLocks"
+  | "pendingSends"
   | "plaintexts";
 
 export interface StoredDeviceMaterial {
@@ -58,6 +64,24 @@ export interface StoredPlaintext {
   createdAt: string;
 }
 
+export interface StoredPendingSend {
+  conversationId: string;
+  clientMessageId: string;
+  senderDeviceId: string;
+  kind: DirectMessageKind;
+  envelopes: WireEnvelopeDto[];
+  mentions: MessageMentionInput[];
+  plaintext: string;
+  createdAt: string;
+}
+
+export interface OutboundRatchetUpdate {
+  peerDeviceId: string;
+  expectedVersion: number;
+  state: SerializedRatchetState;
+  pendingX3dhInit: X3dhInitHeader | null;
+}
+
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     let blocked = false;
@@ -72,6 +96,9 @@ function openDb(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains("ratchetLocks")) {
         db.createObjectStore("ratchetLocks");
+      }
+      if (!db.objectStoreNames.contains("pendingSends")) {
+        db.createObjectStore("pendingSends");
       }
       const plaintexts = db.objectStoreNames.contains("plaintexts")
         ? request.transaction?.objectStore("plaintexts")
@@ -163,6 +190,78 @@ export async function saveDeviceMaterial(
   });
 }
 
+export async function loadPendingSends(
+  conversationId: string,
+  senderDeviceId: string,
+): Promise<StoredPendingSend[]> {
+  const rows = await withStore<StoredPendingSend[]>(
+    "pendingSends",
+    "readonly",
+    (store) => store.getAll(),
+  );
+  return rows
+    .filter(
+      (row) =>
+        row.conversationId === conversationId &&
+        row.senderDeviceId === senderDeviceId,
+    )
+    .sort(
+      (left, right) =>
+        Date.parse(left.createdAt) -
+          Date.parse(right.createdAt) ||
+        left.clientMessageId.localeCompare(
+          right.clientMessageId,
+        ),
+    );
+}
+
+export async function completePendingSend(input: {
+  pending: StoredPendingSend;
+  messageId: string;
+  serverCreatedAt: string;
+}): Promise<void> {
+  const db = await openDb();
+  await new Promise<void>((resolve, reject) => {
+    let failure: Error | null = null;
+    const tx = db.transaction(
+      ["pendingSends", "plaintexts"],
+      "readwrite",
+    );
+    tx.objectStore("plaintexts").put(
+      {
+        conversationId: input.pending.conversationId,
+        messageId: input.messageId,
+        text: input.pending.plaintext,
+        kind: input.pending.kind,
+        senderUserId: "",
+        createdAt: input.serverCreatedAt,
+      } satisfies StoredPlaintext,
+      input.messageId,
+    );
+    tx.objectStore("pendingSends").delete(
+      input.pending.clientMessageId,
+    );
+    tx.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    tx.onabort = () => {
+      db.close();
+      reject(
+        failure ??
+          tx.error ??
+          new Error("Pending send completion aborted"),
+      );
+    };
+    tx.onerror = () => {
+      failure ??=
+        tx.error ??
+        new Error("Pending send completion failed");
+    };
+  });
+}
+
+
 export async function loadRatchet(
   conversationId: string,
   localDeviceId: string,
@@ -225,6 +324,147 @@ export async function commitDecryptedRatchet(input: {
   plaintext: StoredPlaintext;
 }): Promise<RatchetSnapshot> {
   return commitRatchet(input);
+}
+
+export async function commitOutboundRatchets(input: {
+  conversationId: string;
+  localDeviceId: string;
+  updates: OutboundRatchetUpdate[];
+  pendingSend: StoredPendingSend;
+}): Promise<void> {
+  if (input.updates.length === 0) {
+    throw new Error("Outbound ratchet update set is empty");
+  }
+  if (
+    new Set(input.updates.map((update) => update.peerDeviceId))
+      .size !== input.updates.length
+  ) {
+    throw new Error("Outbound ratchet update set contains duplicates");
+  }
+
+  const db = await openDb();
+  await new Promise<void>((resolve, reject) => {
+    let failure: Error | null = null;
+    const tx = db.transaction(
+      ["ratchets", "pendingSends"],
+      "readwrite",
+    );
+    const ratchets = tx.objectStore("ratchets");
+    const reads = input.updates.map((update) => {
+      const key = ratchetStorageKey(
+        input.conversationId,
+        input.localDeviceId,
+        update.peerDeviceId,
+      );
+      const legacyKey = legacyRatchetStorageKey(
+        input.conversationId,
+        update.peerDeviceId,
+      );
+      return {
+        update,
+        key,
+        legacyKey,
+        current: ratchets.get(key),
+        legacy: ratchets.get(legacyKey),
+        currentReady: false,
+        legacyReady: false,
+      };
+    });
+
+    const apply = (): void => {
+      if (
+        reads.some(
+          (read) =>
+            !read.currentReady || !read.legacyReady,
+        )
+      ) {
+        return;
+      }
+      try {
+        for (const read of reads) {
+          const useLegacy =
+            read.current.result === undefined &&
+            read.legacy.result !== undefined;
+          const raw = useLegacy
+            ? read.legacy.result
+            : read.current.result;
+          const current = decodeStoredRatchet(
+            raw,
+            input.localDeviceId,
+          );
+          assertRatchetVersion(
+            current,
+            read.update.expectedVersion,
+          );
+          ratchets.put(
+            storedRatchetRecord({
+              localDeviceId: input.localDeviceId,
+              stateVersion:
+                read.update.expectedVersion + 1,
+              state: read.update.state,
+              pendingX3dhInit:
+                read.update.pendingX3dhInit,
+            }),
+            read.key,
+          );
+          if (useLegacy) {
+            ratchets.delete(read.legacyKey);
+          }
+        }
+        tx.objectStore("pendingSends").put(
+          input.pendingSend,
+          input.pendingSend.clientMessageId,
+        );
+      } catch (error: unknown) {
+        failure =
+          error instanceof Error
+            ? error
+            : new Error("Outbound ratchet commit failed");
+        tx.abort();
+      }
+    };
+
+    for (const read of reads) {
+      read.current.onsuccess = () => {
+        read.currentReady = true;
+        apply();
+      };
+      read.legacy.onsuccess = () => {
+        read.legacyReady = true;
+        apply();
+      };
+      read.current.onerror = () => {
+        failure =
+          read.current.error ??
+          new Error("Outbound ratchet read failed");
+        tx.abort();
+      };
+      read.legacy.onerror = () => {
+        failure =
+          read.legacy.error ??
+          new Error("Outbound legacy ratchet read failed");
+        tx.abort();
+      };
+    }
+
+    tx.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    tx.onabort = () => {
+      db.close();
+      reject(
+        failure ??
+          tx.error ??
+          new Error("Outbound ratchet commit aborted"),
+      );
+    };
+    tx.onerror = () => {
+      failure ??=
+        tx.error ??
+        new Error("Outbound ratchet commit failed");
+    };
+  });
 }
 
 export async function acknowledgeRatchetHandshake(input: {
