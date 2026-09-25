@@ -508,6 +508,28 @@ describe("direct chats API", () => {
       "dc-device-id-race",
       "Oscar",
     );
+    const foreignStatus = await app.inject({
+      method: "GET",
+      url: `/v1/direct-chats/devices/${device.deviceId}/prekeys/status`,
+      headers: { origin },
+      cookies: oscar.cookies,
+    });
+    expect(foreignStatus.statusCode).toBe(404);
+    const foreignReplenish = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/devices/${device.deviceId}/prekeys/replenish`,
+      headers: jsonHeaders(),
+      cookies: oscar.cookies,
+      payload: {
+        oneTimePrekeys: [{
+          keyId: 99,
+          publicKey: bytesToB64(
+            generateOneTimePreKey(99).publicKey,
+          ),
+        }],
+      },
+    });
+    expect(foreignReplenish.statusCode).toBe(404);
     const sharedDeviceId = randomUUID();
     const aliceRaceIdentity = generateIdentity();
     const aliceRaceSigned = generateSignedPreKey(
@@ -620,6 +642,28 @@ describe("direct chats API", () => {
     });
     expect(replay.statusCode).toBe(201);
     expect(replay.json().id).toBe(sent.json().id);
+
+    const mismatchedReplay = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/${chat.id}/messages`,
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: {
+        ...payload,
+        envelopes: payload.envelopes.map(
+          (envelope, index) =>
+            index === 0
+              ? {
+                  ...envelope,
+                  ciphertextB64: flipB64(
+                    envelope.ciphertextB64,
+                  ),
+                }
+              : envelope,
+        ),
+      },
+    });
+    expect(mismatchedReplay.statusCode).toBe(400);
 
     const page = await app.inject({
       method: "GET",
