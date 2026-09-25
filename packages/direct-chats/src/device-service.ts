@@ -1,4 +1,5 @@
-import type { CryptoDeviceView, PrekeyBundle, RegisterCryptoDevice, ReplenishOneTimePrekeys, RotatePrekeys } from "@vimla/contracts";
+import type { CryptoDeviceView, PrekeyBundle, RegisterCryptoDevice, RotatePrekeys } from "@vimla/contracts";
+import type { ReplenishOneTimePrekeys } from "@vimla/contracts/direct-chats";
 import { b64ToBytes, verifySignedPreKey } from "@vimla/e2ee";
 import { DirectChatError } from "./errors.js";
 import type { ActorContext, DbClient } from "./types.js";
