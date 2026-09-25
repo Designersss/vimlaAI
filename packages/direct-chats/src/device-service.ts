@@ -15,6 +15,16 @@ export class DeviceService {
     if (existing?.revokedAt) {
       throw new DirectChatError("DEVICE_REVOKED", "This device was revoked");
     }
+    if (
+      existing &&
+      (existing.identityEd25519Public !== input.identityEd25519Public ||
+        existing.identityX25519Public !== input.identityX25519Public)
+    ) {
+      throw new DirectChatError(
+        "TAMPERED",
+        "Registered device identity cannot be replaced",
+      );
+    }
 
     const saved = await this.db.userCryptoDevice.upsert({
       where: { id: input.deviceId },
@@ -83,17 +93,11 @@ export class DeviceService {
   async prekeyBundlesForUser(userId: string): Promise<PrekeyBundle[]> {
     const devices = await this.db.userCryptoDevice.findMany({
       where: { userId, revokedAt: null },
-      include: { oneTimePrekeys: { where: { consumedAt: null }, orderBy: { keyId: "asc" }, take: 1 } },
+      orderBy: { createdAt: "asc" },
     });
     const bundles: PrekeyBundle[] = [];
     for (const device of devices) {
-      const otk = device.oneTimePrekeys[0];
-      if (otk) {
-        await this.db.directOneTimePrekey.update({
-          where: { id: otk.id },
-          data: { consumedAt: new Date() },
-        });
-      }
+      const otk = await this.claimOneTimePrekey(device.id);
       bundles.push({
         deviceId: device.id,
         identityEd25519Public: device.identityEd25519Public,
@@ -122,6 +126,42 @@ export class DeviceService {
       throw new DirectChatError("NOT_FOUND", "Device was not found");
     }
     return device;
+  }
+
+  private async claimOneTimePrekey(
+    deviceId: string,
+  ): Promise<{ keyId: number; publicKey: string } | null> {
+    for (let attempt = 0; attempt < 64; attempt += 1) {
+      const candidate =
+        await this.db.directOneTimePrekey.findFirst({
+          where: { deviceId, consumedAt: null },
+          orderBy: { keyId: "asc" },
+          select: {
+            id: true,
+            keyId: true,
+            publicKey: true,
+          },
+        });
+      if (!candidate) {
+        return null;
+      }
+      const claimed =
+        await this.db.directOneTimePrekey.updateMany({
+          where: {
+            id: candidate.id,
+            deviceId,
+            consumedAt: null,
+          },
+          data: { consumedAt: new Date() },
+        });
+      if (claimed.count === 1) {
+        return {
+          keyId: candidate.keyId,
+          publicKey: candidate.publicKey,
+        };
+      }
+    }
+    return null;
   }
 
   private async replaceUnusedPrekeys(
