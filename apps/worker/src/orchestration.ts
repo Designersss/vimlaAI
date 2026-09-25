@@ -187,9 +187,11 @@ export class OrchestrationRuntime {
 
   async reconcile(): Promise<void> {
     const startedAt = Date.now();
-    const recoveredPlanningShells =
+    const recoveredPlanningPlanIds =
       await this.recoverStalePlanningShells();
-    const recoveredInvocationRuns = await this.recoverStaleRuns();
+    const recoveredRunPlanIds = await this.recoverStaleRuns();
+    const recoveredPlanningShells = recoveredPlanningPlanIds.length;
+    const recoveredInvocationRuns = recoveredRunPlanIds.length;
 
     let cursor: string | undefined;
     for (;;) {
@@ -208,8 +210,10 @@ export class OrchestrationRuntime {
       if (!cursor) break;
     }
 
-    const recoveredStuckWorkflows =
-      recoveredPlanningShells + recoveredInvocationRuns;
+    const recoveredStuckWorkflows = new Set([
+      ...recoveredPlanningPlanIds,
+      ...recoveredRunPlanIds,
+    ]).size;
     this.telemetry.emit({
       event: "runtime.reconciliation",
       outcome:
@@ -344,8 +348,16 @@ export class OrchestrationRuntime {
     }
   }
 
-  async processInvocation(planId: string, invocationId: string): Promise<void> {
-    const claim = await this.claimInvocation(planId, invocationId);
+  async processInvocation(
+    planId: string,
+    invocationId: string,
+    queuedAtMs?: number,
+  ): Promise<void> {
+    const claim = await this.claimInvocation(
+      planId,
+      invocationId,
+      queuedAtMs,
+    );
     if (!claim) {
       await this.enqueueDispatch(planId);
       return;
@@ -416,7 +428,11 @@ export class OrchestrationRuntime {
     await this.enqueueDispatch(planId);
   }
 
-  private async claimInvocation(planId: string, invocationId: string): Promise<ClaimedInvocation | null> {
+  private async claimInvocation(
+    planId: string,
+    invocationId: string,
+    queuedAtMs?: number,
+  ): Promise<ClaimedInvocation | null> {
     return this.prisma.$transaction(async (tx) => {
       if (!(await lockPlan(tx, planId))) return null;
       const plan = await loadRuntimePlan(tx, planId);
@@ -456,10 +472,11 @@ export class OrchestrationRuntime {
         runId: run.id,
         idempotencyKey,
         failurePolicy: parseFailurePolicy(invocation.failurePolicy),
-        queueDelayMs: Math.max(
-          0,
-          Date.now() - invocation.updatedAt.getTime(),
-        ),
+        queueDelayMs:
+          typeof queuedAtMs === "number" &&
+          Number.isFinite(queuedAtMs)
+            ? Math.max(0, Date.now() - queuedAtMs)
+            : 0,
         target: {
           kind: parseTargetKind(invocation.targetKind),
           modelSlug: invocation.targetModelSlug,
@@ -545,8 +562,8 @@ export class OrchestrationRuntime {
     });
   }
 
-  private async recoverStalePlanningShells(): Promise<number> {
-    let recoveredCount = 0;
+  private async recoverStalePlanningShells(): Promise<string[]> {
+    const recoveredPlanIds: string[] = [];
     const cutoff = new Date(Date.now() - this.planningStaleAfterMs);
     const stalePlans = await this.prisma.executionPlan.findMany({
       where: {
@@ -573,17 +590,17 @@ export class OrchestrationRuntime {
         },
       });
       if (recovered.count === 1) {
-        recoveredCount += 1;
+        recoveredPlanIds.push(plan.id);
         this.logger.warn(
           { planId: plan.id },
           "recovered stale semantic planning shell",
         );
       }
     }
-    return recoveredCount;
+    return recoveredPlanIds;
   }
 
-  private async recoverStaleRuns(): Promise<number> {
+  private async recoverStaleRuns(): Promise<string[]> {
     const cutoff = new Date(Date.now() - this.staleAfterMs);
     const staleRuns = await this.prisma.invocationRun.findMany({
       where: { status: "RUNNING", startedAt: { lt: cutoff } },
@@ -592,19 +609,23 @@ export class OrchestrationRuntime {
       take: this.reconcileBatchSize,
     });
 
-    let recoveredCount = 0;
+    const recoveredPlanIds: string[] = [];
     for (const stale of staleRuns) {
-      if (await this.recoverStaleRun(stale.id, stale.invocationId)) {
-        recoveredCount += 1;
+      const recoveredPlanId = await this.recoverStaleRun(
+        stale.id,
+        stale.invocationId,
+      );
+      if (recoveredPlanId) {
+        recoveredPlanIds.push(recoveredPlanId);
       }
     }
-    return recoveredCount;
+    return recoveredPlanIds;
   }
 
   private async recoverStaleRun(
     runId: string,
     invocationId: string,
-  ): Promise<boolean> {
+  ): Promise<string | null> {
     let planId: string | null = null;
     let recovered = false;
     await this.prisma.$transaction(async (tx) => {
@@ -662,7 +683,7 @@ export class OrchestrationRuntime {
         "recovered stale orchestration invocation run",
       );
     }
-    return recovered;
+    return recovered ? planId : null;
   }
 
   private async enqueueDispatch(planId: string): Promise<void> {
