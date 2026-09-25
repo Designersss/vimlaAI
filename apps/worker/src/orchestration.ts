@@ -222,6 +222,7 @@ export class OrchestrationRuntime {
   }
 
   async dispatchPlan(planId: string): Promise<void> {
+    const approvalRequiredInvocationIds: string[] = [];
     const readyInvocationIds = await this.prisma.$transaction(async (tx) => {
       if (!(await lockPlan(tx, planId))) return [];
       const plan = await loadRuntimePlan(tx, planId);
@@ -287,6 +288,9 @@ export class OrchestrationRuntime {
           });
           if (updated.count === 1) {
             stateById.set(invocation.id, nextStatus);
+            if (nextStatus === "WAITING_APPROVAL") {
+              approvalRequiredInvocationIds.push(invocation.id);
+            }
             changed = true;
           }
         }
@@ -323,6 +327,17 @@ export class OrchestrationRuntime {
         .slice(0, slots)
         .map((invocation) => invocation.id);
     });
+
+    for (const invocationId of approvalRequiredInvocationIds) {
+      this.telemetry.emit({
+        event: "safety.policy",
+        planId,
+        invocationId,
+        action: "APPROVAL_REQUIRED",
+        reason: "OTHER",
+        count: 1,
+      });
+    }
 
     for (const invocationId of readyInvocationIds) {
       await this.enqueueInvocation(planId, invocationId);
