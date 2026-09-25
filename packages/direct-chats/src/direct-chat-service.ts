@@ -205,11 +205,7 @@ export class DirectChatService {
           clientMessageId: input.clientMessageId,
         },
       },
-      include: {
-        envelopes: {
-          where: { recipientDeviceId: input.senderDeviceId },
-        },
-      },
+      include: { envelopes: true },
     });
     if (existing) {
       if (existing.senderDeviceId !== input.senderDeviceId) {
@@ -219,10 +215,21 @@ export class DirectChatService {
         );
       }
       const mentions = await this.readMentionMap([existing.id]);
+      const existingMentions = mentions.get(existing.id) ?? [];
+      if (
+        existing.kind !== input.kind ||
+        !sameReplayEnvelopes(existing.envelopes, input.envelopes) ||
+        !sameReplayMentions(existingMentions, input.mentions)
+      ) {
+        throw new DirectChatError(
+          "TAMPERED",
+          "Message replay payload does not match the original",
+        );
+      }
       return toMessageView(
         existing,
         input.senderDeviceId,
-        mentions.get(existing.id) ?? [],
+        existingMentions,
       );
     }
 
@@ -708,6 +715,82 @@ function decodeCursor(cursor: string | undefined): { at: Date; id: string } | nu
     return null;
   }
 }
+
+function sameReplayEnvelopes(
+  stored: ReadonlyArray<{
+    recipientDeviceId: string;
+    headerB64: string;
+    ciphertextB64: string;
+    dhPublicB64: string;
+    messageNumber: number;
+    previousChainLength: number;
+    senderSignatureB64: string;
+    x3dhInitJson: string | null;
+  }>,
+  incoming: readonly WireEnvelopeDto[],
+): boolean {
+  if (stored.length !== incoming.length) return false;
+  const incomingByRecipient = new Map(
+    incoming.map((envelope) => [
+      envelope.recipientDeviceId,
+      envelope,
+    ]),
+  );
+  if (incomingByRecipient.size !== incoming.length) {
+    return false;
+  }
+  return stored.every((envelope) => {
+    const candidate = incomingByRecipient.get(
+      envelope.recipientDeviceId,
+    );
+    return (
+      candidate !== undefined &&
+      candidate.headerB64 === envelope.headerB64 &&
+      candidate.ciphertextB64 === envelope.ciphertextB64 &&
+      candidate.dhPublicB64 === envelope.dhPublicB64 &&
+      candidate.messageNumber === envelope.messageNumber &&
+      candidate.previousChainLength ===
+        envelope.previousChainLength &&
+      candidate.senderSignatureB64 ===
+        envelope.senderSignatureB64 &&
+      JSON.stringify(candidate.x3dhInit ?? null) ===
+        (envelope.x3dhInitJson ?? "null")
+    );
+  });
+}
+
+function sameReplayMentions(
+  stored: readonly MessageMentionView[],
+  incoming: readonly SendDirectMessage["mentions"],
+): boolean {
+  if (stored.length !== incoming.length) return false;
+  const canonical = (
+    mention: Pick<
+      MessageMentionView,
+      | "handleId"
+      | "kind"
+      | "canonicalHandle"
+      | "startOffset"
+      | "endOffset"
+    >,
+  ): string =>
+    [
+      mention.handleId,
+      mention.kind,
+      mention.canonicalHandle,
+      mention.startOffset,
+      mention.endOffset,
+    ].join("\u0000");
+  return [...stored]
+    .map(canonical)
+    .sort()
+    .every(
+      (value, index) =>
+        value ===
+        [...incoming].map(canonical).sort()[index],
+    );
+}
+
 
 function isUnique(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && error.code === "P2002";
