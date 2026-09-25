@@ -108,6 +108,10 @@ test.describe("Secure Direct Chats", () => {
     if (!peerDeviceId) {
       throw new Error("Direct Chat peer device is missing");
     }
+    await rewriteRatchetAsLegacy(aliceFallbackPage, {
+      conversationId: directConversationId(directUrl),
+      peerDeviceId,
+    });
     await seedExpiredRatchetLease(aliceFallbackPage, {
       conversationId: directConversationId(directUrl),
       localDeviceId: aliceLocalDeviceId,
@@ -142,6 +146,15 @@ test.describe("Secure Direct Chats", () => {
         page.getByTestId("direct-message-undecryptable"),
       ).toHaveCount(0);
     }
+    const migratedRatchet = await readRatchetRecordVersion(
+      aliceFallbackPage,
+      {
+        conversationId: directConversationId(directUrl),
+        peerDeviceId,
+      },
+    );
+    expect(migratedRatchet.schemaVersion).toBe(1);
+    expect(migratedRatchet.stateVersion).toBeGreaterThanOrEqual(2);
     await aliceFallbackPage.close();
     await nikitaFallbackPage.close();
 
@@ -240,6 +253,97 @@ async function readLocalDeviceId(page: Page): Promise<string> {
       db.close();
     }
   });
+}
+
+async function rewriteRatchetAsLegacy(
+  page: Page,
+  input: {
+    conversationId: string;
+    peerDeviceId: string;
+  },
+): Promise<void> {
+  await page.evaluate(async (value) => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("vimla-direct-e2ee", 3);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () =>
+        reject(request.error ?? new Error("E2EE IndexedDB open failed"));
+    });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction("ratchets", "readwrite");
+        const store = tx.objectStore("ratchets");
+        const key = `${value.conversationId}:${value.peerDeviceId}`;
+        const request = store.get(key);
+        request.onsuccess = () => {
+          const current = request.result as
+            | { state?: unknown }
+            | undefined;
+          if (!current || !current.state) {
+            reject(new Error("Versioned ratchet fixture is missing"));
+            tx.abort();
+            return;
+          }
+          store.put(current.state, key);
+        };
+        tx.oncomplete = () => resolve();
+        tx.onerror = () =>
+          reject(tx.error ?? new Error("Legacy ratchet fixture failed"));
+        tx.onabort = () =>
+          reject(tx.error ?? new Error("Legacy ratchet fixture aborted"));
+      });
+    } finally {
+      db.close();
+    }
+  }, input);
+}
+
+async function readRatchetRecordVersion(
+  page: Page,
+  input: {
+    conversationId: string;
+    peerDeviceId: string;
+  },
+): Promise<{ schemaVersion: number; stateVersion: number }> {
+  return page.evaluate(async (value) => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("vimla-direct-e2ee", 3);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () =>
+        reject(request.error ?? new Error("E2EE IndexedDB open failed"));
+    });
+    try {
+      return await new Promise<{
+        schemaVersion: number;
+        stateVersion: number;
+      }>((resolve, reject) => {
+        const tx = db.transaction("ratchets", "readonly");
+        const key = `${value.conversationId}:${value.peerDeviceId}`;
+        const request = tx.objectStore("ratchets").get(key);
+        request.onsuccess = () => {
+          const current = request.result as
+            | { schemaVersion?: unknown; stateVersion?: unknown }
+            | undefined;
+          if (
+            !current ||
+            typeof current.schemaVersion !== "number" ||
+            typeof current.stateVersion !== "number"
+          ) {
+            reject(new Error("Versioned ratchet record is missing"));
+            return;
+          }
+          resolve({
+            schemaVersion: current.schemaVersion,
+            stateVersion: current.stateVersion,
+          });
+        };
+        request.onerror = () =>
+          reject(request.error ?? new Error("Ratchet version read failed"));
+      });
+    } finally {
+      db.close();
+    }
+  }, input);
 }
 
 async function seedExpiredRatchetLease(
