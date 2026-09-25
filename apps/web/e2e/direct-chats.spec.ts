@@ -112,6 +112,16 @@ test.describe("Secure Direct Chats", () => {
     await expect(nikitaFallbackPage.getByTestId("direct-chat-shell")).toBeVisible({
       timeout: 20_000,
     });
+    expect(
+      await aliceFallbackPage.evaluate(
+        () => navigator.locks === undefined,
+      ),
+    ).toBe(true);
+    expect(
+      await nikitaFallbackPage.evaluate(
+        () => navigator.locks === undefined,
+      ),
+    ).toBe(true);
 
     const aliceLocalDeviceId = await readLocalDeviceId(aliceFallbackPage);
     const detailResponse = await alicePage.request.get(
