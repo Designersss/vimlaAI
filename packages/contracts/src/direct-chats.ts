@@ -72,7 +72,13 @@ export const registerCryptoDeviceSchema = z
       .max(DIRECT_CHAT_LIMITS.prekeysMax),
     label: z.string().trim().max(DIRECT_CHAT_LIMITS.deviceLabelMax).optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, ctx) => {
+    addDuplicatePrekeyIdIssues(
+      value.oneTimePrekeys,
+      ctx,
+    );
+  });
 export type RegisterCryptoDevice = z.infer<typeof registerCryptoDeviceSchema>;
 
 export const rotatePrekeysSchema = z
@@ -92,7 +98,13 @@ export const rotatePrekeysSchema = z
       .min(1)
       .max(DIRECT_CHAT_LIMITS.prekeysMax),
   })
-  .strict();
+  .strict()
+  .superRefine((value, ctx) => {
+    addDuplicatePrekeyIdIssues(
+      value.oneTimePrekeys,
+      ctx,
+    );
+  });
 export type RotatePrekeys = z.infer<typeof rotatePrekeysSchema>;
 
 export const replenishOneTimePrekeysSchema = z
@@ -111,17 +123,10 @@ export const replenishOneTimePrekeysSchema = z
   })
   .strict()
   .superRefine((value, ctx) => {
-    const ids = new Set<number>();
-    value.oneTimePrekeys.forEach((key, index) => {
-      if (ids.has(key.keyId)) {
-        ctx.addIssue({
-          code: "custom",
-          path: ["oneTimePrekeys", index, "keyId"],
-          message: "One-time prekey ids must be unique",
-        });
-      }
-      ids.add(key.keyId);
-    });
+    addDuplicatePrekeyIdIssues(
+      value.oneTimePrekeys,
+      ctx,
+    );
   });
 export type ReplenishOneTimePrekeys = z.infer<
   typeof replenishOneTimePrekeysSchema
@@ -136,6 +141,23 @@ export const prekeyStatusResponseSchema = z
 export type PrekeyStatusResponse = z.infer<
   typeof prekeyStatusResponseSchema
 >;
+
+function addDuplicatePrekeyIdIssues(
+  keys: ReadonlyArray<{ keyId: number }>,
+  ctx: z.RefinementCtx,
+): void {
+  const ids = new Set<number>();
+  keys.forEach((key, index) => {
+    if (ids.has(key.keyId)) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["oneTimePrekeys", index, "keyId"],
+        message: "One-time prekey ids must be unique",
+      });
+    }
+    ids.add(key.keyId);
+  });
+}
 
 export const createDirectConversationSchema = z
   .object({
