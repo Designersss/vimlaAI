@@ -735,14 +735,14 @@ async function decryptPage(detail: DirectConversationView, items: DirectMessageV
       );
     }
     const senderPublic =
-      identityByDevice.get(message.senderDeviceId) ?? "";
-    const payload = senderPublic
-      ? await decryptMessage({
-          conversationId: detail.id,
-          message,
-          senderIdentityEd25519Public: senderPublic,
-        })
-      : null;
+      identityByDevice.get(message.senderDeviceId);
+    const payload = await decryptMessage({
+      conversationId: detail.id,
+      message,
+      ...(senderPublic
+        ? { senderIdentityEd25519Public: senderPublic }
+        : {}),
+    });
     byId.set(message.id, { message, payload });
   }
   return items.map(
