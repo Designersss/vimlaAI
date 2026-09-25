@@ -5,6 +5,7 @@ import {
   operatorContextBundleSchema,
   sendDirectMessageSchema,
   registerCryptoDeviceSchema,
+  prekeyBundleSchema,
   prekeyStatusResponseSchema,
   replenishOneTimePrekeysSchema,
   rotatePrekeysSchema,
@@ -100,6 +101,23 @@ describe("direct chat contracts", () => {
         recentlyConsumedKeyIds: [2, 3],
       }).success,
     ).toBe(true);
+    expect(
+      prekeyBundleSchema.safeParse({
+        deviceId:
+          "11111111-1111-4111-8111-111111111111",
+        identityEd25519Public:
+          "aaaaaaaaaaaaaaaaaaaaaa==",
+        identityX25519Public:
+          "bbbbbbbbbbbbbbbbbbbbbb==",
+        signedPrekeyId: 1,
+        signedPrekeyPublic:
+          "cccccccccccccccccccccc==",
+        signedPrekeySignature:
+          "dddddddddddddddddddddddd==",
+        oneTimePrekeyId: null,
+        oneTimePrekeyPublic: null,
+      }).success,
+    ).toBe(false);
   });
 
   it("requires concrete message provenance and bounds aggregate E2EE context", () => {
