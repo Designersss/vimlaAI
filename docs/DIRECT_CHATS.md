@@ -74,7 +74,9 @@ Browser ratchet mutation is serialized per `conversationId + localDeviceId + pee
 - Sender plaintext-cache completion and outbox deletion are atomic. First-contact X3DH metadata remains attached until a message carrying it has been acknowledged by the server; delayed cleanup may safely repeat the authenticated init on a later envelope.
 - Successful decrypt persists ratchet advance + plaintext cache atomically. If X3DH consumed an OTK, deletion of that local private OTK secret is part of the same transaction; a referenced-but-missing OTK fails closed instead of downgrading the handshake.
 - OTK claims use server-side compare-and-set, prekey retrieval can target one concrete device, and browsers replenish their own OTK supply from a low-water mark using a crash-retryable/idempotent upload.
-- OTK ids are monotonic per local device and are never reused with new key material. A successfully used private OTK secret is retired in the same IndexedDB transaction as the ratchet advance; self-targeted first-contact copies retire their consumed OTK in the outbound fan-out transaction. If the server has no unused OTK, X3DH deliberately falls back to the authenticated signed prekey because the protocol field is nullable.
+- OTK ids are monotonic per local device and are never reused with new key material. A successfully used private OTK secret is retired in the same IndexedDB transaction as the ratchet advance; self-targeted first-contact copies retire their consumed OTK in the outbound fan-out transaction.
+- OTK exhaustion fails closed for a new session with `direct_chat_prekeys_depleted`; Vimla does not silently downgrade to signed-prekey-only initiation. The owner-only status endpoint returns bounded available/recently-consumed key ids so the browser can retain in-flight OTK secrets while pruning older orphaned private material.
+- Active crypto devices are capped at 16 per user, so a two-party Direct Chat can always fit the complete active device set inside the 32-envelope message limit. Available OTKs are capped at 64 per device.
 - First-time/offline decrypt processes messages oldest-first. If the latest page lacks the session-establishing X3DH envelope, the client backfills older pages to the local-device creation boundary before rendering the latest page.
 - CAS conflicts/lost fallback leases discard the derived result and retry from current persisted state; no conflicting ciphertext is returned to the caller.
 
@@ -121,12 +123,12 @@ Config (default off):
 - `DIRECT_CHATS_MAX_CIPHERTEXT_BYTES=65536`
 - `NEXT_PUBLIC_VIMLA_DIRECT_CHATS=false`
 
-API (cookie + OriginGuard + SensitiveArea + mutation rate limit):
+API (cookie + OriginGuard + SensitiveArea + abuse limits; read receipts use an independent bucket so they cannot exhaust the send/device/prekey mutation budget):
 
 - `POST/GET /v1/direct-chats/devices`, rotate, revoke
 - `GET /v1/direct-chats/devices/:deviceId/prekeys/status`
 - `POST /v1/direct-chats/devices/:deviceId/prekeys/replenish`
-- `GET /v1/direct-chats/users/:userId/prekeys?deviceId=...` (self or shared-chat peer; optional device-scoped OTK claim)
+- `POST /v1/direct-chats/users/:userId/prekeys/claim` (self or shared-chat peer; device-scoped OTK claim; mutation-rate-limited)
 - `POST/GET /v1/direct-chats`, `GET :id`, `PATCH :id/privacy`, `POST :id/read`
 - `GET/POST /v1/direct-chats/:id/messages`
 
@@ -134,7 +136,7 @@ Disabled → `direct_chats_disabled` (503).
 
 ## 7. Security tests
 
-Covered: lifecycle, ciphertext-not-plaintext in PostgreSQL, tamper rejection, two-party decrypt, IDOR, sender/timestamp/cross-chat/future provenance spoof rejection, unread/pagination, flag off, cross-tab device bootstrap, mixed Web Locks/IndexedDB ratchet stress, stale-lease recovery, committed-send response-loss recovery, legacy ratchet migration, deep offline ratchet bootstrap, atomic OTK claims, idempotent OTK replenishment, device-identity replacement rejection, device-scoped old-history envelopes, `@Vimla` general answer, context deny/allow, self task, peer task, third user denied, Direct Chat personal-tool denial, private-workspace snapshot isolation, peer/actor consent revocation during recovery, fail-closed generic E2EE context access, exact ContextSnapshot ownership DB constraints, hidden Direct Chat clarification-continuation rejection, prompt injection does not extend permissions, responsive Direct Chat UI.
+Covered: lifecycle, ciphertext-not-plaintext in PostgreSQL, tamper rejection, two-party decrypt, IDOR, sender/timestamp/cross-chat/future provenance spoof rejection, unread/pagination, flag off, cross-tab device bootstrap, mixed Web Locks/IndexedDB ratchet stress, stale-lease recovery, committed-send response-loss recovery + realtime re-notification, legacy ratchet migration, deep offline ratchet bootstrap, atomic/rate-limited OTK claims, fail-closed OTK exhaustion, bounded OTK pool, idempotent OTK replenishment, concurrent active-device cap, independent read/mutation rate buckets, device-identity replacement rejection, device-scoped old-history envelopes, `@Vimla` general answer, context deny/allow, self task, peer task, third user denied, Direct Chat personal-tool denial, private-workspace snapshot isolation, peer/actor consent revocation during recovery, fail-closed generic E2EE context access, exact ContextSnapshot ownership DB constraints, hidden Direct Chat clarification-continuation rejection, prompt injection does not extend permissions, responsive Direct Chat UI.
 
 ## 8. Quality gates
 
