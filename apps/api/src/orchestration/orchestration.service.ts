@@ -857,7 +857,10 @@ export class OrchestrationService {
           throw new NotFoundException("Execution plan not found");
         }
         if (replay.status === "RUNNING") {
-          return toView(replay);
+          return {
+            plan: toView(replay),
+            transitioned: false,
+          };
         }
         throw new ConflictException("Execution plan cannot be started from its current state");
       }
@@ -1013,7 +1016,7 @@ export class OrchestrationService {
     const invocationId = invocationDbId(id, validatedInvocationId);
     const artifacts = new ArtifactService(this.prisma.client);
 
-    const resolvedPlan = await this.prisma.client.$transaction(async (tx) => {
+    const resolution = await this.prisma.client.$transaction(async (tx) => {
       const plan = await tx.executionPlan.findFirst({
         where: { id, userId },
         include: planInclude,
@@ -1050,7 +1053,10 @@ export class OrchestrationService {
             "Human evaluation was already resolved with a different decision",
           );
         }
-        return toView(plan);
+        return {
+          plan: toView(plan),
+          transitioned: false,
+        };
       }
       if (plan.status !== "RUNNING") {
         throw new ConflictException("Execution plan is not running");
@@ -1210,17 +1216,22 @@ export class OrchestrationService {
           "Execution plan disappeared during human evaluation",
         );
       }
-      return toView(resolved);
+      return {
+        plan: toView(resolved),
+        transitioned: true,
+      };
     });
-    this.telemetry.emit({
-      event: "safety.policy",
-      planId: id,
-      invocationId,
-      action: "APPROVAL_GRANTED",
-      reason: "OTHER",
-      count: 1,
-    });
-    return resolvedPlan;
+    if (resolution.transitioned) {
+      this.telemetry.emit({
+        event: "safety.policy",
+        planId: id,
+        invocationId,
+        action: "APPROVAL_GRANTED",
+        reason: "OTHER",
+        count: 1,
+      });
+    }
+    return resolution.plan;
   }
 
   private async ensureContextSnapshot(userId: string, planId: string): Promise<ContextSnapshotView> {
