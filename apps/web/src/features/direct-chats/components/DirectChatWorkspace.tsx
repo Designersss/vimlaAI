@@ -582,7 +582,15 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
           </Text>
         </div>
         <div className={styles.messages}>
-          {nextCursor ? <Button variant="ghost" onClick={() => void onLoadOlder()}>{t("direct.loadOlder")}</Button> : null}
+          {nextCursor ? (
+            <Button
+              variant="ghost"
+              data-testid="direct-chat-load-older"
+              onClick={() => void onLoadOlder()}
+            >
+              {t("direct.loadOlder")}
+            </Button>
+          ) : null}
           {error ? <Alert variant="error">{tx(t, apiErrorMessageKey(error))}</Alert> : null}
           {rows.length === 0 ? <EmptyState title={t("direct.empty")} /> : null}
           {rows.map((row) => (
