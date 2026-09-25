@@ -407,9 +407,12 @@ export class MemoryMaintenanceService {
     if (!compacted) {
       try {
         const compactionStartedAt = Date.now();
-        let compaction: Awaited<
-          ReturnType<MemoryMaintenanceService["compactConversation"]>
-        >;
+        let compaction: {
+          count: number;
+          inputTokens: number;
+          outputTokens: number;
+          version: number | null;
+        };
         try {
           compaction = await this.compactConversation({
             ...input,
@@ -504,6 +507,7 @@ export class MemoryMaintenanceService {
       invalidatedCount: 0,
       staleCount: 0,
       compactionCount,
+      compactionDurationMs,
       compactionInputTokens,
       compactionOutputTokens,
       compactionVersion,
