@@ -122,7 +122,7 @@ test.describe("Secure Direct Chats", () => {
       nikitaPage.getByTestId("direct-message-undecryptable"),
     ).toHaveCount(0);
     await nikitaPage
-      .getByRole("button", { name: /загрузить предыдущие|load older/i })
+      .getByTestId("direct-chat-load-older")
       .click();
     await expect(
       nikitaPage
