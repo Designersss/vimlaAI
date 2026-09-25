@@ -38,7 +38,7 @@ import {
   type PrekeyBundlesResponse,
 } from "@vimla/contracts";
 import {
-  prekeyBundlesQuerySchema,
+  claimPrekeyBundlesSchema,
   prekeyStatusResponseSchema,
   replenishOneTimePrekeysSchema,
   type PrekeyStatusResponse,
@@ -148,25 +148,32 @@ export class DirectChatDevicesController {
 export class DirectChatPrekeysController {
   constructor(@Inject(DirectChatsFacade) private readonly directChats: DirectChatsFacade) {}
 
-  @Get(":userId/prekeys")
-  async prekeys(
+  @Post(":userId/prekeys/claim")
+  @HttpCode(200)
+  async claimPrekeys(
     @AuthUser() user: AuthenticatedUser,
     @Param("userId") userId: string,
-    @Query() query: unknown,
+    @Body() body: unknown,
   ): Promise<PrekeyBundlesResponse> {
     this.directChats.assertEnabled();
-    await this.directChats.chats.assertCanFetchPrekeys(user.id, userId);
+    await this.directChats.chats.assertCanFetchPrekeys(
+      user.id,
+      userId,
+    );
     const parsed = parseRequest(
-      prekeyBundlesQuerySchema,
-      query,
-      "Invalid prekey query",
+      claimPrekeyBundlesSchema,
+      body,
+      "Invalid prekey claim",
     );
     const bundles =
       await this.directChats.devices.prekeyBundlesForUser(
         userId,
         parsed.deviceId,
       );
-    return prekeyBundlesResponseSchema.parse({ userId, bundles });
+    return prekeyBundlesResponseSchema.parse({
+      userId,
+      bundles,
+    });
   }
 }
 
@@ -273,6 +280,10 @@ export class DirectChatsController {
       input,
     );
     if (replay) {
+      await this.publishMessageNotification(
+        user.id,
+        replay,
+      );
       return directMessageViewSchema.parse(replay);
     }
 
@@ -292,36 +303,10 @@ export class DirectChatsController {
       resolvedMentions,
     );
     const created = result.message;
-    try {
-      const participants =
-        await this.directChats.chats.participants(
-          user.id,
-          id,
-        );
-      await this.realtime.publish(
-        participants.map(
-          (participant) => participant.userId,
-        ),
-        {
-          type: "direct_message",
-          conversationId: created.conversationId,
-          messageId: created.id,
-          senderUserId: created.senderUserId,
-          kind: created.kind,
-          createdAt: created.createdAt,
-        },
-      );
-    } catch (error: unknown) {
-      this.logger.warn({
-        msg: "direct_chats.realtime_notify_failed_after_commit",
-        conversationId: created.conversationId,
-        messageId: created.id,
-        error:
-          error instanceof Error
-            ? error.message
-            : "unknown",
-      });
-    }
+    await this.publishMessageNotification(
+      user.id,
+      created,
+    );
     if (!result.replayed) {
       this.directChats.logMutation(
         "message.send",
@@ -330,5 +315,41 @@ export class DirectChatsController {
       );
     }
     return directMessageViewSchema.parse(created);
+  }
+
+  private async publishMessageNotification(
+    actorUserId: string,
+    message: DirectMessageView,
+  ): Promise<void> {
+    try {
+      const participants =
+        await this.directChats.chats.participants(
+          actorUserId,
+          message.conversationId,
+        );
+      await this.realtime.publish(
+        participants.map(
+          (participant) => participant.userId,
+        ),
+        {
+          type: "direct_message",
+          conversationId: message.conversationId,
+          messageId: message.id,
+          senderUserId: message.senderUserId,
+          kind: message.kind,
+          createdAt: message.createdAt,
+        },
+      );
+    } catch (error: unknown) {
+      this.logger.warn({
+        msg: "direct_chats.realtime_notify_failed_after_commit",
+        conversationId: message.conversationId,
+        messageId: message.id,
+        error:
+          error instanceof Error
+            ? error.message
+            : "unknown",
+      });
+    }
   }
 }
