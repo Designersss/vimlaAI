@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { SerializedRatchetState, X3dhInitHeader } from "@vimla/e2ee";
 import {
   RatchetStateConflictError,
+  RatchetStateCorruptError,
   canAcquireRatchetLease,
   decodeStoredRatchet,
   assertRatchetVersion,
@@ -50,7 +51,9 @@ describe("ratchet coordination", () => {
       state,
       pendingX3dhInit: null,
     });
-    expect(decodeStoredRatchet(stored, "device-b")).toBeNull();
+    expect(() => decodeStoredRatchet(stored, "device-b")).toThrow(
+      RatchetStateCorruptError,
+    );
   });
 
   it("round-trips a pending first-contact handshake", () => {
