@@ -5,6 +5,13 @@ import {
   type ContextBundleView,
 } from "@vimla/context";
 import type { PrismaClient } from "@vimla/database";
+import {
+  NOOP_TELEMETRY_SINK,
+  countTelemetryValues,
+  telemetryDurationMs,
+  telemetryRatioBps,
+  type TelemetrySink,
+} from "@vimla/shared";
 import type {
   InvocationExecutionInput,
   InvocationExecutionResult,
@@ -20,6 +27,8 @@ export class ContextAwareInvocationExecutorRegistry
     private readonly prisma: PrismaClient,
     private readonly fallback: InvocationExecutorRegistry,
     bundles?: ContextBundleService,
+    private readonly enabled = true,
+    private readonly telemetry: TelemetrySink = NOOP_TELEMETRY_SINK,
   ) {
     this.bundles = bundles ?? new ContextBundleService(prisma);
   }
@@ -27,6 +36,11 @@ export class ContextAwareInvocationExecutorRegistry
   async execute(
     input: InvocationExecutionInput,
   ): Promise<InvocationExecutionResult> {
+    const startedAt = Date.now();
+    if (!this.enabled) {
+      return terminal("CONTEXT_RETRIEVAL_DISABLED");
+    }
+
     const invocation = await this.prisma.invocation.findFirst({
       where: {
         id: input.invocationId,
@@ -47,6 +61,14 @@ export class ContextAwareInvocationExecutorRegistry
       return terminal("CONTEXT_POLICY_INVOCATION_NOT_FOUND");
     }
     if (!persistedTargetMatches(invocation, input.target)) {
+      this.telemetry.emit({
+        event: "safety.policy",
+        planId: input.planId,
+        invocationId: input.invocationId,
+        action: "PERMISSION_DENIED",
+        reason: "OTHER",
+        count: 1,
+      });
       return terminal("CONTEXT_POLICY_TARGET_MISMATCH");
     }
 
@@ -60,10 +82,26 @@ export class ContextAwareInvocationExecutorRegistry
         input.target.kind === "VIMLA" &&
         bundle.manifest.surfaceKind !== "PERSONAL"
       ) {
+        this.telemetry.emit({
+          event: "safety.policy",
+          planId: input.planId,
+          invocationId: input.invocationId,
+          action: "CROSS_SCOPE_BLOCKED",
+          reason: "CROSS_SCOPE_BLOCKED",
+          count: 1,
+        });
         return terminal("CONTEXT_POLICY_EXECUTOR_SURFACE_UNSUPPORTED");
       }
     } catch (error: unknown) {
       if (error instanceof ContextAccessDeniedError) {
+        this.telemetry.emit({
+          event: "safety.policy",
+          planId: input.planId,
+          invocationId: input.invocationId,
+          action: "PERMISSION_DENIED",
+          reason: "OTHER",
+          count: 1,
+        });
         return terminal("CONTEXT_POLICY_DENIED");
       }
       if (error instanceof ContextError) {
@@ -72,11 +110,89 @@ export class ContextAwareInvocationExecutorRegistry
       throw error;
     }
 
+    const manifest = bundle.manifest;
+    const afterPolicyCount =
+      manifest.allowedItems.length + manifest.packingExclusions.length;
+    this.telemetry.emit({
+      event: "context.bundle",
+      planId: input.planId,
+      invocationId: input.invocationId,
+      targetKind: input.target.kind,
+      outcome: "SUCCESS",
+      durationMs: telemetryDurationMs(startedAt),
+      candidateCountBeforePolicy:
+        afterPolicyCount + manifest.denials.length,
+      candidateCountAfterPolicy: afterPolicyCount,
+      selectedItemCount: manifest.allowedItems.length,
+      deniedItemCount: manifest.denials.length,
+      packingExcludedCount: manifest.packingExclusions.length,
+      artifactDeniedCount: manifest.artifactDenials.length,
+      budgetTokens: manifest.budget.effectiveHistoryBudgetTokens,
+      usedTokens: manifest.usedTokens,
+      budgetUtilizationBps: telemetryRatioBps(
+        manifest.usedTokens,
+        manifest.budget.effectiveHistoryBudgetTokens,
+      ),
+      rawHistoryTokens: manifest.rawHistoryTokens,
+      l1RawTokens: selectedL1RawTokens(bundle),
+      l2CompactedTokens: manifest.allowedItems
+        .filter((item) => item.sourceType === "COMPACTED_STATE")
+        .reduce((total, item) => total + item.estimatedTokens, 0),
+      sourceDistribution: countTelemetryValues(
+        manifest.allowedItems.map((item) => item.sourceType),
+      ),
+      selectionDistribution: countTelemetryValues(
+        manifest.allowedItems.map((item) => item.selectionReason),
+      ),
+      denialDistribution: countTelemetryValues([
+        ...manifest.denials.map((denial) => denial.reason),
+        ...manifest.packingExclusions.map(
+          (exclusion) => `PACKING_${exclusion.reason}`,
+        ),
+        ...manifest.artifactDenials.map((denial) => denial.reason),
+      ]),
+    });
+
     return this.fallback.execute({
       ...input,
       contextBundle: bundle,
     });
   }
+}
+
+function selectedL1RawTokens(bundle: ContextBundleView): number {
+  const itemById = new Map(
+    bundle.items.map((item) => [item.id, item]),
+  );
+  return bundle.manifest.allowedItems.reduce(
+    (total, allowed) => {
+      const item = itemById.get(allowed.snapshotItemId);
+      return retrievalSourceKind(item?.metadata) === "L1_RAW"
+        ? total + allowed.estimatedTokens
+        : total;
+    },
+    0,
+  );
+}
+
+function retrievalSourceKind(metadata: unknown): string | null {
+  if (
+    metadata === null ||
+    typeof metadata !== "object" ||
+    Array.isArray(metadata)
+  ) {
+    return null;
+  }
+  const retrieval = (metadata as Record<string, unknown>).retrieval;
+  if (
+    retrieval === null ||
+    typeof retrieval !== "object" ||
+    Array.isArray(retrieval)
+  ) {
+    return null;
+  }
+  const sourceKind = (retrieval as Record<string, unknown>).sourceKind;
+  return typeof sourceKind === "string" ? sourceKind : null;
 }
 
 function persistedTargetMatches(

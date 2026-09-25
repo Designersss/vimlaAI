@@ -26,6 +26,10 @@ import {
 } from "@vimla/context";
 import { type Prisma } from "@vimla/database";
 import {
+  countTelemetryValues,
+  telemetryDurationMs,
+} from "@vimla/shared";
+import {
   SemanticPlannerError,
   SemanticWorkflowPlanner,
   toPlannerInvocationMentions,
@@ -34,6 +38,7 @@ import {
   type SemanticWorkflowPlannerResult,
 } from "@vimla/orchestration";
 import { API_CONFIG, type ApiRuntimeConfig } from "../config/api-config.js";
+import { ApiTelemetrySink } from "../observability/telemetry.js";
 import { PrismaService } from "../persistence/prisma.service.js";
 import {
   acceptanceCriteriaSchema,
@@ -100,6 +105,8 @@ export class OrchestrationService {
     @Inject(API_CONFIG) private readonly config: ApiRuntimeConfig,
     @Inject(SEMANTIC_PLANNER_MODEL)
     private readonly semanticPlannerModel: SemanticPlannerModel,
+    @Inject(ApiTelemetrySink)
+    private readonly telemetry: ApiTelemetrySink,
   ) {}
 
   async planMessage(
@@ -109,7 +116,8 @@ export class OrchestrationService {
     correlationId: string,
     onPlanning?: (planId: string) => void,
   ): Promise<SemanticPlanMessageResult> {
-    this.assertPreviewEnabled();
+    this.assertOrchestrationEnabled();
+    this.assertSemanticPlannerEnabled();
 
     const sourceMessage = await this.prisma.client.message.findFirst({
       where: {
@@ -147,6 +155,12 @@ export class OrchestrationService {
       };
     }
     if (shell.status !== "PLANNING") {
+      this.telemetry.emit({
+        event: "planner.feedback",
+        planId: shell.id,
+        action: "REPLAY",
+        count: 1,
+      });
       return existingSemanticPlanResult(shell);
     }
 
@@ -163,6 +177,12 @@ export class OrchestrationService {
         };
       }
       if (claim.plan.status !== "PLANNING") {
+        this.telemetry.emit({
+          event: "planner.feedback",
+          planId: claim.plan.id,
+          action: "REPLAY",
+          count: 1,
+        });
         return existingSemanticPlanResult(claim.plan);
       }
       return { kind: "PLANNING", planId: claim.plan.id };
@@ -187,6 +207,12 @@ export class OrchestrationService {
             include: planInclude,
           });
           if (replay && replay.status !== "PLANNING") {
+            this.telemetry.emit({
+              event: "planner.feedback",
+              planId: replay.id,
+              action: "REPLAY",
+              count: 1,
+            });
             return existingSemanticPlanResult(replay);
           }
         }
@@ -195,6 +221,7 @@ export class OrchestrationService {
       }
 
       const planner = new SemanticWorkflowPlanner(this.semanticPlannerModel);
+      const plannerStartedAt = Date.now();
       let result: SemanticWorkflowPlannerResult;
       try {
         result = await planner.plan({
@@ -211,10 +238,31 @@ export class OrchestrationService {
             include: planInclude,
           });
           if (replay && replay.status !== "PLANNING") {
+            this.telemetry.emit({
+              event: "planner.feedback",
+              planId: replay.id,
+              action: "REPLAY",
+              count: 1,
+            });
             return existingSemanticPlanResult(replay);
           }
         }
         await this.failPlanningClaim(userId, shell.id, claim.claimHash);
+        this.telemetry.emit({
+          event: "planner.completed",
+          correlationId,
+          planId: shell.id,
+          outcome: "FAILED",
+          durationMs: telemetryDurationMs(plannerStartedAt),
+          nodeCount: 0,
+          edgeCount: 0,
+          depth: 0,
+          maxParallelism: 0,
+          ...(error instanceof SemanticPlannerError
+            ? { validationFailureCode: error.code }
+            : {}),
+          replayed: false,
+        });
         if (error instanceof SemanticPlannerError) {
           throw new BadRequestException({
             code: "semantic_plan_invalid",
@@ -225,6 +273,18 @@ export class OrchestrationService {
       }
 
       if (result.kind === "CLARIFY") {
+        this.telemetry.emit({
+          event: "planner.completed",
+          correlationId,
+          planId: shell.id,
+          outcome: "WAITING",
+          durationMs: telemetryDurationMs(plannerStartedAt),
+          nodeCount: 0,
+          edgeCount: 0,
+          depth: 0,
+          maxParallelism: 0,
+          replayed: false,
+        });
         const question = await this.persistClarification(
           userId,
           shell.id,
@@ -245,6 +305,17 @@ export class OrchestrationService {
         validateManualExecutionPlan(executablePlan);
       } catch (error: unknown) {
         if (error instanceof SemanticPlanPolicyError) {
+          const shape = plannerTelemetryShape(result.plan);
+          this.telemetry.emit({
+            event: "planner.completed",
+            correlationId,
+            planId: shell.id,
+            outcome: "DENIED",
+            durationMs: telemetryDurationMs(plannerStartedAt),
+            ...shape,
+            validationFailureCode: error.code,
+            replayed: false,
+          });
           const question = await this.persistClarification(
             userId,
             shell.id,
@@ -257,18 +328,37 @@ export class OrchestrationService {
           };
         }
         await this.failPlanningClaim(userId, shell.id, claim.claimHash);
+        this.telemetry.emit({
+          event: "planner.completed",
+          correlationId,
+          planId: shell.id,
+          outcome: "FAILED",
+          durationMs: telemetryDurationMs(plannerStartedAt),
+          ...plannerTelemetryShape(result.plan),
+          replayed: false,
+        });
         throw error;
       }
 
       try {
+        const finalized = await this.finalizePlanningShell(
+          userId,
+          shell.id,
+          claim.claimHash,
+          executablePlan,
+        );
+        this.telemetry.emit({
+          event: "planner.completed",
+          correlationId,
+          planId: shell.id,
+          outcome: "SUCCESS",
+          durationMs: telemetryDurationMs(plannerStartedAt),
+          ...plannerTelemetryShape(executablePlan),
+          replayed: false,
+        });
         return {
           kind: "PLANNED",
-          plan: await this.finalizePlanningShell(
-            userId,
-            shell.id,
-            claim.claimHash,
-            executablePlan,
-          ),
+          plan: finalized,
         };
       } catch (error: unknown) {
         if (error instanceof ConflictException) {
@@ -277,10 +367,25 @@ export class OrchestrationService {
             include: planInclude,
           });
           if (replay && replay.status !== "PLANNING") {
+            this.telemetry.emit({
+              event: "planner.feedback",
+              planId: replay.id,
+              action: "REPLAY",
+              count: 1,
+            });
             return existingSemanticPlanResult(replay);
           }
         }
         await this.failPlanningClaim(userId, shell.id, claim.claimHash);
+        this.telemetry.emit({
+          event: "planner.completed",
+          correlationId,
+          planId: shell.id,
+          outcome: "FAILED",
+          durationMs: telemetryDurationMs(plannerStartedAt),
+          ...plannerTelemetryShape(executablePlan),
+          replayed: false,
+        });
         throw error;
       }
     } finally {
@@ -553,7 +658,7 @@ export class OrchestrationService {
   }
 
   async create(userId: string, body: unknown): Promise<ExecutionPlanView> {
-    this.assertPreviewEnabled();
+    this.assertOrchestrationEnabled();
     const input = parseCreate(body);
     validateManualExecutionPlan(input.plan);
 
@@ -653,7 +758,7 @@ export class OrchestrationService {
   }
 
   async getOne(userId: string, id: string): Promise<ExecutionPlanView> {
-    this.assertPreviewEnabled();
+    this.assertOrchestrationEnabled();
     const plan = await this.prisma.client.executionPlan.findFirst({
       where: { id, userId },
       include: planInclude,
@@ -668,7 +773,7 @@ export class OrchestrationService {
     userId: string,
     messageId: string,
   ): Promise<ExecutionPlanLookupView> {
-    this.assertPreviewEnabled();
+    this.assertOrchestrationEnabled();
     const plan = await this.prisma.client.executionPlan.findFirst({
       where: { userId, messageId },
       include: planInclude,
@@ -680,7 +785,7 @@ export class OrchestrationService {
     userId: string,
     conversationId: string,
   ): Promise<ExecutionPlanConversationView> {
-    this.assertPreviewEnabled();
+    this.assertOrchestrationEnabled();
 
     const activePlans = await this.prisma.client.executionPlan.findMany({
       where: {
@@ -716,7 +821,7 @@ export class OrchestrationService {
   }
 
   async start(userId: string, id: string): Promise<ExecutionPlanView> {
-    this.assertPreviewEnabled();
+    this.assertOrchestrationEnabled();
     await this.ensureContextSnapshot(userId, id);
 
     return this.prisma.client.$transaction(async (tx) => {
@@ -781,7 +886,7 @@ export class OrchestrationService {
   }
 
   async stop(userId: string, id: string): Promise<ExecutionPlanView> {
-    this.assertPreviewEnabled();
+    this.assertOrchestrationEnabled();
     return this.prisma.client.$transaction(async (tx) => {
       const current = await tx.executionPlan.findFirst({
         where: { id, userId },
@@ -818,10 +923,11 @@ export class OrchestrationService {
   }
 
   async approve(userId: string, id: string, body: unknown): Promise<ExecutionPlanView> {
-    this.assertPreviewEnabled();
+    this.assertOrchestrationEnabled();
     const input = parseApprove(body);
+    const invocationId = invocationDbId(id, input.invocationId);
 
-    return this.prisma.client.$transaction(async (tx) => {
+    const approval = await this.prisma.client.$transaction(async (tx) => {
       const plan = await tx.executionPlan.findFirst({
         where: { id, userId },
         include: planInclude,
@@ -833,7 +939,6 @@ export class OrchestrationService {
         throw new ConflictException("Execution plan is not running");
       }
 
-      const invocationId = invocationDbId(id, input.invocationId);
       const invocation = plan.invocations.find((candidate) => candidate.id === invocationId);
       if (!invocation) {
         throw new NotFoundException("Invocation not found");
@@ -850,11 +955,13 @@ export class OrchestrationService {
         );
       }
 
+      let transitioned = false;
       if (invocation.status === "WAITING_APPROVAL") {
-        await tx.invocation.updateMany({
+        const updated = await tx.invocation.updateMany({
           where: { id: invocationId, planId: id, status: "WAITING_APPROVAL" },
           data: { status: "READY" },
         });
+        transitioned = updated.count === 1;
       } else if (
         invocation.status !== "READY" &&
         invocation.status !== "RUNNING" &&
@@ -870,8 +977,22 @@ export class OrchestrationService {
       if (!approved) {
         throw new InternalServerErrorException("Execution plan disappeared during approval");
       }
-      return toView(approved);
+      return {
+        plan: toView(approved),
+        transitioned,
+      };
     });
+    if (approval.transitioned) {
+      this.telemetry.emit({
+        event: "safety.policy",
+        planId: id,
+        invocationId,
+        action: "APPROVAL_GRANTED",
+        reason: "OTHER",
+        count: 1,
+      });
+    }
+    return approval.plan;
   }
 
   async resolveHumanEvaluation(
@@ -880,7 +1001,7 @@ export class OrchestrationService {
     graphInvocationId: string,
     body: unknown,
   ): Promise<ExecutionPlanView> {
-    this.assertPreviewEnabled();
+    this.assertOrchestrationEnabled();
     const input = parseHumanEvaluation(body);
     const parsedInvocationId = workflowGraphKeySchema.safeParse(
       graphInvocationId,
@@ -889,9 +1010,10 @@ export class OrchestrationService {
       throw new BadRequestException("Invalid invocation id");
     }
     const validatedInvocationId = parsedInvocationId.data;
+    const invocationId = invocationDbId(id, validatedInvocationId);
     const artifacts = new ArtifactService(this.prisma.client);
 
-    return this.prisma.client.$transaction(async (tx) => {
+    const resolution = await this.prisma.client.$transaction(async (tx) => {
       const plan = await tx.executionPlan.findFirst({
         where: { id, userId },
         include: planInclude,
@@ -900,7 +1022,6 @@ export class OrchestrationService {
         throw new NotFoundException("Execution plan not found");
       }
 
-      const invocationId = invocationDbId(id, validatedInvocationId);
       const invocation = plan.invocations.find(
         (candidate) => candidate.id === invocationId,
       );
@@ -929,7 +1050,10 @@ export class OrchestrationService {
             "Human evaluation was already resolved with a different decision",
           );
         }
-        return toView(plan);
+        return {
+          plan: toView(plan),
+          transitioned: false,
+        };
       }
       if (plan.status !== "RUNNING") {
         throw new ConflictException("Execution plan is not running");
@@ -1003,7 +1127,10 @@ export class OrchestrationService {
           replayEvaluation.outcome === input.outcome &&
           (replayEvaluation.summary ?? undefined) === input.summary
         ) {
-          return toView(replay);
+          return {
+            plan: toView(replay),
+            transitioned: false,
+          };
         }
         throw new ConflictException(
           "Human evaluator decision was resolved concurrently",
@@ -1089,16 +1216,35 @@ export class OrchestrationService {
           "Execution plan disappeared during human evaluation",
         );
       }
-      return toView(resolved);
+      return {
+        plan: toView(resolved),
+        transitioned: true,
+      };
     });
+    if (resolution.transitioned) {
+      this.telemetry.emit({
+        event: "safety.policy",
+        planId: id,
+        invocationId,
+        action: "APPROVAL_GRANTED",
+        reason: "OTHER",
+        count: 1,
+      });
+    }
+    return resolution.plan;
   }
 
   private async ensureContextSnapshot(userId: string, planId: string): Promise<ContextSnapshotView> {
+    this.assertContextRetrievalEnabled();
+    const startedAt = Date.now();
     try {
-      const semantic = this.config.embeddings ? new SemanticSearchService(
+      const semantic =
+        this.config.semanticRetrievalEnabled && this.config.embeddings
+          ? new SemanticSearchService(
         this.prisma.client, new InternalHttpEmbeddingProvider(this.config.embeddings),
         { warn: (fields, message) => Logger.warn({ ...fields, message }, "SemanticRetrieval") },
-      ) : undefined;
+      )
+          : undefined;
       const derivedProviders = this.config.memoryEnabled
         ? [
             new MemoryRetrievalProvider(this.prisma.client),
@@ -1113,13 +1259,35 @@ export class OrchestrationService {
           derivedProviders,
           {},
           semantic,
+          semantic
+            ? (summary) => {
+                this.telemetry.emit({
+                  event: "context.semantic_retrieval",
+                  planId,
+                  outcome: "SUCCESS",
+                  ...summary,
+                });
+              }
+            : undefined,
         ),
       );
       await context.createForExecutionPlan({
         actorUserId: userId,
         planId,
       });
-      return await context.resolveForPlan(userId, planId);
+      const snapshot = await context.resolveForPlan(userId, planId);
+      this.telemetry.emit({
+        event: "context.snapshot",
+        planId,
+        outcome: "SUCCESS",
+        durationMs: telemetryDurationMs(startedAt),
+        itemCount: snapshot.items.length,
+        metadataBytes: snapshotMetadataBytes(snapshot),
+        sourceDistribution: countTelemetryValues(
+          snapshot.items.map((item) => item.sourceType),
+        ),
+      });
+      return snapshot;
     } catch (error: unknown) {
       if (error instanceof ContextNotFoundError) {
         throw new NotFoundException("Execution plan not found");
@@ -1199,12 +1367,66 @@ export class OrchestrationService {
     };
   }
 
-  private assertPreviewEnabled(): void {
-    const nonProductionPreview = this.config.appEnv === "local" || this.config.appEnv === "test";
-    if (!nonProductionPreview || !this.config.operatorEnabled) {
+  private assertOrchestrationEnabled(): void {
+    if (!this.config.orchestrationEnabled || !this.config.operatorEnabled) {
       throw new NotFoundException("Execution plans are not available");
     }
   }
+
+  private assertSemanticPlannerEnabled(): void {
+    if (!this.config.semanticPlannerEnabled) {
+      throw new NotFoundException("Semantic workflow planning is not available");
+    }
+  }
+
+  private assertContextRetrievalEnabled(): void {
+    if (!this.config.contextRetrievalEnabled) {
+      throw new NotFoundException("Execution context retrieval is not available");
+    }
+  }
+}
+
+function plannerTelemetryShape(plan: {
+  maxParallelism: number;
+  invocations: readonly { id: string }[];
+  dependencies: readonly {
+    fromInvocationId: string;
+    toInvocationId: string;
+  }[];
+}): {
+  nodeCount: number;
+  edgeCount: number;
+  depth: number;
+  maxParallelism: number;
+} {
+  const depths = new Map(
+    plan.invocations.map((invocation) => [invocation.id, 1]),
+  );
+  for (let pass = 0; pass < plan.invocations.length; pass += 1) {
+    let changed = false;
+    for (const dependency of plan.dependencies) {
+      const fromDepth = depths.get(dependency.fromInvocationId) ?? 1;
+      const current = depths.get(dependency.toInvocationId) ?? 1;
+      if (fromDepth + 1 > current) {
+        depths.set(dependency.toInvocationId, fromDepth + 1);
+        changed = true;
+      }
+    }
+    if (!changed) break;
+  }
+  return {
+    nodeCount: plan.invocations.length,
+    edgeCount: plan.dependencies.length,
+    depth: Math.max(0, ...depths.values()),
+    maxParallelism: plan.maxParallelism,
+  };
+}
+
+function snapshotMetadataBytes(snapshot: ContextSnapshotView): number {
+  const encoded = JSON.stringify(
+    snapshot.items.map((item) => item.metadata ?? null),
+  );
+  return new TextEncoder().encode(encoded).byteLength;
 }
 
 const planInclude = {

@@ -19,6 +19,7 @@ import {
 } from "@vimla/billing";
 import type { ContextBundleView } from "@vimla/context";
 import { createPrismaClient, type PrismaClient } from "@vimla/database";
+import type { TelemetryEvent, TelemetrySink } from "@vimla/shared";
 import {
   ExternalAiInvocationExecutor,
   orchestrationAiClientRequestId,
@@ -61,7 +62,15 @@ describe("ExternalAiInvocationExecutor", () => {
     });
     const provider = new MockAiProvider();
     provider.text = "Launch note from model";
-    const executor = createExecutor(prisma, provider);
+    const telemetry = recordingTelemetry();
+    const executor = createExecutor(
+      prisma,
+      provider,
+      undefined,
+      {},
+      undefined,
+      telemetry.sink,
+    );
 
     const result = await executor.execute(executionInput(seeded, {
       kind: "AI_MODEL",
@@ -111,6 +120,19 @@ describe("ExternalAiInvocationExecutor", () => {
     expect(artifact.versions[0]?.contentJson).toEqual({
       text: "Launch note from model",
     });
+    expect(telemetry.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: "economics.ai",
+          planId: seeded.planId,
+          invocationId: seeded.invocationId,
+          aiRequestId: request.id,
+          providerClass: "PAID_EXTERNAL",
+          modelClass: "gpt-5-6-luna",
+          outcome: "SUCCESS",
+        }),
+      ]),
+    );
   });
 
   it("never sends a restricted dependency artifact to an external provider", async () => {
@@ -2158,12 +2180,28 @@ describe("ExternalAiInvocationExecutor", () => {
   });
 });
 
+function recordingTelemetry(): {
+  events: TelemetryEvent[];
+  sink: TelemetrySink;
+} {
+  const events: TelemetryEvent[] = [];
+  return {
+    events,
+    sink: {
+      emit: (event) => {
+        events.push(event);
+      },
+    },
+  };
+}
+
 function createExecutor(
   prisma: PrismaClient,
   provider: AiProvider,
   toolBroker?: ExternalAiToolBroker,
   overrides: Partial<ExternalAiExecutorConfig> = {},
   billingOverride?: BillingEngine,
+  telemetry?: TelemetrySink,
 ): ExternalAiInvocationExecutor {
   return new ExternalAiInvocationExecutor(
     prisma,
@@ -2189,6 +2227,8 @@ function createExecutor(
       ...overrides,
     },
     toolBroker,
+    undefined,
+    telemetry,
   );
 }
 

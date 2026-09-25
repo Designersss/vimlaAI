@@ -6,6 +6,7 @@ import {
   type Prisma,
   type PrismaClient,
 } from "@vimla/database";
+import type { TelemetryEvent, TelemetrySink } from "@vimla/shared";
 import {
   DisabledAiEvaluationModel,
   EvaluationAwareInvocationExecutorRegistry,
@@ -152,6 +153,21 @@ const logger = {
   error: (_fields: Record<string, string | number | boolean | null>, _message: string) => undefined,
 };
 
+function recordingTelemetry(): {
+  events: TelemetryEvent[];
+  sink: TelemetrySink;
+} {
+  const events: TelemetryEvent[] = [];
+  return {
+    events,
+    sink: {
+      emit: (event) => {
+        events.push(event);
+      },
+    },
+  };
+}
+
 describe("orchestration runtime", () => {
   let prisma: PrismaClient;
 
@@ -176,15 +192,22 @@ describe("orchestration runtime", () => {
     const dispatchQueue = new MemoryQueue();
     const executionQueue = new MemoryQueue();
     const executor = new ScriptedExecutor(() => ({ status: "COMPLETED" }));
+    const telemetry = recordingTelemetry();
     const runtime = new OrchestrationRuntime(prisma, dispatchQueue, executionQueue, logger, {
       executorRegistry: executor,
+      telemetry: telemetry.sink,
     });
 
     await runtime.dispatchPlan(seeded.planId);
     const promptJob = executionQueue.take(INVOCATION_EXECUTE_JOB_NAME);
     expect(promptJob.data.invocationId).toBe(seeded.invocationIds.prompt);
 
-    await runtime.processInvocation(promptJob.data.planId ?? "", promptJob.data.invocationId ?? "");
+    const promptQueuedAt = Date.now() - 100;
+    await runtime.processInvocation(
+      promptJob.data.planId ?? "",
+      promptJob.data.invocationId ?? "",
+      promptQueuedAt,
+    );
     await runtime.processInvocation(promptJob.data.planId ?? "", promptJob.data.invocationId ?? "");
     expect(executor.calls).toHaveLength(1);
 
@@ -201,6 +224,69 @@ describe("orchestration runtime", () => {
     expect(plan.status).toBe("COMPLETED");
     expect(runs).toHaveLength(2);
     expect(executor.calls).toHaveLength(2);
+    expect(telemetry.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: "runtime.invocation",
+          planId: seeded.planId,
+          targetKind: "VIMLA",
+          outcome: "SUCCESS",
+          attempt: 1,
+        }),
+      ]),
+    );
+    const promptTelemetry = telemetry.events.find(
+      (event) =>
+        event.event === "runtime.invocation" &&
+        event.invocationId === seeded.invocationIds.prompt,
+    );
+    expect(promptTelemetry?.event).toBe("runtime.invocation");
+    if (promptTelemetry?.event === "runtime.invocation") {
+      expect(promptTelemetry.queueDelayMs).toBeGreaterThanOrEqual(100);
+    }
+  });
+
+  it("emits approval-required telemetry when a runnable invocation waits for user confirmation", async () => {
+    const seeded = await seedPlan(
+      prisma,
+      [
+        {
+          key: "approval",
+          status: "PENDING",
+          approvalPolicy: "USER_CONFIRMATION",
+        },
+      ],
+      [],
+      1,
+    );
+    const dispatchQueue = new MemoryQueue();
+    const executionQueue = new MemoryQueue();
+    const telemetry = recordingTelemetry();
+    const runtime = new OrchestrationRuntime(
+      prisma,
+      dispatchQueue,
+      executionQueue,
+      logger,
+      { telemetry: telemetry.sink },
+    );
+
+    await runtime.dispatchPlan(seeded.planId);
+
+    expect(
+      await prisma.invocation.findUniqueOrThrow({
+        where: { id: seeded.invocationIds.approval },
+        select: { status: true },
+      }),
+    ).toEqual({ status: "WAITING_APPROVAL" });
+    expect(executionQueue.count(INVOCATION_EXECUTE_JOB_NAME)).toBe(0);
+    expect(telemetry.events).toContainEqual({
+      event: "safety.policy",
+      planId: seeded.planId,
+      invocationId: seeded.invocationIds.approval,
+      action: "APPROVAL_REQUIRED",
+      reason: "OTHER",
+      count: 1,
+    });
   });
 
   it("runs independent branches concurrently without exceeding maxParallelism", async () => {
@@ -903,38 +989,75 @@ describe("orchestration runtime", () => {
     expect(recovered.completedAt).not.toBeNull();
   });
 
-  it("recovers a stale RUNNING attempt to READY before redispatch", async () => {
-    const seeded = await seedPlan(prisma, [{ key: "stale", status: "RUNNING" }], [], 1);
-    const invocationId = seeded.invocationIds.stale ?? "";
-    const staleRun = await prisma.invocationRun.create({
-      data: {
-        invocationId,
-        attempt: 1,
-        idempotencyKey: `stale-${randomUUID()}`,
-        status: "RUNNING",
-        startedAt: new Date(Date.now() - 60_000),
-      },
-    });
+  it("recovers stale RUNNING attempts and counts affected workflows once", async () => {
+    const seeded = await seedPlan(
+      prisma,
+      [
+        { key: "stale-a", status: "RUNNING" },
+        { key: "stale-b", status: "RUNNING" },
+      ],
+      [],
+      2,
+    );
+    const invocationIds = [
+      seeded.invocationIds["stale-a"],
+      seeded.invocationIds["stale-b"],
+    ].filter((value): value is string => Boolean(value));
+    expect(invocationIds).toHaveLength(2);
+    const staleRuns = await Promise.all(
+      invocationIds.map((invocationId) =>
+        prisma.invocationRun.create({
+          data: {
+            invocationId,
+            attempt: 1,
+            idempotencyKey: `stale-${randomUUID()}`,
+            status: "RUNNING",
+            startedAt: new Date(Date.now() - 24 * 60 * 60_000),
+          },
+        }),
+      ),
+    );
     const dispatchQueue = new MemoryQueue();
     const executionQueue = new MemoryQueue();
+    const telemetry = recordingTelemetry();
     const runtime = new OrchestrationRuntime(prisma, dispatchQueue, executionQueue, logger, {
-      staleAfterMs: 1_000,
+      staleAfterMs: 12 * 60 * 60_000,
       maxAttempts: 3,
+      telemetry: telemetry.sink,
     });
 
     await runtime.reconcile();
 
-    const invocation = await prisma.invocation.findUniqueOrThrow({
-      where: { id: invocationId },
-      select: { status: true },
+    const invocations = await prisma.invocation.findMany({
+      where: { id: { in: invocationIds } },
+      select: { id: true, status: true },
+      orderBy: { id: "asc" },
     });
-    const run = await prisma.invocationRun.findUniqueOrThrow({
-      where: { id: staleRun.id },
+    const runs = await prisma.invocationRun.findMany({
+      where: { id: { in: staleRuns.map((run) => run.id) } },
       select: { status: true, errorCode: true },
     });
-    expect(invocation.status).toBe("READY");
-    expect(run).toEqual({ status: "FAILED", errorCode: "WORKER_INTERRUPTED" });
+    expect(invocations.map((invocation) => invocation.status)).toEqual([
+      "READY",
+      "READY",
+    ]);
+    expect(runs).toHaveLength(2);
+    expect(runs).toEqual(
+      expect.arrayContaining([
+        { status: "FAILED", errorCode: "WORKER_INTERRUPTED" },
+        { status: "FAILED", errorCode: "WORKER_INTERRUPTED" },
+      ]),
+    );
     expect(dispatchQueue.count(ORCHESTRATION_DISPATCH_JOB_NAME)).toBeGreaterThanOrEqual(1);
+    expect(telemetry.events).toContainEqual(
+      expect.objectContaining({
+        event: "runtime.reconciliation",
+        outcome: "RECOVERED",
+        recoveredPlanningShells: 0,
+        recoveredInvocationRuns: 2,
+        recoveredStuckWorkflows: 1,
+      }),
+    );
   });
 });
 

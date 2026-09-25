@@ -129,11 +129,13 @@ describe("semantic retrieval on real PostgreSQL/pgvector", () => {
     const old = await message(owner, "The launch hue is violet.");
     await index("MESSAGE", old.id);
     const p = await plan(owner);
+    const telemetryObserver = vi.fn();
     const retrieval = new ContextRetrievalService(
       db,
       [],
       { crossConversationScanLimit: 0 },
       search,
+      telemetryObserver,
     );
     const snapshots = new ContextSnapshotService(db, undefined, retrieval);
     const snapshot = await snapshots.createForExecutionPlan({
@@ -146,6 +148,28 @@ describe("semantic retrieval on real PostgreSQL/pgvector", () => {
       content: old.content,
       retrieval: { semanticScore: 1, hybridScore: 0.7 },
     });
+    expect(telemetryObserver).toHaveBeenCalledWith(
+      expect.objectContaining({
+        candidateCount: expect.any(Number),
+        selectedCount: expect.any(Number),
+        currentSurfaceCount: expect.any(Number),
+        crossSurfaceCount: expect.any(Number),
+        currentProjectCount: expect.any(Number),
+        durationMs: expect.any(Number),
+      }),
+    );
+    const semanticTelemetry = telemetryObserver.mock.calls[0]?.[0] as
+      | {
+          candidateCount: number;
+          selectedCount: number;
+          crossSurfaceCount: number;
+          durationMs: number;
+        }
+      | undefined;
+    expect(semanticTelemetry?.candidateCount).toBeGreaterThan(0);
+    expect(semanticTelemetry?.selectedCount).toBeGreaterThan(0);
+    expect(semanticTelemetry?.crossSurfaceCount).toBeGreaterThan(0);
+    expect(semanticTelemetry?.durationMs).toBeGreaterThanOrEqual(0);
     const bundle = await new ContextBundleService(
       db,
       snapshots,

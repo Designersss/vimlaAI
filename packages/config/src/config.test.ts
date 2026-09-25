@@ -81,6 +81,10 @@ describe("loadApiConfig", () => {
     expect(config.semanticPlannerModel).toBeUndefined();
     expect(config.semanticPlannerApiKey).toBeUndefined();
     expect(config.semanticPlannerTimeoutMs).toBe(120_000);
+    expect(config.orchestrationEnabled).toBe(true);
+    expect(config.semanticPlannerEnabled).toBe(true);
+    expect(config.contextRetrievalEnabled).toBe(true);
+    expect(config.semanticRetrievalEnabled).toBe(true);
     expect(config.proxyapiBaseUrl).toBe("https://api.proxyapi.ru/v1");
     expect(config.proxyapiApiKey).toBeUndefined();
     expect(config.authOtpDigits).toBe(6);
@@ -93,6 +97,93 @@ describe("loadApiConfig", () => {
     expect(config.reminderReconcileIntervalSeconds).toBe(60);
     expect(config.reminderMaxLatenessMinutes).toBe(1_440);
     expect(config.notifyDeliveryMaxAttempts).toBe(6);
+  });
+
+  it("keeps PR-20 auto rollout gates off in production", () => {
+    const config = loadApiConfig({
+      ...validSharedEnv,
+      APP_ENV: "production",
+      API_HOST: "127.0.0.1",
+      API_PORT: "3001",
+      BETTER_AUTH_SECRET: "production-api-secret-value-32-chars-min",
+      BETTER_AUTH_URL: "https://api.vimla.example",
+      AI_TEXT_ENABLED: "false",
+      EMAIL_PROVIDER: "smtp",
+      SMTP_HOST: "smtp.example.com",
+      SMTP_USER: "vimla",
+      SMTP_PASSWORD: "smtp-secret-value",
+      EMAIL_FROM: "noreply@vimla.example",
+      ...productionPaymentEnv,
+    });
+
+    expect(config.orchestrationEnabled).toBe(false);
+    expect(config.semanticPlannerEnabled).toBe(false);
+    expect(config.contextRetrievalEnabled).toBe(false);
+    expect(config.semanticRetrievalEnabled).toBe(false);
+  });
+
+  it("requires explicit operator and context gates before production orchestration", () => {
+    const base = {
+      ...validSharedEnv,
+      APP_ENV: "production",
+      API_HOST: "127.0.0.1",
+      API_PORT: "3001",
+      BETTER_AUTH_SECRET: "production-api-secret-value-32-chars-min",
+      BETTER_AUTH_URL: "https://api.vimla.example",
+      AI_TEXT_ENABLED: "false",
+      EMAIL_PROVIDER: "smtp",
+      SMTP_HOST: "smtp.example.com",
+      SMTP_USER: "vimla",
+      SMTP_PASSWORD: "smtp-secret-value",
+      EMAIL_FROM: "noreply@vimla.example",
+      ...productionPaymentEnv,
+      ORCHESTRATION_ENABLED: "true",
+    } as const;
+
+    expect(() => loadApiConfig(base)).toThrow(
+      /CONTEXT_RETRIEVAL_ENABLED|OPERATOR_ENABLED/,
+    );
+
+    const configured = loadApiConfig({
+      ...base,
+      CONTEXT_RETRIEVAL_ENABLED: "true",
+      OPERATOR_ENABLED: "true",
+    });
+    expect(configured.orchestrationEnabled).toBe(true);
+    expect(configured.contextRetrievalEnabled).toBe(true);
+    expect(configured.operatorEnabled).toBe(true);
+  });
+
+  it("requires production dependencies before semantic rollout gates can be enabled", () => {
+    const base = {
+      ...validSharedEnv,
+      APP_ENV: "production",
+      API_HOST: "127.0.0.1",
+      API_PORT: "3001",
+      BETTER_AUTH_SECRET: "production-api-secret-value-32-chars-min",
+      BETTER_AUTH_URL: "https://api.vimla.example",
+      AI_TEXT_ENABLED: "false",
+      EMAIL_PROVIDER: "smtp",
+      SMTP_HOST: "smtp.example.com",
+      SMTP_USER: "vimla",
+      SMTP_PASSWORD: "smtp-secret-value",
+      EMAIL_FROM: "noreply@vimla.example",
+      ...productionPaymentEnv,
+    } as const;
+
+    expect(() =>
+      loadApiConfig({
+        ...base,
+        SEMANTIC_PLANNER_ENABLED: "true",
+      }),
+    ).toThrow(/SEMANTIC_PLANNER_ENABLED/);
+
+    expect(() =>
+      loadApiConfig({
+        ...base,
+        SEMANTIC_RETRIEVAL_ENABLED: "true",
+      }),
+    ).toThrow(/SEMANTIC_RETRIEVAL_ENABLED/);
   });
 
   it("enables durable Memory only through its explicit fail-closed flag", () => {
@@ -379,6 +470,136 @@ describe("loadWorkerConfig", () => {
     expect(config.vimlaCoreToolUseEnabled).toBe(true);
     expect(config.vimlaCoreFairUseRequestsPerMinute).toBe(20);
     expect(config.vimlaCoreFairUseMaxConcurrentPerUser).toBe(2);
+    expect(config.orchestrationEnabled).toBe(true);
+    expect(config.contextRetrievalEnabled).toBe(true);
+    expect(config.semanticRetrievalEnabled).toBe(true);
+    expect(config.localAiEnabled).toBe(true);
+    expect(config.operatorEnabled).toBe(false);
+    expect(config.aiTextProvider).toBe("mock");
+    expect(config.proxyapiApiKey).toBeUndefined();
+    expect(config.aiProviderTimeoutMs).toBe(120_000);
+  });
+
+  it("keeps worker auto rollout gates off in production", () => {
+    const config = loadWorkerConfig({
+      ...validSharedEnv,
+      APP_ENV: "production",
+      BETTER_AUTH_SECRET: "production-worker-secret-value-32-chars-min",
+      WEB_ORIGIN: "https://app.vimla.example",
+      EMAIL_PROVIDER: "smtp",
+      SMTP_HOST: "smtp.example.com",
+      SMTP_USER: "vimla",
+      SMTP_PASSWORD: "smtp-secret-value",
+      EMAIL_FROM: "noreply@vimla.example",
+      PAYMENT_PROVIDER: "tbank",
+      TBANK_ENV: "production",
+      TBANK_TERMINAL_KEY: "production-terminal-key",
+      TBANK_PASSWORD: "production-tbank-password-value",
+    });
+
+    expect(config.orchestrationEnabled).toBe(false);
+    expect(config.contextRetrievalEnabled).toBe(false);
+    expect(config.semanticRetrievalEnabled).toBe(false);
+    expect(config.localAiEnabled).toBe(false);
+    expect(config.vimlaCoreProvider).toBe("disabled");
+    expect(config.aiTextProvider).toBe("disabled");
+  });
+
+  it("resolves ProxyAPI for worker orchestration only from explicit provider credentials", () => {
+    const configured = loadWorkerConfig({
+      ...validSharedEnv,
+      AI_TEXT_PROVIDER: "proxyapi",
+      PROXYAPI_API_KEY: "worker-proxy-secret",
+      PROXYAPI_BASE_URL: "https://proxy.example/v1/",
+      AI_PROVIDER_TIMEOUT_MS: "45000",
+    });
+
+    expect(configured.aiTextProvider).toBe("proxyapi");
+    expect(configured.proxyapiApiKey).toBe("worker-proxy-secret");
+    expect(configured.proxyapiBaseUrl).toBe("https://proxy.example/v1");
+    expect(configured.aiProviderTimeoutMs).toBe(45_000);
+
+    expect(() =>
+      loadWorkerConfig({
+        ...validSharedEnv,
+        AI_TEXT_PROVIDER: "proxyapi",
+      }),
+    ).toThrow(/PROXYAPI_API_KEY/);
+  });
+
+  it("requires all production orchestration prerequisites explicitly", () => {
+    const base = {
+      ...validSharedEnv,
+      APP_ENV: "production",
+      BETTER_AUTH_SECRET: "production-worker-secret-value-32-chars-min",
+      WEB_ORIGIN: "https://app.vimla.example",
+      EMAIL_PROVIDER: "smtp",
+      SMTP_HOST: "smtp.example.com",
+      SMTP_USER: "vimla",
+      SMTP_PASSWORD: "smtp-secret-value",
+      EMAIL_FROM: "noreply@vimla.example",
+      PAYMENT_PROVIDER: "tbank",
+      TBANK_ENV: "production",
+      TBANK_TERMINAL_KEY: "production-terminal-key",
+      TBANK_PASSWORD: "production-tbank-password-value",
+      ORCHESTRATION_ENABLED: "true",
+    } as const;
+
+    expect(() => loadWorkerConfig(base)).toThrow(
+      /CONTEXT_RETRIEVAL_ENABLED|OPERATOR_ENABLED/,
+    );
+
+    const configured = loadWorkerConfig({
+      ...base,
+      CONTEXT_RETRIEVAL_ENABLED: "true",
+      OPERATOR_ENABLED: "true",
+    });
+    expect(configured.orchestrationEnabled).toBe(true);
+    expect(configured.contextRetrievalEnabled).toBe(true);
+    expect(configured.operatorEnabled).toBe(true);
+    expect(configured.aiTextProvider).toBe("disabled");
+  });
+
+  it("rejects mock paid-AI provider in production worker configuration", () => {
+    expect(() =>
+      loadWorkerConfig({
+        ...validSharedEnv,
+        APP_ENV: "production",
+        BETTER_AUTH_SECRET: "production-worker-secret-value-32-chars-min",
+        WEB_ORIGIN: "https://app.vimla.example",
+        EMAIL_PROVIDER: "smtp",
+        SMTP_HOST: "smtp.example.com",
+        SMTP_USER: "vimla",
+        SMTP_PASSWORD: "smtp-secret-value",
+        EMAIL_FROM: "noreply@vimla.example",
+        PAYMENT_PROVIDER: "tbank",
+        TBANK_ENV: "production",
+        TBANK_TERMINAL_KEY: "production-terminal-key",
+        TBANK_PASSWORD: "production-tbank-password-value",
+        AI_TEXT_PROVIDER: "mock",
+      }),
+    ).toThrow(/AI_TEXT_PROVIDER/);
+  });
+
+  it("rejects production local-AI enablement without the internal provider", () => {
+    expect(() =>
+      loadWorkerConfig({
+        ...validSharedEnv,
+        APP_ENV: "production",
+        BETTER_AUTH_SECRET: "production-worker-secret-value-32-chars-min",
+        WEB_ORIGIN: "https://app.vimla.example",
+        EMAIL_PROVIDER: "smtp",
+        SMTP_HOST: "smtp.example.com",
+        SMTP_USER: "vimla",
+        SMTP_PASSWORD: "smtp-secret-value",
+        EMAIL_FROM: "noreply@vimla.example",
+        PAYMENT_PROVIDER: "tbank",
+        TBANK_ENV: "production",
+        TBANK_TERMINAL_KEY: "production-terminal-key",
+        TBANK_PASSWORD: "production-tbank-password-value",
+        LOCAL_AI_ENABLED: "true",
+      }),
+    ).toThrow(/LOCAL_AI_ENABLED/);
   });
 
   it("resolves a dedicated internal Vimla Core provider without paid-AI fallback settings", () => {

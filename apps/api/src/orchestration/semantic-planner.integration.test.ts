@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { createServer, type Server } from "node:http";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { NestFastifyApplication } from "@nestjs/platform-fastify";
 import { loadApiConfig } from "@vimla/config/server";
 import { createPrismaClient, type PrismaClient } from "@vimla/database";
 import { createVimlaApiApp } from "../create-app.js";
+import { ApiTelemetrySink } from "../observability/telemetry.js";
 import { OrchestrationService } from "./orchestration.service.js";
 
 const testDatabaseUrl = process.env.TEST_DATABASE_URL;
@@ -180,6 +181,9 @@ describe("semantic planner Vimla Core integration", () => {
     });
 
     const service = app.get(OrchestrationService);
+    const telemetry = app.get(ApiTelemetrySink);
+    const emit = vi.spyOn(telemetry, "emit");
+    const correlationId = randomUUID();
     const result = await service.planMessage(
       user.id,
       source.id,
@@ -203,7 +207,7 @@ describe("semantic planner Vimla Core integration", () => {
           endOffset: 63,
         },
       ],
-      randomUUID(),
+      correlationId,
     );
 
     expect(result.kind).toBe("PLANNED");
@@ -238,6 +242,26 @@ describe("semantic planner Vimla Core integration", () => {
     expect(snapshot?.createdAt.getTime()).toBeLessThanOrEqual(
       result.plan.updatedAt ? new Date(result.plan.updatedAt).getTime() : Date.now(),
     );
+    expect(emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "planner.completed",
+        correlationId,
+        planId: result.plan.id,
+        outcome: "SUCCESS",
+        nodeCount: 2,
+        edgeCount: 1,
+      }),
+    );
+    expect(emit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: "context.snapshot",
+        planId: result.plan.id,
+        outcome: "SUCCESS",
+        itemCount: expect.any(Number),
+        metadataBytes: expect.any(Number),
+      }),
+    );
+    emit.mockRestore();
   });
 
   it("returns the durable canceled plan when Stop wins the finalize race", async () => {

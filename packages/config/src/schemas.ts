@@ -19,6 +19,7 @@ export type LogLevel = z.infer<typeof logLevelSchema>;
 
 const portSchema = z.coerce.number().int().min(1).max(65535);
 const integerStringSchema = z.string().regex(/^\d+$/);
+const rolloutFlagSchema = z.enum(["auto", "true", "false"]).default("auto");
 const cleanHttpUrlSchema = z.url().refine(
   (value) => {
     const url = new URL(value);
@@ -133,6 +134,10 @@ export const apiEnvSchema = z
     SEMANTIC_PLANNER_MODEL: z.preprocess(emptyToUndefined, z.string().trim().min(1).optional()),
     SEMANTIC_PLANNER_API_KEY: z.preprocess(emptyToUndefined, z.string().trim().min(1).optional()),
     SEMANTIC_PLANNER_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(600_000).default(120_000),
+    ORCHESTRATION_ENABLED: rolloutFlagSchema,
+    SEMANTIC_PLANNER_ENABLED: rolloutFlagSchema,
+    CONTEXT_RETRIEVAL_ENABLED: rolloutFlagSchema,
+    SEMANTIC_RETRIEVAL_ENABLED: rolloutFlagSchema,
     AI_DEFAULT_MAX_OUTPUT_TOKENS: z.coerce.number().int().min(1).max(128_000).default(2048),
     AI_MAX_MESSAGE_BYTES: z.coerce.number().int().min(1).default(16_384),
     AI_MAX_CONTEXT_BYTES: z.coerce.number().int().min(1).default(65_536),
@@ -230,6 +235,58 @@ export const apiEnvSchema = z
           code: "custom",
           path: ["SEMANTIC_PLANNER_PROVIDER"],
           message: "Mock semantic planner is not allowed in staging/production",
+        });
+      }
+
+      if (
+        value.ORCHESTRATION_ENABLED === "true" &&
+        value.CONTEXT_RETRIEVAL_ENABLED !== "true"
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["CONTEXT_RETRIEVAL_ENABLED"],
+          message:
+            "Production orchestration requires explicit CONTEXT_RETRIEVAL_ENABLED=true",
+        });
+      }
+
+      if (
+        value.ORCHESTRATION_ENABLED === "true" &&
+        value.OPERATOR_ENABLED !== "true"
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["OPERATOR_ENABLED"],
+          message:
+            "Production orchestration requires explicit OPERATOR_ENABLED=true",
+        });
+      }
+
+      if (
+        value.SEMANTIC_PLANNER_ENABLED === "true" &&
+        (
+          value.SEMANTIC_PLANNER_PROVIDER === "mock" ||
+          !value.SEMANTIC_PLANNER_BASE_URL ||
+          !value.SEMANTIC_PLANNER_MODEL
+        )
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["SEMANTIC_PLANNER_ENABLED"],
+          message:
+            "SEMANTIC_PLANNER_ENABLED in staging/production requires the configured internal semantic planner",
+        });
+      }
+
+      if (
+        value.SEMANTIC_RETRIEVAL_ENABLED === "true" &&
+        value.EMBEDDING_PROVIDER !== "internal-http"
+      ) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["SEMANTIC_RETRIEVAL_ENABLED"],
+          message:
+            "SEMANTIC_RETRIEVAL_ENABLED in staging/production requires the confirmed internal embedding provider",
         });
       }
 
@@ -516,6 +573,10 @@ export const apiConfigSchema = z.object({
   semanticPlannerModel: z.string().min(1).optional(),
   semanticPlannerApiKey: z.string().min(1).optional(),
   semanticPlannerTimeoutMs: z.number().int().min(1_000).max(600_000),
+  orchestrationEnabled: z.boolean(),
+  semanticPlannerEnabled: z.boolean(),
+  contextRetrievalEnabled: z.boolean(),
+  semanticRetrievalEnabled: z.boolean(),
   aiDefaultMaxOutputTokens: z.number().int().min(1),
   aiMaxMessageBytes: z.number().int().min(1),
   aiMaxContextBytes: z.number().int().min(1),
@@ -646,6 +707,25 @@ export const workerEnvSchema = z
     AI_MAX_PLAN_SETTLED_MICRORUB: integerStringSchema.default("80000000"),
     AI_MAX_PLAN_COMMITTED_MICRORUB: integerStringSchema.default("80000000"),
     AI_CANCELLATION_POLL_MS: z.coerce.number().int().min(10).max(5_000).default(250),
+    PROXYAPI_API_KEY: z.preprocess(
+      emptyToUndefined,
+      z.string().trim().min(1).optional(),
+    ),
+    PROXYAPI_BASE_URL: z.url().default("https://api.proxyapi.ru/v1"),
+    AI_TEXT_PROVIDER: z
+      .enum(["auto", "mock", "proxyapi"])
+      .default("auto"),
+    AI_PROVIDER_TIMEOUT_MS: z.coerce
+      .number()
+      .int()
+      .min(1_000)
+      .max(600_000)
+      .default(120_000),
+    OPERATOR_ENABLED: z.enum(["true", "false"]).default("false"),
+    ORCHESTRATION_ENABLED: rolloutFlagSchema,
+    CONTEXT_RETRIEVAL_ENABLED: rolloutFlagSchema,
+    SEMANTIC_RETRIEVAL_ENABLED: rolloutFlagSchema,
+    LOCAL_AI_ENABLED: rolloutFlagSchema,
     VIMLA_CORE_PROVIDER: z
       .enum(["auto", "disabled", "deterministic", "internal-http"])
       .default("auto"),
@@ -769,6 +849,56 @@ export const workerEnvSchema = z
 
     if (
       (value.APP_ENV === "production" || value.APP_ENV === "staging") &&
+      value.AI_TEXT_PROVIDER === "mock"
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["AI_TEXT_PROVIDER"],
+        message:
+          "Mock AI provider is not allowed in staging/production worker orchestration",
+      });
+    }
+
+    if (
+      value.AI_TEXT_PROVIDER === "proxyapi" &&
+      !value.PROXYAPI_API_KEY
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["PROXYAPI_API_KEY"],
+        message:
+          "PROXYAPI_API_KEY is required when AI_TEXT_PROVIDER=proxyapi",
+      });
+    }
+
+    if (
+      (value.APP_ENV === "production" || value.APP_ENV === "staging") &&
+      value.ORCHESTRATION_ENABLED === "true" &&
+      value.CONTEXT_RETRIEVAL_ENABLED !== "true"
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["CONTEXT_RETRIEVAL_ENABLED"],
+        message:
+          "Production orchestration requires explicit CONTEXT_RETRIEVAL_ENABLED=true",
+      });
+    }
+
+    if (
+      (value.APP_ENV === "production" || value.APP_ENV === "staging") &&
+      value.ORCHESTRATION_ENABLED === "true" &&
+      value.OPERATOR_ENABLED !== "true"
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["OPERATOR_ENABLED"],
+        message:
+          "Production orchestration requires explicit OPERATOR_ENABLED=true",
+      });
+    }
+
+    if (
+      (value.APP_ENV === "production" || value.APP_ENV === "staging") &&
       value.VIMLA_CORE_PROVIDER === "deterministic"
     ) {
       ctx.addIssue({
@@ -776,6 +906,32 @@ export const workerEnvSchema = z
         path: ["VIMLA_CORE_PROVIDER"],
         message:
           "Deterministic Vimla Core provider is not allowed in staging/production",
+      });
+    }
+
+    if (
+      (value.APP_ENV === "production" || value.APP_ENV === "staging") &&
+      value.LOCAL_AI_ENABLED === "true" &&
+      value.VIMLA_CORE_PROVIDER !== "internal-http"
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["LOCAL_AI_ENABLED"],
+        message:
+          "LOCAL_AI_ENABLED in staging/production requires VIMLA_CORE_PROVIDER=internal-http",
+      });
+    }
+
+    if (
+      (value.APP_ENV === "production" || value.APP_ENV === "staging") &&
+      value.SEMANTIC_RETRIEVAL_ENABLED === "true" &&
+      value.EMBEDDING_PROVIDER !== "internal-http"
+    ) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["SEMANTIC_RETRIEVAL_ENABLED"],
+        message:
+          "SEMANTIC_RETRIEVAL_ENABLED in staging/production requires the confirmed internal embedding provider",
       });
     }
 
@@ -889,6 +1045,15 @@ export const workerConfigSchema = z.object({
   aiMaxPlanSettledMicroRub: z.string().regex(/^\d+$/),
   aiMaxPlanCommittedMicroRub: z.string().regex(/^\d+$/),
   aiCancellationPollMs: z.number().int().min(10).max(5_000),
+  aiTextProvider: z.enum(["disabled", "mock", "proxyapi"]),
+  proxyapiApiKey: z.string().min(1).optional(),
+  proxyapiBaseUrl: z.url(),
+  aiProviderTimeoutMs: z.number().int().min(1_000).max(600_000),
+  operatorEnabled: z.boolean(),
+  orchestrationEnabled: z.boolean(),
+  contextRetrievalEnabled: z.boolean(),
+  semanticRetrievalEnabled: z.boolean(),
+  localAiEnabled: z.boolean(),
   vimlaCoreProvider: z.enum([
     "disabled",
     "deterministic",
