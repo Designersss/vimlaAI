@@ -21,10 +21,10 @@ import {
 import {
   DIRECT_CHAT_LIMITS,
   type CryptoDeviceView,
-  DirectEnvelopeView,
-  DirectMessageView,
-  MessageMentionInput,
-  WireEnvelopeDto,
+  type DirectEnvelopeView,
+  type DirectMessageView,
+  type MessageMentionInput,
+  type WireEnvelopeDto,
 } from "@vimla/contracts";
 import {
   DirectChatsApiError,
