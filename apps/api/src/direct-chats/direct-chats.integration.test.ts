@@ -731,8 +731,18 @@ describe("direct chats API", () => {
       cookies: nikita.cookies,
     });
     expect(page.statusCode).toBe(200);
-    expect(page.json().items[0]?.id).toBe(sent.json().id);
-    expect(page.json().items[0]?.envelope).toBeNull();
+    const secondDeviceOriginal = (
+      page.json().items as Array<{
+        id: string;
+        envelope: unknown;
+      }>
+    ).find((item) => item.id === sent.json().id);
+    expect(secondDeviceOriginal).toEqual(
+      expect.objectContaining({
+        id: sent.json().id,
+        envelope: null,
+      }),
+    );
 
     const originalPage = await listMessages(
       app,
@@ -740,7 +750,11 @@ describe("direct chats API", () => {
       nikitaDevice.deviceId,
       chat.id,
     );
-    expect(originalPage.items[0]?.envelope).toBeTruthy();
+    const originalDeviceMessage =
+      originalPage.items.find(
+        (item) => item.id === sent.json().id,
+      );
+    expect(originalDeviceMessage?.envelope).toBeTruthy();
   });
 
   it("requires structured @vimla authority for Direct Chat operator routing", async () => {
