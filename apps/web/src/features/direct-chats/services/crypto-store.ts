@@ -32,6 +32,7 @@ type StoreName =
 
 export interface StoredDeviceMaterial {
   deviceId: string;
+  registrationState?: "PENDING" | "REGISTERED";
   identity: {
     ed25519Secret: string;
     ed25519Public: string;
