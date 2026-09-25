@@ -25,20 +25,25 @@ import type {
   MessageMentionInput,
   WireEnvelopeDto,
 } from "@vimla/contracts";
-import { fetchPrekeyBundles, registerCryptoDevice } from "./api";
+import { fetchPrekeyBundles, registerCryptoDevice, sendDirectMessage } from "./api";
 import {
   acknowledgeRatchetHandshake,
+  commitDecryptedRatchet,
+  commitOutboundRatchets,
+  completePendingSend,
   encodeIdentity,
   identityFromMaterial,
   loadDeviceMaterial,
-  commitDecryptedRatchet,
+  loadPendingSends,
   loadPlaintext,
   loadRatchet,
   saveDeviceMaterial,
-  saveRatchet,
   withLocalDeviceBootstrapLock,
   withRatchetSessionLock,
+  withRatchetSessionLocks,
+  type OutboundRatchetUpdate,
   type StoredDeviceMaterial,
+  type StoredPendingSend,
   type StoredPlaintext,
 } from "./crypto-store";
 import {
@@ -142,90 +147,164 @@ async function registerStoredDevice(
 export async function encryptForDevices(input: {
   conversationId: string;
   senderUserId: string;
+  clientMessageId: string;
+  localDevice: StoredDeviceMaterial;
   kind: DirectMessageKind;
   plaintext: string;
   devices: CryptoDeviceView[];
   mentions?: MessageMentionInput[];
-}): Promise<WireEnvelopeDto[]> {
-  const material = await ensureLocalDevice();
+}): Promise<StoredPendingSend> {
+  const material = input.localDevice;
   const identity = identityFromMaterial(material);
-  const envelopes: WireEnvelopeDto[] = [];
-  const routingContext = input.mentions && input.mentions.length > 0
-    ? serializeDirectRoutingMentions(input.mentions)
-    : undefined;
-  for (const device of input.devices.filter((item) => !item.revoked)) {
-    const envelope = await withRatchetRetry(
-      {
-        conversationId: input.conversationId,
-        localDeviceId: material.deviceId,
-        peerDeviceId: device.id,
-      },
-      async () => {
-        const existing = await loadRatchet(
-          input.conversationId,
-          material.deviceId,
-          device.id,
-        );
-        let x3dhInit: WireEnvelope["x3dhInit"] =
-          existing?.pendingX3dhInit ?? null;
-        let state = existing
-          ? deserializeRatchet(existing.state)
-          : null;
-        if (!state) {
-          const bundles = await fetchPrekeyBundles(device.userId);
-          const bundle = bundles.bundles.find(
-            (item) => item.deviceId === device.id,
-          );
-          if (!bundle) {
-            throw new Error("Missing prekey bundle");
-          }
-          const initiated = x3dhInitiate(
-            identity,
-            bundle as PublicPreKeyBundle,
-          );
-          state = initRatchetInitiator(
-            initiated.sharedKey,
-            initiated.remoteRatchetPublic,
-          );
-          x3dhInit = initiated.initHeader;
+  const activeDevices = input.devices
+    .filter((item) => !item.revoked)
+    .sort((left, right) => left.id.localeCompare(right.id));
+  if (activeDevices.length === 0) {
+    throw new Error("Direct Chat has no active crypto devices");
+  }
+  const scopes = activeDevices.map((device) => ({
+    conversationId: input.conversationId,
+    localDeviceId: material.deviceId,
+    peerDeviceId: device.id,
+  }));
+  const bundleRequests = new Map<
+    string,
+    ReturnType<typeof fetchPrekeyBundles>
+  >();
+  const routingContext =
+    input.mentions && input.mentions.length > 0
+      ? serializeDirectRoutingMentions(input.mentions)
+      : undefined;
+
+  return withRatchetRetryScopes(scopes, async () => {
+    const envelopes: WireEnvelopeDto[] = [];
+    const updates: OutboundRatchetUpdate[] = [];
+
+    for (const device of activeDevices) {
+      const existing = await loadRatchet(
+        input.conversationId,
+        material.deviceId,
+        device.id,
+      );
+      let x3dhInit: WireEnvelope["x3dhInit"] =
+        existing?.pendingX3dhInit ?? null;
+      let state = existing
+        ? deserializeRatchet(existing.state)
+        : null;
+      if (!state) {
+        let bundlesRequest = bundleRequests.get(device.userId);
+        if (!bundlesRequest) {
+          bundlesRequest = fetchPrekeyBundles(device.userId);
+          bundleRequests.set(device.userId, bundlesRequest);
         }
-        const nextEnvelope = encryptEnvelope({
-          identity,
-          state,
-          plaintext: utf8(input.plaintext),
-          ad: {
-            conversationId: input.conversationId,
-            senderUserId: input.senderUserId,
-            senderDeviceId: material.deviceId,
-            recipientDeviceId: device.id,
-            kind: input.kind,
-            routingContext,
-          },
-          x3dhInit,
-        });
-        await saveRatchet(
-          input.conversationId,
-          material.deviceId,
-          device.id,
-          existing?.stateVersion ?? 0,
-          serializeRatchet(state),
-          x3dhInit,
+        const bundles = await bundlesRequest;
+        const bundle = bundles.bundles.find(
+          (item) => item.deviceId === device.id,
         );
-        return nextEnvelope;
+        if (!bundle) {
+          throw new Error("Missing prekey bundle");
+        }
+        const initiated = x3dhInitiate(
+          identity,
+          bundle as PublicPreKeyBundle,
+        );
+        state = initRatchetInitiator(
+          initiated.sharedKey,
+          initiated.remoteRatchetPublic,
+        );
+        x3dhInit = initiated.initHeader;
+      }
+
+      const envelope = encryptEnvelope({
+        identity,
+        state,
+        plaintext: utf8(input.plaintext),
+        ad: {
+          conversationId: input.conversationId,
+          senderUserId: input.senderUserId,
+          senderDeviceId: material.deviceId,
+          recipientDeviceId: device.id,
+          kind: input.kind,
+          routingContext,
+        },
+        x3dhInit,
+      });
+      envelopes.push({
+        recipientDeviceId: device.id,
+        headerB64: envelope.headerB64,
+        ciphertextB64: envelope.ciphertextB64,
+        dhPublicB64: envelope.dhPublicB64,
+        messageNumber: envelope.messageNumber,
+        previousChainLength: envelope.previousChainLength,
+        senderSignatureB64: envelope.senderSignatureB64,
+        x3dhInit: envelope.x3dhInit,
+      });
+      updates.push({
+        peerDeviceId: device.id,
+        expectedVersion: existing?.stateVersion ?? 0,
+        state: serializeRatchet(state),
+        pendingX3dhInit: x3dhInit,
+      });
+    }
+
+    const pending: StoredPendingSend = {
+      conversationId: input.conversationId,
+      clientMessageId: input.clientMessageId,
+      senderUserId: input.senderUserId,
+      senderDeviceId: material.deviceId,
+      kind: input.kind,
+      envelopes,
+      mentions: input.mentions ?? [],
+      plaintext: input.plaintext,
+      createdAt: new Date().toISOString(),
+    };
+    await commitOutboundRatchets({
+      conversationId: input.conversationId,
+      localDeviceId: material.deviceId,
+      updates,
+      pendingSend: pending,
+    });
+    return pending;
+  });
+}
+
+export async function finalizePendingSend(
+  pending: StoredPendingSend,
+  created: DirectMessageView,
+): Promise<void> {
+  await completePendingSend({
+    pending,
+    messageId: created.id,
+    serverCreatedAt: created.createdAt,
+  });
+  void acknowledgeSentRatchets({
+    conversationId: pending.conversationId,
+    localDeviceId: pending.senderDeviceId,
+    envelopes: pending.envelopes,
+  });
+}
+
+export async function recoverPendingSends(input: {
+  conversationId: string;
+  localDeviceId: string;
+}): Promise<void> {
+  const pending = await loadPendingSends(
+    input.conversationId,
+    input.localDeviceId,
+  );
+  for (const row of pending) {
+    const created = await sendDirectMessage(
+      row.conversationId,
+      {
+        clientMessageId: row.clientMessageId,
+        senderDeviceId: row.senderDeviceId,
+        kind: row.kind,
+        envelopes: row.envelopes,
+        mentions: row.mentions,
       },
     );
-    envelopes.push({
-      recipientDeviceId: device.id,
-      headerB64: envelope.headerB64,
-      ciphertextB64: envelope.ciphertextB64,
-      dhPublicB64: envelope.dhPublicB64,
-      messageNumber: envelope.messageNumber,
-      previousChainLength: envelope.previousChainLength,
-      senderSignatureB64: envelope.senderSignatureB64,
-      x3dhInit: envelope.x3dhInit,
-    });
+    await finalizePendingSend(row, created);
   }
-  return envelopes;
 }
 
 export async function decryptMessage(input: {
@@ -368,6 +447,40 @@ export async function acknowledgeSentRatchets(input: {
 }
 
 const RATCHET_COORDINATION_ATTEMPTS = 3;
+
+async function withRatchetRetryScopes<T>(
+  scopes: ReadonlyArray<{
+    conversationId: string;
+    localDeviceId: string;
+    peerDeviceId: string;
+  }>,
+  operation: () => Promise<T>,
+): Promise<T> {
+  let lastError: Error | null = null;
+  for (
+    let attempt = 0;
+    attempt < RATCHET_COORDINATION_ATTEMPTS;
+    attempt += 1
+  ) {
+    try {
+      return await withRatchetSessionLocks(
+        scopes,
+        operation,
+      );
+    } catch (error: unknown) {
+      if (!isRatchetCoordinationError(error)) {
+        throw error;
+      }
+      lastError = error;
+    }
+  }
+  throw (
+    lastError ??
+    new RatchetStateConflictError()
+  );
+}
+
+
 
 async function withRatchetRetry<T>(
   scope: {
