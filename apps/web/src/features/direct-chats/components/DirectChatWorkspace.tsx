@@ -163,7 +163,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         const device = await ensureLocalDevice();
         await recoverPendingSends({
           conversationId,
-          localDeviceId: device.deviceId,
+          localDevice: device,
         });
         const detail = await fetchDirectConversation(conversationId);
         const page = await fetchLatestDecryptedPage(
@@ -482,10 +482,20 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
     setSending(true);
     try {
       const device = await ensureLocalDevice();
-      await recoverPendingSends({
+      const recovery = await recoverPendingSends({
         conversationId,
-        localDeviceId: device.deviceId,
+        localDevice: device,
       });
+      if (recovery === "LOCAL_DEVICE_INACTIVE") {
+        throw new DirectChatsApiError(
+          "direct_chat_device_revoked",
+        );
+      }
+      if (recovery === "RECIPIENT_DEVICE_MISSING") {
+        throw new DirectChatsApiError(
+          "direct_chat_recipient_device_missing",
+        );
+      }
       const latest = await reloadConversation();
       const pending = await encryptForDevices({
         conversationId: latest.id,
