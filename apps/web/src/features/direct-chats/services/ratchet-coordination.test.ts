@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { SerializedRatchetState } from "@vimla/e2ee";
+import type { SerializedRatchetState, X3dhInitHeader } from "@vimla/e2ee";
 import {
   RatchetStateConflictError,
   canAcquireRatchetLease,
@@ -19,6 +19,14 @@ const state: SerializedRatchetState = {
   nr: 1,
   pn: 0,
   skipped: {},
+};
+
+const pendingX3dhInit: X3dhInitHeader = {
+  identityEd25519Public: "identity-ed",
+  identityX25519Public: "identity-x",
+  ephemeralPublic: "ephemeral",
+  signedPrekeyId: 1,
+  oneTimePrekeyId: 2,
 };
 
 describe("ratchet coordination", () => {
@@ -43,6 +51,20 @@ describe("ratchet coordination", () => {
       pendingX3dhInit: null,
     });
     expect(decodeStoredRatchet(stored, "device-b")).toBeNull();
+  });
+
+  it("round-trips a pending first-contact handshake", () => {
+    const stored = storedRatchetRecord({
+      localDeviceId: "device-a",
+      stateVersion: 1,
+      state,
+      pendingX3dhInit,
+    });
+    expect(decodeStoredRatchet(stored, "device-a")).toEqual({
+      stateVersion: 1,
+      state,
+      pendingX3dhInit,
+    });
   });
 
   it("rejects a stale compare-and-swap version", () => {
