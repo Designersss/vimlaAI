@@ -181,9 +181,20 @@ export async function replenishOneTimePrekeys(
   );
 }
 
-export async function fetchPrekeyBundles(userId: string, fetchImpl: typeof fetch = fetch): Promise<PrekeyBundlesResponse> {
+export async function fetchPrekeyBundles(
+  userId: string,
+  deviceId?: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<PrekeyBundlesResponse> {
+  const params = new URLSearchParams();
+  if (deviceId) {
+    params.set("deviceId", deviceId);
+  }
+  const query = params.size > 0
+    ? `?${params.toString()}`
+    : "";
   return request(
-    `/v1/direct-chats/users/${userId}/prekeys`,
+    `/v1/direct-chats/users/${userId}/prekeys${query}`,
     {},
     (payload) => prekeyBundlesResponseSchema.parse(payload),
     fetchImpl,
