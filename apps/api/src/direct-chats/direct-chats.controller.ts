@@ -261,41 +261,74 @@ export class DirectChatsController {
     @Body() body: unknown,
   ): Promise<DirectMessageView> {
     this.directChats.assertEnabled();
-    const input = parseRequest(sendDirectMessageSchema, body, "Invalid Direct Chat message payload");
+    const input = parseRequest(
+      sendDirectMessageSchema,
+      body,
+      "Invalid Direct Chat message payload",
+    );
+    const actor = this.directChats.actor(user);
+    const replay = await this.directChats.chats.replay(
+      actor,
+      id,
+      input,
+    );
+    if (replay) {
+      return directMessageViewSchema.parse(replay);
+    }
+
     const resolvedMentions = await this.mentionRouting.resolve({
       userId: user.id,
       conversationId: id,
       mentions: input.mentions,
     });
-    this.mentionRouting.assertMessageKind(input.kind, resolvedMentions);
-    const created = await this.directChats.chats.send(
-      this.directChats.actor(user),
+    this.mentionRouting.assertMessageKind(
+      input.kind,
+      resolvedMentions,
+    );
+    const result = await this.directChats.chats.sendWithStatus(
+      actor,
       id,
       input,
       resolvedMentions,
     );
-    try {
-      const participants = await this.directChats.chats.participants(user.id, id);
-      await this.realtime.publish(
-        participants.map((participant) => participant.userId),
-        {
-          type: "direct_message",
+    const created = result.message;
+    if (!result.replayed) {
+      try {
+        const participants =
+          await this.directChats.chats.participants(
+            user.id,
+            id,
+          );
+        await this.realtime.publish(
+          participants.map(
+            (participant) => participant.userId,
+          ),
+          {
+            type: "direct_message",
+            conversationId: created.conversationId,
+            messageId: created.id,
+            senderUserId: created.senderUserId,
+            kind: created.kind,
+            createdAt: created.createdAt,
+          },
+        );
+      } catch (error: unknown) {
+        this.logger.warn({
+          msg: "direct_chats.realtime_notify_failed_after_commit",
           conversationId: created.conversationId,
           messageId: created.id,
-          senderUserId: created.senderUserId,
-          kind: created.kind,
-          createdAt: created.createdAt,
-        },
+          error:
+            error instanceof Error
+              ? error.message
+              : "unknown",
+        });
+      }
+      this.directChats.logMutation(
+        "message.send",
+        user.id,
+        id,
       );
-    } catch (error: unknown) {
-      this.logger.warn({
-        msg: "direct_chats.realtime_notify_failed_after_commit",
-        conversationId: created.conversationId,
-        messageId: created.id,
-        error: error instanceof Error ? error.message : "unknown",
-      });
     }
-    this.directChats.logMutation("message.send", user.id, id);
     return directMessageViewSchema.parse(created);
   }
 }
