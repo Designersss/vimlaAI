@@ -171,7 +171,7 @@ export type TelemetryEvent =
         | "APPROVAL_GRANTED"
         | "CROSS_SCOPE_BLOCKED"
         | "DUPLICATE_PREVENTED";
-      reason: TelemetryPolicyDenialReason | string;
+      reason: TelemetryPolicyDenialReason;
       count: number;
     }
   | {
