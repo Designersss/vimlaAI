@@ -494,7 +494,11 @@ async function startOrchestrationRuntime(
     async (job) => {
       if (job.name === INVOCATION_EXECUTE_JOB_NAME) {
         const payload = parseInvocationExecutePayload(job.data);
-        await runtime.processInvocation(payload.planId, payload.invocationId);
+        await runtime.processInvocation(
+          payload.planId,
+          payload.invocationId,
+          job.timestamp,
+        );
         return { ok: true as const };
       }
       runtimeLogger.info(
