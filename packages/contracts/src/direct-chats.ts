@@ -234,8 +234,8 @@ export const prekeyBundleSchema = z.object({
   signedPrekeyId: z.number().int(),
   signedPrekeyPublic: z.string(),
   signedPrekeySignature: z.string(),
-  oneTimePrekeyId: z.number().int().nullable(),
-  oneTimePrekeyPublic: z.string().nullable(),
+  oneTimePrekeyId: z.number().int().min(1).max(1_000_000),
+  oneTimePrekeyPublic: z.string().min(16).max(128),
 });
 export type PrekeyBundle = z.infer<typeof prekeyBundleSchema>;
 
