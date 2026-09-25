@@ -95,6 +95,48 @@ export const rotatePrekeysSchema = z
   .strict();
 export type RotatePrekeys = z.infer<typeof rotatePrekeysSchema>;
 
+export const replenishOneTimePrekeysSchema = z
+  .object({
+    oneTimePrekeys: z
+      .array(
+        z
+          .object({
+            keyId: z.number().int().min(1).max(1_000_000),
+            publicKey: z.string().min(16).max(128),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(DIRECT_CHAT_LIMITS.prekeysMax),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    const ids = new Set<number>();
+    value.oneTimePrekeys.forEach((key, index) => {
+      if (ids.has(key.keyId)) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["oneTimePrekeys", index, "keyId"],
+          message: "One-time prekey ids must be unique",
+        });
+      }
+      ids.add(key.keyId);
+    });
+  });
+export type ReplenishOneTimePrekeys = z.infer<
+  typeof replenishOneTimePrekeysSchema
+>;
+
+export const prekeyStatusResponseSchema = z
+  .object({
+    deviceId: z.string().uuid(),
+    available: z.number().int().min(0),
+  })
+  .strict();
+export type PrekeyStatusResponse = z.infer<
+  typeof prekeyStatusResponseSchema
+>;
+
 export const createDirectConversationSchema = z
   .object({
     peerEmail: z.string().trim().email().max(DIRECT_CHAT_LIMITS.peerEmailMax),
