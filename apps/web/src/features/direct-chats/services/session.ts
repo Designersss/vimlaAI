@@ -47,6 +47,7 @@ import {
   loadRatchet,
   saveDeviceMaterial,
   withLocalDeviceBootstrapLock,
+  withPendingSendRecoveryLock,
   withRatchetSessionLock,
   withRatchetSessionLocks,
   type OutboundRatchetUpdate,
@@ -465,6 +466,12 @@ export async function recoverPendingSends(input: {
   | "LOCAL_DEVICE_INACTIVE"
   | "RECIPIENT_DEVICE_MISSING"
 > {
+  return withPendingSendRecoveryLock(
+    {
+      conversationId: input.conversationId,
+      localDeviceId: input.localDevice.deviceId,
+    },
+    async () => {
   const pending = await loadPendingSends(
     input.conversationId,
     input.localDevice.deviceId,
@@ -549,6 +556,8 @@ export async function recoverPendingSends(input: {
     }
   }
   return blocked ?? "RESOLVED";
+    },
+  );
 }
 
 async function sendPendingRow(
