@@ -172,6 +172,12 @@ export class DeviceService {
     const bundles: PrekeyBundle[] = [];
     for (const device of devices) {
       const otk = await this.claimOneTimePrekey(device.id);
+      if (deviceId && !otk) {
+        throw new DirectChatError(
+          "CONFLICT",
+          "One-time prekeys are depleted for this device",
+        );
+      }
       bundles.push({
         deviceId: device.id,
         identityEd25519Public: device.identityEd25519Public,
