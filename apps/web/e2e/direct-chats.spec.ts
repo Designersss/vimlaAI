@@ -454,6 +454,7 @@ async function readRatchetRecordVersion(
   page: Page,
   input: {
     conversationId: string;
+    localDeviceId: string;
     peerDeviceId: string;
   },
 ): Promise<{ schemaVersion: number; stateVersion: number }> {
