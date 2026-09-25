@@ -81,6 +81,13 @@ test.describe("Secure Direct Chats", () => {
     await expect(alicePage.getByTestId("direct-message-human").filter({ hasText: "hello from alice" })).toBeVisible({
       timeout: 20_000,
     });
+    await composer.fill("second before nikita opens");
+    await alicePage.getByTestId("chat-composer-send").click();
+    await expect(
+      alicePage
+        .getByTestId("direct-message-human")
+        .filter({ hasText: "second before nikita opens" }),
+    ).toBeVisible({ timeout: 20_000 });
 
     await nikitaPage.goto("/app");
     await expect(nikitaPage.getByRole("heading", { name: /сообщения|messages/i })).toBeVisible();
@@ -91,6 +98,14 @@ test.describe("Secure Direct Chats", () => {
     await expect(nikitaPage.getByTestId("direct-message-human").filter({ hasText: "hello from alice" })).toBeVisible({
       timeout: 20_000,
     });
+    await expect(
+      nikitaPage
+        .getByTestId("direct-message-human")
+        .filter({ hasText: "second before nikita opens" }),
+    ).toBeVisible({ timeout: 20_000 });
+    await expect(
+      nikitaPage.getByTestId("direct-message-undecryptable"),
+    ).toHaveCount(0);
 
     await composer.fill("live from alice");
     await alicePage.getByTestId("chat-composer-send").click();
