@@ -62,16 +62,27 @@ test.describe("Secure Direct Chats", () => {
         abortFirstEncryptedSend &&
         route.request().method() === "POST"
       ) {
+        await route.fetch();
         abortFirstEncryptedSend = false;
         await route.abort("failed");
         return;
       }
       await route.continue();
     });
-    await composer.fill("first contact interrupted before server ack");
+    await composer.fill("first contact interrupted after server commit");
     await alicePage.getByTestId("chat-composer-send").click();
     await expect.poll(() => abortFirstEncryptedSend).toBe(false);
     await alicePage.unroute("**/v1/direct-chats/*/messages");
+
+    await alicePage.reload();
+    await expect(alicePage.getByTestId("direct-chat-shell")).toBeVisible({
+      timeout: 20_000,
+    });
+    await expect(
+      alicePage
+        .getByTestId("direct-message-human")
+        .filter({ hasText: "first contact interrupted after server commit" }),
+    ).toHaveCount(1);
 
     await composer.fill("hello from alice");
     await expect(
@@ -81,13 +92,20 @@ test.describe("Secure Direct Chats", () => {
     await expect(alicePage.getByTestId("direct-message-human").filter({ hasText: "hello from alice" })).toBeVisible({
       timeout: 20_000,
     });
-    await composer.fill("second before nikita opens");
-    await alicePage.getByTestId("chat-composer-send").click();
-    await expect(
-      alicePage
-        .getByTestId("direct-message-human")
-        .filter({ hasText: "second before nikita opens" }),
-    ).toBeVisible({ timeout: 20_000 });
+
+    for (let index = 0; index < 31; index += 1) {
+      const text = `offline burst ${index}`;
+      await composer.fill(text);
+      await expect(
+        alicePage.getByTestId("chat-composer-send"),
+      ).toBeEnabled();
+      await alicePage.getByTestId("chat-composer-send").click();
+      await expect(
+        alicePage
+          .getByTestId("direct-message-human")
+          .filter({ hasText: text }),
+      ).toBeVisible({ timeout: 20_000 });
+    }
 
     await nikitaPage.goto("/app");
     await expect(nikitaPage.getByRole("heading", { name: /сообщения|messages/i })).toBeVisible();
@@ -95,17 +113,27 @@ test.describe("Secure Direct Chats", () => {
     await expect(nikitaPage.getByTestId("direct-conversation-row")).toBeVisible({ timeout: 20_000 });
     await nikitaPage.getByTestId("direct-conversation-row").click();
     await expect(nikitaPage.getByTestId("direct-chat-shell")).toBeVisible({ timeout: 20_000 });
-    await expect(nikitaPage.getByTestId("direct-message-human").filter({ hasText: "hello from alice" })).toBeVisible({
-      timeout: 20_000,
-    });
     await expect(
       nikitaPage
         .getByTestId("direct-message-human")
-        .filter({ hasText: "second before nikita opens" }),
+        .filter({ hasText: "offline burst 30" }),
     ).toBeVisible({ timeout: 20_000 });
     await expect(
       nikitaPage.getByTestId("direct-message-undecryptable"),
     ).toHaveCount(0);
+    await nikitaPage
+      .getByRole("button", { name: /загрузить предыдущие|load older/i })
+      .click();
+    await expect(
+      nikitaPage
+        .getByTestId("direct-message-human")
+        .filter({ hasText: "first contact interrupted after server commit" }),
+    ).toBeVisible({ timeout: 20_000 });
+    await expect(
+      nikitaPage
+        .getByTestId("direct-message-human")
+        .filter({ hasText: "hello from alice" }),
+    ).toBeVisible({ timeout: 20_000 });
 
     await composer.fill("live from alice");
     await alicePage.getByTestId("chat-composer-send").click();
@@ -155,6 +183,7 @@ test.describe("Secure Direct Chats", () => {
     }
     await rewriteRatchetAsLegacy(aliceFallbackPage, {
       conversationId: directConversationId(directUrl),
+      localDeviceId: aliceLocalDeviceId,
       peerDeviceId,
     });
     await seedExpiredRatchetLease(aliceFallbackPage, {
@@ -217,6 +246,7 @@ test.describe("Secure Direct Chats", () => {
       aliceFallbackPage,
       {
         conversationId: directConversationId(directUrl),
+        localDeviceId: aliceLocalDeviceId,
         peerDeviceId,
       },
     );
@@ -259,15 +289,35 @@ test.describe("Secure Direct Chats", () => {
       }
     }
 
-    const coldContext = await browser.newContext({ storageState: await aliceContext.storageState() });
-    const coldPage = await coldContext.newPage();
-    let registrations = 0;
-    coldPage.on("request", (outgoing) => {
-      if (outgoing.method() === "POST" && outgoing.url() === `${apiBase}/v1/direct-chats/devices`) registrations += 1;
+    const coldContext = await browser.newContext({
+      storageState: await aliceContext.storageState(),
     });
-    await coldPage.goto(directUrl);
-    await expect(coldPage.getByTestId("direct-chat-shell")).toBeVisible();
-    await expect(coldPage.getByTestId("direct-conversation-row")).toBeVisible();
+    const coldPageA = await coldContext.newPage();
+    const coldPageB = await coldContext.newPage();
+    await disableWebLocks(coldPageA);
+    await disableWebLocks(coldPageB);
+    let registrations = 0;
+    for (const page of [coldPageA, coldPageB]) {
+      page.on("request", (outgoing) => {
+        if (
+          outgoing.method() === "POST" &&
+          outgoing.url() === `${apiBase}/v1/direct-chats/devices`
+        ) {
+          registrations += 1;
+        }
+      });
+    }
+    await Promise.all([
+      coldPageA.goto(directUrl),
+      coldPageB.goto(directUrl),
+    ]);
+    await expect(coldPageA.getByTestId("direct-chat-shell")).toBeVisible();
+    await expect(coldPageB.getByTestId("direct-chat-shell")).toBeVisible();
+    const [coldDeviceA, coldDeviceB] = await Promise.all([
+      readLocalDeviceId(coldPageA),
+      readLocalDeviceId(coldPageB),
+    ]);
+    expect(coldDeviceA).toBe(coldDeviceB);
     expect(registrations).toBe(1);
     await coldContext.close();
 
@@ -296,7 +346,7 @@ async function disableWebLocks(page: Page): Promise<void> {
 async function readLocalDeviceId(page: Page): Promise<string> {
   return page.evaluate(async () => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open("vimla-direct-e2ee", 3);
+      const request = indexedDB.open("vimla-direct-e2ee", 4);
       request.onsuccess = () => resolve(request.result);
       request.onerror = () =>
         reject(request.error ?? new Error("E2EE IndexedDB open failed"));
@@ -326,12 +376,13 @@ async function rewriteRatchetAsLegacy(
   page: Page,
   input: {
     conversationId: string;
+    localDeviceId: string;
     peerDeviceId: string;
   },
 ): Promise<void> {
   await page.evaluate(async (value) => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open("vimla-direct-e2ee", 3);
+      const request = indexedDB.open("vimla-direct-e2ee", 4);
       request.onsuccess = () => resolve(request.result);
       request.onerror = () =>
         reject(request.error ?? new Error("E2EE IndexedDB open failed"));
@@ -340,8 +391,13 @@ async function rewriteRatchetAsLegacy(
       await new Promise<void>((resolve, reject) => {
         const tx = db.transaction("ratchets", "readwrite");
         const store = tx.objectStore("ratchets");
-        const key = `${value.conversationId}:${value.peerDeviceId}`;
-        const request = store.get(key);
+        const scopedKey = [
+          value.conversationId,
+          value.localDeviceId,
+          value.peerDeviceId,
+        ].join(":");
+        const legacyKey = `${value.conversationId}:${value.peerDeviceId}`;
+        const request = store.get(scopedKey);
         request.onsuccess = () => {
           const current = request.result as
             | { state?: unknown }
@@ -351,7 +407,8 @@ async function rewriteRatchetAsLegacy(
             tx.abort();
             return;
           }
-          store.put(current.state, key);
+          store.put(current.state, legacyKey);
+          store.delete(scopedKey);
         };
         tx.oncomplete = () => resolve();
         tx.onerror = () =>
@@ -374,7 +431,7 @@ async function readRatchetRecordVersion(
 ): Promise<{ schemaVersion: number; stateVersion: number }> {
   return page.evaluate(async (value) => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open("vimla-direct-e2ee", 3);
+      const request = indexedDB.open("vimla-direct-e2ee", 4);
       request.onsuccess = () => resolve(request.result);
       request.onerror = () =>
         reject(request.error ?? new Error("E2EE IndexedDB open failed"));
@@ -385,7 +442,11 @@ async function readRatchetRecordVersion(
         stateVersion: number;
       }>((resolve, reject) => {
         const tx = db.transaction("ratchets", "readonly");
-        const key = `${value.conversationId}:${value.peerDeviceId}`;
+        const key = [
+          value.conversationId,
+          value.localDeviceId,
+          value.peerDeviceId,
+        ].join(":");
         const request = tx.objectStore("ratchets").get(key);
         request.onsuccess = () => {
           const current = request.result as
@@ -423,7 +484,7 @@ async function seedExpiredRatchetLease(
 ): Promise<void> {
   await page.evaluate(async (value) => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open("vimla-direct-e2ee", 3);
+      const request = indexedDB.open("vimla-direct-e2ee", 4);
       request.onsuccess = () => resolve(request.result);
       request.onerror = () =>
         reject(request.error ?? new Error("E2EE IndexedDB open failed"));
