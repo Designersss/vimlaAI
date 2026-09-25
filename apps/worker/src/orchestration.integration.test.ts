@@ -6,6 +6,7 @@ import {
   type Prisma,
   type PrismaClient,
 } from "@vimla/database";
+import type { TelemetryEvent, TelemetrySink } from "@vimla/shared";
 import {
   DisabledAiEvaluationModel,
   EvaluationAwareInvocationExecutorRegistry,
@@ -152,6 +153,21 @@ const logger = {
   error: (_fields: Record<string, string | number | boolean | null>, _message: string) => undefined,
 };
 
+function recordingTelemetry(): {
+  events: TelemetryEvent[];
+  sink: TelemetrySink;
+} {
+  const events: TelemetryEvent[] = [];
+  return {
+    events,
+    sink: {
+      emit: (event) => {
+        events.push(event);
+      },
+    },
+  };
+}
+
 describe("orchestration runtime", () => {
   let prisma: PrismaClient;
 
@@ -176,8 +192,10 @@ describe("orchestration runtime", () => {
     const dispatchQueue = new MemoryQueue();
     const executionQueue = new MemoryQueue();
     const executor = new ScriptedExecutor(() => ({ status: "COMPLETED" }));
+    const telemetry = recordingTelemetry();
     const runtime = new OrchestrationRuntime(prisma, dispatchQueue, executionQueue, logger, {
       executorRegistry: executor,
+      telemetry: telemetry.sink,
     });
 
     await runtime.dispatchPlan(seeded.planId);
@@ -201,6 +219,60 @@ describe("orchestration runtime", () => {
     expect(plan.status).toBe("COMPLETED");
     expect(runs).toHaveLength(2);
     expect(executor.calls).toHaveLength(2);
+    expect(telemetry.events).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          event: "runtime.invocation",
+          planId: seeded.planId,
+          targetKind: "VIMLA",
+          outcome: "SUCCESS",
+          attempt: 1,
+        }),
+      ]),
+    );
+  });
+
+  it("emits approval-required telemetry when a runnable invocation waits for user confirmation", async () => {
+    const seeded = await seedPlan(
+      prisma,
+      [
+        {
+          key: "approval",
+          status: "PENDING",
+          approvalPolicy: "USER_CONFIRMATION",
+        },
+      ],
+      [],
+      1,
+    );
+    const dispatchQueue = new MemoryQueue();
+    const executionQueue = new MemoryQueue();
+    const telemetry = recordingTelemetry();
+    const runtime = new OrchestrationRuntime(
+      prisma,
+      dispatchQueue,
+      executionQueue,
+      logger,
+      { telemetry: telemetry.sink },
+    );
+
+    await runtime.dispatchPlan(seeded.planId);
+
+    expect(
+      await prisma.invocation.findUniqueOrThrow({
+        where: { id: seeded.invocationIds.approval },
+        select: { status: true },
+      }),
+    ).toEqual({ status: "WAITING_APPROVAL" });
+    expect(executionQueue.count(INVOCATION_EXECUTE_JOB_NAME)).toBe(0);
+    expect(telemetry.events).toContainEqual({
+      event: "safety.policy",
+      planId: seeded.planId,
+      invocationId: seeded.invocationIds.approval,
+      action: "APPROVAL_REQUIRED",
+      reason: "OTHER",
+      count: 1,
+    });
   });
 
   it("runs independent branches concurrently without exceeding maxParallelism", async () => {
