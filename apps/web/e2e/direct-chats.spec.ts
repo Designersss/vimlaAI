@@ -56,6 +56,23 @@ test.describe("Secure Direct Chats", () => {
     await expect(mentionPicker).toBeVisible();
     await expect(mentionPicker.getByRole("option", { name: /@auto/i })).toBeVisible();
 
+    let abortFirstEncryptedSend = true;
+    await alicePage.route("**/v1/direct-chats/*/messages", async (route) => {
+      if (
+        abortFirstEncryptedSend &&
+        route.request().method() === "POST"
+      ) {
+        abortFirstEncryptedSend = false;
+        await route.abort("failed");
+        return;
+      }
+      await route.continue();
+    });
+    await composer.fill("first contact interrupted before server ack");
+    await alicePage.getByTestId("chat-composer-send").click();
+    await expect.poll(() => abortFirstEncryptedSend).toBe(false);
+    await alicePage.unroute("**/v1/direct-chats/*/messages");
+
     await composer.fill("hello from alice");
     await alicePage.getByTestId("chat-composer-send").click();
     await expect(alicePage.getByTestId("direct-message-human").filter({ hasText: "hello from alice" })).toBeVisible({
