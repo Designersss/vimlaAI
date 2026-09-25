@@ -927,7 +927,7 @@ export class OrchestrationService {
     const input = parseApprove(body);
     const invocationId = invocationDbId(id, input.invocationId);
 
-    const approved = await this.prisma.client.$transaction(async (tx) => {
+    const approval = await this.prisma.client.$transaction(async (tx) => {
       const plan = await tx.executionPlan.findFirst({
         where: { id, userId },
         include: planInclude,
@@ -955,11 +955,13 @@ export class OrchestrationService {
         );
       }
 
+      let transitioned = false;
       if (invocation.status === "WAITING_APPROVAL") {
-        await tx.invocation.updateMany({
+        const updated = await tx.invocation.updateMany({
           where: { id: invocationId, planId: id, status: "WAITING_APPROVAL" },
           data: { status: "READY" },
         });
+        transitioned = updated.count === 1;
       } else if (
         invocation.status !== "READY" &&
         invocation.status !== "RUNNING" &&
@@ -975,17 +977,22 @@ export class OrchestrationService {
       if (!approved) {
         throw new InternalServerErrorException("Execution plan disappeared during approval");
       }
-      return toView(approved);
+      return {
+        plan: toView(approved),
+        transitioned,
+      };
     });
-    this.telemetry.emit({
-      event: "safety.policy",
-      planId: id,
-      invocationId,
-      action: "APPROVAL_GRANTED",
-      reason: "OTHER",
-      count: 1,
-    });
-    return approved;
+    if (approval.transitioned) {
+      this.telemetry.emit({
+        event: "safety.policy",
+        planId: id,
+        invocationId,
+        action: "APPROVAL_GRANTED",
+        reason: "OTHER",
+        count: 1,
+      });
+    }
+    return approval.plan;
   }
 
   async resolveHumanEvaluation(
