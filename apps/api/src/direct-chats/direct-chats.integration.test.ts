@@ -357,6 +357,187 @@ describe("direct chats API", () => {
     expect(wrongKind.statusCode).toBe(400);
   });
 
+  it("claims OTKs atomically, replenishes idempotently, and rejects device identity replacement", async () => {
+    const alice = await readyUser(app, "dc-prekey-atomic", "Alice");
+    const device = await registerHarness(app, alice);
+
+    const [first, second] = await Promise.all([
+      app.inject({
+        method: "GET",
+        url: `/v1/direct-chats/users/${alice.id}/prekeys?deviceId=${device.deviceId}`,
+        headers: { origin },
+        cookies: alice.cookies,
+      }),
+      app.inject({
+        method: "GET",
+        url: `/v1/direct-chats/users/${alice.id}/prekeys?deviceId=${device.deviceId}`,
+        headers: { origin },
+        cookies: alice.cookies,
+      }),
+    ]);
+    expect(first.statusCode).toBe(200);
+    expect(second.statusCode).toBe(200);
+    const claimed = [first, second]
+      .map((response) => response.json().bundles[0]?.oneTimePrekeyId)
+      .filter((value): value is number => typeof value === "number");
+    expect(claimed).toEqual([1]);
+
+    const emptyStatus = await app.inject({
+      method: "GET",
+      url: `/v1/direct-chats/devices/${device.deviceId}/prekeys/status`,
+      headers: { origin },
+      cookies: alice.cookies,
+    });
+    expect(emptyStatus.statusCode).toBe(200);
+    expect(emptyStatus.json().available).toBe(0);
+
+    const refill = [
+      generateOneTimePreKey(2),
+      generateOneTimePreKey(3),
+    ].map((key) => ({
+      keyId: key.keyId,
+      publicKey: bytesToB64(key.publicKey),
+    }));
+    const replenish = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/devices/${device.deviceId}/prekeys/replenish`,
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: { oneTimePrekeys: refill },
+    });
+    expect(replenish.statusCode).toBe(200);
+    expect(replenish.json().available).toBe(2);
+
+    const replay = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/devices/${device.deviceId}/prekeys/replenish`,
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: { oneTimePrekeys: refill },
+    });
+    expect(replay.statusCode).toBe(200);
+    expect(replay.json().available).toBe(2);
+
+    const conflicting = generateOneTimePreKey(2);
+    const conflict = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/devices/${device.deviceId}/prekeys/replenish`,
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: {
+        oneTimePrekeys: [{
+          keyId: 2,
+          publicKey: bytesToB64(conflicting.publicKey),
+        }],
+      },
+    });
+    expect(conflict.statusCode).toBe(400);
+
+    const replacementIdentity = generateIdentity();
+    const replacementSigned = generateSignedPreKey(
+      replacementIdentity,
+      1,
+    );
+    const replacementOtk = generateOneTimePreKey(10);
+    const replace = await app.inject({
+      method: "POST",
+      url: "/v1/direct-chats/devices",
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: {
+        deviceId: device.deviceId,
+        identityEd25519Public: bytesToB64(
+          replacementIdentity.ed25519Public,
+        ),
+        identityX25519Public: bytesToB64(
+          replacementIdentity.x25519Public,
+        ),
+        signedPrekeyId: replacementSigned.keyId,
+        signedPrekeyPublic: bytesToB64(
+          replacementSigned.publicKey,
+        ),
+        signedPrekeySignature: bytesToB64(
+          replacementSigned.signature,
+        ),
+        oneTimePrekeys: [{
+          keyId: replacementOtk.keyId,
+          publicKey: bytesToB64(replacementOtk.publicKey),
+        }],
+        label: "replacement",
+      },
+    });
+    expect(replace.statusCode).toBe(400);
+  });
+
+  it("keeps old messages device-scoped and replays committed sends before current device-set validation", async () => {
+    const alice = await readyUser(app, "dc-replay-alice", "Alice");
+    const nikita = await readyUser(app, "dc-replay-nikita", "Nikita");
+    const aliceDevice = await registerHarness(app, alice);
+    const nikitaDevice = await registerHarness(app, nikita);
+    const chat = await createChat(app, alice.cookies, nikita.email);
+
+    const devices = chat.devices;
+    const envelopes = [];
+    for (const device of devices) {
+      envelopes.push(
+        await encryptTo(
+          app,
+          alice,
+          aliceDevice,
+          device,
+          chat.id,
+          "HUMAN",
+          "durable replay",
+        ),
+      );
+    }
+    const clientMessageId = randomUUID();
+    const payload = {
+      clientMessageId,
+      senderDeviceId: aliceDevice.deviceId,
+      kind: "HUMAN" as const,
+      envelopes,
+      mentions: [],
+    };
+    const sent = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/${chat.id}/messages`,
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload,
+    });
+    expect(sent.statusCode).toBe(201);
+
+    const secondNikitaDevice = await registerHarness(app, nikita);
+    const replay = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/${chat.id}/messages`,
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload,
+    });
+    expect(replay.statusCode).toBe(201);
+    expect(replay.json().id).toBe(sent.json().id);
+
+    const page = await app.inject({
+      method: "GET",
+      url: `/v1/direct-chats/${chat.id}/messages?deviceId=${secondNikitaDevice.deviceId}`,
+      headers: { origin },
+      cookies: nikita.cookies,
+    });
+    expect(page.statusCode).toBe(200);
+    expect(page.json().items[0]?.id).toBe(sent.json().id);
+    expect(page.json().items[0]?.envelope).toBeNull();
+
+    const originalPage = await listMessages(
+      app,
+      nikita,
+      nikitaDevice.deviceId,
+      chat.id,
+    );
+    expect(originalPage.items[0]?.envelope).toBeTruthy();
+  });
+
   it("requires structured @vimla authority for Direct Chat operator routing", async () => {
     const alice = await readyUser(app, "dc-routing-alice", "Alice");
     const nikita = await readyUser(app, "dc-routing-nikita", "Nikita");
@@ -1425,7 +1606,7 @@ async function encryptTo(
   if (!state) {
     const bundles = await app.inject({
       method: "GET",
-      url: `/v1/direct-chats/users/${recipient.userId}/prekeys`,
+      url: `/v1/direct-chats/users/${recipient.userId}/prekeys?deviceId=${recipient.id}`,
       headers: { origin },
       cookies: sender.cookies,
     });
