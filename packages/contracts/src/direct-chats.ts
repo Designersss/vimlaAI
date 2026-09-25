@@ -241,7 +241,7 @@ export type PrekeyBundle = z.infer<typeof prekeyBundleSchema>;
 
 export const claimPrekeyBundlesSchema = z
   .object({
-    deviceId: z.string().uuid().optional(),
+    deviceId: z.string().uuid(),
   })
   .strict();
 export type ClaimPrekeyBundles = z.infer<
