@@ -30,14 +30,20 @@ import {
   encodeIdentity,
   identityFromMaterial,
   loadDeviceMaterial,
+  commitDecryptedRatchet,
   loadPlaintext,
   loadRatchet,
   saveDeviceMaterial,
   savePlaintext,
   saveRatchet,
+  withRatchetSessionLock,
   type StoredDeviceMaterial,
   type StoredPlaintext,
 } from "./crypto-store";
+import {
+  RatchetLockLostError,
+  RatchetStateConflictError,
+} from "./ratchet-coordination";
 import { decodeDirectPlaintext, encodeDirectPlaintext, type DirectPlaintextPayload } from "./payload";
 
 export async function ensureLocalDevice(): Promise<StoredDeviceMaterial> {
@@ -95,34 +101,64 @@ export async function encryptForDevices(input: {
     ? serializeDirectRoutingMentions(input.mentions)
     : undefined;
   for (const device of input.devices.filter((item) => !item.revoked)) {
-    const existing = await loadRatchet(input.conversationId, device.id);
-    let x3dhInit: WireEnvelope["x3dhInit"] = null;
-    let state = existing ? deserializeRatchet(existing) : null;
-    if (!state) {
-      const bundles = await fetchPrekeyBundles(device.userId);
-      const bundle = bundles.bundles.find((item) => item.deviceId === device.id);
-      if (!bundle) {
-        throw new Error("Missing prekey bundle");
-      }
-      const initiated = x3dhInitiate(identity, bundle as PublicPreKeyBundle);
-      state = initRatchetInitiator(initiated.sharedKey, initiated.remoteRatchetPublic);
-      x3dhInit = initiated.initHeader;
-    }
-    const envelope = encryptEnvelope({
-      identity,
-      state,
-      plaintext: utf8(input.plaintext),
-      ad: {
+    const envelope = await withRatchetRetry(
+      {
         conversationId: input.conversationId,
-        senderUserId: input.senderUserId,
-        senderDeviceId: material.deviceId,
-        recipientDeviceId: device.id,
-        kind: input.kind,
-        routingContext,
+        localDeviceId: material.deviceId,
+        peerDeviceId: device.id,
       },
-      x3dhInit,
-    });
-    await saveRatchet(input.conversationId, device.id, serializeRatchet(state));
+      async () => {
+        const existing = await loadRatchet(
+          input.conversationId,
+          material.deviceId,
+          device.id,
+        );
+        let x3dhInit: WireEnvelope["x3dhInit"] = null;
+        let state = existing
+          ? deserializeRatchet(existing.state)
+          : null;
+        if (!state) {
+          const bundles = await fetchPrekeyBundles(device.userId);
+          const bundle = bundles.bundles.find(
+            (item) => item.deviceId === device.id,
+          );
+          if (!bundle) {
+            throw new Error("Missing prekey bundle");
+          }
+          const initiated = x3dhInitiate(
+            identity,
+            bundle as PublicPreKeyBundle,
+          );
+          state = initRatchetInitiator(
+            initiated.sharedKey,
+            initiated.remoteRatchetPublic,
+          );
+          x3dhInit = initiated.initHeader;
+        }
+        const nextEnvelope = encryptEnvelope({
+          identity,
+          state,
+          plaintext: utf8(input.plaintext),
+          ad: {
+            conversationId: input.conversationId,
+            senderUserId: input.senderUserId,
+            senderDeviceId: material.deviceId,
+            recipientDeviceId: device.id,
+            kind: input.kind,
+            routingContext,
+          },
+          x3dhInit,
+        });
+        await saveRatchet(
+          input.conversationId,
+          material.deviceId,
+          device.id,
+          existing?.stateVersion ?? 0,
+          serializeRatchet(state),
+        );
+        return nextEnvelope;
+      },
+    );
     envelopes.push({
       recipientDeviceId: device.id,
       headerB64: envelope.headerB64,
@@ -152,63 +188,152 @@ export async function decryptMessage(input: {
   }
   const material = await ensureLocalDevice();
   const identity = identityFromMaterial(material);
-  const stateRecord = await loadRatchet(input.conversationId, input.message.senderDeviceId);
-  let state = stateRecord ? deserializeRatchet(stateRecord) : null;
-  if (!state && envelope.x3dhInit) {
-    const signed = material.signedPrekeys[String(envelope.x3dhInit.signedPrekeyId)];
-    if (!signed) {
+  try {
+    return await withRatchetRetry(
+      {
+        conversationId: input.conversationId,
+        localDeviceId: material.deviceId,
+        peerDeviceId: input.message.senderDeviceId,
+      },
+      async () => {
+        const committed = await loadPlaintext(input.message.id);
+        if (committed) {
+          return decodeDirectPlaintext(
+            input.message.kind,
+            committed.text,
+          );
+        }
+
+        const stateRecord = await loadRatchet(
+          input.conversationId,
+          material.deviceId,
+          input.message.senderDeviceId,
+        );
+        let state = stateRecord
+          ? deserializeRatchet(stateRecord.state)
+          : null;
+        if (!state && envelope.x3dhInit) {
+          const signed =
+            material.signedPrekeys[
+              String(envelope.x3dhInit.signedPrekeyId)
+            ];
+          if (!signed) {
+            return null;
+          }
+          const otk =
+            envelope.x3dhInit.oneTimePrekeyId !== null
+              ? material.oneTimePrekeys[
+                  String(envelope.x3dhInit.oneTimePrekeyId)
+                ]
+              : null;
+          const shared = x3dhRespond(
+            identity,
+            b64ToBytes(signed.secret),
+            otk ? b64ToBytes(otk.secret) : null,
+            envelope.x3dhInit,
+          );
+          state = initRatchetResponder(shared.sharedKey, {
+            secret: b64ToBytes(signed.secret),
+            publicKey: b64ToBytes(signed.publicKey),
+          });
+        }
+        if (!state) {
+          return null;
+        }
+
+        const routingContext =
+          input.message.mentions.length > 0
+            ? serializeDirectRoutingMentions(
+                input.message.mentions,
+              )
+            : undefined;
+        const opened = decryptEnvelope({
+          senderIdentityEd25519Public: b64ToBytes(
+            input.senderIdentityEd25519Public,
+          ),
+          state,
+          envelope: toWire(envelope),
+          ad: {
+            conversationId: input.conversationId,
+            senderUserId: input.message.senderUserId,
+            senderDeviceId: input.message.senderDeviceId,
+            recipientDeviceId: envelope.recipientDeviceId,
+            kind: input.message.kind,
+            routingContext,
+          },
+        });
+        const text = new TextDecoder().decode(opened);
+        const row: StoredPlaintext = {
+          conversationId: input.conversationId,
+          messageId: input.message.id,
+          text,
+          kind: input.message.kind,
+          senderUserId: input.message.senderUserId,
+          createdAt: input.message.createdAt,
+        };
+        await commitDecryptedRatchet({
+          conversationId: input.conversationId,
+          localDeviceId: material.deviceId,
+          peerDeviceId: input.message.senderDeviceId,
+          expectedVersion: stateRecord?.stateVersion ?? 0,
+          state: serializeRatchet(state),
+          plaintext: row,
+        });
+        return decodeDirectPlaintext(
+          input.message.kind,
+          text,
+        );
+      },
+    );
+  } catch (error: unknown) {
+    if (isRatchetCoordinationError(error)) {
       return null;
     }
-    const otk =
-      envelope.x3dhInit.oneTimePrekeyId !== null
-        ? material.oneTimePrekeys[String(envelope.x3dhInit.oneTimePrekeyId)]
-        : null;
-    const shared = x3dhRespond(
-      identity,
-      b64ToBytes(signed.secret),
-      otk ? b64ToBytes(otk.secret) : null,
-      envelope.x3dhInit,
-    );
-    state = initRatchetResponder(shared.sharedKey, {
-      secret: b64ToBytes(signed.secret),
-      publicKey: b64ToBytes(signed.publicKey),
-    });
-  }
-  if (!state) {
     return null;
   }
-  try {
-    const routingContext = input.message.mentions.length > 0
-      ? serializeDirectRoutingMentions(input.message.mentions)
-      : undefined;
-    const opened = decryptEnvelope({
-      senderIdentityEd25519Public: b64ToBytes(input.senderIdentityEd25519Public),
-      state,
-      envelope: toWire(envelope),
-      ad: {
-        conversationId: input.conversationId,
-        senderUserId: input.message.senderUserId,
-        senderDeviceId: input.message.senderDeviceId,
-        recipientDeviceId: envelope.recipientDeviceId,
-        kind: input.message.kind,
-        routingContext,
-      },
-    });
-    const text = new TextDecoder().decode(opened);
-    await saveRatchet(input.conversationId, input.message.senderDeviceId, serializeRatchet(state));
-    const row: StoredPlaintext = {
-      conversationId: input.conversationId,
-      messageId: input.message.id,
-      text,
-      kind: input.message.kind,
-      senderUserId: input.message.senderUserId,
-      createdAt: input.message.createdAt,
-    };
-    await savePlaintext(row);
-    return decodeDirectPlaintext(input.message.kind, text);
-  } catch {
-    return null;
+}
+
+const RATCHET_COORDINATION_ATTEMPTS = 3;
+
+async function withRatchetRetry<T>(
+  scope: {
+    conversationId: string;
+    localDeviceId: string;
+    peerDeviceId: string;
+  },
+  operation: () => Promise<T>,
+): Promise<T> {
+  let lastError: Error | null = null;
+  for (
+    let attempt = 0;
+    attempt < RATCHET_COORDINATION_ATTEMPTS;
+    attempt += 1
+  ) {
+    try {
+      return await withRatchetSessionLock(
+        scope,
+        operation,
+      );
+    } catch (error: unknown) {
+      if (!isRatchetCoordinationError(error)) {
+        throw error;
+      }
+      lastError = error;
+    }
   }
+  throw (
+    lastError ??
+    new RatchetStateConflictError()
+  );
+}
+
+function isRatchetCoordinationError(
+  error: unknown,
+): error is RatchetStateConflictError | RatchetLockLostError {
+  return (
+    error instanceof RatchetStateConflictError ||
+    error instanceof RatchetLockLostError
+  );
 }
 
 export function encodePayload(payload: DirectPlaintextPayload): string {
