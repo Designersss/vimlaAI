@@ -476,8 +476,9 @@ export async function decryptMessage(input: {
   }
   const material = await ensureLocalDevice();
   const identity = identityFromMaterial(material);
+  let consumedLocalOtk = false;
   try {
-    return await withRatchetRetry(
+    const result = await withRatchetRetry(
       {
         conversationId: input.conversationId,
         localDeviceId: material.deviceId,
@@ -577,12 +578,21 @@ export async function decryptMessage(input: {
           consumedOneTimePrekeyId,
           plaintext: row,
         });
+        if (consumedOneTimePrekeyId !== null) {
+          consumedLocalOtk = true;
+        }
         return decodeDirectPlaintext(
           input.message.kind,
           text,
         );
       },
     );
+    if (consumedLocalOtk) {
+      void ensureLocalDevice({
+        forcePrekeyCheck: true,
+      }).catch(() => undefined);
+    }
+    return result;
   } catch (error: unknown) {
     if (isRatchetCoordinationError(error)) {
       return null;
