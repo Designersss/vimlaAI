@@ -124,6 +124,7 @@ export type TelemetryEvent =
       invalidatedCount: number;
       staleCount: number;
       compactionCount: number;
+      compactionDurationMs: number;
       compactionInputTokens: number;
       compactionOutputTokens: number;
       compactionVersion: number | null;
@@ -270,6 +271,7 @@ const SAFE_TELEMETRY_FIELDS: Record<
     "invalidatedCount",
     "staleCount",
     "compactionCount",
+    "compactionDurationMs",
     "compactionInputTokens",
     "compactionOutputTokens",
     "compactionVersion",
