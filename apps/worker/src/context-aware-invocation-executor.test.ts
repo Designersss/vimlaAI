@@ -6,6 +6,7 @@ import {
   type ContextBundleView,
 } from "@vimla/context";
 import type { PrismaClient } from "@vimla/database";
+import type { TelemetryEvent, TelemetrySink } from "@vimla/shared";
 import { ContextAwareInvocationExecutorRegistry } from "./context-aware-invocation-executor.js";
 import type {
   InvocationExecutionInput,
@@ -31,6 +32,21 @@ const input: InvocationExecutionInput = {
     agentId: null,
   },
 };
+
+function recordingTelemetry(): {
+  events: TelemetryEvent[];
+  sink: TelemetrySink;
+} {
+  const events: TelemetryEvent[] = [];
+  return {
+    events,
+    sink: {
+      emit: (event) => {
+        events.push(event);
+      },
+    },
+  };
+}
 
 function contextBundle(
   surfaceKind: ContextBundleView["manifest"]["surfaceKind"],
@@ -102,6 +118,7 @@ describe("ContextAwareInvocationExecutorRegistry", () => {
     const execute = vi.fn().mockResolvedValue({
       status: "COMPLETED" as const,
     });
+    const telemetry = recordingTelemetry();
 
     const registry = new ContextAwareInvocationExecutorRegistry(
       {
@@ -109,6 +126,8 @@ describe("ContextAwareInvocationExecutorRegistry", () => {
       } as unknown as PrismaClient,
       { execute } satisfies InvocationExecutorRegistry,
       { resolveForInvocation } as unknown as ContextBundleService,
+      true,
+      telemetry.sink,
     );
 
     await expect(registry.execute(input)).resolves.toEqual({
@@ -122,10 +141,21 @@ describe("ContextAwareInvocationExecutorRegistry", () => {
       ...input,
       contextBundle: allowedBundle,
     });
+    expect(telemetry.events).toContainEqual(
+      expect.objectContaining({
+        event: "context.bundle",
+        planId: input.planId,
+        invocationId: input.invocationId,
+        outcome: "SUCCESS",
+        selectedItemCount: 0,
+        deniedItemCount: 0,
+      }),
+    );
   });
 
   it("fails closed and never delegates when audience authorization is denied", async () => {
     const execute = vi.fn();
+    const telemetry = recordingTelemetry();
     const registry = new ContextAwareInvocationExecutorRegistry(
       {
         invocation: {
@@ -140,6 +170,8 @@ describe("ContextAwareInvocationExecutorRegistry", () => {
             new ContextAccessDeniedError("audience access revoked"),
           ),
       } as unknown as ContextBundleService,
+      true,
+      telemetry.sink,
     );
 
     await expect(registry.execute(input)).resolves.toEqual({
@@ -148,6 +180,14 @@ describe("ContextAwareInvocationExecutorRegistry", () => {
       retryable: false,
     });
     expect(execute).not.toHaveBeenCalled();
+    expect(telemetry.events).toContainEqual({
+      event: "safety.policy",
+      planId: input.planId,
+      invocationId: input.invocationId,
+      action: "PERMISSION_DENIED",
+      reason: "OTHER",
+      count: 1,
+    });
   });
 
   it("rejects a queue target that does not match the persisted invocation", async () => {
