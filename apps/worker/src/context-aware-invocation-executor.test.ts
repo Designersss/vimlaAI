@@ -3,6 +3,7 @@ import {
   ContextAccessDeniedError,
   ContextValidationError,
   type ContextBundleService,
+  type ContextBundleView,
 } from "@vimla/context";
 import type { PrismaClient } from "@vimla/database";
 import { ContextAwareInvocationExecutorRegistry } from "./context-aware-invocation-executor.js";
@@ -31,6 +32,45 @@ const input: InvocationExecutionInput = {
   },
 };
 
+function contextBundle(
+  surfaceKind: ContextBundleView["manifest"]["surfaceKind"],
+): ContextBundleView {
+  return {
+    id: "bundle-1",
+    invocationId: input.invocationId,
+    snapshotId: "snapshot-1",
+    fingerprint: `sha256:${surfaceKind.toLowerCase()}`,
+    manifest: {
+      version: 1,
+      packingVersion: 1,
+      targetKind: "VIMLA",
+      surfaceKind,
+      surfaceScopeHash: "sha256:surface",
+      audienceParticipantCount: 1,
+      budget: {
+        contextWindowTokens: 32_768,
+        outputReserveTokens: 4_096,
+        systemToolReserveTokens: 2_048,
+        artifactReserveTokens: 4_096,
+        safetyMarginTokens: 2_621,
+        effectiveHistoryBudgetTokens: 19_907,
+        compactedStateTriggerTokens: 15_925,
+      },
+      usedTokens: 0,
+      rawHistoryTokens: 0,
+      compactedStateRequired: false,
+      allowedItems: [],
+      allowedArtifacts: [],
+      denials: [],
+      packingExclusions: [],
+      artifactDenials: [],
+    },
+    items: [],
+    artifacts: [],
+    createdAt: "2026-09-25T00:00:00.000Z",
+  };
+}
+
 describe("ContextAwareInvocationExecutorRegistry", () => {
   it("fails closed before DB or fallback access when context retrieval is disabled", async () => {
     const findFirst = vi.fn();
@@ -57,10 +97,7 @@ describe("ContextAwareInvocationExecutorRegistry", () => {
 
   it("delegates only after the invocation context passes authorization", async () => {
     const findFirst = vi.fn().mockResolvedValue(persistedVimlaInvocation);
-    const allowedBundle = {
-      fingerprint: "sha256:allowed",
-      manifest: { surfaceKind: "PERSONAL" },
-    };
+    const allowedBundle = contextBundle("PERSONAL");
     const resolveForInvocation = vi.fn().mockResolvedValue(allowedBundle);
     const execute = vi.fn().mockResolvedValue({
       status: "COMPLETED" as const,
@@ -154,10 +191,9 @@ describe("ContextAwareInvocationExecutorRegistry", () => {
       } as unknown as PrismaClient,
       { execute } satisfies InvocationExecutorRegistry,
       {
-        resolveForInvocation: vi.fn().mockResolvedValue({
-          fingerprint: "sha256:shared",
-          manifest: { surfaceKind: "DIRECT_CHAT" },
-        }),
+        resolveForInvocation: vi
+          .fn()
+          .mockResolvedValue(contextBundle("DIRECT_CHAT")),
       } as unknown as ContextBundleService,
     );
 
