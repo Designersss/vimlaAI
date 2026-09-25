@@ -180,6 +180,28 @@ async function ensurePrekeySupply(
   const status = await fetchPrekeyStatus(
     current.deviceId,
   );
+  const retainedKeyIds = new Set([
+    ...status.availableKeyIds,
+    ...status.recentlyConsumedKeyIds,
+    ...(current.pendingOneTimePrekeyIds ?? []),
+  ]);
+  const retainedEntries = Object.entries(
+    current.oneTimePrekeys,
+  ).filter(([keyId]) =>
+    retainedKeyIds.has(Number(keyId)),
+  );
+  if (
+    retainedEntries.length !==
+    Object.keys(current.oneTimePrekeys).length
+  ) {
+    current = {
+      ...current,
+      oneTimePrekeys:
+        Object.fromEntries(retainedEntries),
+    };
+    await saveDeviceMaterial(current);
+  }
+
   if (status.available >= PREKEY_LOW_WATER) {
     const checked: StoredDeviceMaterial = {
       ...current,
