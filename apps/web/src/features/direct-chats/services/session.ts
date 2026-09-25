@@ -560,14 +560,14 @@ async function sendPendingRow(
 export async function decryptMessage(input: {
   conversationId: string;
   message: DirectMessageView;
-  senderIdentityEd25519Public: string;
+  senderIdentityEd25519Public?: string;
 }): Promise<DirectPlaintextPayload | null> {
   const cached = await loadPlaintext(input.message.id);
   if (cached) {
     return decodeDirectPlaintext(input.message.kind, cached.text);
   }
   const envelope = input.message.envelope;
-  if (!envelope) {
+  if (!envelope || !input.senderIdentityEd25519Public) {
     return null;
   }
   const material = await ensureLocalDevice();
