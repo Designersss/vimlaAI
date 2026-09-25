@@ -989,18 +989,34 @@ describe("orchestration runtime", () => {
     expect(recovered.completedAt).not.toBeNull();
   });
 
-  it("recovers a stale RUNNING attempt to READY before redispatch", async () => {
-    const seeded = await seedPlan(prisma, [{ key: "stale", status: "RUNNING" }], [], 1);
-    const invocationId = seeded.invocationIds.stale ?? "";
-    const staleRun = await prisma.invocationRun.create({
-      data: {
-        invocationId,
-        attempt: 1,
-        idempotencyKey: `stale-${randomUUID()}`,
-        status: "RUNNING",
-        startedAt: new Date(Date.now() - 60_000),
-      },
-    });
+  it("recovers stale RUNNING attempts and counts affected workflows once", async () => {
+    const seeded = await seedPlan(
+      prisma,
+      [
+        { key: "stale-a", status: "RUNNING" },
+        { key: "stale-b", status: "RUNNING" },
+      ],
+      [],
+      2,
+    );
+    const invocationIds = [
+      seeded.invocationIds["stale-a"],
+      seeded.invocationIds["stale-b"],
+    ].filter((value): value is string => Boolean(value));
+    expect(invocationIds).toHaveLength(2);
+    const staleRuns = await Promise.all(
+      invocationIds.map((invocationId) =>
+        prisma.invocationRun.create({
+          data: {
+            invocationId,
+            attempt: 1,
+            idempotencyKey: `stale-${randomUUID()}`,
+            status: "RUNNING",
+            startedAt: new Date(Date.now() - 60_000),
+          },
+        }),
+      ),
+    );
     const dispatchQueue = new MemoryQueue();
     const executionQueue = new MemoryQueue();
     const telemetry = recordingTelemetry();
@@ -1012,23 +1028,33 @@ describe("orchestration runtime", () => {
 
     await runtime.reconcile();
 
-    const invocation = await prisma.invocation.findUniqueOrThrow({
-      where: { id: invocationId },
-      select: { status: true },
+    const invocations = await prisma.invocation.findMany({
+      where: { id: { in: invocationIds } },
+      select: { id: true, status: true },
+      orderBy: { id: "asc" },
     });
-    const run = await prisma.invocationRun.findUniqueOrThrow({
-      where: { id: staleRun.id },
+    const runs = await prisma.invocationRun.findMany({
+      where: { id: { in: staleRuns.map((run) => run.id) } },
       select: { status: true, errorCode: true },
     });
-    expect(invocation.status).toBe("READY");
-    expect(run).toEqual({ status: "FAILED", errorCode: "WORKER_INTERRUPTED" });
+    expect(invocations.map((invocation) => invocation.status)).toEqual([
+      "READY",
+      "READY",
+    ]);
+    expect(runs).toHaveLength(2);
+    expect(runs).toEqual(
+      expect.arrayContaining([
+        { status: "FAILED", errorCode: "WORKER_INTERRUPTED" },
+        { status: "FAILED", errorCode: "WORKER_INTERRUPTED" },
+      ]),
+    );
     expect(dispatchQueue.count(ORCHESTRATION_DISPATCH_JOB_NAME)).toBeGreaterThanOrEqual(1);
     expect(telemetry.events).toContainEqual(
       expect.objectContaining({
         event: "runtime.reconciliation",
         outcome: "RECOVERED",
         recoveredPlanningShells: 0,
-        recoveredInvocationRuns: 1,
+        recoveredInvocationRuns: 2,
         recoveredStuckWorkflows: 1,
       }),
     );
