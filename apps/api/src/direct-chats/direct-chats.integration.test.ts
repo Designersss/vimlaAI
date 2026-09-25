@@ -385,15 +385,22 @@ describe("direct chats API", () => {
         payload: { deviceId: device.deviceId },
       }),
     ]);
-    expect(first.statusCode).toBe(200);
-    expect(second.statusCode).toBe(200);
-    const claimedIds = [first, second].map(
-      (response) =>
-        response.json().bundles[0]
-          ?.oneTimePrekeyId as number | null,
+    expect(
+      [first.statusCode, second.statusCode].sort(),
+    ).toEqual([200, 409]);
+    const successful = [first, second].find(
+      (response) => response.statusCode === 200,
     );
-    expect(claimedIds.filter((id) => id === 1)).toHaveLength(1);
-    expect(claimedIds.filter((id) => id === null)).toHaveLength(1);
+    const depleted = [first, second].find(
+      (response) => response.statusCode === 409,
+    );
+    expect(
+      successful?.json().bundles[0]
+        ?.oneTimePrekeyId,
+    ).toBe(1);
+    expect(depleted?.json().error.code).toBe(
+      "direct_chat_prekeys_depleted",
+    );
 
     const emptyStatus = await app.inject({
       method: "GET",
@@ -607,6 +614,52 @@ describe("direct chats API", () => {
     expect(
       [aliceRegister.statusCode, oscarRegister.statusCode].sort(),
     ).toEqual([201, 403]);
+  });
+
+  it("caps the available OTK pool per device", async () => {
+    const alice = await readyUser(
+      app,
+      "dc-prekey-pool-cap",
+      "Alice",
+    );
+    const device = await registerHarness(app, alice);
+
+    const upload = async (
+      start: number,
+      count: number,
+    ) =>
+      app.inject({
+        method: "POST",
+        url: `/v1/direct-chats/devices/${device.deviceId}/prekeys/replenish`,
+        headers: jsonHeaders(),
+        cookies: alice.cookies,
+        payload: {
+          oneTimePrekeys: Array.from(
+            { length: count },
+            (_, offset) => {
+              const key = generateOneTimePreKey(
+                start + offset,
+              );
+              return {
+                keyId: key.keyId,
+                publicKey: bytesToB64(key.publicKey),
+              };
+            },
+          ),
+        },
+      });
+
+    const firstBatch = await upload(2, 32);
+    expect(firstBatch.statusCode).toBe(200);
+    expect(firstBatch.json().available).toBe(33);
+
+    const secondBatch = await upload(34, 31);
+    expect(secondBatch.statusCode).toBe(200);
+    expect(secondBatch.json().available).toBe(64);
+
+    const overflow = await upload(65, 1);
+    expect(overflow.statusCode).toBe(409);
+    expect(overflow.json().error.code).toBe("conflict");
   });
 
   it("caps active devices under concurrent registration", async () => {
