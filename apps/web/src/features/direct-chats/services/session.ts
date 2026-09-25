@@ -449,12 +449,19 @@ export async function finalizePendingSend(
 export async function recoverPendingSends(input: {
   conversationId: string;
   localDevice: StoredDeviceMaterial;
-}): Promise<boolean> {
+}): Promise<
+  | "RESOLVED"
+  | "LOCAL_DEVICE_INACTIVE"
+  | "RECIPIENT_DEVICE_MISSING"
+> {
   const pending = await loadPendingSends(
     input.conversationId,
     input.localDevice.deviceId,
   );
-  let allResolved = true;
+  let blocked:
+    | "LOCAL_DEVICE_INACTIVE"
+    | "RECIPIENT_DEVICE_MISSING"
+    | null = null;
   for (const stored of pending) {
     let row = stored;
     try {
@@ -495,12 +502,15 @@ export async function recoverPendingSends(input: {
           device.userId !== row.senderUserId,
       );
 
-      if (
-        sameDeviceSet ||
-        !localStillActive ||
-        !peerActive
-      ) {
-        allResolved = false;
+      if (sameDeviceSet) {
+        throw error;
+      }
+      if (!localStillActive) {
+        blocked = "LOCAL_DEVICE_INACTIVE";
+        continue;
+      }
+      if (!peerActive) {
+        blocked ??= "RECIPIENT_DEVICE_MISSING";
         continue;
       }
 
@@ -518,7 +528,7 @@ export async function recoverPendingSends(input: {
       await finalizePendingSend(row, created);
     }
   }
-  return allResolved;
+  return blocked ?? "RESOLVED";
 }
 
 async function sendPendingRow(
