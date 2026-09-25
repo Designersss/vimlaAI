@@ -515,6 +515,8 @@ describe("execution plan API", () => {
   });
 
   it("resolves HUMAN_APPROVAL evaluators through a dedicated idempotent decision endpoint", async () => {
+    const telemetry = app.get(ApiTelemetrySink);
+    const emit = vi.spyOn(telemetry, "emit");
     const owner = await registerVerifiedUser(
       app,
       "orchestration-human-evaluator",
@@ -628,6 +630,15 @@ describe("execution plan API", () => {
         },
       }),
     ).toBe(1);
+    expect(
+      emit.mock.calls.filter(
+        ([event]) =>
+          event.event === "safety.policy" &&
+          event.action === "APPROVAL_GRANTED" &&
+          event.planId === planId,
+      ),
+    ).toHaveLength(1);
+    emit.mockRestore();
   });
 
   async function createSourceMessage(userId: string): Promise<string> {
