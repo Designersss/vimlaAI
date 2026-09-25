@@ -19,6 +19,7 @@ export { maskEmail } from "./email.js";
 export {
   NOOP_TELEMETRY_SINK,
   countTelemetryValues,
+  safeTelemetryFields,
   telemetryDurationMs,
   telemetryRatioBps,
   type TelemetryContextSelectionReason,
