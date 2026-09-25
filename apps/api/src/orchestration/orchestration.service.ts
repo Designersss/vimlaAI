@@ -248,20 +248,22 @@ export class OrchestrationService {
           }
         }
         await this.failPlanningClaim(userId, shell.id, claim.claimHash);
+        this.telemetry.emit({
+          event: "planner.completed",
+          correlationId,
+          planId: shell.id,
+          outcome: "FAILED",
+          durationMs: telemetryDurationMs(plannerStartedAt),
+          nodeCount: 0,
+          edgeCount: 0,
+          depth: 0,
+          maxParallelism: 0,
+          ...(error instanceof SemanticPlannerError
+            ? { validationFailureCode: error.code }
+            : {}),
+          replayed: false,
+        });
         if (error instanceof SemanticPlannerError) {
-          this.telemetry.emit({
-            event: "planner.completed",
-            correlationId,
-            planId: shell.id,
-            outcome: "FAILED",
-            durationMs: telemetryDurationMs(plannerStartedAt),
-            nodeCount: 0,
-            edgeCount: 0,
-            depth: 0,
-            maxParallelism: 0,
-            validationFailureCode: error.code,
-            replayed: false,
-          });
           throw new BadRequestException({
             code: "semantic_plan_invalid",
             message: "The workflow proposal could not be validated safely",
