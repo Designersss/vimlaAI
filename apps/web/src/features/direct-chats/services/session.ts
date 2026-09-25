@@ -25,7 +25,15 @@ import type {
   MessageMentionInput,
   WireEnvelopeDto,
 } from "@vimla/contracts";
-import { fetchPrekeyBundles, fetchPrekeyStatus, registerCryptoDevice, replenishOneTimePrekeys, sendDirectMessage } from "./api";
+import {
+  DirectChatsApiError,
+  fetchDirectConversation,
+  fetchPrekeyBundles,
+  fetchPrekeyStatus,
+  registerCryptoDevice,
+  replenishOneTimePrekeys,
+  sendDirectMessage,
+} from "./api";
 import {
   acknowledgeRatchetHandshake,
   commitDecryptedRatchet,
@@ -440,25 +448,92 @@ export async function finalizePendingSend(
 
 export async function recoverPendingSends(input: {
   conversationId: string;
-  localDeviceId: string;
-}): Promise<void> {
+  localDevice: StoredDeviceMaterial;
+}): Promise<boolean> {
   const pending = await loadPendingSends(
     input.conversationId,
-    input.localDeviceId,
+    input.localDevice.deviceId,
   );
-  for (const row of pending) {
-    const created = await sendDirectMessage(
-      row.conversationId,
-      {
+  let allResolved = true;
+  for (const stored of pending) {
+    let row = stored;
+    try {
+      const created = await sendPendingRow(row);
+      await finalizePendingSend(row, created);
+      continue;
+    } catch (error: unknown) {
+      if (
+        !(error instanceof DirectChatsApiError) ||
+        (error.code !== "validation_error" &&
+          error.code !==
+            "direct_chat_recipient_device_missing")
+      ) {
+        throw error;
+      }
+
+      const detail = await fetchDirectConversation(
+        input.conversationId,
+      );
+      const currentIds = detail.devices
+        .filter((device) => !device.revoked)
+        .map((device) => device.id)
+        .sort();
+      const pendingIds = row.envelopes
+        .map((envelope) => envelope.recipientDeviceId)
+        .sort();
+      const sameDeviceSet =
+        currentIds.length === pendingIds.length &&
+        currentIds.every(
+          (id, index) => id === pendingIds[index],
+        );
+      const localStillActive = currentIds.includes(
+        input.localDevice.deviceId,
+      );
+      const peerActive = detail.devices.some(
+        (device) =>
+          !device.revoked &&
+          device.userId !== row.senderUserId,
+      );
+
+      if (
+        sameDeviceSet ||
+        !localStillActive ||
+        !peerActive
+      ) {
+        allResolved = false;
+        continue;
+      }
+
+      row = await encryptForDevices({
+        conversationId: row.conversationId,
+        senderUserId: row.senderUserId,
         clientMessageId: row.clientMessageId,
-        senderDeviceId: row.senderDeviceId,
+        localDevice: input.localDevice,
         kind: row.kind,
-        envelopes: row.envelopes,
+        plaintext: row.plaintext,
+        devices: detail.devices,
         mentions: row.mentions,
-      },
-    );
-    await finalizePendingSend(row, created);
+      });
+      const created = await sendPendingRow(row);
+      await finalizePendingSend(row, created);
+    }
   }
+  return allResolved;
+}
+
+async function sendPendingRow(
+  row: StoredPendingSend,
+): Promise<DirectMessageView> {
+  return sendDirectMessage(
+    row.conversationId,
+    {
+      clientMessageId: row.clientMessageId,
+      senderDeviceId: row.senderDeviceId,
+      kind: row.kind,
+      envelopes: row.envelopes,
+      mentions: row.mentions,
+    },
+  );
 }
 
 export async function decryptMessage(input: {
