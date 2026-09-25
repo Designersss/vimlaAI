@@ -1,5 +1,5 @@
 import { Injectable, Logger } from "@nestjs/common";
-import type { TelemetryEvent, TelemetrySink } from "@vimla/shared";
+import { safeTelemetryFields, type TelemetryEvent, type TelemetrySink } from "@vimla/shared";
 
 @Injectable()
 export class ApiTelemetrySink implements TelemetrySink {
@@ -8,7 +8,7 @@ export class ApiTelemetrySink implements TelemetrySink {
   emit(event: TelemetryEvent): void {
     this.logger.log({
       msg: "telemetry",
-      ...event,
+      ...safeTelemetryFields(event),
     });
   }
 }
