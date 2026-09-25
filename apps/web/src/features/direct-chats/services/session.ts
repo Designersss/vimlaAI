@@ -480,11 +480,17 @@ export async function recoverPendingSends(input: {
       await finalizePendingSend(row, created);
       continue;
     } catch (error: unknown) {
+      if (!(error instanceof DirectChatsApiError)) {
+        throw error;
+      }
+      if (error.code === "direct_chat_device_revoked") {
+        return "LOCAL_DEVICE_INACTIVE";
+      }
       if (
-        !(error instanceof DirectChatsApiError) ||
-        (error.code !== "validation_error" &&
-          error.code !==
-            "direct_chat_recipient_device_missing")
+        error.code !== "validation_error" &&
+        error.code !==
+          "direct_chat_recipient_device_missing" &&
+        error.code !== "not_found"
       ) {
         throw error;
       }
@@ -513,7 +519,10 @@ export async function recoverPendingSends(input: {
           device.userId !== row.senderUserId,
       );
 
-      if (sameDeviceSet) {
+      if (
+        sameDeviceSet &&
+        error.code !== "not_found"
+      ) {
         throw error;
       }
       if (!localStillActive) {
