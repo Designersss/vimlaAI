@@ -59,21 +59,23 @@ Private material never leaves IndexedDB. The API stores public keys only. Device
 
 Multi-device evolution is laid out: fan-out to every active device, per-device ratchets, OTK consumption. A **new** device cannot decrypt prior history (no server-side history key). That is an explicit Phase 9 limitation, not AES wrapping of old ciphertext.
 
-### Browser ratchet durability (E2EE-H01)
+### Browser ratchet durability and prekey lifecycle (E2EE-H01/H04 hardening)
 
 Browser ratchet mutation is serialized per `conversationId + localDeviceId + peerDeviceId`.
 
-- Web Locks is the primary cross-tab/process critical section.
-- Browsers without Web Locks use an IndexedDB lease with bounded expiry/renewal; the versioned ratchet compare-and-swap is still the final correctness guard.
-- Persisted ratchet records carry a monotonic local `stateVersion` and are bound to the current local crypto-device id. A stale writer cannot overwrite a newer state.
-- IndexedDB schema v3 fences older v2 clients: once the store is upgraded, an old client opening the lower DB version fails closed instead of silently writing the unversioned format.
-- Encrypt returns an envelope only after the advanced ratchet state is durably committed. A crash after that point may create a skipped message number if the network send never completes, but the next send does not reuse the prior message key/nonce.
-- First-contact X3DH initiation metadata remains durably attached to the local ratchet until the server confirms a message carrying that initiation was stored. If the first network send is lost after local ratchet advancement, the next envelope repeats the same authenticated X3DH init so the recipient can establish the session and skip the missing message key safely.
-- The pending X3DH marker becomes eligible for best-effort cleanup only after successful server acknowledgment. If cleanup is delayed by a local lock/storage failure, or if the server response is ambiguous, a later envelope may repeat already-persisted initiation metadata; an existing receiver session ignores that metadata, while the signed envelope remains authoritative.
-- Successful decrypt persists the advanced ratchet state and its local plaintext cache row in the same IndexedDB transaction. A crash cannot commit one without the other.
+- Web Locks is the primary cross-tab/process critical section. Browsers without Web Locks use an IndexedDB lease with bounded expiry/renewal; versioned compare-and-swap remains the final correctness guard.
+- Local-device bootstrap has its own cross-tab critical section. Device identity/prekey material is persisted as `PENDING` before registration so a crash or ambiguous response retries the same device and key material instead of silently creating a second local identity.
+- Persisted ratchets are keyed by conversation + local device + peer device, carry a monotonic `stateVersion`, and are bound to the current local crypto-device id. A cross-device or stale write fails closed.
+- IndexedDB schema v4 adds ratchet locks and a durable pending-send outbox. Older clients opening the lower schema fail closed; legacy unversioned ratchet keys are migrated transactionally on first write.
+- Multi-recipient encryption derives every recipient envelope under deterministic session locks, then persists all advanced ratchets plus the pending send in one IndexedDB transaction. A partial fan-out cannot advance only a subset of recipient ratchets.
+- A pending send stores one stable `clientMessageId`, its exact signed ciphertext envelopes, and the sender's local plaintext. The server checks that idempotency key before current device-set validation, so `server commit -> response lost` is recovered by replaying the exact same request rather than encrypting again.
+- Sender plaintext-cache completion and outbox deletion are atomic. First-contact X3DH metadata remains attached until a message carrying it has been acknowledged by the server; delayed cleanup may safely repeat the authenticated init on a later envelope.
+- Successful decrypt persists ratchet advance + plaintext cache atomically. If X3DH consumed an OTK, deletion of that local private OTK secret is part of the same transaction; a referenced-but-missing OTK fails closed instead of downgrading the handshake.
+- OTK claims use server-side compare-and-set, prekey retrieval can target one concrete device, and browsers replenish their own OTK supply from a low-water mark using a crash-retryable/idempotent upload.
+- First-time/offline decrypt processes messages oldest-first. If the latest page lacks the session-establishing X3DH envelope, the client backfills older pages to the local-device creation boundary before rendering the latest page.
 - CAS conflicts/lost fallback leases discard the derived result and retry from current persisted state; no conflicting ciphertext is returned to the caller.
 
-This hardening addresses same-origin concurrent tabs/processes and partial local transaction failures. It does not claim protection against a fully compromised browser origin or arbitrary rollback of the entire browser profile/storage snapshot; those remain part of the broader #54 hardening/audit scope.
+This hardening addresses same-origin concurrent tabs/processes, partial local transactions, ambiguous send responses and OTK exhaustion/races. It does not claim protection against a fully compromised browser origin or arbitrary rollback of the entire browser profile/storage snapshot; those remain part of the broader #54 hardening/audit scope.
 
 ## 4. @Vimla context handoff
 
@@ -119,7 +121,9 @@ Config (default off):
 API (cookie + OriginGuard + SensitiveArea + mutation rate limit):
 
 - `POST/GET /v1/direct-chats/devices`, rotate, revoke
-- `GET /v1/direct-chats/users/:userId/prekeys` (self or shared-chat peer)
+- `GET /v1/direct-chats/devices/:deviceId/prekeys/status`
+- `POST /v1/direct-chats/devices/:deviceId/prekeys/replenish`
+- `GET /v1/direct-chats/users/:userId/prekeys?deviceId=...` (self or shared-chat peer; optional device-scoped OTK claim)
 - `POST/GET /v1/direct-chats`, `GET :id`, `PATCH :id/privacy`, `POST :id/read`
 - `GET/POST /v1/direct-chats/:id/messages`
 
@@ -127,7 +131,7 @@ Disabled → `direct_chats_disabled` (503).
 
 ## 7. Security tests
 
-Covered: lifecycle, ciphertext-not-plaintext in PostgreSQL, tamper rejection, two-party decrypt, IDOR, sender/timestamp/cross-chat/future provenance spoof rejection, unread/pagination, flag off, `@Vimla` general answer, context deny/allow, self task, peer task, third user denied, Direct Chat personal-tool denial, private-workspace snapshot isolation, peer/actor consent revocation during recovery, fail-closed generic E2EE context access, exact ContextSnapshot ownership DB constraints, hidden Direct Chat clarification-continuation rejection, prompt injection does not extend permissions, responsive Direct Chat UI.
+Covered: lifecycle, ciphertext-not-plaintext in PostgreSQL, tamper rejection, two-party decrypt, IDOR, sender/timestamp/cross-chat/future provenance spoof rejection, unread/pagination, flag off, cross-tab device bootstrap, mixed Web Locks/IndexedDB ratchet stress, stale-lease recovery, committed-send response-loss recovery, legacy ratchet migration, deep offline ratchet bootstrap, atomic OTK claims, idempotent OTK replenishment, device-identity replacement rejection, device-scoped old-history envelopes, `@Vimla` general answer, context deny/allow, self task, peer task, third user denied, Direct Chat personal-tool denial, private-workspace snapshot isolation, peer/actor consent revocation during recovery, fail-closed generic E2EE context access, exact ContextSnapshot ownership DB constraints, hidden Direct Chat clarification-continuation rejection, prompt injection does not extend permissions, responsive Direct Chat UI.
 
 ## 8. Quality gates
 
@@ -147,5 +151,5 @@ Lint, typecheck, unit, integration, e2e, and build for the touched packages/apps
 ## 10. After merge
 
 - Enable only on explicit staging/local env (`DIRECT_CHATS_ENABLED` + `NEXT_PUBLIC_VIMLA_DIRECT_CHATS`). Keep production off until a crypto/privacy review.
-- Follow-up: safety-number verification, history sharing for newly added devices (optional, user-initiated), sealed sender / extra metadata minimization, multi-device prekey refill UX, and Operator command retention policy (`userText` TTL/redaction).
+- Follow-up: safety-number verification, history sharing for newly added devices (optional, user-initiated), signed-prekey rotation/grace policy, sealed sender / extra metadata minimization, and Operator command retention policy (`userText` TTL/redaction).
 - Do not start Project Chats, Brain, or Auto Router from this surface.
