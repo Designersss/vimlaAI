@@ -41,6 +41,7 @@ export interface StoredDeviceMaterial {
   registrationState?: "PENDING" | "REGISTERED";
   prekeyStatusCheckedAt?: string;
   pendingOneTimePrekeyIds?: number[];
+  nextOneTimePrekeyId?: number;
   identity: {
     ed25519Secret: string;
     ed25519Public: string;
