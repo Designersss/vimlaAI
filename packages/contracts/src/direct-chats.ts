@@ -6,6 +6,7 @@ export const DIRECT_CHAT_LIMITS = {
   headerMax: 4_096,
   signatureMax: 256,
   envelopesMax: 32,
+  activeDevicesPerUserMax: 16,
   mentionsMax: 32,
   pageLimitDefault: 30,
   pageLimitMax: 50,
@@ -221,11 +222,14 @@ export const prekeyBundleSchema = z.object({
 });
 export type PrekeyBundle = z.infer<typeof prekeyBundleSchema>;
 
-export const prekeyBundlesQuerySchema = z
+export const claimPrekeyBundlesSchema = z
   .object({
     deviceId: z.string().uuid().optional(),
   })
   .strict();
+export type ClaimPrekeyBundles = z.infer<
+  typeof claimPrekeyBundlesSchema
+>;
 
 export const prekeyBundlesResponseSchema = z.object({
   userId: z.string(),
