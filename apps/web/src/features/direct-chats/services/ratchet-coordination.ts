@@ -1,4 +1,4 @@
-import type { SerializedRatchetState } from "@vimla/e2ee";
+import type { SerializedRatchetState, X3dhInitHeader } from "@vimla/e2ee";
 
 export const RATCHET_RECORD_SCHEMA_VERSION = 1 as const;
 
@@ -7,11 +7,13 @@ export interface StoredRatchetRecord {
   localDeviceId: string;
   stateVersion: number;
   state: SerializedRatchetState;
+  pendingX3dhInit: X3dhInitHeader | null;
 }
 
 export interface RatchetSnapshot {
   stateVersion: number;
   state: SerializedRatchetState;
+  pendingX3dhInit: X3dhInitHeader | null;
 }
 
 export interface RatchetLeaseRecord {
@@ -54,12 +56,14 @@ export function decodeStoredRatchet(
     return {
       stateVersion: value.stateVersion,
       state: value.state,
+      pendingX3dhInit: value.pendingX3dhInit,
     };
   }
   if (isSerializedRatchetState(value)) {
     return {
       stateVersion: 0,
       state: value,
+      pendingX3dhInit: null,
     };
   }
   throw new RatchetStateCorruptError();
@@ -69,6 +73,7 @@ export function storedRatchetRecord(input: {
   localDeviceId: string;
   stateVersion: number;
   state: SerializedRatchetState;
+  pendingX3dhInit: X3dhInitHeader | null;
 }): StoredRatchetRecord {
   if (!Number.isSafeInteger(input.stateVersion) || input.stateVersion < 1) {
     throw new RatchetStateCorruptError();
@@ -78,6 +83,7 @@ export function storedRatchetRecord(input: {
     localDeviceId: input.localDeviceId,
     stateVersion: input.stateVersion,
     state: input.state,
+    pendingX3dhInit: input.pendingX3dhInit,
   };
 }
 
@@ -129,7 +135,27 @@ function isStoredRatchetRecord(
     typeof value.stateVersion === "number" &&
     Number.isSafeInteger(value.stateVersion) &&
     value.stateVersion >= 1 &&
-    isSerializedRatchetState(value.state)
+    isSerializedRatchetState(value.state) &&
+    (value.pendingX3dhInit === null ||
+      isX3dhInitHeader(value.pendingX3dhInit))
+  );
+}
+
+function isX3dhInitHeader(
+  value: unknown,
+): value is X3dhInitHeader {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.identityEd25519Public === "string" &&
+    typeof value.identityX25519Public === "string" &&
+    typeof value.ephemeralPublic === "string" &&
+    typeof value.signedPrekeyId === "number" &&
+    Number.isSafeInteger(value.signedPrekeyId) &&
+    value.signedPrekeyId >= 0 &&
+    (value.oneTimePrekeyId === null ||
+      (typeof value.oneTimePrekeyId === "number" &&
+        Number.isSafeInteger(value.oneTimePrekeyId) &&
+        value.oneTimePrekeyId >= 0))
   );
 }
 
