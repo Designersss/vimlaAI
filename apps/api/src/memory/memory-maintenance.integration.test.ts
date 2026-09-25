@@ -7,7 +7,7 @@ import {
   it,
 } from "vitest";
 import type { SemanticPlannerModel } from "@vimla/orchestration";
-import { NOOP_TELEMETRY_SINK } from "@vimla/shared";
+import { NOOP_TELEMETRY_SINK, type TelemetryEvent, type TelemetrySink } from "@vimla/shared";
 import { loadApiConfig } from "@vimla/config/server";
 import {
   createPrismaClient,
@@ -69,6 +69,21 @@ async function createMessage(input: {
 
 function prismaService(): PrismaService {
   return { client: db } as PrismaService;
+}
+
+function recordingTelemetry(): {
+  events: TelemetryEvent[];
+  sink: TelemetrySink;
+} {
+  const events: TelemetryEvent[] = [];
+  return {
+    events,
+    sink: {
+      emit: (event) => {
+        events.push(event);
+      },
+    },
+  };
 }
 
 describe("memory maintenance runtime", () => {
@@ -133,12 +148,13 @@ describe("memory maintenance runtime", () => {
 
     const prisma = prismaService();
     const facade = new MemoryFacade(prisma, config);
+    const telemetry = recordingTelemetry();
     const maintenance = new MemoryMaintenanceService(
       prisma,
       facade,
       config,
       model,
-      NOOP_TELEMETRY_SINK,
+      telemetry.sink,
     );
 
     await maintenance.observeConversationMessage({
@@ -180,6 +196,16 @@ describe("memory maintenance runtime", () => {
       candidateCount: 1,
     });
     expect(modelCalls).toBe(1);
+    expect(telemetry.events).toContainEqual(
+      expect.objectContaining({
+        event: "context.memory_maintenance",
+        sourceType: "MESSAGE",
+        outcome: "SUCCESS",
+        extractedCount: 1,
+        createdCount: 1,
+        supersededCount: 0,
+      }),
+    );
 
     await maintenance.observeConversationMessage({
       userId,
