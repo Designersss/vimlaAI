@@ -890,6 +890,8 @@ async function withCoordinationLock<T>(
   key: string,
   fn: () => Promise<T>,
 ): Promise<T> {
+  const runWithLease = (): Promise<T> =>
+    withFallbackRatchetLease(key, fn);
   if (
     typeof navigator !== "undefined" &&
     navigator.locks
@@ -897,10 +899,10 @@ async function withCoordinationLock<T>(
     return navigator.locks.request(
       key,
       { mode: "exclusive" },
-      async () => fn(),
+      runWithLease,
     );
   }
-  return withFallbackRatchetLease(key, fn);
+  return runWithLease();
 }
 
 async function withFallbackRatchetLease<T>(
