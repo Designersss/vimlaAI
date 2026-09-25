@@ -180,17 +180,40 @@ test.describe("Secure Direct Chats", () => {
       nikitaFirstDeviceId,
     );
 
-    await alicePage.reload();
-    await expect(
-      alicePage.getByTestId("direct-chat-shell"),
-    ).toBeVisible({ timeout: 20_000 });
-    await expect(
-      alicePage
-        .getByTestId("direct-message-human")
-        .filter({
-          hasText: "pending before peer device change",
-        }),
-    ).toHaveCount(1);
+    const aliceRecoveryPage =
+      await aliceContext.newPage();
+    await disableWebLocks(aliceRecoveryPage);
+    await Promise.all([
+      alicePage.reload(),
+      aliceRecoveryPage.goto(directUrl),
+    ]);
+    for (const page of [
+      alicePage,
+      aliceRecoveryPage,
+    ]) {
+      await expect(
+        page.getByTestId("direct-chat-shell"),
+      ).toBeVisible({ timeout: 20_000 });
+      await expect(
+        page
+          .getByTestId("direct-message-human")
+          .filter({
+            hasText: "pending before peer device change",
+          }),
+      ).toHaveCount(1);
+    }
+    const aliceRecoveryDeviceId =
+      await readLocalDeviceId(aliceRecoveryPage);
+    expect(aliceRecoveryDeviceId).toBe(
+      await readLocalDeviceId(alicePage),
+    );
+    expect(
+      await aliceRecoveryPage.evaluate(
+        () => navigator.locks === undefined,
+      ),
+    ).toBe(true);
+    await aliceRecoveryPage.close();
+
     for (const page of [
       nikitaPage,
       nikitaSecondPage,
