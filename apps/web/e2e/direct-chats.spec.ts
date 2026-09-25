@@ -176,6 +176,28 @@ test.describe("Secure Direct Chats", () => {
         page.getByTestId("direct-message-undecryptable"),
       ).toHaveCount(0);
     }
+    const senderCopies = await alicePage.request.get(
+      `${apiBase}/v1/direct-chats/${directConversationId(
+        directUrl,
+      )}/messages?deviceId=${encodeURIComponent(
+        aliceLocalDeviceId,
+      )}&limit=30`,
+    );
+    expect(senderCopies.ok()).toBe(true);
+    const senderCopyPayload = (await senderCopies.json()) as {
+      items: Array<{
+        envelope: { messageNumber: number } | null;
+      }>;
+    };
+    const parallelMessageNumbers = senderCopyPayload.items
+      .slice(0, 2)
+      .map((message) => message.envelope?.messageNumber);
+    expect(parallelMessageNumbers).toHaveLength(2);
+    expect(parallelMessageNumbers.every(
+      (messageNumber) => typeof messageNumber === "number",
+    )).toBe(true);
+    expect(new Set(parallelMessageNumbers).size).toBe(2);
+
     const migratedRatchet = await readRatchetRecordVersion(
       aliceFallbackPage,
       {
