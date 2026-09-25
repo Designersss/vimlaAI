@@ -185,7 +185,7 @@ export async function replenishOneTimePrekeys(
 
 export async function fetchPrekeyBundles(
   userId: string,
-  deviceId?: string,
+  deviceId: string,
   fetchImpl: typeof fetch = fetch,
 ): Promise<PrekeyBundlesResponse> {
   return request(
@@ -193,9 +193,7 @@ export async function fetchPrekeyBundles(
     {
       method: "POST",
       headers: jsonHeaders(),
-      body: JSON.stringify(
-        deviceId ? { deviceId } : {},
-      ),
+      body: JSON.stringify({ deviceId }),
     },
     (payload) => prekeyBundlesResponseSchema.parse(payload),
     fetchImpl,
