@@ -4,6 +4,8 @@ import {
   operatorContextBundleSchema,
   sendDirectMessageSchema,
   registerCryptoDeviceSchema,
+  replenishOneTimePrekeysSchema,
+  rotatePrekeysSchema,
 } from "./direct-chats.js";
 
 describe("direct chat contracts", () => {
@@ -35,6 +37,43 @@ describe("direct chat contracts", () => {
         signedPrekeySignature: "dddddddddddddddddddddddd==",
         oneTimePrekeys: [{ keyId: 1, publicKey: "eeeeeeeeeeeeeeeeeeeeee==" }],
         identitySecret: "nope",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("rejects duplicate one-time prekey ids across device payloads", () => {
+    const duplicatePrekeys = [
+      {
+        keyId: 1,
+        publicKey: "eeeeeeeeeeeeeeeeeeeeee==",
+      },
+      {
+        keyId: 1,
+        publicKey: "ffffffffffffffffffffff==",
+      },
+    ];
+    expect(
+      registerCryptoDeviceSchema.safeParse({
+        deviceId: "11111111-1111-4111-8111-111111111111",
+        identityEd25519Public: "aaaaaaaaaaaaaaaaaaaaaa==",
+        identityX25519Public: "bbbbbbbbbbbbbbbbbbbbbb==",
+        signedPrekeyId: 1,
+        signedPrekeyPublic: "cccccccccccccccccccccc==",
+        signedPrekeySignature: "dddddddddddddddddddddddd==",
+        oneTimePrekeys: duplicatePrekeys,
+      }).success,
+    ).toBe(false);
+    expect(
+      rotatePrekeysSchema.safeParse({
+        signedPrekeyId: 2,
+        signedPrekeyPublic: "cccccccccccccccccccccc==",
+        signedPrekeySignature: "dddddddddddddddddddddddd==",
+        oneTimePrekeys: duplicatePrekeys,
+      }).success,
+    ).toBe(false);
+    expect(
+      replenishOneTimePrekeysSchema.safeParse({
+        oneTimePrekeys: duplicatePrekeys,
       }).success,
     ).toBe(false);
   });
