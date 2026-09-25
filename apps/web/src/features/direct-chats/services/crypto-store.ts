@@ -22,6 +22,7 @@ const RATCHET_LOCK_LEASE_MS = 5_000;
 const RATCHET_LOCK_HEARTBEAT_MS = 1_000;
 const RATCHET_LOCK_ACQUIRE_TIMEOUT_MS = 15_000;
 const RATCHET_LOCK_POLL_MS = 40;
+const LOCAL_DEVICE_LOCK_KEY = "vimla-local-device-bootstrap";
 
 type StoreName =
   | "device"
@@ -166,12 +167,33 @@ export async function loadRatchet(
   localDeviceId: string,
   peerDeviceId: string,
 ): Promise<RatchetSnapshot | null> {
-  const value = await withStore<unknown>(
+  const scoped = await withStore<unknown>(
     "ratchets",
     "readonly",
-    (store) => store.get(ratchetStorageKey(conversationId, peerDeviceId)),
+    (store) =>
+      store.get(
+        ratchetStorageKey(
+          conversationId,
+          localDeviceId,
+          peerDeviceId,
+        ),
+      ),
   );
-  return decodeStoredRatchet(value, localDeviceId);
+  if (scoped !== undefined) {
+    return decodeStoredRatchet(scoped, localDeviceId);
+  }
+  const legacy = await withStore<unknown>(
+    "ratchets",
+    "readonly",
+    (store) =>
+      store.get(
+        legacyRatchetStorageKey(
+          conversationId,
+          peerDeviceId,
+        ),
+      ),
+  );
+  return decodeStoredRatchet(legacy, localDeviceId);
 }
 
 export async function saveRatchet(
@@ -233,18 +255,39 @@ export async function withRatchetSessionLock<T>(
   },
   fn: () => Promise<T>,
 ): Promise<T> {
-  const key = ratchetLockKey(input);
-  if (
-    typeof navigator !== "undefined" &&
-    navigator.locks
-  ) {
-    return navigator.locks.request(
+  return withCoordinationLock(
+    ratchetLockKey(input),
+    fn,
+  );
+}
+
+export async function withRatchetSessionLocks<T>(
+  scopes: ReadonlyArray<{
+    conversationId: string;
+    localDeviceId: string;
+    peerDeviceId: string;
+  }>,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const keys = [...new Set(scopes.map(ratchetLockKey))].sort();
+  const acquire = async (index: number): Promise<T> => {
+    const key = keys[index];
+    if (!key) return fn();
+    return withCoordinationLock(
       key,
-      { mode: "exclusive" },
-      async () => fn(),
+      () => acquire(index + 1),
     );
-  }
-  return withFallbackRatchetLease(key, fn);
+  };
+  return acquire(0);
+}
+
+export async function withLocalDeviceBootstrapLock<T>(
+  fn: () => Promise<T>,
+): Promise<T> {
+  return withCoordinationLock(
+    LOCAL_DEVICE_LOCK_KEY,
+    fn,
+  );
 }
 
 export async function loadPlaintext(
@@ -361,15 +404,30 @@ async function commitRatchet(input: {
     const ratchets = tx.objectStore("ratchets");
     const key = ratchetStorageKey(
       input.conversationId,
+      input.localDeviceId,
+      input.peerDeviceId,
+    );
+    const legacyKey = legacyRatchetStorageKey(
+      input.conversationId,
       input.peerDeviceId,
     );
     const currentRequest = ratchets.get(key);
+    const legacyRequest = ratchets.get(legacyKey);
     const nextVersion = input.expectedVersion + 1;
+    let currentReady = false;
+    let legacyReady = false;
 
-    currentRequest.onsuccess = () => {
+    const apply = (): void => {
+      if (!currentReady || !legacyReady) return;
       try {
+        const useLegacy =
+          currentRequest.result === undefined &&
+          legacyRequest.result !== undefined;
+        const raw = useLegacy
+          ? legacyRequest.result
+          : currentRequest.result;
         const current = decodeStoredRatchet(
-          currentRequest.result,
+          raw,
           input.localDeviceId,
         );
         assertRatchetVersion(
@@ -385,6 +443,9 @@ async function commitRatchet(input: {
           }),
           key,
         );
+        if (useLegacy) {
+          ratchets.delete(legacyKey);
+        }
         if (input.plaintext) {
           tx.objectStore("plaintexts").put(
             input.plaintext,
@@ -399,11 +460,22 @@ async function commitRatchet(input: {
         tx.abort();
       }
     };
-    currentRequest.onerror = () => {
-      failure =
-        currentRequest.error ??
-        new Error("Ratchet state could not be read");
+    currentRequest.onsuccess = () => {
+      currentReady = true;
+      apply();
     };
+    legacyRequest.onsuccess = () => {
+      legacyReady = true;
+      apply();
+    };
+    const failRead = (request: IDBRequest): void => {
+      failure =
+        request.error ??
+        new Error("Ratchet state could not be read");
+      tx.abort();
+    };
+    currentRequest.onerror = () => failRead(currentRequest);
+    legacyRequest.onerror = () => failRead(legacyRequest);
     tx.oncomplete = () => {
       db.close();
       resolve({
@@ -426,6 +498,23 @@ async function commitRatchet(input: {
         new Error("Ratchet persistence failed");
     };
   });
+}
+
+async function withCoordinationLock<T>(
+  key: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  if (
+    typeof navigator !== "undefined" &&
+    navigator.locks
+  ) {
+    return navigator.locks.request(
+      key,
+      { mode: "exclusive" },
+      async () => fn(),
+    );
+  }
+  return withFallbackRatchetLease(key, fn);
 }
 
 async function withFallbackRatchetLease<T>(
@@ -642,6 +731,18 @@ async function mutateRatchetLease<T>(
 }
 
 function ratchetStorageKey(
+  conversationId: string,
+  localDeviceId: string,
+  peerDeviceId: string,
+): string {
+  return [
+    conversationId,
+    localDeviceId,
+    peerDeviceId,
+  ].join(":");
+}
+
+function legacyRatchetStorageKey(
   conversationId: string,
   peerDeviceId: string,
 ): string {
