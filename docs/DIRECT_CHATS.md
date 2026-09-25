@@ -59,6 +59,20 @@ Private material never leaves IndexedDB. The API stores public keys only. Device
 
 Multi-device evolution is laid out: fan-out to every active device, per-device ratchets, OTK consumption. A **new** device cannot decrypt prior history (no server-side history key). That is an explicit Phase 9 limitation, not AES wrapping of old ciphertext.
 
+### Browser ratchet durability (E2EE-H01)
+
+Browser ratchet mutation is serialized per `conversationId + localDeviceId + peerDeviceId`.
+
+- Web Locks is the primary cross-tab/process critical section.
+- Browsers without Web Locks use an IndexedDB lease with bounded expiry/renewal; the versioned ratchet compare-and-swap is still the final correctness guard.
+- Persisted ratchet records carry a monotonic local `stateVersion` and are bound to the current local crypto-device id. A stale writer cannot overwrite a newer state.
+- IndexedDB schema v3 fences older v2 clients: once the store is upgraded, an old client opening the lower DB version fails closed instead of silently writing the unversioned format.
+- Encrypt returns an envelope only after the advanced ratchet state is durably committed. A crash after that point may create a skipped message number if the network send never completes, but the next send does not reuse the prior message key/nonce.
+- Successful decrypt persists the advanced ratchet state and its local plaintext cache row in the same IndexedDB transaction. A crash cannot commit one without the other.
+- CAS conflicts/lost fallback leases discard the derived result and retry from current persisted state; no conflicting ciphertext is returned to the caller.
+
+This hardening addresses same-origin concurrent tabs/processes and partial local transaction failures. It does not claim protection against a fully compromised browser origin or arbitrary rollback of the entire browser profile/storage snapshot; those remain part of the broader #54 hardening/audit scope.
+
 ## 4. @Vimla context handoff
 
 When the user mentions `@Vimla` in a Direct Chat:
