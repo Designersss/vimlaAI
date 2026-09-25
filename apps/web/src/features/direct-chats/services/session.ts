@@ -132,7 +132,7 @@ async function ensurePrekeySupply(
     current = {
       ...current,
       pendingOneTimePrekeyIds: [],
-      prekeyStatusCheckedAt: new Date().toISOString(),
+      prekeyStatusCheckedAt: undefined,
     };
     await saveDeviceMaterial(current);
   }
