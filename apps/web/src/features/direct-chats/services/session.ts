@@ -299,18 +299,16 @@ export async function decryptMessage(input: {
 
 export async function acknowledgeSentRatchets(input: {
   conversationId: string;
+  localDeviceId: string;
   envelopes: readonly WireEnvelopeDto[];
 }): Promise<void> {
   const pendingRecipients = input.envelopes
     .filter((envelope) => envelope.x3dhInit !== null)
     .map((envelope) => envelope.recipientDeviceId);
-  if (pendingRecipients.length === 0) return;
-
-  const material = await ensureLocalDevice();
   for (const peerDeviceId of pendingRecipients) {
     await acknowledgeRatchetHandshake({
       conversationId: input.conversationId,
-      localDeviceId: material.deviceId,
+      localDeviceId: input.localDeviceId,
       peerDeviceId,
     }).catch(() => undefined);
   }
