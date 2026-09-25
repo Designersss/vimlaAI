@@ -136,6 +136,7 @@ export class MemoryMaintenanceService {
         expired.count + memoryItems.count + compactedStates.count,
       staleCount: 0,
       compactionCount: 0,
+      compactionDurationMs: 0,
       compactionInputTokens: 0,
       compactionOutputTokens: 0,
       compactionVersion: null,
@@ -292,6 +293,7 @@ export class MemoryMaintenanceService {
       invalidatedCount: 0,
       staleCount,
       compactionCount: 0,
+      compactionDurationMs: 0,
       compactionInputTokens: 0,
       compactionOutputTokens: 0,
       compactionVersion: null,
@@ -312,6 +314,7 @@ export class MemoryMaintenanceService {
     let createdCount = 0;
     let supersededCount = 0;
     let compactionCount = 0;
+    let compactionDurationMs = 0;
     let compactionInputTokens = 0;
     let compactionOutputTokens = 0;
     let compactionVersion: number | null = null;
@@ -403,10 +406,20 @@ export class MemoryMaintenanceService {
 
     if (!compacted) {
       try {
-        const compaction = await this.compactConversation({
-          ...input,
-          conversationId: source.conversationId,
-        });
+        const compactionStartedAt = Date.now();
+        let compaction: Awaited<
+          ReturnType<MemoryMaintenanceService["compactConversation"]>
+        >;
+        try {
+          compaction = await this.compactConversation({
+            ...input,
+            conversationId: source.conversationId,
+          });
+        } finally {
+          compactionDurationMs = telemetryDurationMs(
+            compactionStartedAt,
+          );
+        }
         compactionCount = compaction.count;
         compactionInputTokens = compaction.inputTokens;
         compactionOutputTokens = compaction.outputTokens;
@@ -458,6 +471,7 @@ export class MemoryMaintenanceService {
         invalidatedCount: 0,
         staleCount: 0,
         compactionCount,
+        compactionDurationMs,
         compactionInputTokens,
         compactionOutputTokens,
         compactionVersion,
