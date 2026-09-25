@@ -64,7 +64,12 @@ import {
 } from "../services/context";
 import { decodeDirectPlaintext, encodeDirectPlaintext, type DirectPlaintextPayload } from "../services/payload";
 import { subscribeDirectChatEvents } from "../services/realtime";
-import { decryptMessage, encryptForDevices, ensureLocalDevice } from "../services/session";
+import {
+  acknowledgeSentRatchets,
+  decryptMessage,
+  encryptForDevices,
+  ensureLocalDevice,
+} from "../services/session";
 import { useChatWorkspace, usePrepareChatDevice } from "../../chat/components/ChatWorkspace/ChatWorkspaceProvider";
 import { ChatConversationHeader } from "../../chat/components/ChatWorkspace/ChatConversationHeader";
 import { ChatDetailStatus } from "../../chat/components/ChatWorkspace/ChatDetailStatus";
@@ -479,6 +484,11 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         kind,
         envelopes,
         mentions,
+      });
+      await acknowledgeSentRatchets({
+        conversationId: latest.id,
+        localDeviceId: device.deviceId,
+        envelopes,
       });
       await savePlaintext({
         conversationId: latest.id,
