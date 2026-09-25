@@ -176,8 +176,13 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         setRows(page.decrypted.reverse());
         setNextCursor(page.nextCursor);
         setBoot("ready");
-        const read = await markDirectChatRead(conversationId);
-        if (!cancelled) workspace.updateDirectConversation(read);
+        const read =
+          detail.unreadCount > 0
+            ? await markDirectChatRead(conversationId)
+            : detail;
+        if (!cancelled) {
+          workspace.updateDirectConversation(read);
+        }
       } catch (caught: unknown) {
         if (cancelled) return;
         if (caught instanceof AuthRequiredError) {
@@ -222,8 +227,13 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
               page.decrypted.reverse(),
             ),
           );
-          const read = await markDirectChatRead(conversationId);
-          if (!cancelled) workspace.updateDirectConversation(read);
+          const read =
+            detail.unreadCount > 0
+              ? await markDirectChatRead(conversationId)
+              : detail;
+          if (!cancelled) {
+            workspace.updateDirectConversation(read);
+          }
         } catch (caught: unknown) {
           if (cancelled) break;
           if (caught instanceof AuthRequiredError) {
