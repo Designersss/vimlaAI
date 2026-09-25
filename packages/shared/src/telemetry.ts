@@ -122,6 +122,7 @@ export type TelemetryEvent =
       createdCount: number;
       supersededCount: number;
       invalidatedCount: number;
+      redactedCount: number;
       staleCount: number;
       compactionCount: number;
       compactionDurationMs: number;
@@ -269,6 +270,7 @@ const SAFE_TELEMETRY_FIELDS: Record<
     "createdCount",
     "supersededCount",
     "invalidatedCount",
+    "redactedCount",
     "staleCount",
     "compactionCount",
     "compactionDurationMs",
