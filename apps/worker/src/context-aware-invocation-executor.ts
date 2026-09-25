@@ -99,7 +99,7 @@ export class ContextAwareInvocationExecutorRegistry
           planId: input.planId,
           invocationId: input.invocationId,
           action: "PERMISSION_DENIED",
-          reason: "ACTOR_ACCESS_DENIED",
+          reason: "OTHER",
           count: 1,
         });
         return terminal("CONTEXT_POLICY_DENIED");
