@@ -197,6 +197,35 @@ export class DirectChatService {
     resolvedMentions: MessageMentionView[] = [],
   ): Promise<DirectMessageView> {
     const conversation = await this.requireMemberConversation(actor.userId, conversationId);
+    const existing = await this.db.directMessage.findUnique({
+      where: {
+        conversationId_senderUserId_clientMessageId: {
+          conversationId,
+          senderUserId: actor.userId,
+          clientMessageId: input.clientMessageId,
+        },
+      },
+      include: {
+        envelopes: {
+          where: { recipientDeviceId: input.senderDeviceId },
+        },
+      },
+    });
+    if (existing) {
+      if (existing.senderDeviceId !== input.senderDeviceId) {
+        throw new DirectChatError(
+          "TAMPERED",
+          "Message replay sender device does not match",
+        );
+      }
+      const mentions = await this.readMentionMap([existing.id]);
+      return toMessageView(
+        existing,
+        input.senderDeviceId,
+        mentions.get(existing.id) ?? [],
+      );
+    }
+
     const senderDevice = await this.requireActiveDevice(actor.userId, input.senderDeviceId);
     if (input.envelopes.length > this.options.maxEnvelopes) {
       throw new DirectChatError("VALIDATION_ERROR", "Too many envelopes");
@@ -228,21 +257,6 @@ export class DirectChatService {
         kind: input.kind,
         routingContext,
       });
-    }
-
-    const existing = await this.db.directMessage.findUnique({
-      where: {
-        conversationId_senderUserId_clientMessageId: {
-          conversationId,
-          senderUserId: actor.userId,
-          clientMessageId: input.clientMessageId,
-        },
-      },
-      include: { envelopes: { where: { recipientDeviceId: senderDevice.id } } },
-    });
-    if (existing) {
-      const mentions = await this.readMentionMap([existing.id]);
-      return toMessageView(existing, senderDevice.id, mentions.get(existing.id) ?? []);
     }
 
     try {
@@ -618,7 +632,10 @@ function toMessageView(
   deviceId: string,
   mentions: MessageMentionView[],
 ): DirectMessageView {
-  const envelope = row.envelopes.find((item) => item.recipientDeviceId === deviceId) ?? row.envelopes[0] ?? null;
+  const envelope =
+    row.envelopes.find(
+      (item) => item.recipientDeviceId === deviceId,
+    ) ?? null;
   return {
     id: row.id,
     conversationId: row.conversationId,
