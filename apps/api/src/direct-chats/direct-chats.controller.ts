@@ -24,6 +24,7 @@ import {
   directMessagesResponseSchema,
   listDirectConversationsQuerySchema,
   listDirectMessagesQuerySchema,
+  prekeyBundlesQuerySchema,
   prekeyBundlesResponseSchema,
   prekeyStatusResponseSchema,
   registerCryptoDeviceSchema,
@@ -146,10 +147,23 @@ export class DirectChatPrekeysController {
   constructor(@Inject(DirectChatsFacade) private readonly directChats: DirectChatsFacade) {}
 
   @Get(":userId/prekeys")
-  async prekeys(@AuthUser() user: AuthenticatedUser, @Param("userId") userId: string): Promise<PrekeyBundlesResponse> {
+  async prekeys(
+    @AuthUser() user: AuthenticatedUser,
+    @Param("userId") userId: string,
+    @Query() query: unknown,
+  ): Promise<PrekeyBundlesResponse> {
     this.directChats.assertEnabled();
     await this.directChats.chats.assertCanFetchPrekeys(user.id, userId);
-    const bundles = await this.directChats.devices.prekeyBundlesForUser(userId);
+    const parsed = parseRequest(
+      prekeyBundlesQuerySchema,
+      query,
+      "Invalid prekey query",
+    );
+    const bundles =
+      await this.directChats.devices.prekeyBundlesForUser(
+        userId,
+        parsed.deviceId,
+      );
     return prekeyBundlesResponseSchema.parse({ userId, bundles });
   }
 }
