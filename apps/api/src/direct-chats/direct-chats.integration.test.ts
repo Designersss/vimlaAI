@@ -1926,7 +1926,13 @@ async function listMessages(
     cookies: user.cookies,
   });
   expect(page.statusCode).toBe(200);
-  return page.json() as { items: Array<{ senderUserId: string; envelope: Parameters<typeof decryptFor>[5] }> };
+  return page.json() as {
+    items: Array<{
+      id: string;
+      senderUserId: string;
+      envelope: Parameters<typeof decryptFor>[5];
+    }>;
+  };
 }
 
 function asWire(
