@@ -166,12 +166,14 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
           localDeviceId: device.deviceId,
         });
         const detail = await fetchDirectConversation(conversationId);
-        const page = await fetchDirectMessages(conversationId, device.deviceId);
-        const decrypted = await decryptPage(detail, page.items);
+        const page = await fetchLatestDecryptedPage(
+          detail,
+          device.deviceId,
+        );
         if (cancelled) return;
         setUserId(currentUser.id);
         setConversation(detail);
-        setRows(decrypted.reverse());
+        setRows(page.decrypted.reverse());
         setNextCursor(page.nextCursor);
         setBoot("ready");
         const read = await markDirectChatRead(conversationId);
@@ -208,11 +210,18 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         try {
           const detail = await fetchDirectConversation(conversationId);
           const device = await ensureLocalDevice();
-          const page = await fetchDirectMessages(conversationId, device.deviceId);
-          const decrypted = await decryptPage(detail, page.items);
+          const page = await fetchLatestDecryptedPage(
+            detail,
+            device.deviceId,
+          );
           if (cancelled) break;
           setConversation(detail);
-          setRows((current) => mergeDecryptedRows(current, decrypted.reverse()));
+          setRows((current) =>
+            mergeDecryptedRows(
+              current,
+              page.decrypted.reverse(),
+            ),
+          );
           const read = await markDirectChatRead(conversationId);
           if (!cancelled) workspace.updateDirectConversation(read);
         } catch (caught: unknown) {
@@ -604,6 +613,87 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
       </div>
     </div>
   );
+}
+
+async function fetchLatestDecryptedPage(
+  detail: DirectConversationView,
+  deviceId: string,
+): Promise<{
+  decrypted: DecryptedRow[];
+  nextCursor: string | null;
+}> {
+  const first = await fetchDirectMessages(
+    detail.id,
+    deviceId,
+  );
+  const initial = await decryptPage(detail, first.items);
+  const missingSenders = new Set(
+    initial
+      .filter(
+        (row) =>
+          row.payload === null &&
+          row.message.envelope !== null &&
+          row.message.envelope.x3dhInit === null,
+      )
+      .map((row) => row.message.senderDeviceId),
+  );
+  if (missingSenders.size === 0 || !first.nextCursor) {
+    return {
+      decrypted: initial,
+      nextCursor: first.nextCursor,
+    };
+  }
+
+  const localDeviceCreatedAt = detail.devices.find(
+    (device) => device.id === deviceId,
+  )?.createdAt;
+  const localDeviceCreatedAtMs = localDeviceCreatedAt
+    ? Date.parse(localDeviceCreatedAt)
+    : Number.NEGATIVE_INFINITY;
+  const allItems = [...first.items];
+  let cursor: string | null = first.nextCursor;
+
+  while (cursor && missingSenders.size > 0) {
+    const older = await fetchDirectMessages(
+      detail.id,
+      deviceId,
+      cursor,
+    );
+    allItems.push(...older.items);
+    for (const message of older.items) {
+      if (
+        message.envelope?.x3dhInit &&
+        missingSenders.has(message.senderDeviceId)
+      ) {
+        missingSenders.delete(message.senderDeviceId);
+      }
+    }
+    cursor = older.nextCursor;
+
+    const oldest = older.items.at(-1);
+    if (
+      oldest &&
+      Number.isFinite(localDeviceCreatedAtMs) &&
+      Date.parse(oldest.createdAt) < localDeviceCreatedAtMs &&
+      missingSenders.size > 0
+    ) {
+      break;
+    }
+  }
+
+  const decryptedAll = await decryptPage(
+    detail,
+    allItems,
+  );
+  const firstIds = new Set(
+    first.items.map((message) => message.id),
+  );
+  return {
+    decrypted: decryptedAll.filter((row) =>
+      firstIds.has(row.message.id),
+    ),
+    nextCursor: first.nextCursor,
+  };
 }
 
 async function decryptPage(detail: DirectConversationView, items: DirectMessageView[]): Promise<DecryptedRow[]> {
