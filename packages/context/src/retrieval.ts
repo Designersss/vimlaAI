@@ -210,7 +210,7 @@ export class ContextRetrievalService {
     actorUserId: string;
     planId: string;
   }): Promise<ContextCandidateSet> {
-    const startedAt = Date.now();
+    let semanticDurationMs = 0;
     const plan = await this.db.executionPlan.findFirst({
       where: {
         id: input.planId,
@@ -952,8 +952,13 @@ export class ContextRetrievalService {
       currentProjectId: currentProjectId ?? null,
     };
     if (this.semanticSearch) {
+      const semanticStartedAt = Date.now();
       const semantic = await this.semanticSearch.retrieve(providerInput);
-      candidates.push(...semantic.map(entry => candidate(entry)));
+      semanticDurationMs = Math.max(
+        0,
+        Date.now() - semanticStartedAt,
+      );
+      candidates.push(...semantic.map((entry) => candidate(entry)));
     }
     for (const provider of this.providers) {
       const provided = await provider.retrieve(providerInput);
@@ -974,7 +979,7 @@ export class ContextRetrievalService {
         (entry) => entry.semanticScore !== undefined,
       );
       this.telemetryObserver({
-        durationMs: Math.max(0, Date.now() - startedAt),
+        durationMs: semanticDurationMs,
         candidateCount: semanticCandidates.length,
         selectedCount: semanticSelected.length,
         currentSurfaceCount: semanticSelected.filter(
