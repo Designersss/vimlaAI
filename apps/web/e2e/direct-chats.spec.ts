@@ -215,7 +215,12 @@ async function disableWebLocks(page: Page): Promise<void> {
 
 async function readLocalDeviceId(page: Page): Promise<string> {
   return page.evaluate(async () => {
-    const db = await openE2eeDb();
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("vimla-direct-e2ee", 3);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () =>
+        reject(request.error ?? new Error("E2EE IndexedDB open failed"));
+    });
     try {
       return await new Promise<string>((resolve, reject) => {
         const tx = db.transaction("device", "readonly");
@@ -246,7 +251,12 @@ async function seedExpiredRatchetLease(
   },
 ): Promise<void> {
   await page.evaluate(async (value) => {
-    const db = await openE2eeDb();
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("vimla-direct-e2ee", 3);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () =>
+        reject(request.error ?? new Error("E2EE IndexedDB open failed"));
+    });
     try {
       await new Promise<void>((resolve, reject) => {
         const tx = db.transaction("ratchetLocks", "readwrite");
