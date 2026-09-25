@@ -614,15 +614,24 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
 
 async function decryptPage(detail: DirectConversationView, items: DirectMessageView[]): Promise<DecryptedRow[]> {
   const map = new Map(detail.devices.map((device) => [device.id, device.identityEd25519Public]));
-  const decrypted: DecryptedRow[] = [];
-  for (const message of items) {
+  const byId = new Map<string, DecryptedRow>();
+  const chronological = [...items].sort(
+    (left, right) =>
+      new Date(left.createdAt).getTime() -
+        new Date(right.createdAt).getTime() ||
+      left.id.localeCompare(right.id),
+  );
+  for (const message of chronological) {
     const senderPublic = map.get(message.senderDeviceId) ?? message.envelope?.x3dhInit?.identityEd25519Public ?? "";
     const payload = senderPublic
       ? await decryptMessage({ conversationId: detail.id, message, senderIdentityEd25519Public: senderPublic })
       : null;
-    decrypted.push({ message, payload });
+    byId.set(message.id, { message, payload });
   }
-  return decrypted;
+  return items.map(
+    (message) =>
+      byId.get(message.id) ?? { message, payload: null },
+  );
 }
 
 function DirectRow({ row, self, youLabel, peerName }: { row: DecryptedRow; self: boolean; youLabel: string; peerName: string }): ReactElement {
