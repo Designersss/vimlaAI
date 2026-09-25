@@ -481,8 +481,12 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
     if (!conversation || !userId) return null;
     setSending(true);
     try {
-      const latest = await reloadConversation();
       const device = await ensureLocalDevice();
+      await recoverPendingSends({
+        conversationId,
+        localDeviceId: device.deviceId,
+      });
+      const latest = await reloadConversation();
       const pending = await encryptForDevices({
         conversationId: latest.id,
         senderUserId: userId,
