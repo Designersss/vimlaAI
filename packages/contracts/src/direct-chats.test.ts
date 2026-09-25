@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  claimPrekeyBundlesSchema,
   createDirectConversationSchema,
   operatorContextBundleSchema,
   sendDirectMessageSchema,
   registerCryptoDeviceSchema,
+  prekeyStatusResponseSchema,
   replenishOneTimePrekeysSchema,
   rotatePrekeysSchema,
 } from "./direct-chats.js";
@@ -76,6 +78,28 @@ describe("direct chat contracts", () => {
         oneTimePrekeys: duplicatePrekeys,
       }).success,
     ).toBe(false);
+  });
+
+  it("requires device-scoped prekey claims and bounded owner status", () => {
+    expect(
+      claimPrekeyBundlesSchema.safeParse({}).success,
+    ).toBe(false);
+    expect(
+      claimPrekeyBundlesSchema.safeParse({
+        deviceId:
+          "11111111-1111-4111-8111-111111111111",
+      }).success,
+    ).toBe(true);
+
+    expect(
+      prekeyStatusResponseSchema.safeParse({
+        deviceId:
+          "11111111-1111-4111-8111-111111111111",
+        available: 1,
+        availableKeyIds: [1],
+        recentlyConsumedKeyIds: [2, 3],
+      }).success,
+    ).toBe(true);
   });
 
   it("requires concrete message provenance and bounds aggregate E2EE context", () => {
