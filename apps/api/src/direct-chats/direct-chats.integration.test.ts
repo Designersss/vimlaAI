@@ -469,6 +469,105 @@ describe("direct chats API", () => {
       },
     });
     expect(replace.statusCode).toBe(400);
+
+    const raceKeyA = generateOneTimePreKey(4);
+    const raceKeyB = generateOneTimePreKey(4);
+    const [replenishA, replenishB] = await Promise.all([
+      app.inject({
+        method: "POST",
+        url: `/v1/direct-chats/devices/${device.deviceId}/prekeys/replenish`,
+        headers: jsonHeaders(),
+        cookies: alice.cookies,
+        payload: {
+          oneTimePrekeys: [{
+            keyId: 4,
+            publicKey: bytesToB64(raceKeyA.publicKey),
+          }],
+        },
+      }),
+      app.inject({
+        method: "POST",
+        url: `/v1/direct-chats/devices/${device.deviceId}/prekeys/replenish`,
+        headers: jsonHeaders(),
+        cookies: alice.cookies,
+        payload: {
+          oneTimePrekeys: [{
+            keyId: 4,
+            publicKey: bytesToB64(raceKeyB.publicKey),
+          }],
+        },
+      }),
+    ]);
+    expect(
+      [replenishA.statusCode, replenishB.statusCode].sort(),
+    ).toEqual([200, 400]);
+
+    const oscar = await readyUser(
+      app,
+      "dc-device-id-race",
+      "Oscar",
+    );
+    const sharedDeviceId = randomUUID();
+    const aliceRaceIdentity = generateIdentity();
+    const aliceRaceSigned = generateSignedPreKey(
+      aliceRaceIdentity,
+      1,
+    );
+    const aliceRaceOtk = generateOneTimePreKey(1);
+    const oscarRaceIdentity = generateIdentity();
+    const oscarRaceSigned = generateSignedPreKey(
+      oscarRaceIdentity,
+      1,
+    );
+    const oscarRaceOtk = generateOneTimePreKey(1);
+    const registerRacePayload = (
+      identity: IdentityKeyPair,
+      signed: SignedPreKeyPair,
+      otk: ReturnType<typeof generateOneTimePreKey>,
+    ) => ({
+      deviceId: sharedDeviceId,
+      identityEd25519Public: bytesToB64(
+        identity.ed25519Public,
+      ),
+      identityX25519Public: bytesToB64(
+        identity.x25519Public,
+      ),
+      signedPrekeyId: signed.keyId,
+      signedPrekeyPublic: bytesToB64(signed.publicKey),
+      signedPrekeySignature: bytesToB64(signed.signature),
+      oneTimePrekeys: [{
+        keyId: otk.keyId,
+        publicKey: bytesToB64(otk.publicKey),
+      }],
+      label: "race",
+    });
+    const [aliceRegister, oscarRegister] = await Promise.all([
+      app.inject({
+        method: "POST",
+        url: "/v1/direct-chats/devices",
+        headers: jsonHeaders(),
+        cookies: alice.cookies,
+        payload: registerRacePayload(
+          aliceRaceIdentity,
+          aliceRaceSigned,
+          aliceRaceOtk,
+        ),
+      }),
+      app.inject({
+        method: "POST",
+        url: "/v1/direct-chats/devices",
+        headers: jsonHeaders(),
+        cookies: oscar.cookies,
+        payload: registerRacePayload(
+          oscarRaceIdentity,
+          oscarRaceSigned,
+          oscarRaceOtk,
+        ),
+      }),
+    ]);
+    expect(
+      [aliceRegister.statusCode, oscarRegister.statusCode].sort(),
+    ).toEqual([201, 403]);
   });
 
   it("keeps old messages device-scoped and replays committed sends before current device-set validation", async () => {
