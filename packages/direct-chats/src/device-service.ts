@@ -1,5 +1,12 @@
-import type { CryptoDeviceView, PrekeyBundle, RegisterCryptoDevice, RotatePrekeys } from "@vimla/contracts";
+import {
+  DIRECT_CHAT_LIMITS,
+  type CryptoDeviceView,
+  type PrekeyBundle,
+  type RegisterCryptoDevice,
+  type RotatePrekeys,
+} from "@vimla/contracts";
 import type { ReplenishOneTimePrekeys } from "@vimla/contracts/direct-chats";
+import { Prisma } from "@vimla/database";
 import { b64ToBytes, verifySignedPreKey } from "@vimla/e2ee";
 import { DirectChatError } from "./errors.js";
 import type { ActorContext, DbClient } from "./types.js";
@@ -20,24 +27,10 @@ export class DeviceService {
     });
     if (!existing) {
       try {
-        const created = await this.db.userCryptoDevice.create({
-          data: {
-            id: input.deviceId,
-            userId: actor.userId,
-            identityEd25519Public: input.identityEd25519Public,
-            identityX25519Public: input.identityX25519Public,
-            signedPrekeyId: input.signedPrekeyId,
-            signedPrekeyPublic: input.signedPrekeyPublic,
-            signedPrekeySignature: input.signedPrekeySignature,
-            label: input.label ?? null,
-            oneTimePrekeys: {
-              create: input.oneTimePrekeys.map((key) => ({
-                keyId: key.keyId,
-                publicKey: key.publicKey,
-              })),
-            },
-          },
-        });
+        const created = await this.createActiveDevice(
+          actor.userId,
+          input,
+        );
         return toDeviceView(created);
       } catch (error: unknown) {
         existing = await this.db.userCryptoDevice.findUnique({
@@ -291,6 +284,73 @@ export class DeviceService {
     return device;
   }
 
+  private async createActiveDevice(
+    userId: string,
+    input: RegisterCryptoDevice,
+  ) {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        return await this.db.$transaction(
+          async (tx) => {
+            const activeCount =
+              await tx.userCryptoDevice.count({
+                where: {
+                  userId,
+                  revokedAt: null,
+                },
+              });
+            if (
+              activeCount >=
+              DIRECT_CHAT_LIMITS.activeDevicesPerUserMax
+            ) {
+              throw new DirectChatError(
+                "CONFLICT",
+                "Active crypto device limit reached",
+              );
+            }
+            return tx.userCryptoDevice.create({
+              data: {
+                id: input.deviceId,
+                userId,
+                identityEd25519Public:
+                  input.identityEd25519Public,
+                identityX25519Public:
+                  input.identityX25519Public,
+                signedPrekeyId: input.signedPrekeyId,
+                signedPrekeyPublic:
+                  input.signedPrekeyPublic,
+                signedPrekeySignature:
+                  input.signedPrekeySignature,
+                label: input.label ?? null,
+                oneTimePrekeys: {
+                  create: input.oneTimePrekeys.map(
+                    (key) => ({
+                      keyId: key.keyId,
+                      publicKey: key.publicKey,
+                    }),
+                  ),
+                },
+              },
+            });
+          },
+          {
+            isolationLevel:
+              Prisma.TransactionIsolationLevel.Serializable,
+          },
+        );
+      } catch (error: unknown) {
+        if (
+          isRetryableTransactionConflict(error) &&
+          attempt < 2
+        ) {
+          continue;
+        }
+        throw error;
+      }
+    }
+    throw new Error("Active crypto device registration failed");
+  }
+
   private async claimOneTimePrekey(
     deviceId: string,
   ): Promise<{ keyId: number; publicKey: string } | null> {
@@ -351,6 +411,17 @@ export function toDeviceView(row: {
     revoked: row.revokedAt !== null,
     createdAt: row.createdAt.toISOString(),
   };
+}
+
+function isRetryableTransactionConflict(
+  error: unknown,
+): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "P2034"
+  );
 }
 
 function assertSignedPrekey(
