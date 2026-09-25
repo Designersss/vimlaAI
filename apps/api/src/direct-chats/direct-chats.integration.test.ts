@@ -632,6 +632,65 @@ describe("direct chats API", () => {
     });
     expect(sent.statusCode).toBe(201);
 
+    const raceClientMessageId = randomUUID();
+    const raceEnvelopesA = [];
+    const raceEnvelopesB = [];
+    for (const device of devices) {
+      raceEnvelopesA.push(
+        await encryptTo(
+          app,
+          alice,
+          aliceDevice,
+          device,
+          chat.id,
+          "HUMAN",
+          "race payload A",
+        ),
+      );
+      raceEnvelopesB.push(
+        await encryptTo(
+          app,
+          alice,
+          aliceDevice,
+          device,
+          chat.id,
+          "HUMAN",
+          "race payload B",
+        ),
+      );
+    }
+    const [raceA, raceB] = await Promise.all([
+      app.inject({
+        method: "POST",
+        url: `/v1/direct-chats/${chat.id}/messages`,
+        headers: jsonHeaders(),
+        cookies: alice.cookies,
+        payload: {
+          clientMessageId: raceClientMessageId,
+          senderDeviceId: aliceDevice.deviceId,
+          kind: "HUMAN",
+          envelopes: raceEnvelopesA,
+          mentions: [],
+        },
+      }),
+      app.inject({
+        method: "POST",
+        url: `/v1/direct-chats/${chat.id}/messages`,
+        headers: jsonHeaders(),
+        cookies: alice.cookies,
+        payload: {
+          clientMessageId: raceClientMessageId,
+          senderDeviceId: aliceDevice.deviceId,
+          kind: "HUMAN",
+          envelopes: raceEnvelopesB,
+          mentions: [],
+        },
+      }),
+    ]);
+    expect(
+      [raceA.statusCode, raceB.statusCode].sort(),
+    ).toEqual([201, 400]);
+
     const secondNikitaDevice = await registerHarness(app, nikita);
     const replay = await app.inject({
       method: "POST",
