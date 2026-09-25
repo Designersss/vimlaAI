@@ -857,10 +857,7 @@ export class OrchestrationService {
           throw new NotFoundException("Execution plan not found");
         }
         if (replay.status === "RUNNING") {
-          return {
-            plan: toView(replay),
-            transitioned: false,
-          };
+          return toView(replay);
         }
         throw new ConflictException("Execution plan cannot be started from its current state");
       }
@@ -1130,7 +1127,10 @@ export class OrchestrationService {
           replayEvaluation.outcome === input.outcome &&
           (replayEvaluation.summary ?? undefined) === input.summary
         ) {
-          return toView(replay);
+          return {
+            plan: toView(replay),
+            transitioned: false,
+          };
         }
         throw new ConflictException(
           "Human evaluator decision was resolved concurrently",
