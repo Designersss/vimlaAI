@@ -491,6 +491,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
   function applyOperatorDelivery(
     delivery: OperatorInvocationDeliveryResult,
   ): void {
+    setError(null);
     setPendingRun(delivery.run);
     if (delivery.latest) {
       setConversation(delivery.latest);
