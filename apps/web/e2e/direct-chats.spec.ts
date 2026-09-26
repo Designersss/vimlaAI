@@ -926,18 +926,23 @@ test.describe("Secure Direct Chats", () => {
     await aliceContext.unroute(
       "**/v1/direct-chats/*/messages",
     );
-    await expect(
-      nikitaPage.getByTestId("direct-message-invoke"),
-    ).toHaveCount(
-      invokeCountBeforeAmbiguous + 1,
-      { timeout: 20_000 },
-    );
-    await expect(
-      nikitaPage.getByTestId("direct-message-response"),
-    ).toHaveCount(
-      responseCountBeforeAmbiguous + 1,
-      { timeout: 20_000 },
-    );
+    for (const page of [
+      nikitaPage,
+      nikitaSecondPage,
+    ]) {
+      await expect(
+        page.getByTestId("direct-message-invoke"),
+      ).toHaveCount(
+        invokeCountBeforeAmbiguous + 1,
+        { timeout: 20_000 },
+      );
+      await expect(
+        page.getByTestId("direct-message-response"),
+      ).toHaveCount(
+        responseCountBeforeAmbiguous + 1,
+        { timeout: 20_000 },
+      );
+    }
 
     const invokeCountBeforeLateResponse =
       await alicePage
@@ -1040,6 +1045,23 @@ test.describe("Secure Direct Chats", () => {
       responseCountBeforeLateResponse + 1,
       { timeout: 20_000 },
     );
+    for (const page of [
+      nikitaPage,
+      nikitaSecondPage,
+    ]) {
+      await expect(
+        page.getByTestId("direct-message-invoke"),
+      ).toHaveCount(
+        invokeCountBeforeLateResponse + 1,
+        { timeout: 20_000 },
+      );
+      await expect(
+        page.getByTestId("direct-message-response"),
+      ).toHaveCount(
+        responseCountBeforeLateResponse + 1,
+        { timeout: 20_000 },
+      );
+    }
 
     alicePage.off("request", countMessagePosts);
     await aliceRecoveryPage.close();
