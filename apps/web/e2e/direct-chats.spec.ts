@@ -602,6 +602,116 @@ async function readLocalDeviceId(page: Page): Promise<string> {
   });
 }
 
+interface LegacyV2Fixture {
+  deviceId: string;
+  device: unknown;
+  ratchets: Array<{
+    key: string;
+    state: unknown;
+  }>;
+}
+
+async function readLegacyV2Fixture(
+  page: Page,
+  conversationId: string,
+): Promise<LegacyV2Fixture> {
+  return page.evaluate(async (targetConversationId) => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("vimla-direct-e2ee", 4);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () =>
+        reject(
+          request.error ??
+            new Error("E2EE IndexedDB open failed"),
+        );
+    });
+    try {
+      const device = await new Promise<Record<string, unknown>>(
+        (resolve, reject) => {
+          const tx = db.transaction("device", "readonly");
+          const request = tx.objectStore("device").get("local");
+          request.onsuccess = () => {
+            const value = request.result;
+            if (
+              !value ||
+              typeof value !== "object" ||
+              Array.isArray(value)
+            ) {
+              reject(
+                new Error("Legacy device fixture is missing"),
+              );
+              return;
+            }
+            resolve(value as Record<string, unknown>);
+          };
+          request.onerror = () =>
+            reject(
+              request.error ??
+                new Error("Legacy device fixture read failed"),
+            );
+        },
+      );
+      if (typeof device.deviceId !== "string") {
+        throw new Error("Legacy device fixture is missing");
+      }
+      const deviceId = device.deviceId;
+      const prefix =
+        `${targetConversationId}:${deviceId}:`;
+      const ratchets = await new Promise<
+        Array<{ key: string; state: unknown }>
+      >((resolve, reject) => {
+        const rows: Array<{
+          key: string;
+          state: unknown;
+        }> = [];
+        const tx = db.transaction("ratchets", "readonly");
+        const request = tx
+          .objectStore("ratchets")
+          .openCursor();
+        request.onsuccess = () => {
+          const cursor = request.result;
+          if (!cursor) {
+            resolve(rows);
+            return;
+          }
+          const key = String(cursor.key);
+          const value = cursor.value as
+            | { state?: unknown }
+            | undefined;
+          if (
+            key.startsWith(prefix) &&
+            value?.state !== undefined
+          ) {
+            rows.push({
+              key:
+                `${targetConversationId}:${key.slice(
+                  prefix.length,
+                )}`,
+              state: value.state,
+            });
+          }
+          cursor.continue();
+        };
+        request.onerror = () =>
+          reject(
+            request.error ??
+              new Error("Legacy ratchet fixture read failed"),
+          );
+      });
+      if (ratchets.length === 0) {
+        throw new Error("Legacy ratchet fixture is empty");
+      }
+      return {
+        deviceId,
+        device,
+        ratchets,
+      };
+    } finally {
+      db.close();
+    }
+  }, conversationId);
+}
+
 async function rewriteRatchetAsLegacy(
   page: Page,
   input: {
