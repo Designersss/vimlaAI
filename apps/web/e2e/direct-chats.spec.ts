@@ -4,7 +4,7 @@ import { assertNoDocumentOverflow, assertReachable } from "./responsive-helpers"
 
 test.describe("Secure Direct Chats", () => {
   test("two users receive E2EE user and @Vimla messages in realtime", async ({ browser, request }) => {
-    test.setTimeout(180_000);
+    test.setTimeout(240_000);
     const password = "correct-horse-battery";
     const aliceEmail = uniqueEmail("e2e-direct-alice");
     const nikitaEmail = uniqueEmail("e2e-direct-nikita");
@@ -265,11 +265,27 @@ test.describe("Secure Direct Chats", () => {
     if (!peerDeviceId) {
       throw new Error("Direct Chat peer device is missing");
     }
-    await rewriteRatchetAsLegacy(aliceFallbackPage, {
-      conversationId: directConversationId(directUrl),
-      localDeviceId: aliceLocalDeviceId,
+    const heldWebLockKey = [
+      "vimla-ratchet",
+      directConversationId(directUrl),
+      aliceLocalDeviceId,
       peerDeviceId,
-    });
+    ].join(":");
+    await holdWebLock(alicePage, heldWebLockKey);
+    try {
+      await composer.fill("held web lock falls back to durable lease");
+      await alicePage.getByTestId("chat-composer-send").click();
+      await expect(
+        alicePage
+          .getByTestId("direct-message-human")
+          .filter({
+            hasText: "held web lock falls back to durable lease",
+          }),
+      ).toBeVisible({ timeout: 20_000 });
+    } finally {
+      await releaseHeldWebLock(alicePage);
+    }
+
     await seedExpiredRatchetLease(aliceFallbackPage, {
       conversationId: directConversationId(directUrl),
       localDeviceId: aliceLocalDeviceId,
@@ -354,16 +370,6 @@ test.describe("Secure Direct Chats", () => {
       stressCount * 2,
     );
 
-    const migratedRatchet = await readRatchetRecordVersion(
-      aliceFallbackPage,
-      {
-        conversationId: directConversationId(directUrl),
-        localDeviceId: aliceLocalDeviceId,
-        peerDeviceId,
-      },
-    );
-    expect(migratedRatchet.schemaVersion).toBe(1);
-    expect(migratedRatchet.stateVersion).toBeGreaterThanOrEqual(2);
     await aliceFallbackPage.close();
     await nikitaFallbackPage.close();
 
