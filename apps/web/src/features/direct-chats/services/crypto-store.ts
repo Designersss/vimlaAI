@@ -878,6 +878,7 @@ async function withFallbackRatchetLease<T>(
     await delay(RATCHET_LOCK_POLL_MS);
   }
 
+  const acquiredLease = lease;
   let lost = false;
   let renewing = false;
   const heartbeat = globalThis.setInterval(() => {
@@ -885,8 +886,8 @@ async function withFallbackRatchetLease<T>(
     renewing = true;
     void renewRatchetLease(
       key,
-      lease.owner,
-      lease.fence,
+      acquiredLease.owner,
+      acquiredLease.fence,
       Date.now(),
     )
       .then((renewed) => {
@@ -901,7 +902,7 @@ async function withFallbackRatchetLease<T>(
   }, RATCHET_LOCK_HEARTBEAT_MS);
 
   try {
-    const result = await fn(lease);
+    const result = await fn(acquiredLease);
     if (lost) {
       throw new RatchetLockLostError();
     }
@@ -910,8 +911,8 @@ async function withFallbackRatchetLease<T>(
     globalThis.clearInterval(heartbeat);
     await releaseRatchetLease(
       key,
-      lease.owner,
-      lease.fence,
+      acquiredLease.owner,
+      acquiredLease.fence,
     ).catch(() => undefined);
   }
 }
