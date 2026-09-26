@@ -939,6 +939,108 @@ test.describe("Secure Direct Chats", () => {
       { timeout: 20_000 },
     );
 
+    const invokeCountBeforeLateResponse =
+      await alicePage
+        .getByTestId("direct-message-invoke")
+        .count();
+    const responseCountBeforeLateResponse =
+      await alicePage
+        .getByTestId("direct-message-response")
+        .count();
+    let signalLateInvokeCommitted:
+      | (() => void)
+      | null = null;
+    const lateInvokeCommitted =
+      new Promise<void>((resolve) => {
+        signalLateInvokeCommitted = resolve;
+      });
+    let releaseLateInvokeResponse:
+      | (() => void)
+      | null = null;
+    const lateInvokeResponseRelease =
+      new Promise<void>((resolve) => {
+        releaseLateInvokeResponse = resolve;
+      });
+
+    await alicePage.route(
+      "**/v1/direct-chats/*/messages",
+      async (route) => {
+        const body =
+          route.request().method() === "POST"
+            ? (route.request().postDataJSON() as {
+                kind?: string;
+              } | null)
+            : null;
+        if (body?.kind !== "OPERATOR_INVOKE") {
+          await route.continue();
+          return;
+        }
+        const response = await route.fetch();
+        signalLateInvokeCommitted?.();
+        await lateInvokeResponseRelease;
+        await route.fulfill({
+          response,
+        });
+      },
+    );
+
+    await composer.fill(
+      "@vimla проверь поздний ответ исходного invoke",
+    );
+    await alicePage
+      .getByTestId("chat-composer-send")
+      .click();
+    await lateInvokeCommitted;
+
+    await aliceRecoveryPage.reload();
+    await expect(
+      aliceRecoveryPage.getByTestId(
+        "direct-chat-shell",
+      ),
+    ).toBeVisible({ timeout: 20_000 });
+    await expect(
+      aliceRecoveryPage.getByTestId(
+        "direct-message-invoke",
+      ),
+    ).toHaveCount(
+      invokeCountBeforeLateResponse + 1,
+      { timeout: 20_000 },
+    );
+    await expect(
+      aliceRecoveryPage.getByTestId(
+        "direct-message-response",
+      ),
+    ).toHaveCount(
+      responseCountBeforeLateResponse + 1,
+      { timeout: 20_000 },
+    );
+    await expect.poll(
+      () =>
+        readPendingOperatorIntentCount(
+          aliceRecoveryPage,
+        ),
+    ).toBe(0);
+
+    releaseLateInvokeResponse?.();
+    await alicePage.unroute(
+      "**/v1/direct-chats/*/messages",
+    );
+    await expect(
+      alicePage.getByTestId("chat-composer-send"),
+    ).toBeEnabled({ timeout: 20_000 });
+    await alicePage.waitForTimeout(500);
+    expect(
+      await readPendingOperatorIntentCount(alicePage),
+    ).toBe(0);
+    await expect(
+      alicePage.getByTestId(
+        "direct-message-response",
+      ),
+    ).toHaveCount(
+      responseCountBeforeLateResponse + 1,
+      { timeout: 20_000 },
+    );
+
     alicePage.off("request", countMessagePosts);
     await aliceRecoveryPage.close();
     await nikitaSecondContext.close();
