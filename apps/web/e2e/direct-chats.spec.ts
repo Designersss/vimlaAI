@@ -581,6 +581,185 @@ test.describe("Secure Direct Chats", () => {
     await aliceContext.close();
     await nikitaContext.close();
   });
+
+  test("recovers operator intent and fails closed on IndexedDB commit abort", async ({ browser, request }) => {
+    test.setTimeout(180_000);
+    const password = "correct-horse-battery";
+    const aliceEmail = uniqueEmail("e2e-direct-recovery-alice");
+    const nikitaEmail = uniqueEmail("e2e-direct-recovery-nikita");
+
+    const aliceContext = await browser.newContext();
+    const nikitaContext = await browser.newContext();
+    const alicePage = await aliceContext.newPage();
+    const nikitaPage = await nikitaContext.newPage();
+
+    await signUp(alicePage, {
+      name: "Alice Recovery",
+      email: aliceEmail,
+      password,
+    });
+    await verifyEmail(alicePage, request, aliceEmail);
+    await purchasePro(alicePage);
+    await alicePage.request.patch(
+      `${apiBase}/v1/me/preferences`,
+      {
+        data: { timezone: "Europe/Moscow" },
+        headers: {
+          origin: webOrigin,
+          "content-type": "application/json",
+        },
+      },
+    );
+
+    await signUp(nikitaPage, {
+      name: "Nikita Recovery",
+      email: nikitaEmail,
+      password,
+    });
+    await verifyEmail(nikitaPage, request, nikitaEmail);
+    await purchasePro(nikitaPage);
+
+    await alicePage.goto("/app");
+    await alicePage
+      .getByRole("button", {
+        name: /новый личный чат|new direct chat/i,
+      })
+      .click();
+    await alicePage
+      .getByLabel(/email участника|participant email/i)
+      .fill(nikitaEmail);
+    await alicePage
+      .getByRole("button", {
+        name: /начать чат|start chat/i,
+      })
+      .click();
+    await expect(
+      alicePage.getByTestId("direct-chat-shell"),
+    ).toBeVisible({ timeout: 20_000 });
+    const directUrl = alicePage.url();
+
+    await nikitaPage.goto("/app");
+    await nikitaPage
+      .getByRole("radio", { name: /личные|direct/i })
+      .click();
+    await expect(
+      nikitaPage.getByTestId("direct-conversation-row"),
+    ).toBeVisible({ timeout: 20_000 });
+    await nikitaPage
+      .getByTestId("direct-conversation-row")
+      .click();
+    await expect(
+      nikitaPage.getByTestId("direct-chat-shell"),
+    ).toBeVisible({ timeout: 20_000 });
+
+    const composer = alicePage.getByPlaceholder(
+      /сообщение этому человеку|message this person/i,
+    );
+    let messagePosts = 0;
+    const countMessagePosts = (outgoing: {
+      method(): string;
+      url(): string;
+    }): void => {
+      if (
+        outgoing.method() === "POST" &&
+        /\/v1\/direct-chats\/[^/]+\/messages$/.test(
+          outgoing.url(),
+        )
+      ) {
+        messagePosts += 1;
+      }
+    };
+    alicePage.on("request", countMessagePosts);
+
+    const beforeAbortPosts = messagePosts;
+    await failNextIndexedDbPut(
+      alicePage,
+      "pendingSends",
+    );
+    try {
+      await composer.fill(
+        "must not reach server after idb abort",
+      );
+      await alicePage
+        .getByTestId("chat-composer-send")
+        .click();
+      await expect(
+        alicePage.getByTestId("chat-composer-send"),
+      ).toBeEnabled({ timeout: 20_000 });
+      await alicePage.waitForTimeout(300);
+      expect(messagePosts).toBe(beforeAbortPosts);
+    } finally {
+      await restoreIndexedDbPut(alicePage);
+    }
+
+    await composer.fill("works after idb abort");
+    await alicePage
+      .getByTestId("chat-composer-send")
+      .click();
+    await expect(
+      nikitaPage
+        .getByTestId("direct-message-human")
+        .filter({ hasText: "works after idb abort" }),
+    ).toBeVisible({ timeout: 20_000 });
+
+    let abortOperatorAfterCommit = true;
+    await alicePage.route(
+      "**/v1/operator/runs",
+      async (route) => {
+        if (
+          abortOperatorAfterCommit &&
+          route.request().method() === "POST"
+        ) {
+          await route.fetch();
+          abortOperatorAfterCommit = false;
+          await route.abort("failed");
+          return;
+        }
+        await route.continue();
+      },
+    );
+
+    await composer.fill(
+      "@vimla восстанови этот запуск после потери ответа",
+    );
+    await alicePage
+      .getByTestId("chat-composer-send")
+      .click();
+    await expect.poll(
+      () => abortOperatorAfterCommit,
+    ).toBe(false);
+    await alicePage.unroute("**/v1/operator/runs");
+    await expect(
+      alicePage.getByTestId("direct-message-invoke"),
+    ).toHaveCount(1, { timeout: 20_000 });
+    await expect.poll(
+      () => readPendingOperatorIntentCount(alicePage),
+    ).toBe(1);
+
+    await alicePage.reload();
+    await expect(
+      alicePage.getByTestId("direct-chat-shell"),
+    ).toBeVisible({ timeout: 20_000 });
+    await expect(
+      alicePage.getByTestId("direct-message-invoke"),
+    ).toHaveCount(1, { timeout: 20_000 });
+    await expect(
+      alicePage.getByTestId("direct-message-response"),
+    ).toHaveCount(1, { timeout: 20_000 });
+    await expect.poll(
+      () => readPendingOperatorIntentCount(alicePage),
+    ).toBe(0);
+    await expect(
+      nikitaPage.getByTestId("direct-message-invoke"),
+    ).toHaveCount(1, { timeout: 20_000 });
+    await expect(
+      nikitaPage.getByTestId("direct-message-response"),
+    ).toHaveCount(1, { timeout: 20_000 });
+
+    alicePage.off("request", countMessagePosts);
+    await aliceContext.close();
+    await nikitaContext.close();
+  });
 });
 
 function directConversationId(url: string): string {
@@ -589,6 +768,107 @@ function directConversationId(url: string): string {
     throw new Error("Direct Chat URL is missing a conversation id");
   }
   return id;
+}
+
+async function failNextIndexedDbPut(
+  page: Page,
+  storeName: string,
+): Promise<void> {
+  await page.evaluate((targetStore) => {
+    const state = globalThis as typeof globalThis & {
+      __vimlaRestoreIndexedDbPut?: () => void;
+    };
+    const prototype = IDBObjectStore.prototype;
+    const originalPut = prototype.put;
+    let armed = true;
+    prototype.put = function (
+      value: unknown,
+      key?: IDBValidKey,
+    ): IDBRequest<IDBValidKey> {
+      if (armed && this.name === targetStore) {
+        armed = false;
+        throw new DOMException(
+          "Simulated IndexedDB quota failure",
+          "QuotaExceededError",
+        );
+      }
+      return Reflect.apply(
+        originalPut,
+        this,
+        key === undefined ? [value] : [value, key],
+      ) as IDBRequest<IDBValidKey>;
+    };
+    state.__vimlaRestoreIndexedDbPut = () => {
+      prototype.put = originalPut;
+      delete state.__vimlaRestoreIndexedDbPut;
+    };
+  }, storeName);
+}
+
+async function restoreIndexedDbPut(
+  page: Page,
+): Promise<void> {
+  await page.evaluate(() => {
+    const state = globalThis as typeof globalThis & {
+      __vimlaRestoreIndexedDbPut?: () => void;
+    };
+    state.__vimlaRestoreIndexedDbPut?.();
+  });
+}
+
+async function readPendingOperatorIntentCount(
+  page: Page,
+): Promise<number> {
+  return page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>(
+      (resolve, reject) => {
+        const request = indexedDB.open(
+          "vimla-direct-e2ee",
+        );
+        request.onsuccess = () =>
+          resolve(request.result);
+        request.onerror = () =>
+          reject(
+            request.error ??
+              new Error(
+                "Pending operator intent database read failed",
+              ),
+          );
+      },
+    );
+    try {
+      return await new Promise<number>(
+        (resolve, reject) => {
+          const tx = db.transaction(
+            "pendingSends",
+            "readonly",
+          );
+          const request = tx
+            .objectStore("pendingSends")
+            .getAll();
+          request.onsuccess = () => {
+            const rows = request.result as Array<{
+              operatorIntent?: unknown;
+            }>;
+            resolve(
+              rows.filter(
+                (row) => row.operatorIntent !== undefined,
+              ).length,
+            );
+          };
+          request.onerror = () =>
+            reject(
+              request.error ??
+                new Error(
+                  "Pending operator intent read failed",
+                ),
+            );
+        },
+      );
+    } finally {
+      db.close();
+    }
+  });
 }
 
 async function disableWebLocks(page: Page): Promise<void> {
