@@ -82,6 +82,7 @@ export interface StoredOperatorOutput {
 }
 
 export interface StoredOperatorOutputDraft {
+  id: string;
   kind: DirectMessageKind;
   plaintext: string;
 }
@@ -436,6 +437,11 @@ export async function completePendingSend(input: {
         pendingStore.put(
           {
             ...input.pending,
+            revision:
+              Math.max(
+                pendingSendRevision(current),
+                pendingSendRevision(input.pending),
+              ) + 1,
             operatorIntent,
             committedMessageId: input.messageId,
             committedCreatedAt: input.serverCreatedAt,
@@ -580,15 +586,13 @@ export async function stagePendingOperatorDelivery(input: {
       for (const draft of input.outputs) {
         if (
           outputs.some(
-            (output) =>
-              output.kind === draft.kind &&
-              output.plaintext === draft.plaintext,
+            (output) => output.id === draft.id,
           )
         ) {
           continue;
         }
         outputs.push({
-          id: crypto.randomUUID(),
+          id: draft.id,
           clientMessageId: crypto.randomUUID(),
           kind: draft.kind,
           plaintext: draft.plaintext,
@@ -676,13 +680,15 @@ export async function completePendingOperatorIntent(
         !delivery ||
         delivery.outputs.some(
           (output) => !output.delivered,
-        ) ||
-        !isTerminalOperatorStatus(delivery.runStatus)
+        )
       ) {
         failure = new Error(
           "Pending operator delivery is incomplete",
         );
         tx.abort();
+        return;
+      }
+      if (!isTerminalOperatorStatus(delivery.runStatus)) {
         return;
       }
       store.delete(clientMessageId);
