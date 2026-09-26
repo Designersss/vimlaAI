@@ -491,7 +491,6 @@ test.describe("Secure Direct Chats", () => {
     const takeoverPage = await fencedContext.newPage();
     await disableWebLocks(staleOwnerPage);
     await disableWebLocks(takeoverPage);
-    await disableLeaseHeartbeat(staleOwnerPage);
 
     let signalStaleRegistrationStarted: (() => void) | null =
       null;
@@ -552,7 +551,35 @@ test.describe("Secure Direct Chats", () => {
       .goto(directUrl)
       .catch(() => null);
     await staleRegistrationStarted;
-    await staleOwnerPage.waitForTimeout(5_250);
+    const shortenedLease =
+      await shortenActiveRatchetLease(
+        staleOwnerPage,
+        "vimla-local-device-bootstrap",
+        {
+          expiresInMs: 1_200,
+          hardExpiresInMs: 3_500,
+        },
+      );
+    await staleOwnerPage.waitForTimeout(1_800);
+    const renewedLease = await readRatchetLease(
+      staleOwnerPage,
+      "vimla-local-device-bootstrap",
+    );
+    expect(renewedLease.owner).toBe(
+      shortenedLease.owner,
+    );
+    expect(renewedLease.fence).toBe(
+      shortenedLease.fence,
+    );
+    expect(renewedLease.expiresAt).toBeGreaterThan(
+      shortenedLease.initialExpiresAt,
+    );
+    expect(renewedLease.expiresAt).toBeLessThanOrEqual(
+      shortenedLease.hardExpiresAt,
+    );
+    expect(renewedLease.hardExpiresAt).toBe(
+      shortenedLease.hardExpiresAt,
+    );
 
     await takeoverPage.goto(directUrl);
     await expect(
@@ -890,27 +917,159 @@ async function disableWebLocks(page: Page): Promise<void> {
   });
 }
 
-async function disableLeaseHeartbeat(
+async function shortenActiveRatchetLease(
   page: Page,
-): Promise<void> {
-  await page.addInitScript(() => {
-    const nativeSetInterval =
-      globalThis.setInterval.bind(globalThis);
-    globalThis.setInterval = ((
-      handler: TimerHandler,
-      timeout?: number,
-      ...args: unknown[]
-    ) => {
-      if (timeout === 1_000) {
-        return 0;
+  key: string,
+  timing: {
+    expiresInMs: number;
+    hardExpiresInMs: number;
+  },
+): Promise<{
+  owner: string;
+  fence: number;
+  initialExpiresAt: number;
+  hardExpiresAt: number;
+}> {
+  return page.evaluate(
+    async ({ lockKey, expiresInMs, hardExpiresInMs }) => {
+      const db = await openE2eeDb();
+      try {
+        return await new Promise((resolve, reject) => {
+          const tx = db.transaction(
+            "ratchetLocks",
+            "readwrite",
+          );
+          const store = tx.objectStore("ratchetLocks");
+          const request = store.get(lockKey);
+          request.onsuccess = () => {
+            const current = request.result as {
+              owner?: unknown;
+              fence?: unknown;
+              expiresAt?: unknown;
+            } | undefined;
+            if (
+              !current ||
+              typeof current.owner !== "string" ||
+              typeof current.fence !== "number" ||
+              typeof current.expiresAt !== "number"
+            ) {
+              reject(
+                new Error(
+                  "Active ratchet lease is missing",
+                ),
+              );
+              tx.abort();
+              return;
+            }
+            const now = Date.now();
+            const initialExpiresAt =
+              now + expiresInMs;
+            const hardExpiresAt =
+              now + hardExpiresInMs;
+            store.put(
+              {
+                owner: current.owner,
+                fence: current.fence,
+                expiresAt: initialExpiresAt,
+                hardExpiresAt,
+              },
+              lockKey,
+            );
+            tx.oncomplete = () =>
+              resolve({
+                owner: current.owner as string,
+                fence: current.fence as number,
+                initialExpiresAt,
+                hardExpiresAt,
+              });
+          };
+          request.onerror = () =>
+            reject(
+              request.error ??
+                new Error(
+                  "Ratchet lease read failed",
+                ),
+            );
+          tx.onabort = () =>
+            reject(
+              tx.error ??
+                new Error(
+                  "Ratchet lease update aborted",
+                ),
+            );
+        });
+      } finally {
+        db.close();
       }
-      return nativeSetInterval(
-        handler,
-        timeout,
-        ...args,
-      );
-    }) as typeof globalThis.setInterval;
-  });
+    },
+    {
+      lockKey: key,
+      expiresInMs: timing.expiresInMs,
+      hardExpiresInMs: timing.hardExpiresInMs,
+    },
+  );
+}
+
+async function readRatchetLease(
+  page: Page,
+  key: string,
+): Promise<{
+  owner: string;
+  fence: number;
+  expiresAt: number;
+  hardExpiresAt: number;
+}> {
+  return page.evaluate(async (lockKey) => {
+    const db = await openE2eeDb();
+    try {
+      return await new Promise((resolve, reject) => {
+        const tx = db.transaction(
+          "ratchetLocks",
+          "readonly",
+        );
+        const request = tx
+          .objectStore("ratchetLocks")
+          .get(lockKey);
+        request.onsuccess = () => {
+          const value = request.result as {
+            owner?: unknown;
+            fence?: unknown;
+            expiresAt?: unknown;
+            hardExpiresAt?: unknown;
+          } | undefined;
+          if (
+            !value ||
+            typeof value.owner !== "string" ||
+            typeof value.fence !== "number" ||
+            typeof value.expiresAt !== "number" ||
+            typeof value.hardExpiresAt !== "number"
+          ) {
+            reject(
+              new Error(
+                "Ratchet lease record is invalid",
+              ),
+            );
+            return;
+          }
+          resolve({
+            owner: value.owner,
+            fence: value.fence,
+            expiresAt: value.expiresAt,
+            hardExpiresAt: value.hardExpiresAt,
+          });
+        };
+        request.onerror = () =>
+          reject(
+            request.error ??
+              new Error(
+                "Ratchet lease read failed",
+              ),
+          );
+      });
+    } finally {
+      db.close();
+    }
+  }, key);
 }
 
 async function holdWebLock(
