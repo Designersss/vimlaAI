@@ -187,7 +187,7 @@ test.describe("Secure Direct Chats", () => {
     await holdFirstPrekeyFetch(
       aliceStaleRecoveryPage,
     );
-    const staleNavigation =
+    const stalePendingRecoveryNavigation =
       aliceStaleRecoveryPage.goto(directUrl);
     await expect.poll(
       () =>
@@ -278,7 +278,7 @@ test.describe("Secure Direct Chats", () => {
     await releaseHeldPrekeyFetch(
       aliceStaleRecoveryPage,
     );
-    await staleNavigation;
+    await stalePendingRecoveryNavigation;
     const staleRetry =
       aliceStaleRecoveryPage.getByRole(
         "button",
