@@ -689,6 +689,99 @@ async function releaseHeldWebLock(
     .toBe(false);
 }
 
+async function writeDeviceFenceMarker(
+  page: Page,
+  marker: string,
+): Promise<void> {
+  await page.evaluate(async (value) => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("vimla-direct-e2ee", 4);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () =>
+        reject(
+          request.error ??
+            new Error("E2EE IndexedDB open failed"),
+        );
+    });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction("device", "readwrite");
+        const store = tx.objectStore("device");
+        const request = store.get("local");
+        request.onsuccess = () => {
+          const current = request.result as
+            | Record<string, unknown>
+            | undefined;
+          if (!current) {
+            reject(new Error("Local E2EE device is missing"));
+            tx.abort();
+            return;
+          }
+          store.put(
+            {
+              ...current,
+              __fenceTestMarker: value,
+            },
+            "local",
+          );
+        };
+        tx.oncomplete = () => resolve();
+        tx.onerror = () =>
+          reject(
+            tx.error ??
+              new Error("Device marker write failed"),
+          );
+        tx.onabort = () =>
+          reject(
+            tx.error ??
+              new Error("Device marker write aborted"),
+          );
+      });
+    } finally {
+      db.close();
+    }
+  }, marker);
+}
+
+async function readDeviceFenceMarker(
+  page: Page,
+): Promise<string | null> {
+  return page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open("vimla-direct-e2ee", 4);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () =>
+        reject(
+          request.error ??
+            new Error("E2EE IndexedDB open failed"),
+        );
+    });
+    try {
+      return await new Promise<string | null>((resolve, reject) => {
+        const tx = db.transaction("device", "readonly");
+        const request = tx.objectStore("device").get("local");
+        request.onsuccess = () => {
+          const current = request.result as
+            | { __fenceTestMarker?: unknown }
+            | undefined;
+          resolve(
+            typeof current?.__fenceTestMarker === "string"
+              ? current.__fenceTestMarker
+              : null,
+          );
+        };
+        request.onerror = () =>
+          reject(
+            request.error ??
+              new Error("Device marker read failed"),
+          );
+      });
+    } finally {
+      db.close();
+    }
+  });
+}
+
 async function readLocalDeviceId(page: Page): Promise<string> {
   return page.evaluate(async () => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
