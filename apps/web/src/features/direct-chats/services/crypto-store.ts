@@ -383,7 +383,7 @@ export async function completePendingSend(input: {
 export async function completePendingOperatorIntent(
   clientMessageId: string,
 ): Promise<void> {
-  await withStore<void>(
+  await withStore<undefined>(
     "pendingSends",
     "readwrite",
     (store) => store.delete(clientMessageId),
