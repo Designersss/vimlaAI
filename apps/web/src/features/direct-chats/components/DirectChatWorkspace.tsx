@@ -87,6 +87,7 @@ interface DecryptedRow {
 }
 
 const DEEP_HISTORY_BOOTSTRAP_MAX_PAGES = 8;
+const OPERATOR_RECOVERY_REQUEST_TIMEOUT_MS = 20_000;
 
 type ActiveMentionQuery = {
   start: number;
@@ -864,25 +865,53 @@ async function resumeDirectOperatorInvocation(
           current.messageCreatedAt,
           actorUserId,
         );
-      const run = await createOperatorRun({
-        clientRequestId: current.intent.clientRequestId,
-        content: current.intent.content,
-        invocationScope: "DIRECT_CHAT",
-        directConversationId: current.conversationId,
-        directSourceMessageId: current.messageId,
-        ...(sourceBoundContext.contextBundle.messages.length > 0
-          ? {
-              contextBundle:
-                sourceBoundContext.contextBundle,
-            }
-          : {}),
-      });
+      const run = await withOperatorRecoveryTimeout(
+        createOperatorRun({
+          clientRequestId: current.intent.clientRequestId,
+          content: current.intent.content,
+          invocationScope: "DIRECT_CHAT",
+          directConversationId: current.conversationId,
+          directSourceMessageId: current.messageId,
+          ...(sourceBoundContext.contextBundle.messages.length > 0
+            ? {
+                contextBundle:
+                  sourceBoundContext.contextBundle,
+              }
+            : {}),
+        }),
+      );
       await finalizePendingOperatorInvocation(
         current.pendingClientMessageId,
       );
       return run;
     },
   );
+}
+
+async function withOperatorRecoveryTimeout<T>(
+  operation: Promise<T>,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(
+          () =>
+            reject(
+              new Error(
+                "Direct Chat operator recovery timed out",
+              ),
+            ),
+          OPERATOR_RECOVERY_REQUEST_TIMEOUT_MS,
+        );
+      }),
+    ]);
+  } finally {
+    if (timer !== null) {
+      clearTimeout(timer);
+    }
+  }
 }
 
 async function fetchLatestDecryptedPage(
