@@ -37,12 +37,6 @@ import {
   type DirectMessagesResponse,
   type PrekeyBundlesResponse,
 } from "@vimla/contracts";
-import {
-  claimPrekeyBundlesSchema,
-  prekeyStatusResponseSchema,
-  replenishOneTimePrekeysSchema,
-  type PrekeyStatusResponse,
-} from "@vimla/contracts/direct-chats";
 import type { Observable } from "rxjs";
 import { AuthGuard } from "../auth/auth.guard.js";
 import { AuthUser } from "../auth/current-user.decorator.js";
@@ -78,46 +72,6 @@ export class DirectChatDevicesController {
     return cryptoDeviceViewSchema.parse(device);
   }
 
-  @Get(":deviceId/prekeys/status")
-  async prekeyStatus(
-    @AuthUser() user: AuthenticatedUser,
-    @Param("deviceId") deviceId: string,
-  ): Promise<PrekeyStatusResponse> {
-    this.directChats.assertEnabled();
-    return prekeyStatusResponseSchema.parse(
-      await this.directChats.devices.prekeyStatus(
-        this.directChats.actor(user),
-        deviceId,
-      ),
-    );
-  }
-
-  @Post(":deviceId/prekeys/replenish")
-  @HttpCode(200)
-  async replenishPrekeys(
-    @AuthUser() user: AuthenticatedUser,
-    @Param("deviceId") deviceId: string,
-    @Body() body: unknown,
-  ): Promise<PrekeyStatusResponse> {
-    this.directChats.assertEnabled();
-    const input = parseRequest(
-      replenishOneTimePrekeysSchema,
-      body,
-      "Invalid one-time prekey payload",
-    );
-    const status =
-      await this.directChats.devices.replenishOneTimePrekeys(
-        this.directChats.actor(user),
-        deviceId,
-        input,
-      );
-    this.directChats.logMutation(
-      "device.prekeys.replenish",
-      user.id,
-    );
-    return prekeyStatusResponseSchema.parse(status);
-  }
-
   @Post(":deviceId/rotate")
   @HttpCode(200)
   async rotate(
@@ -148,32 +102,12 @@ export class DirectChatDevicesController {
 export class DirectChatPrekeysController {
   constructor(@Inject(DirectChatsFacade) private readonly directChats: DirectChatsFacade) {}
 
-  @Post(":userId/prekeys/claim")
-  @HttpCode(200)
-  async claimPrekeys(
-    @AuthUser() user: AuthenticatedUser,
-    @Param("userId") userId: string,
-    @Body() body: unknown,
-  ): Promise<PrekeyBundlesResponse> {
+  @Get(":userId/prekeys")
+  async prekeys(@AuthUser() user: AuthenticatedUser, @Param("userId") userId: string): Promise<PrekeyBundlesResponse> {
     this.directChats.assertEnabled();
-    await this.directChats.chats.assertCanFetchPrekeys(
-      user.id,
-      userId,
-    );
-    const parsed = parseRequest(
-      claimPrekeyBundlesSchema,
-      body,
-      "Invalid prekey claim",
-    );
-    const bundles =
-      await this.directChats.devices.prekeyBundlesForUser(
-        userId,
-        parsed.deviceId,
-      );
-    return prekeyBundlesResponseSchema.parse({
-      userId,
-      bundles,
-    });
+    await this.directChats.chats.assertCanFetchPrekeys(user.id, userId);
+    const bundles = await this.directChats.devices.prekeyBundlesForUser(userId);
+    return prekeyBundlesResponseSchema.parse({ userId, bundles });
   }
 }
 
