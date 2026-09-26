@@ -1137,6 +1137,7 @@ function markLegacyRatchetsDuringUpgrade(
     ) {
       return;
     }
+    const localDeviceId = device.deviceId;
     const ratchets = tx.objectStore("ratchets");
     const cursorRequest = ratchets.openCursor();
     cursorRequest.onsuccess = () => {
@@ -1144,7 +1145,7 @@ function markLegacyRatchetsDuringUpgrade(
       if (!cursor) return;
       const marked = markLegacyRatchetOwner(
         cursor.value,
-        device.deviceId,
+        localDeviceId,
       );
       if (marked !== cursor.value) {
         cursor.update(marked);
