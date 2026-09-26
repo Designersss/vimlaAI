@@ -374,8 +374,11 @@ export async function completePendingSend(input: {
         const current = currentRequest.result as
           | StoredPendingSend
           | undefined;
+        if (!current) {
+          return;
+        }
         if (
-          current?.operatorIntent &&
+          !current.operatorIntent ||
           current.operatorIntent.clientRequestId !==
             input.pending.operatorIntent!.clientRequestId
         ) {
@@ -386,7 +389,7 @@ export async function completePendingSend(input: {
           return;
         }
         const operatorIntent =
-          current?.operatorIntent?.delivery
+          current.operatorIntent.delivery
             ? current.operatorIntent
             : input.pending.operatorIntent!;
         pendingStore.put(
