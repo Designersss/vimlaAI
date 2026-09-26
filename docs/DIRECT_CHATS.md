@@ -59,28 +59,25 @@ Private material never leaves IndexedDB. The API stores public keys only. Device
 
 Multi-device evolution is laid out: fan-out to every active device, per-device ratchets, OTK consumption. A **new** device cannot decrypt prior history (no server-side history key). That is an explicit Phase 9 limitation, not AES wrapping of old ciphertext.
 
-### Browser ratchet durability and prekey lifecycle (E2EE-H01/H04 hardening)
+### Browser ratchet durability (E2EE-H01)
 
 Browser ratchet mutation is serialized per `conversationId + localDeviceId + peerDeviceId`.
 
-- Every browser coordination lock is backed by the same IndexedDB lease namespace with bounded expiry/renewal. Web Locks, when available, add an outer browser-native serialization layer; tabs without Web Locks still coordinate with Web-Lock tabs through the shared IndexedDB lease. Versioned compare-and-swap remains the final ratchet correctness guard.
-- Local-device bootstrap has its own cross-tab critical section. Device identity/prekey material is persisted as `PENDING` before registration so a crash or ambiguous response retries the same device and key material instead of silently creating a second local identity.
-- Persisted ratchets are keyed by conversation + local device + peer device, carry a monotonic `stateVersion`, and are bound to the current local crypto-device id. A cross-device or stale write fails closed.
-- IndexedDB schema v4 adds ratchet locks and a durable pending-send outbox. Older clients opening the lower schema fail closed; legacy unversioned ratchet keys are migrated transactionally on first write.
+- Every browser coordination lock is backed by the same IndexedDB lease namespace with bounded expiry/renewal. Web Locks, when available, add an outer browser-native serialization layer; tabs without Web Locks still coordinate through the shared IndexedDB lease. Versioned compare-and-swap remains the final ratchet correctness guard.
+- Local-device bootstrap has its own cross-tab critical section. Device identity/prekey material is persisted as `PENDING` before registration so a crash or ambiguous response retries the same local device instead of silently creating a second identity.
+- Persisted ratchets are keyed by conversation + local device + peer device, carry a monotonic `stateVersion`, and are bound to the current local crypto-device id. Cross-device or stale writes fail closed.
+- IndexedDB schema v4 adds ratchet locks and a durable pending-send outbox. Older v2 clients opening the upgraded database fail closed; legacy unversioned ratchet keys are migrated transactionally on first write.
 - Multi-recipient encryption derives every recipient envelope under deterministic session locks, then persists all advanced ratchets plus the pending send in one IndexedDB transaction. A partial fan-out cannot advance only a subset of recipient ratchets.
-- A pending send stores one stable `clientMessageId`, its exact signed ciphertext envelopes, and the sender's local plaintext. The server checks that idempotency key before current device-set validation, so `server commit -> response lost` is recovered by replaying the exact same request rather than encrypting again.
-- Pending-send recovery is serialized per conversation + local device across tabs. Exact committed payloads replay unchanged; an uncommitted pending send whose active device-set changed is rebuilt from the current ratchet state with the same `clientMessageId`. Conflicting concurrent payloads for one idempotency key are rejected.
-- Realtime delivery is at-least-once by `messageId`: an exact HTTP replay may republish the same lightweight realtime event so a `DB commit -> notify failure` gap can self-heal; clients merge messages by durable id.
-- Sender plaintext-cache completion and outbox deletion are atomic. First-contact X3DH metadata remains attached until a message carrying it has been acknowledged by the server; delayed cleanup may safely repeat the authenticated init on a later envelope.
-- Successful decrypt persists ratchet advance + plaintext cache atomically. If X3DH consumed an OTK, deletion of that local private OTK secret is part of the same transaction; a referenced-but-missing OTK fails closed instead of downgrading the handshake.
-- OTK claims use server-side compare-and-set, prekey retrieval can target one concrete device, and browsers replenish their own OTK supply from a low-water mark using a crash-retryable/idempotent upload.
-- OTK ids are monotonic per local device and are never reused with new key material. A successfully used private OTK secret is retired in the same IndexedDB transaction as the ratchet advance; self-targeted first-contact copies retire their consumed OTK in the outbound fan-out transaction.
-- OTK exhaustion fails closed for a new session with `direct_chat_prekeys_depleted`; Vimla does not silently downgrade to signed-prekey-only initiation. The owner-only status endpoint returns bounded available/recently-consumed key ids so the browser can retain in-flight OTK secrets while pruning older orphaned private material.
-- Active crypto devices are capped at 16 per user, so a two-party Direct Chat can always fit the complete active device set inside the 32-envelope message limit. Available OTKs are capped at 64 per device.
-- First-time/offline decrypt processes messages oldest-first. If the latest page lacks the session-establishing X3DH envelope, the client backfills older pages to the local-device creation boundary before rendering the latest page.
-- CAS conflicts/lost fallback leases discard the derived result and retry from current persisted state; no conflicting ciphertext is returned to the caller.
+- A pending send stores one stable `clientMessageId`, its exact signed ciphertext envelopes and the sender's local plaintext. If the server committed a message but the response was lost, retry replays the exact same payload rather than advancing the ratchet again.
+- Pending-send recovery is serialized per conversation + local device across tabs. Exact committed payloads replay unchanged; if an uncommitted pending send encounters an authoritative active-device-set change, it is rebuilt from the current persisted ratchet state with the same `clientMessageId`.
+- Server replay validation binds `clientMessageId` to the original sender device, message kind, encrypted envelopes and structured mentions. A conflicting replay fails closed.
+- Realtime delivery is at-least-once by `messageId`: an exact HTTP replay may republish the same lightweight notification so a `DB commit -> realtime failure` gap can self-heal; clients merge durable messages by id.
+- Sender plaintext-cache completion and outbox deletion are atomic. First-contact X3DH metadata remains attached to the local ratchet until a message carrying it has been acknowledged by the server; delayed cleanup can safely repeat the authenticated init.
+- Successful decrypt persists the advanced ratchet state and local plaintext cache in one IndexedDB transaction.
+- First-time/offline decrypt processes messages oldest-first. If the latest page lacks the session-establishing X3DH envelope, the client backfills older pages before rendering newer ratchet messages.
+- CAS conflicts and lost leases discard the derived result and retry from the current persisted state; conflicting ciphertext is never returned to the caller.
 
-This hardening addresses same-origin concurrent tabs/processes, partial local transactions, ambiguous send responses and OTK exhaustion/races. It does not claim protection against a fully compromised browser origin or arbitrary rollback of the entire browser profile/storage snapshot; those remain part of the broader #54 hardening/audit scope.
+This hardening addresses same-origin concurrent tabs/processes, partial local transactions and ambiguous send responses. It does not claim protection against a fully compromised browser origin or arbitrary rollback of the entire browser profile/storage snapshot. One-time-prekey replenishment/rotation remains a separate E2EE-H04 concern in #54.
 
 ## 4. @Vimla context handoff
 
@@ -123,12 +120,10 @@ Config (default off):
 - `DIRECT_CHATS_MAX_CIPHERTEXT_BYTES=65536`
 - `NEXT_PUBLIC_VIMLA_DIRECT_CHATS=false`
 
-API (cookie + OriginGuard + SensitiveArea + abuse limits; read receipts use an independent bucket so they cannot exhaust the send/device/prekey mutation budget):
+API (cookie + OriginGuard + SensitiveArea + mutation rate limit):
 
 - `POST/GET /v1/direct-chats/devices`, rotate, revoke
-- `GET /v1/direct-chats/devices/:deviceId/prekeys/status`
-- `POST /v1/direct-chats/devices/:deviceId/prekeys/replenish`
-- `POST /v1/direct-chats/users/:userId/prekeys/claim` (self or shared-chat peer; device-scoped OTK claim; mutation-rate-limited)
+- `GET /v1/direct-chats/users/:userId/prekeys` (self or shared-chat peer)
 - `POST/GET /v1/direct-chats`, `GET :id`, `PATCH :id/privacy`, `POST :id/read`
 - `GET/POST /v1/direct-chats/:id/messages`
 
@@ -136,7 +131,7 @@ Disabled → `direct_chats_disabled` (503).
 
 ## 7. Security tests
 
-Covered: lifecycle, ciphertext-not-plaintext in PostgreSQL, tamper rejection, two-party decrypt, IDOR, sender/timestamp/cross-chat/future provenance spoof rejection, unread/pagination, flag off, cross-tab device bootstrap, mixed Web Locks/IndexedDB ratchet stress, stale-lease recovery, committed-send response-loss recovery + realtime re-notification, legacy ratchet migration, deep offline ratchet bootstrap, atomic/rate-limited OTK claims, fail-closed OTK exhaustion, bounded OTK pool, idempotent OTK replenishment, concurrent active-device cap, independent read/mutation rate buckets, device-identity replacement rejection, device-scoped old-history envelopes, `@Vimla` general answer, context deny/allow, self task, peer task, third user denied, Direct Chat personal-tool denial, private-workspace snapshot isolation, peer/actor consent revocation during recovery, fail-closed generic E2EE context access, exact ContextSnapshot ownership DB constraints, hidden Direct Chat clarification-continuation rejection, prompt injection does not extend permissions, responsive Direct Chat UI.
+Covered: lifecycle, ciphertext-not-plaintext in PostgreSQL, tamper rejection, two-party decrypt, IDOR, sender/timestamp/cross-chat/future provenance spoof rejection, unread/pagination, flag off, cross-tab device bootstrap, mixed Web Locks/IndexedDB ratchet concurrency, stale-lease recovery, durable pending-send recovery, committed-send response-loss recovery + realtime re-notification, legacy ratchet migration, deep offline ratchet bootstrap, conflicting replay rejection, device-scoped old-history envelopes, `@Vimla` general answer, context deny/allow, self task, peer task, third user denied, Direct Chat personal-tool denial, private-workspace snapshot isolation, peer/actor consent revocation during recovery, fail-closed generic E2EE context access, exact ContextSnapshot ownership DB constraints, hidden Direct Chat clarification-continuation rejection, prompt injection does not extend permissions, responsive Direct Chat UI.
 
 ## 8. Quality gates
 
