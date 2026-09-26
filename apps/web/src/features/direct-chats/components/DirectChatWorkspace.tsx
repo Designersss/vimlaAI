@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactElement } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactElement } from "react";
 import { useRouter } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import type {
@@ -421,7 +421,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
     }
   }
 
-  const postEncrypted = useCallback(async (
+  async function postEncrypted(
     kind: DirectMessageKind,
     plaintext: string,
     mentions: MessageMentionInput[] = [],
@@ -429,70 +429,47 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
       clientMessageId?: string;
       operatorIntent?: StoredOperatorIntent;
     } = {},
-  ): Promise<DirectMessageView | null> => {
+  ): Promise<DirectMessageView | null> {
     if (!userId) return null;
     setSending(true);
     try {
-      const device = await ensureLocalDevice();
-      const recovery = await recoverPendingSends({
+      const result = await sendEncryptedDirectMessage({
         conversationId,
-        localDevice: device,
-      });
-      if (recovery === "LOCAL_DEVICE_INACTIVE") {
-        throw new DirectChatsApiError(
-          "direct_chat_device_revoked",
-        );
-      }
-      if (recovery === "RECIPIENT_DEVICE_MISSING") {
-        throw new DirectChatsApiError(
-          "direct_chat_recipient_device_missing",
-        );
-      }
-      const latest = await fetchDirectConversation(
-        conversationId,
-      );
-      setConversation(latest);
-      const pending = await encryptForDevices({
-        conversationId: latest.id,
-        senderUserId: userId,
-        clientMessageId:
-          options.clientMessageId ?? crypto.randomUUID(),
-        localDevice: device,
+        userId,
         kind,
         plaintext,
-        devices: latest.devices,
         mentions,
-        ...(options.operatorIntent
-          ? { operatorIntent: options.operatorIntent }
-          : {}),
+        ...options,
       });
-      const created = await sendDirectMessage(latest.id, {
-        clientMessageId: pending.clientMessageId,
-        senderDeviceId: pending.senderDeviceId,
-        kind: pending.kind,
-        envelopes: pending.envelopes,
-        mentions: pending.mentions,
-      });
-      await finalizePendingSend(pending, created);
-      setRows((current) => mergeDecryptedRows(current, [
-        {
-          message: created,
-          payload: decodeDirectPlaintext(kind, plaintext),
-          needsBootstrap: false,
-        },
-      ]));
-      return created;
+      setConversation(result.latest);
+      setRows((current) =>
+        mergeDecryptedRows(current, [
+          {
+            message: result.message,
+            payload: decodeDirectPlaintext(
+              kind,
+              plaintext,
+            ),
+            needsBootstrap: false,
+          },
+        ]),
+      );
+      return result.message;
     } catch (caught: unknown) {
-      setError(caught instanceof DirectChatsApiError ? caught.code : "internal_error");
+      setError(
+        caught instanceof DirectChatsApiError
+          ? caught.code
+          : "internal_error",
+      );
       return null;
     } finally {
       setSending(false);
     }
-  }, [conversationId, userId]);
+  }
 
-  const publishOperatorRunMessages = useCallback(async (
+  async function publishOperatorRunMessages(
     run: OperatorRunView,
-  ): Promise<void> => {
+  ): Promise<void> {
     if (run.publicMessage) {
       await postEncrypted(
         "OPERATOR_RESPONSE",
@@ -515,7 +492,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         }),
       );
     }
-  }, [postEncrypted]);
+  }
 
   async function invokeOperator(text: string, mentions: MessageMentionInput[]): Promise<void> {
     if (!conversation || !userId) return;
@@ -590,7 +567,24 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         );
         if (cancelled) return;
         setPendingRun(run);
-        await publishOperatorRunMessages(run);
+        const delivery =
+          await publishOperatorRunMessagesDirect({
+            conversationId,
+            userId,
+            run,
+          });
+        if (cancelled) return;
+        if (delivery.latest) {
+          setConversation(delivery.latest);
+        }
+        if (delivery.rows.length > 0) {
+          setRows((current) =>
+            mergeDecryptedRows(
+              current,
+              delivery.rows,
+            ),
+          );
+        }
       }
     })().catch((caught: unknown) => {
       if (cancelled) return;
@@ -608,13 +602,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
     return () => {
       cancelled = true;
     };
-  }, [
-    boot,
-    conversationId,
-    publishOperatorRunMessages,
-    router,
-    userId,
-  ]);
+  }, [boot, conversationId, router, userId]);
 
   async function onLoadOlder(): Promise<void> {
     if (!nextCursor || !conversation) return;
@@ -724,6 +712,120 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
       </div>
     </div>
   );
+}
+
+async function sendEncryptedDirectMessage(input: {
+  conversationId: string;
+  userId: string;
+  kind: DirectMessageKind;
+  plaintext: string;
+  mentions?: MessageMentionInput[];
+  clientMessageId?: string;
+  operatorIntent?: StoredOperatorIntent;
+}): Promise<{
+  message: DirectMessageView;
+  latest: DirectConversationView;
+}> {
+  const device = await ensureLocalDevice();
+  const recovery = await recoverPendingSends({
+    conversationId: input.conversationId,
+    localDevice: device,
+  });
+  if (recovery === "LOCAL_DEVICE_INACTIVE") {
+    throw new DirectChatsApiError(
+      "direct_chat_device_revoked",
+    );
+  }
+  if (recovery === "RECIPIENT_DEVICE_MISSING") {
+    throw new DirectChatsApiError(
+      "direct_chat_recipient_device_missing",
+    );
+  }
+  const latest = await fetchDirectConversation(
+    input.conversationId,
+  );
+  const pending = await encryptForDevices({
+    conversationId: latest.id,
+    senderUserId: input.userId,
+    clientMessageId:
+      input.clientMessageId ?? crypto.randomUUID(),
+    localDevice: device,
+    kind: input.kind,
+    plaintext: input.plaintext,
+    devices: latest.devices,
+    mentions: input.mentions ?? [],
+    ...(input.operatorIntent
+      ? { operatorIntent: input.operatorIntent }
+      : {}),
+  });
+  const message = await sendDirectMessage(latest.id, {
+    clientMessageId: pending.clientMessageId,
+    senderDeviceId: pending.senderDeviceId,
+    kind: pending.kind,
+    envelopes: pending.envelopes,
+    mentions: pending.mentions,
+  });
+  await finalizePendingSend(pending, message);
+  return { message, latest };
+}
+
+async function publishOperatorRunMessagesDirect(input: {
+  conversationId: string;
+  userId: string;
+  run: OperatorRunView;
+}): Promise<{
+  latest: DirectConversationView | null;
+  rows: DecryptedRow[];
+}> {
+  let latest: DirectConversationView | null = null;
+  const rows: DecryptedRow[] = [];
+  if (input.run.publicMessage) {
+    const plaintext = encodeDirectPlaintext({
+      type: "response",
+      text: input.run.publicMessage,
+      runId: input.run.id,
+    });
+    const result = await sendEncryptedDirectMessage({
+      conversationId: input.conversationId,
+      userId: input.userId,
+      kind: "OPERATOR_RESPONSE",
+      plaintext,
+    });
+    latest = result.latest;
+    rows.push({
+      message: result.message,
+      payload: decodeDirectPlaintext(
+        "OPERATOR_RESPONSE",
+        plaintext,
+      ),
+      needsBootstrap: false,
+    });
+  }
+  const action = input.run.actions[0];
+  if (action) {
+    const plaintext = encodeDirectPlaintext({
+      type: "action",
+      title: action.title,
+      detail: action.detail,
+      status: action.status,
+    });
+    const result = await sendEncryptedDirectMessage({
+      conversationId: input.conversationId,
+      userId: input.userId,
+      kind: "OPERATOR_ACTION",
+      plaintext,
+    });
+    latest = result.latest;
+    rows.push({
+      message: result.message,
+      payload: decodeDirectPlaintext(
+        "OPERATOR_ACTION",
+        plaintext,
+      ),
+      needsBootstrap: false,
+    });
+  }
+  return { latest, rows };
 }
 
 async function resumeDirectOperatorInvocation(
