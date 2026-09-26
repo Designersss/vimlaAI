@@ -737,22 +737,11 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
                 if (!userId) return;
                 setOperatorBusy(true);
                 void (async () => {
-                  const fresh =
-                    await fetchOperatorRun(
-                      pendingRun.id,
-                    );
-                  const token =
-                    fresh.confirmationToken;
-                  if (!token) {
-                    throw new OperatorRequestError(
-                      "operator_confirmation_invalid",
-                    );
-                  }
                   const run =
-                    await confirmOperatorRun(
-                      pendingRun.id,
-                      token,
-                    );
+                    await confirmDirectOperatorRun({
+                      conversationId,
+                      runId: pendingRun.id,
+                    });
                   setPendingRun(run);
                   const recovered =
                     await recoverDirectOperatorInvocations({
@@ -905,6 +894,44 @@ interface OperatorInvocationDeliveryResult {
   run: OperatorRunView;
   latest: DirectConversationView | null;
   rows: DecryptedRow[];
+}
+
+async function confirmDirectOperatorRun(input: {
+  conversationId: string;
+  runId: string;
+}): Promise<OperatorRunView> {
+  const device = await ensureLocalDevice();
+  const attempt = async (): Promise<OperatorRunView> => {
+    const fresh = await fetchOperatorRun(input.runId);
+    const token = fresh.confirmationToken;
+    if (!token) {
+      throw new OperatorRequestError(
+        "operator_confirmation_invalid",
+      );
+    }
+    return confirmOperatorRun(input.runId, token);
+  };
+
+  return withPendingOperatorInvocationLock(
+    {
+      conversationId: input.conversationId,
+      localDeviceId: device.deviceId,
+    },
+    async () => {
+      try {
+        return await attempt();
+      } catch (caught: unknown) {
+        if (
+          !(caught instanceof OperatorRequestError) ||
+          caught.code !==
+            "operator_confirmation_invalid"
+        ) {
+          throw caught;
+        }
+        return attempt();
+      }
+    },
+  );
 }
 
 async function recoverDirectOperatorInvocations(input: {
