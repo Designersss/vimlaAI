@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   DEEP_HISTORY_BOOTSTRAP_MAX_PAGES,
+  pageUnlocksHistoryBootstrap,
   shouldContinueDeepHistoryBootstrap,
 } from "./history-bootstrap";
 
@@ -23,6 +24,35 @@ describe("Direct Chat deep-history bootstrap bounds", () => {
         missingSenderCount: 1,
         backfillPages:
           DEEP_HISTORY_BOOTSTRAP_MAX_PAGES,
+      }),
+    ).toBe(false);
+  });
+
+  it("recognizes a manually loaded X3DH page for a missing sender", () => {
+    expect(
+      pageUnlocksHistoryBootstrap({
+        missingSenderDeviceIds: new Set(["peer-old"]),
+        messages: [
+          {
+            senderDeviceId: "peer-old",
+            envelope: { x3dhInit: { version: 1 } },
+          },
+        ],
+      }),
+    ).toBe(true);
+    expect(
+      pageUnlocksHistoryBootstrap({
+        missingSenderDeviceIds: new Set(["peer-old"]),
+        messages: [
+          {
+            senderDeviceId: "peer-other",
+            envelope: { x3dhInit: { version: 1 } },
+          },
+          {
+            senderDeviceId: "peer-old",
+            envelope: { x3dhInit: null },
+          },
+        ],
       }),
     ).toBe(false);
   });
