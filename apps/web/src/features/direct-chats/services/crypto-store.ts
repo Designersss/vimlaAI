@@ -39,9 +39,6 @@ type StoreName =
 export interface StoredDeviceMaterial {
   deviceId: string;
   registrationState?: "PENDING" | "REGISTERED";
-  prekeyStatusCheckedAt?: string;
-  pendingOneTimePrekeyIds?: number[];
-  nextOneTimePrekeyId?: number;
   identity: {
     ed25519Secret: string;
     ed25519Public: string;
@@ -307,7 +304,6 @@ export async function commitDecryptedRatchet(input: {
   expectedVersion: number;
   state: SerializedRatchetState;
   pendingX3dhInit: X3dhInitHeader | null;
-  consumedOneTimePrekeyId: number | null;
   plaintext: StoredPlaintext;
 }): Promise<RatchetSnapshot> {
   return commitRatchet(input);
@@ -318,7 +314,7 @@ export async function commitOutboundRatchets(input: {
   localDeviceId: string;
   updates: OutboundRatchetUpdate[];
   pendingSend: StoredPendingSend;
-}): Promise<boolean> {
+}): Promise<void> {
   if (input.updates.length === 0) {
     throw new Error("Outbound ratchet update set is empty");
   }
@@ -329,32 +325,13 @@ export async function commitOutboundRatchets(input: {
     throw new Error("Outbound ratchet update set contains duplicates");
   }
 
-  const selfConsumedOneTimePrekeyIds = [
-    ...new Set(
-      input.updates
-        .filter(
-          (update) =>
-            update.peerDeviceId === input.localDeviceId,
-        )
-        .map(
-          (update) =>
-            update.pendingX3dhInit?.oneTimePrekeyId ??
-            null,
-        )
-        .filter((id): id is number => id !== null),
-    ),
-  ];
   const db = await openDb();
-  return new Promise<boolean>((resolve, reject) => {
+  await new Promise<void>((resolve, reject) => {
     let failure: Error | null = null;
-    const stores: StoreName[] = [
-      "ratchets",
-      "pendingSends",
-    ];
-    if (selfConsumedOneTimePrekeyIds.length > 0) {
-      stores.push("device");
-    }
-    const tx = db.transaction(stores, "readwrite");
+    const tx = db.transaction(
+      ["ratchets", "pendingSends"],
+      "readwrite",
+    );
     const ratchets = tx.objectStore("ratchets");
     const reads = input.updates.map((update) => {
       const key = ratchetStorageKey(
@@ -376,15 +353,9 @@ export async function commitOutboundRatchets(input: {
         legacyReady: false,
       };
     });
-    const deviceRequest =
-      selfConsumedOneTimePrekeyIds.length > 0
-        ? tx.objectStore("device").get("local")
-        : null;
-    let deviceReady = deviceRequest === null;
 
     const apply = (): void => {
       if (
-        !deviceReady ||
         reads.some(
           (read) =>
             !read.currentReady || !read.legacyReady,
@@ -423,34 +394,6 @@ export async function commitOutboundRatchets(input: {
             ratchets.delete(read.legacyKey);
           }
         }
-        if (deviceRequest) {
-          const material =
-            deviceRequest.result as
-              | StoredDeviceMaterial
-              | undefined;
-          if (
-            !material ||
-            material.deviceId !== input.localDeviceId
-          ) {
-            throw new Error(
-              "Local E2EE device state is invalid",
-            );
-          }
-          const oneTimePrekeys = {
-            ...material.oneTimePrekeys,
-          };
-          for (const id of selfConsumedOneTimePrekeyIds) {
-            delete oneTimePrekeys[String(id)];
-          }
-          tx.objectStore("device").put(
-            {
-              ...material,
-              oneTimePrekeys,
-              prekeyStatusCheckedAt: undefined,
-            } satisfies StoredDeviceMaterial,
-            "local",
-          );
-        }
         tx.objectStore("pendingSends").put(
           input.pendingSend,
           input.pendingSend.clientMessageId,
@@ -463,19 +406,6 @@ export async function commitOutboundRatchets(input: {
         tx.abort();
       }
     };
-
-    if (deviceRequest) {
-      deviceRequest.onsuccess = () => {
-        deviceReady = true;
-        apply();
-      };
-      deviceRequest.onerror = () => {
-        failure =
-          deviceRequest.error ??
-          new Error("Local E2EE device state could not be read");
-        tx.abort();
-      };
-    }
 
     for (const read of reads) {
       read.current.onsuccess = () => {
@@ -502,7 +432,7 @@ export async function commitOutboundRatchets(input: {
 
     tx.oncomplete = () => {
       db.close();
-      resolve(selfConsumedOneTimePrekeyIds.length > 0);
+      resolve();
     };
     tx.onabort = () => {
       db.close();
@@ -695,18 +625,14 @@ async function commitRatchet(input: {
   expectedVersion: number;
   state: SerializedRatchetState;
   pendingX3dhInit: X3dhInitHeader | null;
-  consumedOneTimePrekeyId?: number | null;
   plaintext?: StoredPlaintext;
 }): Promise<RatchetSnapshot> {
   const db = await openDb();
   return new Promise((resolve, reject) => {
     let failure: Error | null = null;
-    const stores: StoreName[] = ["ratchets"];
-    if (input.plaintext) stores.push("plaintexts");
-    if (input.consumedOneTimePrekeyId !== null &&
-        input.consumedOneTimePrekeyId !== undefined) {
-      stores.push("device");
-    }
+    const stores = input.plaintext
+      ? ["ratchets", "plaintexts"]
+      : ["ratchets"];
     const tx = db.transaction(stores, "readwrite");
     const ratchets = tx.objectStore("ratchets");
     const key = ratchetStorageKey(
@@ -723,16 +649,9 @@ async function commitRatchet(input: {
     const nextVersion = input.expectedVersion + 1;
     let currentReady = false;
     let legacyReady = false;
-    const consumedOneTimePrekeyId =
-      input.consumedOneTimePrekeyId ?? null;
-    const deviceRequest =
-      consumedOneTimePrekeyId === null
-        ? null
-        : tx.objectStore("device").get("local");
-    let deviceReady = deviceRequest === null;
 
     const apply = (): void => {
-      if (!currentReady || !legacyReady || !deviceReady) return;
+      if (!currentReady || !legacyReady) return;
       try {
         const useLegacy =
           currentRequest.result === undefined &&
@@ -766,40 +685,6 @@ async function commitRatchet(input: {
             input.plaintext.messageId,
           );
         }
-        if (
-          deviceRequest &&
-          consumedOneTimePrekeyId !== null
-        ) {
-          const material =
-            deviceRequest.result as
-              | StoredDeviceMaterial
-              | undefined;
-          if (
-            !material ||
-            material.deviceId !== input.localDeviceId ||
-            !material.oneTimePrekeys[
-              String(consumedOneTimePrekeyId)
-            ]
-          ) {
-            throw new Error(
-              "Consumed local E2EE prekey material is missing",
-            );
-          }
-          const oneTimePrekeys = {
-            ...material.oneTimePrekeys,
-          };
-          delete oneTimePrekeys[
-            String(consumedOneTimePrekeyId)
-          ];
-          tx.objectStore("device").put(
-            {
-              ...material,
-              oneTimePrekeys,
-              prekeyStatusCheckedAt: undefined,
-            } satisfies StoredDeviceMaterial,
-            "local",
-          );
-        }
       } catch (error: unknown) {
         failure =
           error instanceof Error
@@ -816,18 +701,6 @@ async function commitRatchet(input: {
       legacyReady = true;
       apply();
     };
-    if (deviceRequest) {
-      deviceRequest.onsuccess = () => {
-        deviceReady = true;
-        apply();
-      };
-      deviceRequest.onerror = () => {
-        failure =
-          deviceRequest.error ??
-          new Error("Local E2EE device state could not be read");
-        tx.abort();
-      };
-    }
     const failRead = (request: IDBRequest): void => {
       failure =
         request.error ??
