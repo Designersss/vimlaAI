@@ -1033,11 +1033,13 @@ async function fetchLatestDecryptedPage(
       backfillPages,
     })
   ) {
+    const pageCursor = cursor;
+    if (!pageCursor) break;
     backfillPages += 1;
     const older = await fetchDirectMessages(
       detail.id,
       deviceId,
-      cursor,
+      pageCursor,
     );
     allItems.push(...older.items);
     for (const message of older.items) {
