@@ -861,7 +861,10 @@ test.describe("Secure Direct Chats", () => {
     await alicePage.unroute("**/v1/operator/runs");
     await expect(
       alicePage.getByTestId("direct-message-invoke"),
-    ).toHaveCount(1, { timeout: 20_000 });
+    ).toHaveCount(
+      invokeCountBeforeAmbiguous + 1,
+      { timeout: 20_000 },
+    );
     await expect.poll(
       () => readPendingOperatorIntentCount(alicePage),
     ).toBe(1);
@@ -1094,7 +1097,12 @@ async function shortenActiveRatchetLease(
         },
       );
       try {
-        return await new Promise((resolve, reject) => {
+        return await new Promise<{
+        owner: string;
+        fence: number;
+        initialExpiresAt: number;
+        hardExpiresAt: number;
+      }>((resolve, reject) => {
           const tx = db.transaction(
             "ratchetLocks",
             "readwrite",
@@ -1197,7 +1205,12 @@ async function readRatchetLease(
         },
       );
     try {
-      return await new Promise((resolve, reject) => {
+      return await new Promise<{
+        owner: string;
+        fence: number;
+        expiresAt: number;
+        hardExpiresAt: number;
+      }>((resolve, reject) => {
         const tx = db.transaction(
           "ratchetLocks",
           "readonly",
