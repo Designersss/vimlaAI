@@ -46,6 +46,7 @@ import {
   loadPlaintext,
   loadRatchet,
   saveDeviceMaterial,
+  stagePendingOperatorDelivery,
   withLocalDeviceBootstrapLock,
   withPendingOperatorIntentLock,
   withPendingSendRecoveryLock,
@@ -53,7 +54,9 @@ import {
   withRatchetSessionLocks,
   type OutboundRatchetUpdate,
   type StoredDeviceMaterial,
+  type StoredOperatorDelivery,
   type StoredOperatorIntent,
+  type StoredOperatorOutputLink,
   type StoredPendingSend,
   type StoredPlaintext,
 } from "./crypto-store";
@@ -167,6 +170,7 @@ export async function encryptForDevices(input: {
   devices: CryptoDeviceView[];
   mentions?: MessageMentionInput[];
   operatorIntent?: StoredOperatorIntent;
+  operatorOutput?: StoredOperatorOutputLink;
 }): Promise<StoredPendingSend> {
   const material = input.localDevice;
   const identity = identityFromMaterial(material);
@@ -273,6 +277,9 @@ export async function encryptForDevices(input: {
       createdAt: new Date().toISOString(),
       ...(input.operatorIntent
         ? { operatorIntent: input.operatorIntent }
+        : {}),
+      ...(input.operatorOutput
+        ? { operatorOutput: input.operatorOutput }
         : {}),
     };
     await commitOutboundRatchets({
@@ -400,6 +407,12 @@ export async function recoverPendingSends(input: {
         plaintext: row.plaintext,
         devices: detail.devices,
         mentions: row.mentions,
+        ...(row.operatorIntent
+          ? { operatorIntent: row.operatorIntent }
+          : {}),
+        ...(row.operatorOutput
+          ? { operatorOutput: row.operatorOutput }
+          : {}),
       });
       const created = await sendPendingRow(row);
       await finalizePendingSend(row, created);
@@ -451,6 +464,19 @@ export async function finalizePendingOperatorInvocation(
   await completePendingOperatorIntent(
     pendingClientMessageId,
   );
+}
+
+export async function stagePendingOperatorInvocationDelivery(
+  input: {
+    pendingClientMessageId: string;
+    delivery: StoredOperatorDelivery;
+  },
+): Promise<StoredOperatorIntent> {
+  return stagePendingOperatorDelivery({
+    parentClientMessageId:
+      input.pendingClientMessageId,
+    delivery: input.delivery,
+  });
 }
 
 export async function withPendingOperatorInvocationLock<T>(
