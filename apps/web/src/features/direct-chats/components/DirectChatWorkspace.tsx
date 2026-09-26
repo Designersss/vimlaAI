@@ -55,6 +55,7 @@ import {
   updateDirectChatPrivacy,
 } from "../services/api";
 import {
+  PendingOperatorInvocationGoneError,
   loadConversationPlaintexts,
   loadPendingSends,
   type StoredOperatorIntent,
@@ -71,6 +72,7 @@ import {
 } from "../services/history-bootstrap";
 import { decodeDirectPlaintext, encodeDirectPlaintext, type DirectPlaintextPayload } from "../services/payload";
 import { subscribeDirectChatEvents } from "../services/realtime";
+import { RatchetLockLostError } from "../services/ratchet-coordination";
 import {
   decryptMessageWithStatus,
   encryptForDevices,
@@ -990,7 +992,8 @@ async function resumeDirectOperatorInvocation(
   invocation: PendingOperatorInvocation,
   actorUserId: string,
 ): Promise<OperatorInvocationDeliveryResult | null> {
-  return withPendingOperatorInvocationLock(
+  try {
+    return await withPendingOperatorInvocationLock(
     {
       conversationId: invocation.conversationId,
       localDeviceId: invocation.senderDeviceId,
@@ -1190,7 +1193,17 @@ async function resumeDirectOperatorInvocation(
 
       return { run, latest, rows };
     },
-  );
+    );
+  } catch (caught: unknown) {
+    if (
+      caught instanceof
+        PendingOperatorInvocationGoneError ||
+      caught instanceof RatchetLockLostError
+    ) {
+      return null;
+    }
+    throw caught;
+  }
 }
 
 function operatorDeliveryOutputs(
