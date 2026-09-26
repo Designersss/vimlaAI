@@ -1,5 +1,12 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import type { NestFastifyApplication } from "@nestjs/platform-fastify";
 import {
   bytesToB64,
@@ -30,6 +37,7 @@ import { loadApiConfig } from "@vimla/config/server";
 import { createPrismaClient } from "@vimla/database";
 import { createVimlaApiApp } from "../create-app.js";
 import { PrismaService } from "../persistence/prisma.service.js";
+import { DirectChatRealtimeService } from "./direct-chat-realtime.service.js";
 import { registerVerifiedUser } from "../test/identity-helpers.js";
 
 const testDatabaseUrl = process.env.TEST_DATABASE_URL;
@@ -355,6 +363,185 @@ describe("direct chats API", () => {
       },
     });
     expect(wrongKind.statusCode).toBe(400);
+  });
+
+  it("keeps old messages device-scoped and replays committed sends before current device-set validation", async () => {
+    const alice = await readyUser(app, "dc-replay-alice", "Alice");
+    const nikita = await readyUser(app, "dc-replay-nikita", "Nikita");
+    const aliceDevice = await registerHarness(app, alice);
+    const nikitaDevice = await registerHarness(app, nikita);
+    const chat = await createChat(app, alice.cookies, nikita.email);
+
+    const devices = chat.devices;
+    const envelopes = [];
+    for (const device of devices) {
+      envelopes.push(
+        await encryptTo(
+          app,
+          alice,
+          aliceDevice,
+          device,
+          chat.id,
+          "HUMAN",
+          "durable replay",
+        ),
+      );
+    }
+    const clientMessageId = randomUUID();
+    const payload = {
+      clientMessageId,
+      senderDeviceId: aliceDevice.deviceId,
+      kind: "HUMAN" as const,
+      envelopes,
+      mentions: [],
+    };
+    const sent = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/${chat.id}/messages`,
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload,
+    });
+    expect(sent.statusCode).toBe(201);
+
+    const raceClientMessageId = randomUUID();
+    const raceEnvelopesA = [];
+    const raceEnvelopesB = [];
+    for (const device of devices) {
+      raceEnvelopesA.push(
+        await encryptTo(
+          app,
+          alice,
+          aliceDevice,
+          device,
+          chat.id,
+          "HUMAN",
+          "race payload A",
+        ),
+      );
+      raceEnvelopesB.push(
+        await encryptTo(
+          app,
+          alice,
+          aliceDevice,
+          device,
+          chat.id,
+          "HUMAN",
+          "race payload B",
+        ),
+      );
+    }
+    const [raceA, raceB] = await Promise.all([
+      app.inject({
+        method: "POST",
+        url: `/v1/direct-chats/${chat.id}/messages`,
+        headers: jsonHeaders(),
+        cookies: alice.cookies,
+        payload: {
+          clientMessageId: raceClientMessageId,
+          senderDeviceId: aliceDevice.deviceId,
+          kind: "HUMAN",
+          envelopes: raceEnvelopesA,
+          mentions: [],
+        },
+      }),
+      app.inject({
+        method: "POST",
+        url: `/v1/direct-chats/${chat.id}/messages`,
+        headers: jsonHeaders(),
+        cookies: alice.cookies,
+        payload: {
+          clientMessageId: raceClientMessageId,
+          senderDeviceId: aliceDevice.deviceId,
+          kind: "HUMAN",
+          envelopes: raceEnvelopesB,
+          mentions: [],
+        },
+      }),
+    ]);
+    expect(
+      [raceA.statusCode, raceB.statusCode].sort(),
+    ).toEqual([201, 400]);
+
+    const secondNikitaDevice = await registerHarness(app, nikita);
+    const realtime = app.get(
+      DirectChatRealtimeService,
+    );
+    const publishSpy = vi.spyOn(realtime, "publish");
+    publishSpy.mockClear();
+    const replay = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/${chat.id}/messages`,
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload,
+    });
+    expect(replay.statusCode).toBe(201);
+    expect(replay.json().id).toBe(sent.json().id);
+    expect(publishSpy).toHaveBeenCalledWith(
+      expect.arrayContaining([alice.id, nikita.id]),
+      expect.objectContaining({
+        type: "direct_message",
+        conversationId: chat.id,
+        messageId: sent.json().id,
+      }),
+    );
+    publishSpy.mockRestore();
+
+    const mismatchedReplay = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/${chat.id}/messages`,
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: {
+        ...payload,
+        envelopes: payload.envelopes.map(
+          (envelope, index) =>
+            index === 0
+              ? {
+                  ...envelope,
+                  ciphertextB64: flipB64(
+                    envelope.ciphertextB64,
+                  ),
+                }
+              : envelope,
+        ),
+      },
+    });
+    expect(mismatchedReplay.statusCode).toBe(400);
+
+    const page = await app.inject({
+      method: "GET",
+      url: `/v1/direct-chats/${chat.id}/messages?deviceId=${secondNikitaDevice.deviceId}`,
+      headers: { origin },
+      cookies: nikita.cookies,
+    });
+    expect(page.statusCode).toBe(200);
+    const secondDeviceOriginal = (
+      page.json().items as Array<{
+        id: string;
+        envelope: unknown;
+      }>
+    ).find((item) => item.id === sent.json().id);
+    expect(secondDeviceOriginal).toEqual(
+      expect.objectContaining({
+        id: sent.json().id,
+        envelope: null,
+      }),
+    );
+
+    const originalPage = await listMessages(
+      app,
+      nikita,
+      nikitaDevice.deviceId,
+      chat.id,
+    );
+    const originalDeviceMessage =
+      originalPage.items.find(
+        (item) => item.id === sent.json().id,
+      );
+    expect(originalDeviceMessage?.envelope).toBeTruthy();
+
   });
 
   it("requires structured @vimla authority for Direct Chat operator routing", async () => {
@@ -1267,7 +1454,10 @@ interface Harness {
   deviceId: string;
   identity: IdentityKeyPair;
   signed: SignedPreKeyPair;
-  otk: ReturnType<typeof generateOneTimePreKey>;
+  otks: Map<
+    number,
+    ReturnType<typeof generateOneTimePreKey>
+  >;
   ratchets: Map<string, RatchetState>;
 }
 
@@ -1320,7 +1510,13 @@ async function registerHarness(
     },
   });
   expect(registered.statusCode).toBe(201);
-  return { deviceId, identity, signed, otk, ratchets: new Map() };
+  return {
+    deviceId,
+    identity,
+    signed,
+    otks: new Map([[otk.keyId, otk]]),
+    ratchets: new Map(),
+  };
 }
 
 async function createChat(
@@ -1483,12 +1679,29 @@ function decryptFor(
 ): string {
   let state = recipient.ratchets.get(sender.deviceId) ?? null;
   if (!state && envelope.x3dhInit) {
+    const oneTimePrekeyId =
+      envelope.x3dhInit.oneTimePrekeyId;
+    const oneTimePrekey =
+      oneTimePrekeyId === null
+        ? null
+        : recipient.otks.get(oneTimePrekeyId) ?? null;
+    if (
+      oneTimePrekeyId !== null &&
+      !oneTimePrekey
+    ) {
+      throw new Error(
+        "missing one-time prekey fixture",
+      );
+    }
     const shared = x3dhRespond(
       recipient.identity,
       recipient.signed.secret,
-      envelope.x3dhInit.oneTimePrekeyId ? recipient.otk.secret : null,
+      oneTimePrekey?.secret ?? null,
       envelope.x3dhInit,
     );
+    if (oneTimePrekeyId !== null) {
+      recipient.otks.delete(oneTimePrekeyId);
+    }
     state = initRatchetResponder(shared.sharedKey, {
       secret: recipient.signed.secret,
       publicKey: recipient.signed.publicKey,
@@ -1526,7 +1739,13 @@ async function listMessages(
     cookies: user.cookies,
   });
   expect(page.statusCode).toBe(200);
-  return page.json() as { items: Array<{ senderUserId: string; envelope: Parameters<typeof decryptFor>[5] }> };
+  return page.json() as {
+    items: Array<{
+      id: string;
+      senderUserId: string;
+      envelope: Parameters<typeof decryptFor>[5];
+    }>;
+  };
 }
 
 function asWire(

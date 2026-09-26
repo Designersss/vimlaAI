@@ -25,190 +25,852 @@ import type {
   MessageMentionInput,
   WireEnvelopeDto,
 } from "@vimla/contracts";
-import { fetchPrekeyBundles, registerCryptoDevice } from "./api";
 import {
+  DirectChatsApiError,
+  fetchDirectConversation,
+  fetchPrekeyBundles,
+  registerCryptoDevice,
+  sendDirectMessage,
+} from "./api";
+import {
+  acknowledgeRatchetHandshake,
+  assertLocalDeviceBootstrapLease,
+  commitDecryptedRatchet,
+  commitOutboundRatchets,
+  completePendingOperatorIntent,
+  completePendingSend,
   encodeIdentity,
   identityFromMaterial,
   loadDeviceMaterial,
+  loadPendingSend,
+  loadPendingSends,
   loadPlaintext,
   loadRatchet,
+  pendingSendRevision,
   saveDeviceMaterial,
-  savePlaintext,
-  saveRatchet,
+  stagePendingOperatorDelivery,
+  withLocalDeviceBootstrapLock,
+  withPendingOperatorIntentLock,
+  withPendingSendRecoveryLock,
+  withRatchetSessionLock,
+  withRatchetSessionLocks,
+  PendingSendConflictError,
+  type OutboundRatchetUpdate,
   type StoredDeviceMaterial,
+  type StoredOperatorDelivery,
+  type StoredOperatorIntent,
+  type StoredOperatorOutputDraft,
+  type StoredOperatorOutputLink,
+  type StoredPendingSend,
   type StoredPlaintext,
 } from "./crypto-store";
+import {
+  RatchetLockLostError,
+  RatchetStateConflictError,
+} from "./ratchet-coordination";
 import { decodeDirectPlaintext, encodeDirectPlaintext, type DirectPlaintextPayload } from "./payload";
 
 export async function ensureLocalDevice(): Promise<StoredDeviceMaterial> {
-  const existing = await loadDeviceMaterial();
-  if (existing) {
-    return existing;
-  }
-  const identity = generateIdentity();
-  const signed = generateSignedPreKey(identity, 1);
-  const oneTime = Array.from({ length: 16 }, (_, index) => generateOneTimePreKey(index + 1));
-  const deviceId = crypto.randomUUID();
-  const material: StoredDeviceMaterial = {
-    deviceId,
-    identity: encodeIdentity(identity),
-    signedPrekeys: {
-      [String(signed.keyId)]: {
-        secret: bytesToB64(signed.secret),
-        publicKey: bytesToB64(signed.publicKey),
-        signature: bytesToB64(signed.signature),
+  return withLocalDeviceBootstrapLock(async (lease) => {
+    const existing = await loadDeviceMaterial();
+    if (existing) {
+      if (existing.registrationState === "PENDING") {
+        await assertLocalDeviceBootstrapLease(lease);
+        await registerStoredDevice(existing);
+        const registered = {
+          ...existing,
+          registrationState: "REGISTERED" as const,
+        };
+        await saveDeviceMaterial(registered, lease);
+        return registered;
+      }
+      return existing;
+    }
+
+    const identity = generateIdentity();
+    const signed = generateSignedPreKey(identity, 1);
+    const oneTime = Array.from(
+      { length: 16 },
+      (_, index) => generateOneTimePreKey(index + 1),
+    );
+    const material: StoredDeviceMaterial = {
+      deviceId: crypto.randomUUID(),
+      registrationState: "PENDING",
+      identity: encodeIdentity(identity),
+      signedPrekeys: {
+        [String(signed.keyId)]: {
+          secret: bytesToB64(signed.secret),
+          publicKey: bytesToB64(signed.publicKey),
+          signature: bytesToB64(signed.signature),
+        },
       },
-    },
-    oneTimePrekeys: Object.fromEntries(
-      oneTime.map((key) => [
-        String(key.keyId),
-        { secret: bytesToB64(key.secret), publicKey: bytesToB64(key.publicKey) },
-      ]),
-    ),
-  };
+      oneTimePrekeys: Object.fromEntries(
+        oneTime.map((key) => [
+          String(key.keyId),
+          {
+            secret: bytesToB64(key.secret),
+            publicKey: bytesToB64(key.publicKey),
+          },
+        ]),
+      ),
+    };
+    await saveDeviceMaterial(material, lease);
+    await assertLocalDeviceBootstrapLease(lease);
+    await registerStoredDevice(material);
+    const registered = {
+      ...material,
+      registrationState: "REGISTERED" as const,
+    };
+    await saveDeviceMaterial(registered, lease);
+    return registered;
+  });
+}
+
+async function registerStoredDevice(
+  material: StoredDeviceMaterial,
+): Promise<void> {
+  const signedEntry = Object.entries(material.signedPrekeys)[0];
+  if (!signedEntry) {
+    throw new Error("Local E2EE signed prekey is missing");
+  }
+  const [signedPrekeyIdRaw, signed] = signedEntry;
+  const signedPrekeyId = Number(signedPrekeyIdRaw);
+  if (!Number.isSafeInteger(signedPrekeyId) || signedPrekeyId < 1) {
+    throw new Error("Local E2EE signed prekey id is invalid");
+  }
+  const oneTimePrekeys = Object.entries(material.oneTimePrekeys)
+    .map(([keyIdRaw, key]) => ({
+      keyId: Number(keyIdRaw),
+      publicKey: key.publicKey,
+    }))
+    .filter(
+      (key) =>
+        Number.isSafeInteger(key.keyId) &&
+        key.keyId >= 1,
+    )
+    .sort((left, right) => left.keyId - right.keyId);
+  if (oneTimePrekeys.length === 0) {
+    throw new Error("Local E2EE one-time prekeys are missing");
+  }
   await registerCryptoDevice({
-    deviceId,
+    deviceId: material.deviceId,
     identityEd25519Public: material.identity.ed25519Public,
     identityX25519Public: material.identity.x25519Public,
-    signedPrekeyId: signed.keyId,
-    signedPrekeyPublic: bytesToB64(signed.publicKey),
-    signedPrekeySignature: bytesToB64(signed.signature),
-    oneTimePrekeys: oneTime.map((key) => ({ keyId: key.keyId, publicKey: bytesToB64(key.publicKey) })),
+    signedPrekeyId,
+    signedPrekeyPublic: signed.publicKey,
+    signedPrekeySignature: signed.signature,
+    oneTimePrekeys,
     label: "browser",
   });
-  await saveDeviceMaterial(material);
-  return material;
 }
 
 export async function encryptForDevices(input: {
   conversationId: string;
   senderUserId: string;
+  clientMessageId: string;
+  localDevice: StoredDeviceMaterial;
   kind: DirectMessageKind;
   plaintext: string;
   devices: CryptoDeviceView[];
   mentions?: MessageMentionInput[];
-}): Promise<WireEnvelopeDto[]> {
-  const material = await ensureLocalDevice();
+  operatorIntent?: StoredOperatorIntent;
+  operatorOutput?: StoredOperatorOutputLink;
+  expectedPendingRevision?: number | null;
+}): Promise<StoredPendingSend> {
+  const material = input.localDevice;
   const identity = identityFromMaterial(material);
-  const envelopes: WireEnvelopeDto[] = [];
-  const routingContext = input.mentions && input.mentions.length > 0
-    ? serializeDirectRoutingMentions(input.mentions)
-    : undefined;
-  for (const device of input.devices.filter((item) => !item.revoked)) {
-    const existing = await loadRatchet(input.conversationId, device.id);
-    let x3dhInit: WireEnvelope["x3dhInit"] = null;
-    let state = existing ? deserializeRatchet(existing) : null;
-    if (!state) {
-      const bundles = await fetchPrekeyBundles(device.userId);
-      const bundle = bundles.bundles.find((item) => item.deviceId === device.id);
-      if (!bundle) {
-        throw new Error("Missing prekey bundle");
-      }
-      const initiated = x3dhInitiate(identity, bundle as PublicPreKeyBundle);
-      state = initRatchetInitiator(initiated.sharedKey, initiated.remoteRatchetPublic);
-      x3dhInit = initiated.initHeader;
-    }
-    const envelope = encryptEnvelope({
-      identity,
-      state,
-      plaintext: utf8(input.plaintext),
-      ad: {
-        conversationId: input.conversationId,
-        senderUserId: input.senderUserId,
-        senderDeviceId: material.deviceId,
-        recipientDeviceId: device.id,
-        kind: input.kind,
-        routingContext,
-      },
-      x3dhInit,
-    });
-    await saveRatchet(input.conversationId, device.id, serializeRatchet(state));
-    envelopes.push({
-      recipientDeviceId: device.id,
-      headerB64: envelope.headerB64,
-      ciphertextB64: envelope.ciphertextB64,
-      dhPublicB64: envelope.dhPublicB64,
-      messageNumber: envelope.messageNumber,
-      previousChainLength: envelope.previousChainLength,
-      senderSignatureB64: envelope.senderSignatureB64,
-      x3dhInit: envelope.x3dhInit,
-    });
+  const activeDevices = input.devices
+    .filter((item) => !item.revoked)
+    .sort((left, right) => left.id.localeCompare(right.id));
+  if (activeDevices.length === 0) {
+    throw new Error("Direct Chat has no active crypto devices");
   }
-  return envelopes;
+  const scopes = activeDevices.map((device) => ({
+    conversationId: input.conversationId,
+    localDeviceId: material.deviceId,
+    peerDeviceId: device.id,
+  }));
+  const bundleRequests = new Map<
+    string,
+    ReturnType<typeof fetchPrekeyBundles>
+  >();
+  const routingContext =
+    input.mentions && input.mentions.length > 0
+      ? serializeDirectRoutingMentions(input.mentions)
+      : undefined;
+
+  return withRatchetRetryScopes(scopes, async () => {
+    const envelopes: WireEnvelopeDto[] = [];
+    const updates: OutboundRatchetUpdate[] = [];
+
+    for (const device of activeDevices) {
+      const existing = await loadRatchet(
+        input.conversationId,
+        material.deviceId,
+        device.id,
+      );
+      let x3dhInit: WireEnvelope["x3dhInit"] =
+        existing?.pendingX3dhInit ?? null;
+      let state = existing
+        ? deserializeRatchet(existing.state)
+        : null;
+      if (!state) {
+        let bundlesRequest = bundleRequests.get(device.userId);
+        if (!bundlesRequest) {
+          bundlesRequest = fetchPrekeyBundles(device.userId);
+          bundleRequests.set(device.userId, bundlesRequest);
+        }
+        const bundles = await bundlesRequest;
+        const bundle = bundles.bundles.find(
+          (item) => item.deviceId === device.id,
+        );
+        if (!bundle) {
+          throw new Error("Missing prekey bundle");
+        }
+        const initiated = x3dhInitiate(
+          identity,
+          bundle as PublicPreKeyBundle,
+        );
+        state = initRatchetInitiator(
+          initiated.sharedKey,
+          initiated.remoteRatchetPublic,
+        );
+        x3dhInit = initiated.initHeader;
+      }
+
+      const envelope = encryptEnvelope({
+        identity,
+        state,
+        plaintext: utf8(input.plaintext),
+        ad: {
+          conversationId: input.conversationId,
+          senderUserId: input.senderUserId,
+          senderDeviceId: material.deviceId,
+          recipientDeviceId: device.id,
+          kind: input.kind,
+          routingContext,
+        },
+        x3dhInit,
+      });
+      envelopes.push({
+        recipientDeviceId: device.id,
+        headerB64: envelope.headerB64,
+        ciphertextB64: envelope.ciphertextB64,
+        dhPublicB64: envelope.dhPublicB64,
+        messageNumber: envelope.messageNumber,
+        previousChainLength: envelope.previousChainLength,
+        senderSignatureB64: envelope.senderSignatureB64,
+        x3dhInit: envelope.x3dhInit,
+      });
+      updates.push({
+        peerDeviceId: device.id,
+        expectedVersion: existing?.stateVersion ?? 0,
+        state: serializeRatchet(state),
+        pendingX3dhInit: x3dhInit,
+      });
+    }
+
+    const expectedPendingRevision =
+      input.expectedPendingRevision ?? null;
+    const pending: StoredPendingSend = {
+      revision:
+        expectedPendingRevision === null
+          ? 1
+          : expectedPendingRevision + 1,
+      conversationId: input.conversationId,
+      clientMessageId: input.clientMessageId,
+      senderUserId: input.senderUserId,
+      senderDeviceId: material.deviceId,
+      kind: input.kind,
+      envelopes,
+      mentions: input.mentions ?? [],
+      plaintext: input.plaintext,
+      createdAt: new Date().toISOString(),
+      ...(input.operatorIntent
+        ? { operatorIntent: input.operatorIntent }
+        : {}),
+      ...(input.operatorOutput
+        ? { operatorOutput: input.operatorOutput }
+        : {}),
+    };
+    try {
+      await commitOutboundRatchets({
+        conversationId: input.conversationId,
+        localDeviceId: material.deviceId,
+        updates,
+        pendingSend: pending,
+        expectedPendingRevision,
+      });
+      return pending;
+    } catch (caught: unknown) {
+      if (!(caught instanceof PendingSendConflictError)) {
+        throw caught;
+      }
+      const existing = await loadPendingSend(
+        input.clientMessageId,
+      );
+      if (
+        existing &&
+        pendingSendMatchesInput(existing, {
+          conversationId: input.conversationId,
+          senderUserId: input.senderUserId,
+          senderDeviceId: material.deviceId,
+          kind: input.kind,
+          plaintext: input.plaintext,
+          mentions: input.mentions ?? [],
+          ...(input.operatorIntent
+            ? {
+                operatorIntent:
+                  input.operatorIntent,
+              }
+            : {}),
+          ...(input.operatorOutput
+            ? {
+                operatorOutput:
+                  input.operatorOutput,
+              }
+            : {}),
+        })
+      ) {
+        return existing;
+      }
+      throw caught;
+    }
+  });
+}
+
+export async function finalizePendingSend(
+  pending: StoredPendingSend,
+  created: DirectMessageView,
+): Promise<void> {
+  await completePendingSend({
+    pending,
+    messageId: created.id,
+    serverCreatedAt: created.createdAt,
+  });
+  void acknowledgeSentRatchets({
+    conversationId: pending.conversationId,
+    localDeviceId: pending.senderDeviceId,
+    envelopes: pending.envelopes,
+  });
+}
+
+export async function recoverPendingSends(input: {
+  conversationId: string;
+  localDevice: StoredDeviceMaterial;
+}): Promise<
+  | "RESOLVED"
+  | "LOCAL_DEVICE_INACTIVE"
+  | "RECIPIENT_DEVICE_MISSING"
+> {
+  return withPendingSendRecoveryLock(
+    {
+      conversationId: input.conversationId,
+      localDeviceId: input.localDevice.deviceId,
+    },
+    async () => {
+      const pending = await loadPendingSends(
+        input.conversationId,
+        input.localDevice.deviceId,
+      );
+      let blocked:
+        | "LOCAL_DEVICE_INACTIVE"
+        | "RECIPIENT_DEVICE_MISSING"
+        | null = null;
+
+      for (const stored of pending) {
+        let row = stored;
+        if (
+          row.operatorIntent &&
+          row.committedMessageId &&
+          row.committedCreatedAt
+        ) {
+          continue;
+        }
+
+        try {
+          const created = await sendPendingRow(row);
+          await finalizePendingSend(row, created);
+          continue;
+        } catch (error: unknown) {
+          if (!(error instanceof DirectChatsApiError)) {
+            throw error;
+          }
+          if (
+            error.code ===
+            "direct_chat_device_revoked"
+          ) {
+            return "LOCAL_DEVICE_INACTIVE";
+          }
+          if (
+            error.code !== "validation_error" &&
+            error.code !==
+              "direct_chat_recipient_device_missing" &&
+            error.code !== "not_found"
+          ) {
+            throw error;
+          }
+
+          const detail =
+            await fetchDirectConversation(
+              input.conversationId,
+            );
+          const currentIds = detail.devices
+            .filter((device) => !device.revoked)
+            .map((device) => device.id)
+            .sort();
+          const pendingIds = row.envelopes
+            .map(
+              (envelope) =>
+                envelope.recipientDeviceId,
+            )
+            .sort();
+          const sameDeviceSet =
+            currentIds.length === pendingIds.length &&
+            currentIds.every(
+              (id, index) =>
+                id === pendingIds[index],
+            );
+          const localStillActive =
+            currentIds.includes(
+              input.localDevice.deviceId,
+            );
+          const peerActive = detail.devices.some(
+            (device) =>
+              !device.revoked &&
+              device.userId !== row.senderUserId,
+          );
+
+          if (
+            sameDeviceSet &&
+            error.code !== "not_found"
+          ) {
+            throw error;
+          }
+          if (!localStillActive) {
+            blocked = "LOCAL_DEVICE_INACTIVE";
+            continue;
+          }
+          if (!peerActive) {
+            blocked ??=
+              "RECIPIENT_DEVICE_MISSING";
+            continue;
+          }
+
+          try {
+            row = await encryptForDevices({
+              conversationId:
+                row.conversationId,
+              senderUserId: row.senderUserId,
+              clientMessageId:
+                row.clientMessageId,
+              localDevice: input.localDevice,
+              kind: row.kind,
+              plaintext: row.plaintext,
+              devices: detail.devices,
+              mentions: row.mentions,
+              expectedPendingRevision:
+                pendingSendRevision(row),
+              ...(row.operatorIntent
+                ? {
+                    operatorIntent:
+                      row.operatorIntent,
+                  }
+                : {}),
+              ...(row.operatorOutput
+                ? {
+                    operatorOutput:
+                      row.operatorOutput,
+                  }
+                : {}),
+            });
+          } catch (caught: unknown) {
+            if (
+              !(
+                caught instanceof
+                PendingSendConflictError
+              )
+            ) {
+              throw caught;
+            }
+            const current =
+              await loadPendingSend(
+                row.clientMessageId,
+              );
+            if (!current) {
+              continue;
+            }
+            throw caught;
+          }
+
+          const created =
+            await sendPendingRow(row);
+          await finalizePendingSend(
+            row,
+            created,
+          );
+        }
+      }
+
+      return blocked ?? "RESOLVED";
+    },
+  );
+}
+
+export interface PendingOperatorInvocation {
+  pendingClientMessageId: string;
+  conversationId: string;
+  senderDeviceId: string;
+  messageId: string;
+  messageCreatedAt: string;
+  intent: StoredOperatorIntent;
+}
+
+export async function loadPendingOperatorInvocations(input: {
+  conversationId: string;
+  localDeviceId: string;
+}): Promise<PendingOperatorInvocation[]> {
+  const rows = await loadPendingSends(
+    input.conversationId,
+    input.localDeviceId,
+  );
+  return rows.flatMap((row) =>
+    row.operatorIntent &&
+    row.committedMessageId &&
+    row.committedCreatedAt
+      ? [
+          {
+            pendingClientMessageId: row.clientMessageId,
+            conversationId: row.conversationId,
+            senderDeviceId: row.senderDeviceId,
+            messageId: row.committedMessageId,
+            messageCreatedAt: row.committedCreatedAt,
+            intent: row.operatorIntent,
+          },
+        ]
+      : [],
+  );
+}
+
+export async function finalizePendingOperatorInvocation(
+  pendingClientMessageId: string,
+): Promise<void> {
+  await completePendingOperatorIntent(
+    pendingClientMessageId,
+  );
+}
+
+export async function stagePendingOperatorInvocationDelivery(
+  input: {
+    pendingClientMessageId: string;
+    runId: string;
+    runStatus: StoredOperatorDelivery["runStatus"];
+    runUpdatedAt: string;
+    outputs: readonly StoredOperatorOutputDraft[];
+  },
+): Promise<StoredOperatorIntent> {
+  return stagePendingOperatorDelivery({
+    parentClientMessageId:
+      input.pendingClientMessageId,
+    runId: input.runId,
+    runStatus: input.runStatus,
+    runUpdatedAt: input.runUpdatedAt,
+    outputs: input.outputs,
+  });
+}
+
+export async function withPendingOperatorInvocationLock<T>(
+  input: {
+    conversationId: string;
+    localDeviceId: string;
+  },
+  operation: () => Promise<T>,
+): Promise<T> {
+  return withPendingOperatorIntentLock(
+    input,
+    operation,
+  );
+}
+
+async function sendPendingRow(
+  row: StoredPendingSend,
+): Promise<DirectMessageView> {
+  return sendDirectMessage(
+    row.conversationId,
+    {
+      clientMessageId: row.clientMessageId,
+      senderDeviceId: row.senderDeviceId,
+      kind: row.kind,
+      envelopes: row.envelopes,
+      mentions: row.mentions,
+    },
+  );
+}
+
+export interface DecryptMessageResult {
+  payload: DirectPlaintextPayload | null;
+  needsBootstrap: boolean;
 }
 
 export async function decryptMessage(input: {
   conversationId: string;
   message: DirectMessageView;
-  senderIdentityEd25519Public: string;
+  senderIdentityEd25519Public?: string;
 }): Promise<DirectPlaintextPayload | null> {
+  return (await decryptMessageWithStatus(input)).payload;
+}
+
+export async function decryptMessageWithStatus(input: {
+  conversationId: string;
+  message: DirectMessageView;
+  senderIdentityEd25519Public?: string;
+}): Promise<DecryptMessageResult> {
   const cached = await loadPlaintext(input.message.id);
   if (cached) {
-    return decodeDirectPlaintext(input.message.kind, cached.text);
+    return {
+      payload: decodeDirectPlaintext(
+        input.message.kind,
+        cached.text,
+      ),
+      needsBootstrap: false,
+    };
   }
   const envelope = input.message.envelope;
+  const senderIdentityEd25519Public =
+    input.senderIdentityEd25519Public;
   if (!envelope) {
-    return null;
+    return { payload: null, needsBootstrap: false };
+  }
+  if (!senderIdentityEd25519Public) {
+    return {
+      payload: null,
+      needsBootstrap: envelope.x3dhInit === null,
+    };
   }
   const material = await ensureLocalDevice();
   const identity = identityFromMaterial(material);
-  const stateRecord = await loadRatchet(input.conversationId, input.message.senderDeviceId);
-  let state = stateRecord ? deserializeRatchet(stateRecord) : null;
-  if (!state && envelope.x3dhInit) {
-    const signed = material.signedPrekeys[String(envelope.x3dhInit.signedPrekeyId)];
-    if (!signed) {
-      return null;
-    }
-    const otk =
-      envelope.x3dhInit.oneTimePrekeyId !== null
-        ? material.oneTimePrekeys[String(envelope.x3dhInit.oneTimePrekeyId)]
-        : null;
-    const shared = x3dhRespond(
-      identity,
-      b64ToBytes(signed.secret),
-      otk ? b64ToBytes(otk.secret) : null,
-      envelope.x3dhInit,
-    );
-    state = initRatchetResponder(shared.sharedKey, {
-      secret: b64ToBytes(signed.secret),
-      publicKey: b64ToBytes(signed.publicKey),
-    });
-  }
-  if (!state) {
-    return null;
-  }
   try {
-    const routingContext = input.message.mentions.length > 0
-      ? serializeDirectRoutingMentions(input.message.mentions)
-      : undefined;
-    const opened = decryptEnvelope({
-      senderIdentityEd25519Public: b64ToBytes(input.senderIdentityEd25519Public),
-      state,
-      envelope: toWire(envelope),
-      ad: {
+    return await withRatchetRetry(
+      {
         conversationId: input.conversationId,
-        senderUserId: input.message.senderUserId,
-        senderDeviceId: input.message.senderDeviceId,
-        recipientDeviceId: envelope.recipientDeviceId,
-        kind: input.message.kind,
-        routingContext,
+        localDeviceId: material.deviceId,
+        peerDeviceId: input.message.senderDeviceId,
       },
-    });
-    const text = new TextDecoder().decode(opened);
-    await saveRatchet(input.conversationId, input.message.senderDeviceId, serializeRatchet(state));
-    const row: StoredPlaintext = {
-      conversationId: input.conversationId,
-      messageId: input.message.id,
-      text,
-      kind: input.message.kind,
-      senderUserId: input.message.senderUserId,
-      createdAt: input.message.createdAt,
-    };
-    await savePlaintext(row);
-    return decodeDirectPlaintext(input.message.kind, text);
+      async () => {
+        const committed = await loadPlaintext(input.message.id);
+        if (committed) {
+          return {
+            payload: decodeDirectPlaintext(
+              input.message.kind,
+              committed.text,
+            ),
+            needsBootstrap: false,
+          };
+        }
+
+        const stateRecord = await loadRatchet(
+          input.conversationId,
+          material.deviceId,
+          input.message.senderDeviceId,
+        );
+        let state = stateRecord
+          ? deserializeRatchet(stateRecord.state)
+          : null;
+        if (!state && envelope.x3dhInit) {
+          const signed =
+            material.signedPrekeys[
+              String(envelope.x3dhInit.signedPrekeyId)
+            ];
+          if (!signed) {
+            return {
+              payload: null,
+              needsBootstrap: false,
+            };
+          }
+          const otk =
+            envelope.x3dhInit.oneTimePrekeyId !== null
+              ? material.oneTimePrekeys[
+                  String(envelope.x3dhInit.oneTimePrekeyId)
+                ]
+              : null;
+          const shared = x3dhRespond(
+            identity,
+            b64ToBytes(signed.secret),
+            otk ? b64ToBytes(otk.secret) : null,
+            envelope.x3dhInit,
+          );
+          state = initRatchetResponder(shared.sharedKey, {
+            secret: b64ToBytes(signed.secret),
+            publicKey: b64ToBytes(signed.publicKey),
+          });
+        }
+        if (!state) {
+          return {
+            payload: null,
+            needsBootstrap: envelope.x3dhInit === null,
+          };
+        }
+
+        const routingContext =
+          input.message.mentions.length > 0
+            ? serializeDirectRoutingMentions(
+                input.message.mentions,
+              )
+            : undefined;
+        const opened = decryptEnvelope({
+          senderIdentityEd25519Public: b64ToBytes(
+            senderIdentityEd25519Public,
+          ),
+          state,
+          envelope: toWire(envelope),
+          ad: {
+            conversationId: input.conversationId,
+            senderUserId: input.message.senderUserId,
+            senderDeviceId: input.message.senderDeviceId,
+            recipientDeviceId: envelope.recipientDeviceId,
+            kind: input.message.kind,
+            routingContext,
+          },
+        });
+        const text = new TextDecoder().decode(opened);
+        const row: StoredPlaintext = {
+          conversationId: input.conversationId,
+          messageId: input.message.id,
+          text,
+          kind: input.message.kind,
+          senderUserId: input.message.senderUserId,
+          createdAt: input.message.createdAt,
+        };
+        await commitDecryptedRatchet({
+          conversationId: input.conversationId,
+          localDeviceId: material.deviceId,
+          peerDeviceId: input.message.senderDeviceId,
+          expectedVersion: stateRecord?.stateVersion ?? 0,
+          state: serializeRatchet(state),
+          pendingX3dhInit:
+            stateRecord?.pendingX3dhInit ?? null,
+          plaintext: row,
+        });
+        return {
+          payload: decodeDirectPlaintext(
+            input.message.kind,
+            text,
+          ),
+          needsBootstrap: false,
+        };
+      },
+    );
   } catch {
-    return null;
+    return { payload: null, needsBootstrap: false };
   }
+}
+
+export async function acknowledgeSentRatchets(input: {
+  conversationId: string;
+  localDeviceId: string;
+  envelopes: readonly WireEnvelopeDto[];
+}): Promise<void> {
+  const pendingRecipients = input.envelopes
+    .filter((envelope) => envelope.x3dhInit !== null)
+    .map((envelope) => envelope.recipientDeviceId);
+  for (const peerDeviceId of pendingRecipients) {
+    await acknowledgeRatchetHandshake({
+      conversationId: input.conversationId,
+      localDeviceId: input.localDeviceId,
+      peerDeviceId,
+    }).catch(() => undefined);
+  }
+}
+
+const RATCHET_COORDINATION_ATTEMPTS = 3;
+
+type RatchetLockScope = {
+  conversationId: string;
+  localDeviceId: string;
+  peerDeviceId: string;
+};
+
+async function withRatchetRetryScopes<T>(
+  scopes: ReadonlyArray<RatchetLockScope>,
+  operation: () => Promise<T>,
+): Promise<T> {
+  return retryRatchetCoordination(() =>
+    withRatchetSessionLocks(scopes, operation),
+  );
+}
+
+async function withRatchetRetry<T>(
+  scope: RatchetLockScope,
+  operation: () => Promise<T>,
+): Promise<T> {
+  return retryRatchetCoordination(() =>
+    withRatchetSessionLock(scope, operation),
+  );
+}
+
+async function retryRatchetCoordination<T>(
+  attemptOperation: () => Promise<T>,
+): Promise<T> {
+  let lastError: Error | null = null;
+  for (
+    let attempt = 0;
+    attempt < RATCHET_COORDINATION_ATTEMPTS;
+    attempt += 1
+  ) {
+    try {
+      return await attemptOperation();
+    } catch (error: unknown) {
+      if (!isRatchetCoordinationError(error)) {
+        throw error;
+      }
+      lastError = error;
+    }
+  }
+  throw (
+    lastError ??
+    new RatchetStateConflictError()
+  );
+}
+
+function isRatchetCoordinationError(
+  error: unknown,
+): error is RatchetStateConflictError | RatchetLockLostError {
+  return (
+    error instanceof RatchetStateConflictError ||
+    error instanceof RatchetLockLostError
+  );
+}
+
+function pendingSendMatchesInput(
+  pending: StoredPendingSend,
+  input: {
+    conversationId: string;
+    senderUserId: string;
+    senderDeviceId: string;
+    kind: DirectMessageKind;
+    plaintext: string;
+    mentions: MessageMentionInput[];
+    operatorIntent?: StoredOperatorIntent;
+    operatorOutput?: StoredOperatorOutputLink;
+  },
+): boolean {
+  return (
+    pending.conversationId === input.conversationId &&
+    pending.senderUserId === input.senderUserId &&
+    pending.senderDeviceId === input.senderDeviceId &&
+    pending.kind === input.kind &&
+    pending.plaintext === input.plaintext &&
+    JSON.stringify(pending.mentions) ===
+      JSON.stringify(input.mentions) &&
+    (pending.operatorIntent?.clientRequestId ?? null) ===
+      (input.operatorIntent?.clientRequestId ?? null) &&
+    (pending.operatorOutput?.parentClientMessageId ??
+      null) ===
+      (input.operatorOutput?.parentClientMessageId ??
+        null) &&
+    (pending.operatorOutput?.outputId ?? null) ===
+      (input.operatorOutput?.outputId ?? null)
+  );
 }
 
 export function encodePayload(payload: DirectPlaintextPayload): string {

@@ -190,19 +190,90 @@ export class DirectChatService {
     };
   }
 
+  async preflightSend(
+    actor: ActorContext,
+    conversationId: string,
+    input: SendDirectMessage,
+  ): Promise<{
+    replay: DirectMessageView | null;
+    memberIds: string[];
+  }> {
+    const conversation =
+      await this.requireMemberConversation(
+        actor.userId,
+        conversationId,
+      );
+    return {
+      replay: await this.findExactReplay(
+        actor.userId,
+        conversationId,
+        input,
+      ),
+      memberIds: conversation.members.map(
+        (member) => member.userId,
+      ),
+    };
+  }
+
   async send(
     actor: ActorContext,
     conversationId: string,
     input: SendDirectMessage,
     resolvedMentions: MessageMentionView[] = [],
   ): Promise<DirectMessageView> {
-    const conversation = await this.requireMemberConversation(actor.userId, conversationId);
+    return (
+      await this.sendWithStatus(
+        actor,
+        conversationId,
+        input,
+        resolvedMentions,
+      )
+    ).message;
+  }
+
+  async sendWithStatus(
+    actor: ActorContext,
+    conversationId: string,
+    input: SendDirectMessage,
+    resolvedMentions: MessageMentionView[] = [],
+    options: {
+      replayAlreadyChecked?: boolean;
+      authorizedMemberIds?: readonly string[];
+    } = {},
+  ): Promise<{
+    message: DirectMessageView;
+    replayed: boolean;
+  }> {
+    const memberIds = options.authorizedMemberIds
+      ? [...options.authorizedMemberIds]
+      : (
+          await this.requireMemberConversation(
+            actor.userId,
+            conversationId,
+          )
+        ).members.map((member) => member.userId);
+    if (!memberIds.includes(actor.userId)) {
+      throw new DirectChatError(
+        "NOT_FOUND",
+        "Direct Chat was not found",
+      );
+    }
+    if (!options.replayAlreadyChecked) {
+      const replay = await this.findExactReplay(
+        actor.userId,
+        conversationId,
+        input,
+      );
+      if (replay) {
+        return { message: replay, replayed: true };
+      }
+    }
+
     const senderDevice = await this.requireActiveDevice(actor.userId, input.senderDeviceId);
     if (input.envelopes.length > this.options.maxEnvelopes) {
       throw new DirectChatError("VALIDATION_ERROR", "Too many envelopes");
     }
 
-    const memberIds = conversation.members.map((member) => member.userId);
     const memberDevices = await this.db.userCryptoDevice.findMany({
       where: { userId: { in: memberIds }, revokedAt: null },
     });
@@ -228,21 +299,6 @@ export class DirectChatService {
         kind: input.kind,
         routingContext,
       });
-    }
-
-    const existing = await this.db.directMessage.findUnique({
-      where: {
-        conversationId_senderUserId_clientMessageId: {
-          conversationId,
-          senderUserId: actor.userId,
-          clientMessageId: input.clientMessageId,
-        },
-      },
-      include: { envelopes: { where: { recipientDeviceId: senderDevice.id } } },
-    });
-    if (existing) {
-      const mentions = await this.readMentionMap([existing.id]);
-      return toMessageView(existing, senderDevice.id, mentions.get(existing.id) ?? []);
     }
 
     try {
@@ -290,24 +346,28 @@ export class DirectChatService {
         });
         return message;
       });
-      return toMessageView(created, senderDevice.id, resolvedMentions);
+      return {
+        message: toMessageView(
+          created,
+          senderDevice.id,
+          resolvedMentions,
+        ),
+        replayed: false,
+      };
     } catch (error: unknown) {
       if (isUnique(error)) {
-        const replay = await this.db.directMessage.findUnique({
-          where: {
-            conversationId_senderUserId_clientMessageId: {
-              conversationId,
-              senderUserId: actor.userId,
-              clientMessageId: input.clientMessageId,
-            },
-          },
-          include: { envelopes: { where: { recipientDeviceId: senderDevice.id } } },
-        });
+        const replay = await this.findExactReplay(
+          actor.userId,
+          conversationId,
+          input,
+        );
         if (replay) {
-          const mentions = await this.readMentionMap([replay.id]);
-          return toMessageView(replay, senderDevice.id, mentions.get(replay.id) ?? []);
+          return { message: replay, replayed: true };
         }
-        throw new DirectChatError("TAMPERED", "Message envelope was rejected");
+        throw new DirectChatError(
+          "TAMPERED",
+          "Message envelope was rejected",
+        );
       }
       throw error;
     }
@@ -440,6 +500,54 @@ export class DirectChatService {
       peerShareOwnHistoryWithVimla: peer.shareOwnHistoryWithVimla,
       memberIds: conversation.members.map((member) => member.userId),
     };
+  }
+
+  private async findExactReplay(
+    userId: string,
+    conversationId: string,
+    input: SendDirectMessage,
+  ): Promise<DirectMessageView | null> {
+    const existing = await this.db.directMessage.findFirst({
+      where: {
+        conversationId,
+        senderUserId: userId,
+        clientMessageId: input.clientMessageId,
+        conversation: {
+          members: { some: { userId } },
+        },
+      },
+      include: { envelopes: true },
+    });
+    if (!existing) return null;
+    if (existing.senderDeviceId !== input.senderDeviceId) {
+      throw new DirectChatError(
+        "TAMPERED",
+        "Message replay sender device does not match",
+      );
+    }
+    const mentions = await this.readMentionMap([existing.id]);
+    const existingMentions = mentions.get(existing.id) ?? [];
+    if (
+      existing.kind !== input.kind ||
+      !sameReplayEnvelopes(
+        existing.envelopes,
+        input.envelopes,
+      ) ||
+      !sameReplayMentions(
+        existingMentions,
+        input.mentions,
+      )
+    ) {
+      throw new DirectChatError(
+        "TAMPERED",
+        "Message replay payload does not match the original",
+      );
+    }
+    return toMessageView(
+      existing,
+      input.senderDeviceId,
+      existingMentions,
+    );
   }
 
   private async readMentionMap(messageIds: string[]): Promise<Map<string, MessageMentionView[]>> {
@@ -618,7 +726,10 @@ function toMessageView(
   deviceId: string,
   mentions: MessageMentionView[],
 ): DirectMessageView {
-  const envelope = row.envelopes.find((item) => item.recipientDeviceId === deviceId) ?? row.envelopes[0] ?? null;
+  const envelope =
+    row.envelopes.find(
+      (item) => item.recipientDeviceId === deviceId,
+    ) ?? null;
   return {
     id: row.id,
     conversationId: row.conversationId,
@@ -691,6 +802,84 @@ function decodeCursor(cursor: string | undefined): { at: Date; id: string } | nu
     return null;
   }
 }
+
+function sameReplayEnvelopes(
+  stored: ReadonlyArray<{
+    recipientDeviceId: string;
+    headerB64: string;
+    ciphertextB64: string;
+    dhPublicB64: string;
+    messageNumber: number;
+    previousChainLength: number;
+    senderSignatureB64: string;
+    x3dhInitJson: string | null;
+  }>,
+  incoming: readonly WireEnvelopeDto[],
+): boolean {
+  if (stored.length !== incoming.length) return false;
+  const incomingByRecipient = new Map(
+    incoming.map((envelope) => [
+      envelope.recipientDeviceId,
+      envelope,
+    ]),
+  );
+  if (incomingByRecipient.size !== incoming.length) {
+    return false;
+  }
+  return stored.every((envelope) => {
+    const candidate = incomingByRecipient.get(
+      envelope.recipientDeviceId,
+    );
+    return (
+      candidate !== undefined &&
+      candidate.headerB64 === envelope.headerB64 &&
+      candidate.ciphertextB64 === envelope.ciphertextB64 &&
+      candidate.dhPublicB64 === envelope.dhPublicB64 &&
+      candidate.messageNumber === envelope.messageNumber &&
+      candidate.previousChainLength ===
+        envelope.previousChainLength &&
+      candidate.senderSignatureB64 ===
+        envelope.senderSignatureB64 &&
+      JSON.stringify(candidate.x3dhInit ?? null) ===
+        (envelope.x3dhInitJson ?? "null")
+    );
+  });
+}
+
+function sameReplayMentions(
+  stored: readonly MessageMentionView[],
+  incoming: Readonly<SendDirectMessage["mentions"]>,
+): boolean {
+  if (stored.length !== incoming.length) return false;
+  const canonical = (
+    mention: Pick<
+      MessageMentionView,
+      | "handleId"
+      | "kind"
+      | "canonicalHandle"
+      | "startOffset"
+      | "endOffset"
+    >,
+  ): string =>
+    [
+      mention.handleId,
+      mention.kind,
+      mention.canonicalHandle,
+      mention.startOffset,
+      mention.endOffset,
+    ].join("\u0000");
+  const storedCanonical = [...stored]
+    .map(canonical)
+    .sort();
+  const incomingCanonical = [...incoming]
+    .map(canonical)
+    .sort();
+  return storedCanonical.every(
+    (value, index) =>
+      value === incomingCanonical[index],
+  );
+}
+
 
 function isUnique(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && error.code === "P2002";

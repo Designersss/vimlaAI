@@ -55,16 +55,36 @@ import {
   updateDirectChatPrivacy,
 } from "../services/api";
 import {
+  PendingOperatorInvocationGoneError,
   loadConversationPlaintexts,
-  savePlaintext,
+  loadPendingSends,
+  type StoredOperatorIntent,
+  type StoredOperatorOutputDraft,
+  type StoredOperatorOutputLink,
 } from "../services/crypto-store";
 import {
   boundDirectChatContextBefore,
   prepareDirectChatContext,
 } from "../services/context";
+import {
+  pageUnlocksHistoryBootstrap,
+  shouldContinueDeepHistoryBootstrap,
+} from "../services/history-bootstrap";
 import { decodeDirectPlaintext, encodeDirectPlaintext, type DirectPlaintextPayload } from "../services/payload";
 import { subscribeDirectChatEvents } from "../services/realtime";
-import { decryptMessage, encryptForDevices, ensureLocalDevice } from "../services/session";
+import { RatchetLockLostError } from "../services/ratchet-coordination";
+import {
+  decryptMessageWithStatus,
+  encryptForDevices,
+  ensureLocalDevice,
+  finalizePendingOperatorInvocation,
+  finalizePendingSend,
+  loadPendingOperatorInvocations,
+  recoverPendingSends,
+  stagePendingOperatorInvocationDelivery,
+  withPendingOperatorInvocationLock,
+  type PendingOperatorInvocation,
+} from "../services/session";
 import { useChatWorkspace, usePrepareChatDevice } from "../../chat/components/ChatWorkspace/ChatWorkspaceProvider";
 import { ChatConversationHeader } from "../../chat/components/ChatWorkspace/ChatConversationHeader";
 import { ChatDetailStatus } from "../../chat/components/ChatWorkspace/ChatDetailStatus";
@@ -73,7 +93,10 @@ import styles from "./DirectChatWorkspace.module.scss";
 interface DecryptedRow {
   message: DirectMessageView;
   payload: DirectPlaintextPayload | null;
+  needsBootstrap: boolean;
 }
+
+const OPERATOR_RECOVERY_REQUEST_TIMEOUT_MS = 20_000;
 
 type ActiveMentionQuery = {
   start: number;
@@ -155,18 +178,29 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
           return;
         }
         await prepareDevice();
-        const detail = await fetchDirectConversation(conversationId);
         const device = await ensureLocalDevice();
-        const page = await fetchDirectMessages(conversationId, device.deviceId);
-        const decrypted = await decryptPage(detail, page.items);
+        await recoverPendingSends({
+          conversationId,
+          localDevice: device,
+        });
+        const detail = await fetchDirectConversation(conversationId);
+        const page = await fetchLatestDecryptedPage(
+          detail,
+          device.deviceId,
+        );
         if (cancelled) return;
         setUserId(currentUser.id);
         setConversation(detail);
-        setRows(decrypted.reverse());
+        setRows(page.decrypted.reverse());
         setNextCursor(page.nextCursor);
         setBoot("ready");
-        const read = await markDirectChatRead(conversationId);
-        if (!cancelled) workspace.updateDirectConversation(read);
+        const read =
+          detail.unreadCount > 0
+            ? await markDirectChatRead(conversationId)
+            : detail;
+        if (!cancelled) {
+          workspace.updateDirectConversation(read);
+        }
       } catch (caught: unknown) {
         if (cancelled) return;
         if (caught instanceof AuthRequiredError) {
@@ -199,13 +233,25 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         try {
           const detail = await fetchDirectConversation(conversationId);
           const device = await ensureLocalDevice();
-          const page = await fetchDirectMessages(conversationId, device.deviceId);
-          const decrypted = await decryptPage(detail, page.items);
+          const page = await fetchLatestDecryptedPage(
+            detail,
+            device.deviceId,
+          );
           if (cancelled) break;
           setConversation(detail);
-          setRows((current) => mergeDecryptedRows(current, decrypted.reverse()));
-          const read = await markDirectChatRead(conversationId);
-          if (!cancelled) workspace.updateDirectConversation(read);
+          setRows((current) =>
+            mergeDecryptedRows(
+              current,
+              page.decrypted.reverse(),
+            ),
+          );
+          const read =
+            detail.unreadCount > 0
+              ? await markDirectChatRead(conversationId)
+              : detail;
+          if (!cancelled) {
+            workspace.updateDirectConversation(read);
+          }
         } catch (caught: unknown) {
           if (cancelled) break;
           if (caught instanceof AuthRequiredError) {
@@ -345,12 +391,6 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
     }
   }
 
-  async function reloadConversation(): Promise<DirectConversationView> {
-    const detail = await fetchDirectConversation(conversationId);
-    setConversation(detail);
-    return detail;
-  }
-
   async function onSend(): Promise<void> {
     const text = draftRef.current;
     if (sendingLockRef.current || sending || operatorBusy || text.trim().length === 0 || !conversation || !userId) return;
@@ -392,120 +432,253 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
     }
   }
 
-  async function invokeOperator(text: string, mentions: MessageMentionInput[]): Promise<void> {
-    if (!conversation || !userId) return;
-    setOperatorBusy(true);
-    setError(null);
-    try {
-      const localPlaintexts = await loadConversationPlaintexts(
-        conversation.id,
-        256,
-      ).catch(() => []);
-      const preparedContext = prepareDirectChatContext({
-        actorUserId: userId,
-        privacy: conversation.privacy,
-        query: text,
-        messages: localPlaintexts,
-      });
-      const sourceMessage = await postEncrypted(
-        "OPERATOR_INVOKE",
-        encodeDirectPlaintext({
-          type: "invoke",
-          text,
-          contextShared: preparedContext.contextBundle.messages.length > 0,
-          peerIncluded: preparedContext.peerIncluded,
-        }),
-        mentions,
-      );
-      if (!sourceMessage) return;
-      const sourceBoundContext = boundDirectChatContextBefore(
-        preparedContext,
-        sourceMessage.createdAt,
-        userId,
-      );
-      const run = await createOperatorRun({
-        clientRequestId: crypto.randomUUID(),
-        content: text,
-        invocationScope: "DIRECT_CHAT",
-        directConversationId: conversation.id,
-        directSourceMessageId: sourceMessage.id,
-        ...(sourceBoundContext.contextBundle.messages.length > 0
-          ? { contextBundle: sourceBoundContext.contextBundle }
-          : {}),
-      });
-      setPendingRun(run);
-      if (run.publicMessage) {
-        await postEncrypted("OPERATOR_RESPONSE", encodeDirectPlaintext({ type: "response", text: run.publicMessage, runId: run.id }));
-      }
-      const action = run.actions[0];
-      if (action) {
-        await postEncrypted(
-          "OPERATOR_ACTION",
-          encodeDirectPlaintext({ type: "action", title: action.title, detail: action.detail, status: action.status }),
-        );
-      }
-    } catch (caught: unknown) {
-      if (caught instanceof AuthRequiredError) {
-        router.replace("/sign-in");
-        return;
-      }
-      setError(caught instanceof OperatorRequestError || caught instanceof DirectChatsApiError ? caught.code : "internal_error");
-    } finally {
-      setOperatorBusy(false);
-    }
-  }
-
   async function postEncrypted(
     kind: DirectMessageKind,
     plaintext: string,
     mentions: MessageMentionInput[] = [],
+    options: {
+      clientMessageId?: string;
+      operatorIntent?: StoredOperatorIntent;
+    } = {},
   ): Promise<DirectMessageView | null> {
-    if (!conversation || !userId) return null;
+    if (!userId) return null;
     setSending(true);
     try {
-      const latest = await reloadConversation();
-      const device = await ensureLocalDevice();
-      const envelopes = await encryptForDevices({
-        conversationId: latest.id,
-        senderUserId: userId,
+      const result = await sendEncryptedDirectMessage({
+        conversationId,
+        userId,
         kind,
         plaintext,
-        devices: latest.devices,
         mentions,
+        ...options,
       });
-      const created = await sendDirectMessage(latest.id, {
-        clientMessageId: crypto.randomUUID(),
-        senderDeviceId: device.deviceId,
-        kind,
-        envelopes,
-        mentions,
-      });
-      await savePlaintext({
-        conversationId: latest.id,
-        messageId: created.id,
-        text: plaintext,
-        kind,
-        senderUserId: userId,
-        createdAt: created.createdAt,
-      });
-      setRows((current) => mergeDecryptedRows(current, [
-        { message: created, payload: decodeDirectPlaintext(kind, plaintext) },
-      ]));
-      return created;
+      setConversation(result.latest);
+      setRows((current) =>
+        mergeDecryptedRows(current, [
+          {
+            message: result.message,
+            payload: decodeDirectPlaintext(
+              kind,
+              plaintext,
+            ),
+            needsBootstrap: false,
+          },
+        ]),
+      );
+      if (kind === "HUMAN") {
+        void recoverDirectOperatorInvocations({
+          conversationId,
+          actorUserId: userId,
+        })
+          .then((deliveries) => {
+            for (const delivery of deliveries) {
+              applyOperatorDelivery(delivery);
+            }
+          })
+          .catch(() => undefined);
+      }
+      return result.message;
     } catch (caught: unknown) {
-      setError(caught instanceof DirectChatsApiError ? caught.code : "internal_error");
+      setError(
+        caught instanceof DirectChatsApiError
+          ? caught.code
+          : "internal_error",
+      );
       return null;
     } finally {
       setSending(false);
     }
   }
 
+  function applyOperatorDelivery(
+    delivery: OperatorInvocationDeliveryResult,
+  ): void {
+    setError(null);
+    setPendingRun(delivery.run);
+    if (delivery.latest) {
+      setConversation(delivery.latest);
+    }
+    if (delivery.rows.length > 0) {
+      setRows((current) =>
+        mergeDecryptedRows(
+          current,
+          delivery.rows,
+        ),
+      );
+    }
+  }
+
+  async function invokeOperator(
+    text: string,
+    mentions: MessageMentionInput[],
+  ): Promise<void> {
+    if (!conversation || !userId) return;
+    setOperatorBusy(true);
+    setError(null);
+    try {
+      const localPlaintexts =
+        await loadConversationPlaintexts(
+          conversation.id,
+          256,
+        ).catch(() => []);
+      const preparedContext = prepareDirectChatContext({
+        actorUserId: userId,
+        privacy: conversation.privacy,
+        query: text,
+        messages: localPlaintexts,
+      });
+      const sourceClientMessageId =
+        crypto.randomUUID();
+      const operatorIntent: StoredOperatorIntent = {
+        clientRequestId: crypto.randomUUID(),
+        content: text,
+        contextBundle: preparedContext.contextBundle,
+      };
+      const sourceMessage = await postEncrypted(
+        "OPERATOR_INVOKE",
+        encodeDirectPlaintext({
+          type: "invoke",
+          text,
+          contextShared:
+            preparedContext.contextBundle.messages.length >
+            0,
+          peerIncluded: preparedContext.peerIncluded,
+        }),
+        mentions,
+        {
+          clientMessageId: sourceClientMessageId,
+          operatorIntent,
+        },
+      );
+
+      if (sourceMessage) {
+        const delivery =
+          await resumeDirectOperatorInvocation(
+            {
+              pendingClientMessageId:
+                sourceMessage.clientMessageId,
+              conversationId: conversation.id,
+              senderDeviceId:
+                sourceMessage.senderDeviceId,
+              messageId: sourceMessage.id,
+              messageCreatedAt:
+                sourceMessage.createdAt,
+              intent: operatorIntent,
+            },
+            userId,
+          );
+        if (delivery) {
+          applyOperatorDelivery(delivery);
+        }
+        return;
+      }
+
+      const recovered =
+        await recoverDirectOperatorInvocations({
+          conversationId: conversation.id,
+          actorUserId: userId,
+          pendingClientMessageId:
+            sourceClientMessageId,
+        });
+      for (const delivery of recovered) {
+        applyOperatorDelivery(delivery);
+      }
+    } catch (caught: unknown) {
+      if (caught instanceof AuthRequiredError) {
+        router.replace("/sign-in");
+        return;
+      }
+      setError(
+        caught instanceof OperatorRequestError ||
+          caught instanceof DirectChatsApiError
+          ? caught.code
+          : "internal_error",
+      );
+    } finally {
+      setOperatorBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    if (boot !== "ready" || !userId) return;
+    let cancelled = false;
+    void recoverDirectOperatorInvocations({
+      conversationId,
+      actorUserId: userId,
+    })
+      .then((deliveries) => {
+        if (cancelled) return;
+        for (const delivery of deliveries) {
+          setPendingRun(delivery.run);
+          if (delivery.latest) {
+            setConversation(delivery.latest);
+          }
+          if (delivery.rows.length > 0) {
+            setRows((current) =>
+              mergeDecryptedRows(
+                current,
+                delivery.rows,
+              ),
+            );
+          }
+        }
+      })
+      .catch((caught: unknown) => {
+        if (cancelled) return;
+        if (caught instanceof AuthRequiredError) {
+          router.replace("/sign-in");
+          return;
+        }
+        setError(
+          caught instanceof OperatorRequestError ||
+            caught instanceof DirectChatsApiError
+            ? caught.code
+            : "internal_error",
+        );
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [boot, conversationId, router, userId]);
+
   async function onLoadOlder(): Promise<void> {
     if (!nextCursor || !conversation) return;
     const device = await ensureLocalDevice();
-    const page = await fetchDirectMessages(conversationId, device.deviceId, nextCursor);
-    const decrypted = await decryptPage(conversation, page.items);
-    setRows((current) => mergeDecryptedRows(current, decrypted.reverse()));
+    const page = await fetchDirectMessages(
+      conversationId,
+      device.deviceId,
+      nextCursor,
+    );
+    const missingSenderDeviceIds = new Set(
+      rows
+        .filter((row) => row.needsBootstrap)
+        .map((row) => row.message.senderDeviceId),
+    );
+    if (
+      pageUnlocksHistoryBootstrap({
+        missingSenderDeviceIds,
+        messages: page.items,
+      })
+    ) {
+      const decrypted = await decryptPage(
+        conversation,
+        [
+          ...page.items,
+          ...rows.map((row) => row.message),
+        ],
+      );
+      setRows(
+        mergeDecryptedRows([], decrypted),
+      );
+    } else {
+      const decrypted = await decryptPage(
+        conversation,
+        page.items,
+      );
+      setRows((current) =>
+        mergeDecryptedRows(current, decrypted),
+      );
+    }
     setNextCursor(page.nextCursor);
   }
 
@@ -545,7 +718,15 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
           </Text>
         </div>
         <div className={styles.messages}>
-          {nextCursor ? <Button variant="ghost" onClick={() => void onLoadOlder()}>{t("direct.loadOlder")}</Button> : null}
+          {nextCursor ? (
+            <Button
+              variant="ghost"
+              data-testid="direct-chat-load-older"
+              onClick={() => void onLoadOlder()}
+            >
+              {t("direct.loadOlder")}
+            </Button>
+          ) : null}
           {error ? <Alert variant="error">{tx(t, apiErrorMessageKey(error))}</Alert> : null}
           {rows.length === 0 ? <EmptyState title={t("direct.empty")} /> : null}
           {rows.map((row) => (
@@ -556,20 +737,68 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
               run={pendingRun}
               processing={operatorBusy}
               onConfirm={() => {
+                if (!userId) return;
                 setOperatorBusy(true);
                 void (async () => {
-                  const token = pendingRun.confirmationToken ?? (await fetchOperatorRun(pendingRun.id)).confirmationToken;
-                  if (!token) throw new OperatorRequestError("operator_confirmation_invalid");
-                  const run = await confirmOperatorRun(pendingRun.id, token);
+                  const run =
+                    await confirmDirectOperatorRun({
+                      conversationId,
+                      runId: pendingRun.id,
+                    });
                   setPendingRun(run);
-                  if (run.publicMessage) {
-                    await postEncrypted("OPERATOR_RESPONSE", encodeDirectPlaintext({ type: "response", text: run.publicMessage, runId: run.id }));
+                  const recovered =
+                    await recoverDirectOperatorInvocations({
+                      conversationId,
+                      actorUserId: userId,
+                      runId: run.id,
+                    });
+                  for (const delivery of recovered) {
+                    applyOperatorDelivery(delivery);
                   }
                 })()
-                  .catch((caught: unknown) => setError(caught instanceof OperatorRequestError ? caught.code : "internal_error"))
-                  .finally(() => setOperatorBusy(false));
+                  .catch((caught: unknown) =>
+                    setError(
+                      caught instanceof
+                        OperatorRequestError
+                        ? caught.code
+                        : "internal_error",
+                    ),
+                  )
+                  .finally(() =>
+                    setOperatorBusy(false),
+                  );
               }}
-              onCancel={() => { void cancelOperatorRun(pendingRun.id).then(setPendingRun); }}
+              onCancel={() => {
+                if (!userId) return;
+                setOperatorBusy(true);
+                void (async () => {
+                  const run =
+                    await cancelOperatorRun(
+                      pendingRun.id,
+                    );
+                  setPendingRun(run);
+                  const recovered =
+                    await recoverDirectOperatorInvocations({
+                      conversationId,
+                      actorUserId: userId,
+                      runId: run.id,
+                    });
+                  for (const delivery of recovered) {
+                    applyOperatorDelivery(delivery);
+                  }
+                })()
+                  .catch((caught: unknown) =>
+                    setError(
+                      caught instanceof
+                        OperatorRequestError
+                        ? caught.code
+                        : "internal_error",
+                    ),
+                  )
+                  .finally(() =>
+                    setOperatorBusy(false),
+                  );
+              }}
             />
           ) : null}
         </div>
@@ -602,17 +831,591 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
   );
 }
 
-async function decryptPage(detail: DirectConversationView, items: DirectMessageView[]): Promise<DecryptedRow[]> {
-  const map = new Map(detail.devices.map((device) => [device.id, device.identityEd25519Public]));
-  const decrypted: DecryptedRow[] = [];
-  for (const message of items) {
-    const senderPublic = map.get(message.senderDeviceId) ?? message.envelope?.x3dhInit?.identityEd25519Public ?? "";
-    const payload = senderPublic
-      ? await decryptMessage({ conversationId: detail.id, message, senderIdentityEd25519Public: senderPublic })
-      : null;
-    decrypted.push({ message, payload });
+async function sendEncryptedDirectMessage(input: {
+  conversationId: string;
+  userId: string;
+  kind: DirectMessageKind;
+  plaintext: string;
+  mentions?: MessageMentionInput[];
+  clientMessageId?: string;
+  operatorIntent?: StoredOperatorIntent;
+  operatorOutput?: StoredOperatorOutputLink;
+  recoverPending?: boolean;
+}): Promise<{
+  message: DirectMessageView;
+  latest: DirectConversationView;
+}> {
+  const device = await ensureLocalDevice();
+  if (input.recoverPending !== false) {
+    const recovery = await recoverPendingSends({
+      conversationId: input.conversationId,
+      localDevice: device,
+    });
+    if (recovery === "LOCAL_DEVICE_INACTIVE") {
+      throw new DirectChatsApiError(
+        "direct_chat_device_revoked",
+      );
+    }
+    if (recovery === "RECIPIENT_DEVICE_MISSING") {
+      throw new DirectChatsApiError(
+        "direct_chat_recipient_device_missing",
+      );
+    }
   }
-  return decrypted;
+  const latest = await fetchDirectConversation(
+    input.conversationId,
+  );
+  const pending = await encryptForDevices({
+    conversationId: latest.id,
+    senderUserId: input.userId,
+    clientMessageId:
+      input.clientMessageId ?? crypto.randomUUID(),
+    localDevice: device,
+    kind: input.kind,
+    plaintext: input.plaintext,
+    devices: latest.devices,
+    mentions: input.mentions ?? [],
+    ...(input.operatorIntent
+      ? { operatorIntent: input.operatorIntent }
+      : {}),
+    ...(input.operatorOutput
+      ? { operatorOutput: input.operatorOutput }
+      : {}),
+  });
+  const message = await sendDirectMessage(latest.id, {
+    clientMessageId: pending.clientMessageId,
+    senderDeviceId: pending.senderDeviceId,
+    kind: pending.kind,
+    envelopes: pending.envelopes,
+    mentions: pending.mentions,
+  });
+  await finalizePendingSend(pending, message);
+  return { message, latest };
+}
+
+interface OperatorInvocationDeliveryResult {
+  run: OperatorRunView;
+  latest: DirectConversationView | null;
+  rows: DecryptedRow[];
+}
+
+async function confirmDirectOperatorRun(input: {
+  conversationId: string;
+  runId: string;
+}): Promise<OperatorRunView> {
+  const device = await ensureLocalDevice();
+  const attempt = async (): Promise<OperatorRunView> => {
+    const fresh = await fetchOperatorRun(input.runId);
+    const token = fresh.confirmationToken;
+    if (!token) {
+      throw new OperatorRequestError(
+        "operator_confirmation_invalid",
+      );
+    }
+    return confirmOperatorRun(input.runId, token);
+  };
+
+  return withPendingOperatorInvocationLock(
+    {
+      conversationId: input.conversationId,
+      localDeviceId: device.deviceId,
+    },
+    async () => {
+      try {
+        return await attempt();
+      } catch (caught: unknown) {
+        if (
+          !(caught instanceof OperatorRequestError) ||
+          caught.code !==
+            "operator_confirmation_invalid"
+        ) {
+          throw caught;
+        }
+        return attempt();
+      }
+    },
+  );
+}
+
+async function recoverDirectOperatorInvocations(input: {
+  conversationId: string;
+  actorUserId: string;
+  pendingClientMessageId?: string;
+  runId?: string;
+}): Promise<OperatorInvocationDeliveryResult[]> {
+  const device = await ensureLocalDevice();
+  const recovery = await recoverPendingSends({
+    conversationId: input.conversationId,
+    localDevice: device,
+  });
+  if (recovery === "LOCAL_DEVICE_INACTIVE") {
+    throw new DirectChatsApiError(
+      "direct_chat_device_revoked",
+    );
+  }
+  if (recovery === "RECIPIENT_DEVICE_MISSING") {
+    throw new DirectChatsApiError(
+      "direct_chat_recipient_device_missing",
+    );
+  }
+
+  const invocations =
+    await loadPendingOperatorInvocations({
+      conversationId: input.conversationId,
+      localDeviceId: device.deviceId,
+    });
+  const selected = invocations.filter(
+    (invocation) =>
+      (input.pendingClientMessageId === undefined ||
+        invocation.pendingClientMessageId ===
+          input.pendingClientMessageId) &&
+      (input.runId === undefined ||
+        invocation.intent.delivery?.runId ===
+          input.runId),
+  );
+  const deliveries: OperatorInvocationDeliveryResult[] =
+    [];
+  for (const invocation of selected) {
+    const delivery =
+      await resumeDirectOperatorInvocation(
+        invocation,
+        input.actorUserId,
+      );
+    if (delivery) {
+      deliveries.push(delivery);
+    }
+  }
+  return deliveries;
+}
+
+async function resumeDirectOperatorInvocation(
+  invocation: PendingOperatorInvocation,
+  actorUserId: string,
+): Promise<OperatorInvocationDeliveryResult | null> {
+  try {
+    return await withPendingOperatorInvocationLock(
+    {
+      conversationId: invocation.conversationId,
+      localDeviceId: invocation.senderDeviceId,
+    },
+    async () => {
+      const pending =
+        await loadPendingOperatorInvocations({
+          conversationId: invocation.conversationId,
+          localDeviceId: invocation.senderDeviceId,
+        });
+      let current = pending.find(
+        (candidate) =>
+          candidate.pendingClientMessageId ===
+          invocation.pendingClientMessageId,
+      );
+      if (!current) {
+        return null;
+      }
+
+      if (current.intent.delivery) {
+        const pendingRows = await loadPendingSends(
+          current.conversationId,
+          current.senderDeviceId,
+        );
+        const hasStagedOutput = pendingRows.some(
+          (row) =>
+            row.operatorOutput?.parentClientMessageId ===
+            current!.pendingClientMessageId,
+        );
+        if (hasStagedOutput) {
+          const localDevice = await ensureLocalDevice();
+          await recoverPendingSends({
+            conversationId: current.conversationId,
+            localDevice,
+          });
+          const refreshed =
+            await loadPendingOperatorInvocations({
+              conversationId: current.conversationId,
+              localDeviceId: current.senderDeviceId,
+            });
+          current = refreshed.find(
+            (candidate) =>
+              candidate.pendingClientMessageId ===
+              invocation.pendingClientMessageId,
+          );
+          if (!current) {
+            return null;
+          }
+        }
+      }
+
+      let run: OperatorRunView;
+      if (current.intent.delivery) {
+        run = await withOperatorRecoveryTimeout(
+          fetchOperatorRun(
+            current.intent.delivery.runId,
+          ),
+        );
+      } else {
+        const prepared = {
+          contextBundle: current.intent.contextBundle,
+          ownIncluded: false,
+          peerIncluded: false,
+        };
+        const sourceBoundContext =
+          boundDirectChatContextBefore(
+            prepared,
+            current.messageCreatedAt,
+            actorUserId,
+          );
+        run = await withOperatorRecoveryTimeout(
+          createOperatorRun({
+            clientRequestId:
+              current.intent.clientRequestId,
+            content: current.intent.content,
+            invocationScope: "DIRECT_CHAT",
+            directConversationId:
+              current.conversationId,
+            directSourceMessageId:
+              current.messageId,
+            ...(sourceBoundContext.contextBundle.messages
+              .length > 0
+              ? {
+                  contextBundle:
+                    sourceBoundContext.contextBundle,
+                }
+              : {}),
+          }),
+        );
+      }
+
+      if (isTransientOperatorRun(run)) {
+        throw new Error(
+          "Direct Chat operator run is still in progress",
+        );
+      }
+
+      const stagedIntent =
+        await stagePendingOperatorInvocationDelivery({
+          pendingClientMessageId:
+            current.pendingClientMessageId,
+          runId: run.id,
+          runStatus: run.status,
+          runUpdatedAt: run.updatedAt,
+          outputs: operatorDeliveryOutputs(run),
+        });
+
+      if (
+        stagedIntent.delivery &&
+        (stagedIntent.delivery.runUpdatedAt !==
+          run.updatedAt ||
+          stagedIntent.delivery.runStatus !== run.status)
+      ) {
+        run = await withOperatorRecoveryTimeout(
+          fetchOperatorRun(
+            stagedIntent.delivery.runId,
+          ),
+        );
+        if (isTransientOperatorRun(run)) {
+          throw new Error(
+            "Direct Chat operator run is still in progress",
+          );
+        }
+        await stagePendingOperatorInvocationDelivery({
+          pendingClientMessageId:
+            current.pendingClientMessageId,
+          runId: run.id,
+          runStatus: run.status,
+          runUpdatedAt: run.updatedAt,
+          outputs: operatorDeliveryOutputs(run),
+        });
+      }
+
+      const staged =
+        await loadPendingOperatorInvocations({
+          conversationId: invocation.conversationId,
+          localDeviceId: invocation.senderDeviceId,
+        });
+      current = staged.find(
+        (candidate) =>
+          candidate.pendingClientMessageId ===
+          invocation.pendingClientMessageId,
+      );
+      if (!current?.intent.delivery) {
+        return null;
+      }
+
+      const delivery = current.intent.delivery;
+      let latest: DirectConversationView | null = null;
+      const rows: DecryptedRow[] = [];
+      for (const output of delivery.outputs) {
+        if (output.delivered) continue;
+        const result = await sendEncryptedDirectMessage({
+          conversationId: current.conversationId,
+          userId: actorUserId,
+          kind: output.kind,
+          plaintext: output.plaintext,
+          clientMessageId: output.clientMessageId,
+          operatorOutput: {
+            parentClientMessageId:
+              current.pendingClientMessageId,
+            outputId: output.id,
+          },
+          recoverPending: false,
+        });
+        latest = result.latest;
+        rows.push({
+          message: result.message,
+          payload: decodeDirectPlaintext(
+            output.kind,
+            output.plaintext,
+          ),
+          needsBootstrap: false,
+        });
+      }
+
+      const afterDelivery =
+        await loadPendingOperatorInvocations({
+          conversationId: current.conversationId,
+          localDeviceId: current.senderDeviceId,
+        });
+      const remaining = afterDelivery.find(
+        (candidate) =>
+          candidate.pendingClientMessageId ===
+          current!.pendingClientMessageId,
+      );
+      if (
+        remaining?.intent.delivery &&
+        remaining.intent.delivery.outputs.every(
+          (output) => output.delivered,
+        )
+      ) {
+        await finalizePendingOperatorInvocation(
+          current.pendingClientMessageId,
+        );
+      }
+
+      return { run, latest, rows };
+    },
+    );
+  } catch (caught: unknown) {
+    if (
+      caught instanceof
+        PendingOperatorInvocationGoneError ||
+      caught instanceof RatchetLockLostError
+    ) {
+      return null;
+    }
+    throw caught;
+  }
+}
+
+function operatorDeliveryOutputs(
+  run: OperatorRunView,
+): StoredOperatorOutputDraft[] {
+  const outputs: StoredOperatorOutputDraft[] = [];
+  if (run.publicMessage) {
+    outputs.push({
+      id: JSON.stringify([
+        "response",
+        run.publicMessage,
+      ]),
+      kind: "OPERATOR_RESPONSE",
+      plaintext: encodeDirectPlaintext({
+        type: "response",
+        text: run.publicMessage,
+        runId: run.id,
+      }),
+    });
+  }
+  run.actions.forEach((action, index) => {
+    outputs.push({
+      id: JSON.stringify([
+        "action",
+        index,
+        action.kind,
+        action.operation,
+        action.title,
+        action.detail,
+        action.status,
+      ]),
+      kind: "OPERATOR_ACTION",
+      plaintext: encodeDirectPlaintext({
+        type: "action",
+        title: action.title,
+        detail: action.detail,
+        status: action.status,
+      }),
+    });
+  });
+  return outputs;
+}
+
+function isTransientOperatorRun(
+  run: OperatorRunView,
+): boolean {
+  return (
+    run.status === "CREATED" ||
+    run.status === "PLANNING" ||
+    run.status === "EXECUTING"
+  );
+}
+
+async function withOperatorRecoveryTimeout<T>(
+  operation: Promise<T>,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return await Promise.race([
+      operation,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(
+          () =>
+            reject(
+              new Error(
+                "Direct Chat operator recovery timed out",
+              ),
+            ),
+          OPERATOR_RECOVERY_REQUEST_TIMEOUT_MS,
+        );
+      }),
+    ]);
+  } finally {
+    if (timer !== null) {
+      clearTimeout(timer);
+    }
+  }
+}
+
+async function fetchLatestDecryptedPage(
+  detail: DirectConversationView,
+  deviceId: string,
+): Promise<{
+  decrypted: DecryptedRow[];
+  nextCursor: string | null;
+}> {
+  const first = await fetchDirectMessages(
+    detail.id,
+    deviceId,
+  );
+  const initial = await decryptPage(detail, first.items);
+  const missingSenders = new Set(
+    initial
+      .filter((row) => row.needsBootstrap)
+      .map((row) => row.message.senderDeviceId),
+  );
+  if (missingSenders.size === 0 || !first.nextCursor) {
+    return {
+      decrypted: initial,
+      nextCursor: first.nextCursor,
+    };
+  }
+
+  const localDeviceCreatedAt = detail.devices.find(
+    (device) => device.id === deviceId,
+  )?.createdAt;
+  const localDeviceCreatedAtMs = localDeviceCreatedAt
+    ? Date.parse(localDeviceCreatedAt)
+    : Number.NEGATIVE_INFINITY;
+  const allItems = [...first.items];
+  let cursor: string | null = first.nextCursor;
+  let backfillPages = 0;
+
+  while (
+    shouldContinueDeepHistoryBootstrap({
+      cursor,
+      missingSenderCount: missingSenders.size,
+      backfillPages,
+    })
+  ) {
+    const pageCursor = cursor;
+    if (!pageCursor) break;
+    backfillPages += 1;
+    const older = await fetchDirectMessages(
+      detail.id,
+      deviceId,
+      pageCursor,
+    );
+    allItems.push(...older.items);
+    for (const message of older.items) {
+      if (
+        message.envelope?.x3dhInit &&
+        missingSenders.has(message.senderDeviceId)
+      ) {
+        missingSenders.delete(message.senderDeviceId);
+      }
+    }
+    cursor = older.nextCursor;
+
+    const oldest = older.items.at(-1);
+    if (
+      oldest &&
+      Number.isFinite(localDeviceCreatedAtMs) &&
+      Date.parse(oldest.createdAt) < localDeviceCreatedAtMs &&
+      missingSenders.size > 0
+    ) {
+      break;
+    }
+  }
+
+  const decryptedAll = await decryptPage(
+    detail,
+    allItems,
+  );
+  const firstIds = new Set(
+    first.items.map((message) => message.id),
+  );
+  return {
+    decrypted: decryptedAll.filter((row) =>
+      firstIds.has(row.message.id),
+    ),
+    nextCursor: first.nextCursor,
+  };
+}
+
+async function decryptPage(detail: DirectConversationView, items: DirectMessageView[]): Promise<DecryptedRow[]> {
+  const identityByDevice = new Map(
+    detail.devices.map((device) => [
+      device.id,
+      device.identityEd25519Public,
+    ]),
+  );
+  const byId = new Map<string, DecryptedRow>();
+  const chronological = [...items].sort(
+    (left, right) =>
+      new Date(left.createdAt).getTime() -
+        new Date(right.createdAt).getTime() ||
+      left.id.localeCompare(right.id),
+  );
+  for (const message of chronological) {
+    const initIdentity =
+      message.envelope?.x3dhInit
+        ?.identityEd25519Public;
+    if (initIdentity) {
+      identityByDevice.set(
+        message.senderDeviceId,
+        initIdentity,
+      );
+    }
+    const senderPublic =
+      identityByDevice.get(message.senderDeviceId);
+    const result = await decryptMessageWithStatus({
+      conversationId: detail.id,
+      message,
+      ...(senderPublic
+        ? { senderIdentityEd25519Public: senderPublic }
+        : {}),
+    });
+    byId.set(message.id, {
+      message,
+      payload: result.payload,
+      needsBootstrap: result.needsBootstrap,
+    });
+  }
+  return items.map(
+    (message) =>
+      byId.get(message.id) ?? {
+        message,
+        payload: null,
+        needsBootstrap: false,
+      },
+  );
 }
 
 function DirectRow({ row, self, youLabel, peerName }: { row: DecryptedRow; self: boolean; youLabel: string; peerName: string }): ReactElement {
