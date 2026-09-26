@@ -143,6 +143,13 @@ export class PendingSendConflictError extends Error {
   }
 }
 
+export class PendingOperatorInvocationGoneError extends Error {
+  constructor() {
+    super("Pending operator invocation was already completed");
+    this.name = "PendingOperatorInvocationGoneError";
+  }
+}
+
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     let blocked = false;
@@ -562,8 +569,14 @@ export async function stagePendingOperatorDelivery(input: {
       const parent = request.result as
         | StoredPendingSend
         | undefined;
+      if (!parent) {
+        failure =
+          new PendingOperatorInvocationGoneError();
+        tx.abort();
+        return;
+      }
       if (
-        !parent?.operatorIntent ||
+        !parent.operatorIntent ||
         !parent.committedMessageId ||
         !parent.committedCreatedAt
       ) {
