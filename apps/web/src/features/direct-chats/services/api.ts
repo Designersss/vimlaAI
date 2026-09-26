@@ -18,11 +18,6 @@ import {
   type SendDirectMessage,
   type UpdateDirectChatPrivacy,
 } from "@vimla/contracts";
-import {
-  prekeyStatusResponseSchema,
-  type PrekeyStatusResponse,
-  type ReplenishOneTimePrekeys,
-} from "@vimla/contracts/direct-chats";
 import { publicWebConfig } from "../../../shared/config/public-env";
 import { AuthRequiredError } from "../../auth/services/current-user";
 
@@ -154,47 +149,10 @@ export async function fetchMyCryptoDevices(fetchImpl: typeof fetch = fetch): Pro
   return page.items;
 }
 
-export async function fetchPrekeyStatus(
-  deviceId: string,
-  fetchImpl: typeof fetch = fetch,
-): Promise<PrekeyStatusResponse> {
+export async function fetchPrekeyBundles(userId: string, fetchImpl: typeof fetch = fetch): Promise<PrekeyBundlesResponse> {
   return request(
-    `/v1/direct-chats/devices/${deviceId}/prekeys/status`,
+    `/v1/direct-chats/users/${userId}/prekeys`,
     {},
-    (payload) => prekeyStatusResponseSchema.parse(payload),
-    fetchImpl,
-  );
-}
-
-export async function replenishOneTimePrekeys(
-  deviceId: string,
-  input: ReplenishOneTimePrekeys,
-  fetchImpl: typeof fetch = fetch,
-): Promise<PrekeyStatusResponse> {
-  return request(
-    `/v1/direct-chats/devices/${deviceId}/prekeys/replenish`,
-    {
-      method: "POST",
-      headers: jsonHeaders(),
-      body: JSON.stringify(input),
-    },
-    (payload) => prekeyStatusResponseSchema.parse(payload),
-    fetchImpl,
-  );
-}
-
-export async function fetchPrekeyBundles(
-  userId: string,
-  deviceId: string,
-  fetchImpl: typeof fetch = fetch,
-): Promise<PrekeyBundlesResponse> {
-  return request(
-    `/v1/direct-chats/users/${userId}/prekeys/claim`,
-    {
-      method: "POST",
-      headers: jsonHeaders(),
-      body: JSON.stringify({ deviceId }),
-    },
     (payload) => prekeyBundlesResponseSchema.parse(payload),
     fetchImpl,
   );
