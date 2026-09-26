@@ -37,6 +37,7 @@ import {
   assertLocalDeviceBootstrapLease,
   commitDecryptedRatchet,
   commitOutboundRatchets,
+  completePendingOperatorIntent,
   completePendingSend,
   encodeIdentity,
   identityFromMaterial,
@@ -51,6 +52,7 @@ import {
   withRatchetSessionLocks,
   type OutboundRatchetUpdate,
   type StoredDeviceMaterial,
+  type StoredOperatorIntent,
   type StoredPendingSend,
   type StoredPlaintext,
 } from "./crypto-store";
@@ -163,6 +165,7 @@ export async function encryptForDevices(input: {
   plaintext: string;
   devices: CryptoDeviceView[];
   mentions?: MessageMentionInput[];
+  operatorIntent?: StoredOperatorIntent;
 }): Promise<StoredPendingSend> {
   const material = input.localDevice;
   const identity = identityFromMaterial(material);
@@ -267,6 +270,9 @@ export async function encryptForDevices(input: {
       mentions: input.mentions ?? [],
       plaintext: input.plaintext,
       createdAt: new Date().toISOString(),
+      ...(input.operatorIntent
+        ? { operatorIntent: input.operatorIntent }
+        : {}),
     };
     await commitOutboundRatchets({
       conversationId: input.conversationId,
@@ -318,6 +324,13 @@ export async function recoverPendingSends(input: {
     | null = null;
   for (const stored of pending) {
     let row = stored;
+    if (
+      row.operatorIntent &&
+      row.committedMessageId &&
+      row.committedCreatedAt
+    ) {
+      continue;
+    }
     try {
       const created = await sendPendingRow(row);
       await finalizePendingSend(row, created);
@@ -393,6 +406,49 @@ export async function recoverPendingSends(input: {
   }
   return blocked ?? "RESOLVED";
     },
+  );
+}
+
+export interface PendingOperatorInvocation {
+  pendingClientMessageId: string;
+  conversationId: string;
+  senderDeviceId: string;
+  messageId: string;
+  messageCreatedAt: string;
+  intent: StoredOperatorIntent;
+}
+
+export async function loadPendingOperatorInvocations(input: {
+  conversationId: string;
+  localDeviceId: string;
+}): Promise<PendingOperatorInvocation[]> {
+  const rows = await loadPendingSends(
+    input.conversationId,
+    input.localDeviceId,
+  );
+  return rows.flatMap((row) =>
+    row.operatorIntent &&
+    row.committedMessageId &&
+    row.committedCreatedAt
+      ? [
+          {
+            pendingClientMessageId: row.clientMessageId,
+            conversationId: row.conversationId,
+            senderDeviceId: row.senderDeviceId,
+            messageId: row.committedMessageId,
+            messageCreatedAt: row.committedCreatedAt,
+            intent: row.operatorIntent,
+          },
+        ]
+      : [],
+  );
+}
+
+export async function finalizePendingOperatorInvocation(
+  pendingClientMessageId: string,
+): Promise<void> {
+  await completePendingOperatorIntent(
+    pendingClientMessageId,
   );
 }
 
