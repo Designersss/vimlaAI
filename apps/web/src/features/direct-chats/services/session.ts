@@ -42,9 +42,11 @@ import {
   encodeIdentity,
   identityFromMaterial,
   loadDeviceMaterial,
+  loadPendingSend,
   loadPendingSends,
   loadPlaintext,
   loadRatchet,
+  pendingSendRevision,
   saveDeviceMaterial,
   stagePendingOperatorDelivery,
   withLocalDeviceBootstrapLock,
@@ -52,10 +54,12 @@ import {
   withPendingSendRecoveryLock,
   withRatchetSessionLock,
   withRatchetSessionLocks,
+  PendingSendConflictError,
   type OutboundRatchetUpdate,
   type StoredDeviceMaterial,
   type StoredOperatorDelivery,
   type StoredOperatorIntent,
+  type StoredOperatorOutputDraft,
   type StoredOperatorOutputLink,
   type StoredPendingSend,
   type StoredPlaintext,
@@ -171,6 +175,7 @@ export async function encryptForDevices(input: {
   mentions?: MessageMentionInput[];
   operatorIntent?: StoredOperatorIntent;
   operatorOutput?: StoredOperatorOutputLink;
+  expectedPendingRevision?: number | null;
 }): Promise<StoredPendingSend> {
   const material = input.localDevice;
   const identity = identityFromMaterial(material);
@@ -265,7 +270,13 @@ export async function encryptForDevices(input: {
       });
     }
 
+    const expectedPendingRevision =
+      input.expectedPendingRevision ?? null;
     const pending: StoredPendingSend = {
+      revision:
+        expectedPendingRevision === null
+          ? 1
+          : expectedPendingRevision + 1,
       conversationId: input.conversationId,
       clientMessageId: input.clientMessageId,
       senderUserId: input.senderUserId,
@@ -287,6 +298,7 @@ export async function encryptForDevices(input: {
       localDeviceId: material.deviceId,
       updates,
       pendingSend: pending,
+      expectedPendingRevision,
     });
     return pending;
   });
@@ -398,22 +410,37 @@ export async function recoverPendingSends(input: {
         continue;
       }
 
-      row = await encryptForDevices({
-        conversationId: row.conversationId,
-        senderUserId: row.senderUserId,
-        clientMessageId: row.clientMessageId,
-        localDevice: input.localDevice,
-        kind: row.kind,
-        plaintext: row.plaintext,
-        devices: detail.devices,
-        mentions: row.mentions,
-        ...(row.operatorIntent
-          ? { operatorIntent: row.operatorIntent }
-          : {}),
-        ...(row.operatorOutput
-          ? { operatorOutput: row.operatorOutput }
-          : {}),
-      });
+      try {
+        row = await encryptForDevices({
+          conversationId: row.conversationId,
+          senderUserId: row.senderUserId,
+          clientMessageId: row.clientMessageId,
+          localDevice: input.localDevice,
+          kind: row.kind,
+          plaintext: row.plaintext,
+          devices: detail.devices,
+          mentions: row.mentions,
+          expectedPendingRevision:
+            pendingSendRevision(row),
+          ...(row.operatorIntent
+            ? { operatorIntent: row.operatorIntent }
+            : {}),
+          ...(row.operatorOutput
+            ? { operatorOutput: row.operatorOutput }
+            : {}),
+        });
+      } catch (caught: unknown) {
+        if (!(caught instanceof PendingSendConflictError)) {
+          throw caught;
+        }
+        const current = await loadPendingSend(
+          row.clientMessageId,
+        );
+        if (!current) {
+          continue;
+        }
+        row = current;
+      }
       const created = await sendPendingRow(row);
       await finalizePendingSend(row, created);
     }
@@ -469,13 +496,19 @@ export async function finalizePendingOperatorInvocation(
 export async function stagePendingOperatorInvocationDelivery(
   input: {
     pendingClientMessageId: string;
-    delivery: StoredOperatorDelivery;
+    runId: string;
+    runStatus: StoredOperatorDelivery["runStatus"];
+    runUpdatedAt: string;
+    outputs: readonly StoredOperatorOutputDraft[];
   },
 ): Promise<StoredOperatorIntent> {
   return stagePendingOperatorDelivery({
     parentClientMessageId:
       input.pendingClientMessageId,
-    delivery: input.delivery,
+    runId: input.runId,
+    runStatus: input.runStatus,
+    runUpdatedAt: input.runUpdatedAt,
+    outputs: input.outputs,
   });
 }
 
