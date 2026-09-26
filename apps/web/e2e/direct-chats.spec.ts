@@ -1052,6 +1052,126 @@ test.describe("Secure Direct Chats", () => {
       );
     }
 
+    const invokeCountBeforeOperatorTakeover =
+      await alicePage
+        .getByTestId("direct-message-invoke")
+        .count();
+    const responseCountBeforeOperatorTakeover =
+      await alicePage
+        .getByTestId("direct-message-response")
+        .count();
+    await installHeldOperatorRunResponse(
+      alicePage,
+    );
+    await composer.fill(
+      "@vimla проверь takeover operator lease",
+    );
+    await alicePage
+      .getByTestId("chat-composer-send")
+      .click();
+    await expect.poll(
+      () => isOperatorRunResponseHeld(alicePage),
+    ).toBe(true);
+
+    const operatorLocalDeviceId =
+      await readLocalDeviceId(alicePage);
+    const operatorLockKey = [
+      "vimla-pending-operator-intent",
+      directConversationId(recoveryDirectUrl),
+      operatorLocalDeviceId,
+    ].join(":");
+    const shortenedOperatorLease =
+      await shortenActiveRatchetLease(
+        alicePage,
+        operatorLockKey,
+        {
+          expiresInMs: 1_200,
+          hardExpiresInMs: 3_500,
+        },
+      );
+    await alicePage.waitForTimeout(1_800);
+    const renewedOperatorLease =
+      await readRatchetLease(
+        alicePage,
+        operatorLockKey,
+      );
+    expect(renewedOperatorLease.owner).toBe(
+      shortenedOperatorLease.owner,
+    );
+    expect(
+      renewedOperatorLease.expiresAt,
+    ).toBeGreaterThan(
+      shortenedOperatorLease.initialExpiresAt,
+    );
+    expect(
+      renewedOperatorLease.expiresAt,
+    ).toBeLessThanOrEqual(
+      shortenedOperatorLease.hardExpiresAt,
+    );
+
+    await alicePage.waitForTimeout(2_000);
+    await aliceRecoveryPage.reload();
+    await expect(
+      aliceRecoveryPage.getByTestId(
+        "direct-chat-shell",
+      ),
+    ).toBeVisible({ timeout: 20_000 });
+    await expect(
+      aliceRecoveryPage.getByTestId(
+        "direct-message-invoke",
+      ),
+    ).toHaveCount(
+      invokeCountBeforeOperatorTakeover + 1,
+      { timeout: 20_000 },
+    );
+    await expect(
+      aliceRecoveryPage.getByTestId(
+        "direct-message-response",
+      ),
+    ).toHaveCount(
+      responseCountBeforeOperatorTakeover + 1,
+      { timeout: 20_000 },
+    );
+    await expect.poll(
+      () =>
+        readPendingOperatorIntentCount(
+          aliceRecoveryPage,
+        ),
+    ).toBe(0);
+
+    await releaseHeldOperatorRunResponse(
+      alicePage,
+    );
+    await expect(
+      alicePage.getByTestId("chat-composer-send"),
+    ).toBeEnabled({ timeout: 20_000 });
+    await alicePage.waitForTimeout(500);
+    await expect(
+      alicePage.getByTestId(
+        "direct-message-response",
+      ),
+    ).toHaveCount(
+      responseCountBeforeOperatorTakeover + 1,
+      { timeout: 20_000 },
+    );
+    for (const page of [
+      nikitaPage,
+      nikitaSecondPage,
+    ]) {
+      await expect(
+        page.getByTestId("direct-message-invoke"),
+      ).toHaveCount(
+        invokeCountBeforeOperatorTakeover + 1,
+        { timeout: 20_000 },
+      );
+      await expect(
+        page.getByTestId("direct-message-response"),
+      ).toHaveCount(
+        responseCountBeforeOperatorTakeover + 1,
+        { timeout: 20_000 },
+      );
+    }
+
     const invokeCountBeforeLateResponse =
       await alicePage
         .getByTestId("direct-message-invoke")
@@ -1223,6 +1343,90 @@ async function releaseHeldPrekeyFetch(
       globalThis.fetch =
         state.__vimlaOriginalPrekeyFetch;
     }
+  });
+}
+
+async function installHeldOperatorRunResponse(
+  page: Page,
+): Promise<void> {
+  await page.evaluate(() => {
+    const state = globalThis as typeof globalThis & {
+      __vimlaOriginalOperatorFetch?: typeof fetch;
+      __vimlaOperatorResponseHeld?: boolean;
+      __vimlaReleaseOperatorResponse?: () => void;
+    };
+    if (state.__vimlaOriginalOperatorFetch) {
+      throw new Error(
+        "Held Operator response fixture is already installed",
+      );
+    }
+    const originalFetch = globalThis.fetch;
+    let release: (() => void) | null = null;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    state.__vimlaOriginalOperatorFetch =
+      originalFetch;
+    state.__vimlaOperatorResponseHeld = false;
+    state.__vimlaReleaseOperatorResponse = () => {
+      release?.();
+    };
+
+    globalThis.fetch = async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ): Promise<Response> => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
+      if (
+        !state.__vimlaOperatorResponseHeld &&
+        init?.method?.toUpperCase() === "POST" &&
+        /\/v1\/operator\/runs$/.test(url)
+      ) {
+        const response = await originalFetch(
+          input,
+          init,
+        );
+        state.__vimlaOperatorResponseHeld = true;
+        await gate;
+        return response;
+      }
+      return originalFetch(input, init);
+    };
+  });
+}
+
+async function isOperatorRunResponseHeld(
+  page: Page,
+): Promise<boolean> {
+  return page.evaluate(() => {
+    const state = globalThis as typeof globalThis & {
+      __vimlaOperatorResponseHeld?: boolean;
+    };
+    return state.__vimlaOperatorResponseHeld === true;
+  });
+}
+
+async function releaseHeldOperatorRunResponse(
+  page: Page,
+): Promise<void> {
+  await page.evaluate(() => {
+    const state = globalThis as typeof globalThis & {
+      __vimlaOriginalOperatorFetch?: typeof fetch;
+      __vimlaReleaseOperatorResponse?: () => void;
+    };
+    state.__vimlaReleaseOperatorResponse?.();
+    if (state.__vimlaOriginalOperatorFetch) {
+      globalThis.fetch =
+        state.__vimlaOriginalOperatorFetch;
+    }
+    delete state.__vimlaOriginalOperatorFetch;
+    delete state.__vimlaOperatorResponseHeld;
+    delete state.__vimlaReleaseOperatorResponse;
   });
 }
 
