@@ -481,9 +481,9 @@ export async function completePendingSend(input: {
               input.pending.clientMessageId,
         );
         if (!parent) {
-          failure =
-            new PendingOperatorInvocationGoneError();
-          tx.abort();
+          pendingStore.delete(
+            input.pending.clientMessageId,
+          );
           return;
         }
         if (!delivery || !output) {
@@ -491,6 +491,12 @@ export async function completePendingSend(input: {
             "Pending operator output parent is inconsistent",
           );
           tx.abort();
+          return;
+        }
+        if (output.delivered) {
+          pendingStore.delete(
+            input.pending.clientMessageId,
+          );
           return;
         }
         pendingStore.put(
@@ -843,7 +849,17 @@ export async function commitOutboundRatchets(input: {
     const pendingRequest = pendingSends.get(
       input.pendingSend.clientMessageId,
     );
+    const operatorOutputLink =
+      input.pendingSend.operatorOutput;
+    const operatorParentRequest =
+      operatorOutputLink
+        ? pendingSends.get(
+            operatorOutputLink.parentClientMessageId,
+          )
+        : null;
     let pendingReady = false;
+    let operatorParentReady =
+      operatorParentRequest === null;
 
     const reads = input.updates.map((update) => {
       const key = ratchetStorageKey(
@@ -869,6 +885,7 @@ export async function commitOutboundRatchets(input: {
     const apply = (): void => {
       if (
         !pendingReady ||
+        !operatorParentReady ||
         reads.some(
           (read) =>
             !read.currentReady ||
@@ -893,6 +910,27 @@ export async function commitOutboundRatchets(input: {
             input.expectedPendingRevision
         ) {
           throw new PendingSendConflictError();
+        }
+
+        if (
+          operatorOutputLink &&
+          operatorParentRequest
+        ) {
+          const parent =
+            operatorParentRequest.result as
+              | StoredPendingSend
+              | undefined;
+          const output =
+            parent?.operatorIntent?.delivery?.outputs.find(
+              (candidate) =>
+                candidate.id ===
+                  operatorOutputLink.outputId &&
+                candidate.clientMessageId ===
+                  input.pendingSend.clientMessageId,
+            );
+          if (!parent || !output || output.delivered) {
+            throw new PendingOperatorInvocationGoneError();
+          }
         }
 
         for (const read of reads) {
@@ -952,6 +990,20 @@ export async function commitOutboundRatchets(input: {
         new Error("Pending send read failed");
       tx.abort();
     };
+    if (operatorParentRequest) {
+      operatorParentRequest.onsuccess = () => {
+        operatorParentReady = true;
+        apply();
+      };
+      operatorParentRequest.onerror = () => {
+        failure =
+          operatorParentRequest.error ??
+          new Error(
+            "Pending operator output parent read failed",
+          );
+        tx.abort();
+      };
+    }
 
     for (const read of reads) {
       read.current.onsuccess = () => {
