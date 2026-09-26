@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactElement } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactElement } from "react";
 import { useRouter } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import type {
@@ -56,6 +56,7 @@ import {
 } from "../services/api";
 import {
   loadConversationPlaintexts,
+  type StoredOperatorIntent,
 } from "../services/crypto-store";
 import {
   boundDirectChatContextBefore,
@@ -67,8 +68,11 @@ import {
   decryptMessage,
   encryptForDevices,
   ensureLocalDevice,
+  finalizePendingOperatorInvocation,
   finalizePendingSend,
+  loadPendingOperatorInvocations,
   recoverPendingSends,
+  type PendingOperatorInvocation,
 } from "../services/session";
 import { useChatWorkspace, usePrepareChatDevice } from "../../chat/components/ChatWorkspace/ChatWorkspaceProvider";
 import { ChatConversationHeader } from "../../chat/components/ChatWorkspace/ChatConversationHeader";
@@ -259,6 +263,49 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
   }, [boot, conversationId, router, workspace]);
 
   useEffect(() => {
+    if (boot !== "ready" || !userId) return;
+    let cancelled = false;
+    void (async () => {
+      const device = await ensureLocalDevice();
+      const invocations =
+        await loadPendingOperatorInvocations({
+          conversationId,
+          localDeviceId: device.deviceId,
+        });
+      for (const invocation of invocations) {
+        const run = await resumeDirectOperatorInvocation(
+          invocation,
+          userId,
+        );
+        if (cancelled) return;
+        setPendingRun(run);
+        await publishOperatorRunMessages(run);
+      }
+    })().catch((caught: unknown) => {
+      if (cancelled) return;
+      if (caught instanceof AuthRequiredError) {
+        router.replace("/sign-in");
+        return;
+      }
+      setError(
+        caught instanceof OperatorRequestError ||
+          caught instanceof DirectChatsApiError
+          ? caught.code
+          : "internal_error",
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    boot,
+    conversationId,
+    publishOperatorRunMessages,
+    router,
+    userId,
+  ]);
+
+  useEffect(() => {
     if (!activeMention) return;
     let cancelled = false;
     const timer = window.setTimeout(() => {
@@ -373,12 +420,6 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
     }
   }
 
-  async function reloadConversation(): Promise<DirectConversationView> {
-    const detail = await fetchDirectConversation(conversationId);
-    setConversation(detail);
-    return detail;
-  }
-
   async function onSend(): Promise<void> {
     const text = draftRef.current;
     if (sendingLockRef.current || sending || operatorBusy || text.trim().length === 0 || !conversation || !userId) return;
@@ -420,75 +461,16 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
     }
   }
 
-  async function invokeOperator(text: string, mentions: MessageMentionInput[]): Promise<void> {
-    if (!conversation || !userId) return;
-    setOperatorBusy(true);
-    setError(null);
-    try {
-      const localPlaintexts = await loadConversationPlaintexts(
-        conversation.id,
-        256,
-      ).catch(() => []);
-      const preparedContext = prepareDirectChatContext({
-        actorUserId: userId,
-        privacy: conversation.privacy,
-        query: text,
-        messages: localPlaintexts,
-      });
-      const sourceMessage = await postEncrypted(
-        "OPERATOR_INVOKE",
-        encodeDirectPlaintext({
-          type: "invoke",
-          text,
-          contextShared: preparedContext.contextBundle.messages.length > 0,
-          peerIncluded: preparedContext.peerIncluded,
-        }),
-        mentions,
-      );
-      if (!sourceMessage) return;
-      const sourceBoundContext = boundDirectChatContextBefore(
-        preparedContext,
-        sourceMessage.createdAt,
-        userId,
-      );
-      const run = await createOperatorRun({
-        clientRequestId: crypto.randomUUID(),
-        content: text,
-        invocationScope: "DIRECT_CHAT",
-        directConversationId: conversation.id,
-        directSourceMessageId: sourceMessage.id,
-        ...(sourceBoundContext.contextBundle.messages.length > 0
-          ? { contextBundle: sourceBoundContext.contextBundle }
-          : {}),
-      });
-      setPendingRun(run);
-      if (run.publicMessage) {
-        await postEncrypted("OPERATOR_RESPONSE", encodeDirectPlaintext({ type: "response", text: run.publicMessage, runId: run.id }));
-      }
-      const action = run.actions[0];
-      if (action) {
-        await postEncrypted(
-          "OPERATOR_ACTION",
-          encodeDirectPlaintext({ type: "action", title: action.title, detail: action.detail, status: action.status }),
-        );
-      }
-    } catch (caught: unknown) {
-      if (caught instanceof AuthRequiredError) {
-        router.replace("/sign-in");
-        return;
-      }
-      setError(caught instanceof OperatorRequestError || caught instanceof DirectChatsApiError ? caught.code : "internal_error");
-    } finally {
-      setOperatorBusy(false);
-    }
-  }
-
-  async function postEncrypted(
+  const postEncrypted = useCallback(async (
     kind: DirectMessageKind,
     plaintext: string,
     mentions: MessageMentionInput[] = [],
-  ): Promise<DirectMessageView | null> {
-    if (!conversation || !userId) return null;
+    options: {
+      clientMessageId?: string;
+      operatorIntent?: StoredOperatorIntent;
+    } = {},
+  ): Promise<DirectMessageView | null> => {
+    if (!userId) return null;
     setSending(true);
     try {
       const device = await ensureLocalDevice();
@@ -506,16 +488,23 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
           "direct_chat_recipient_device_missing",
         );
       }
-      const latest = await reloadConversation();
+      const latest = await fetchDirectConversation(
+        conversationId,
+      );
+      setConversation(latest);
       const pending = await encryptForDevices({
         conversationId: latest.id,
         senderUserId: userId,
-        clientMessageId: crypto.randomUUID(),
+        clientMessageId:
+          options.clientMessageId ?? crypto.randomUUID(),
         localDevice: device,
         kind,
         plaintext,
         devices: latest.devices,
         mentions,
+        ...(options.operatorIntent
+          ? { operatorIntent: options.operatorIntent }
+          : {}),
       });
       const created = await sendDirectMessage(latest.id, {
         clientMessageId: pending.clientMessageId,
@@ -534,6 +523,89 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
       return null;
     } finally {
       setSending(false);
+    }
+  }, [conversationId, userId]);
+
+  const publishOperatorRunMessages = useCallback(async (
+    run: OperatorRunView,
+  ): Promise<void> => {
+    if (run.publicMessage) {
+      await postEncrypted(
+        "OPERATOR_RESPONSE",
+        encodeDirectPlaintext({
+          type: "response",
+          text: run.publicMessage,
+          runId: run.id,
+        }),
+      );
+    }
+    const action = run.actions[0];
+    if (action) {
+      await postEncrypted(
+        "OPERATOR_ACTION",
+        encodeDirectPlaintext({
+          type: "action",
+          title: action.title,
+          detail: action.detail,
+          status: action.status,
+        }),
+      );
+    }
+  }, [postEncrypted]);
+
+  async function invokeOperator(text: string, mentions: MessageMentionInput[]): Promise<void> {
+    if (!conversation || !userId) return;
+    setOperatorBusy(true);
+    setError(null);
+    try {
+      const localPlaintexts = await loadConversationPlaintexts(
+        conversation.id,
+        256,
+      ).catch(() => []);
+      const preparedContext = prepareDirectChatContext({
+        actorUserId: userId,
+        privacy: conversation.privacy,
+        query: text,
+        messages: localPlaintexts,
+      });
+      const operatorIntent: StoredOperatorIntent = {
+        clientRequestId: crypto.randomUUID(),
+        content: text,
+        contextBundle: preparedContext.contextBundle,
+      };
+      const sourceMessage = await postEncrypted(
+        "OPERATOR_INVOKE",
+        encodeDirectPlaintext({
+          type: "invoke",
+          text,
+          contextShared: preparedContext.contextBundle.messages.length > 0,
+          peerIncluded: preparedContext.peerIncluded,
+        }),
+        mentions,
+        { operatorIntent },
+      );
+      if (!sourceMessage) return;
+      const run = await resumeDirectOperatorInvocation(
+        {
+          pendingClientMessageId: sourceMessage.clientMessageId,
+          conversationId: conversation.id,
+          senderDeviceId: sourceMessage.senderDeviceId,
+          messageId: sourceMessage.id,
+          messageCreatedAt: sourceMessage.createdAt,
+          intent: operatorIntent,
+        },
+        userId,
+      );
+      setPendingRun(run);
+      await publishOperatorRunMessages(run);
+    } catch (caught: unknown) {
+      if (caught instanceof AuthRequiredError) {
+        router.replace("/sign-in");
+        return;
+      }
+      setError(caught instanceof OperatorRequestError || caught instanceof DirectChatsApiError ? caught.code : "internal_error");
+    } finally {
+      setOperatorBusy(false);
     }
   }
 
@@ -645,6 +717,36 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
       </div>
     </div>
   );
+}
+
+async function resumeDirectOperatorInvocation(
+  invocation: PendingOperatorInvocation,
+  actorUserId: string,
+): Promise<OperatorRunView> {
+  const prepared = {
+    contextBundle: invocation.intent.contextBundle,
+    ownIncluded: false,
+    peerIncluded: false,
+  };
+  const sourceBoundContext = boundDirectChatContextBefore(
+    prepared,
+    invocation.messageCreatedAt,
+    actorUserId,
+  );
+  const run = await createOperatorRun({
+    clientRequestId: invocation.intent.clientRequestId,
+    content: invocation.intent.content,
+    invocationScope: "DIRECT_CHAT",
+    directConversationId: invocation.conversationId,
+    directSourceMessageId: invocation.messageId,
+    ...(sourceBoundContext.contextBundle.messages.length > 0
+      ? { contextBundle: sourceBoundContext.contextBundle }
+      : {}),
+  });
+  await finalizePendingOperatorInvocation(
+    invocation.pendingClientMessageId,
+  );
+  return run;
 }
 
 async function fetchLatestDecryptedPage(
