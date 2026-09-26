@@ -65,7 +65,7 @@ import {
 import { decodeDirectPlaintext, encodeDirectPlaintext, type DirectPlaintextPayload } from "../services/payload";
 import { subscribeDirectChatEvents } from "../services/realtime";
 import {
-  decryptMessage,
+  decryptMessageWithStatus,
   encryptForDevices,
   ensureLocalDevice,
   finalizePendingOperatorInvocation,
@@ -82,7 +82,10 @@ import styles from "./DirectChatWorkspace.module.scss";
 interface DecryptedRow {
   message: DirectMessageView;
   payload: DirectPlaintextPayload | null;
+  needsBootstrap: boolean;
 }
+
+const DEEP_HISTORY_BOOTSTRAP_MAX_PAGES = 8;
 
 type ActiveMentionQuery = {
   start: number;
@@ -472,7 +475,11 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
       });
       await finalizePendingSend(pending, created);
       setRows((current) => mergeDecryptedRows(current, [
-        { message: created, payload: decodeDirectPlaintext(kind, plaintext) },
+        {
+          message: created,
+          payload: decodeDirectPlaintext(kind, plaintext),
+          needsBootstrap: false,
+        },
       ]));
       return created;
     } catch (caught: unknown) {
@@ -763,12 +770,7 @@ async function fetchLatestDecryptedPage(
   const initial = await decryptPage(detail, first.items);
   const missingSenders = new Set(
     initial
-      .filter(
-        (row) =>
-          row.payload === null &&
-          row.message.envelope !== null &&
-          row.message.envelope.x3dhInit === null,
-      )
+      .filter((row) => row.needsBootstrap)
       .map((row) => row.message.senderDeviceId),
   );
   if (missingSenders.size === 0 || !first.nextCursor) {
@@ -786,8 +788,14 @@ async function fetchLatestDecryptedPage(
     : Number.NEGATIVE_INFINITY;
   const allItems = [...first.items];
   let cursor: string | null = first.nextCursor;
+  let backfillPages = 0;
 
-  while (cursor && missingSenders.size > 0) {
+  while (
+    cursor &&
+    missingSenders.size > 0 &&
+    backfillPages < DEEP_HISTORY_BOOTSTRAP_MAX_PAGES
+  ) {
+    backfillPages += 1;
     const older = await fetchDirectMessages(
       detail.id,
       deviceId,
@@ -856,18 +864,26 @@ async function decryptPage(detail: DirectConversationView, items: DirectMessageV
     }
     const senderPublic =
       identityByDevice.get(message.senderDeviceId);
-    const payload = await decryptMessage({
+    const result = await decryptMessageWithStatus({
       conversationId: detail.id,
       message,
       ...(senderPublic
         ? { senderIdentityEd25519Public: senderPublic }
         : {}),
     });
-    byId.set(message.id, { message, payload });
+    byId.set(message.id, {
+      message,
+      payload: result.payload,
+      needsBootstrap: result.needsBootstrap,
+    });
   }
   return items.map(
     (message) =>
-      byId.get(message.id) ?? { message, payload: null },
+      byId.get(message.id) ?? {
+        message,
+        payload: null,
+        needsBootstrap: false,
+      },
   );
 }
 
