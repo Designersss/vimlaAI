@@ -1086,15 +1086,14 @@ async function resumeDirectOperatorInvocation(
             "Direct Chat operator run is still in progress",
           );
         }
-        stagedIntent =
-          await stagePendingOperatorInvocationDelivery({
-            pendingClientMessageId:
-              current.pendingClientMessageId,
-            runId: run.id,
-            runStatus: run.status,
-            runUpdatedAt: run.updatedAt,
-            outputs: operatorDeliveryOutputs(run),
-          });
+        await stagePendingOperatorInvocationDelivery({
+          pendingClientMessageId:
+            current.pendingClientMessageId,
+          runId: run.id,
+          runStatus: run.status,
+          runUpdatedAt: run.updatedAt,
+          outputs: operatorDeliveryOutputs(run),
+        });
       }
 
       const staged =
