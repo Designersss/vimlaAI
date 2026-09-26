@@ -658,6 +658,23 @@ export async function withPendingSendRecoveryLock<T>(
   );
 }
 
+export async function withPendingOperatorIntentLock<T>(
+  input: {
+    conversationId: string;
+    localDeviceId: string;
+  },
+  fn: () => Promise<T>,
+): Promise<T> {
+  return withCoordinationLock(
+    [
+      "vimla-pending-operator-intent",
+      input.conversationId,
+      input.localDeviceId,
+    ].join(":"),
+    () => fn(),
+  );
+}
+
 export async function loadPlaintext(
   messageId: string,
 ): Promise<StoredPlaintext | null> {
