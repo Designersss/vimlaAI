@@ -2,6 +2,7 @@ import type {
   DirectMessageKind,
   MessageMentionInput,
   OperatorContextBundle,
+  OperatorRunStatus,
   WireEnvelopeDto,
 } from "@vimla/contracts";
 import {
@@ -30,7 +31,10 @@ const PLAINTEXT_CONVERSATION_TIME_INDEX = "conversation-created-at";
 const RATCHET_LOCK_LEASE_MS = 5_000;
 const RATCHET_LOCK_HEARTBEAT_MS = 1_000;
 const RATCHET_LOCK_ACQUIRE_TIMEOUT_MS = 30_000;
-const RATCHET_LOCK_MAX_HOLD_MS = 300_000;
+const RATCHET_SESSION_LOCK_MAX_HOLD_MS = 90_000;
+const LOCAL_DEVICE_LOCK_MAX_HOLD_MS = 60_000;
+const PENDING_SEND_RECOVERY_LOCK_MAX_HOLD_MS = 120_000;
+const PENDING_OPERATOR_LOCK_MAX_HOLD_MS = 120_000;
 const RATCHET_LOCK_POLL_MS = 40;
 const LOCAL_DEVICE_LOCK_KEY = "vimla-local-device-bootstrap";
 
@@ -70,15 +74,22 @@ export interface StoredPlaintext {
 }
 
 export interface StoredOperatorOutput {
-  id: "response" | "action";
+  id: string;
   clientMessageId: string;
   kind: DirectMessageKind;
   plaintext: string;
   delivered: boolean;
 }
 
+export interface StoredOperatorOutputDraft {
+  kind: DirectMessageKind;
+  plaintext: string;
+}
+
 export interface StoredOperatorDelivery {
   runId: string;
+  runStatus: OperatorRunStatus;
+  runUpdatedAt: string;
   outputs: StoredOperatorOutput[];
 }
 
@@ -95,6 +106,7 @@ export interface StoredOperatorOutputLink {
 }
 
 export interface StoredPendingSend {
+  revision?: number;
   conversationId: string;
   clientMessageId: string;
   senderUserId: string;
@@ -121,6 +133,13 @@ export interface CoordinationLease {
   key: string;
   owner: string;
   fence: number;
+}
+
+export class PendingSendConflictError extends Error {
+  constructor() {
+    super("Pending send changed concurrently");
+    this.name = "PendingSendConflictError";
+  }
 }
 
 function openDb(): Promise<IDBDatabase> {
@@ -341,6 +360,28 @@ export async function loadPendingSends(
     );
 }
 
+export async function loadPendingSend(
+  clientMessageId: string,
+): Promise<StoredPendingSend | null> {
+  const value = await withStore<
+    StoredPendingSend | undefined
+  >(
+    "pendingSends",
+    "readonly",
+    (store) => store.get(clientMessageId),
+  );
+  return value ?? null;
+}
+
+export function pendingSendRevision(
+  pending: StoredPendingSend,
+): number {
+  return Number.isSafeInteger(pending.revision) &&
+    (pending.revision ?? 0) >= 0
+    ? (pending.revision ?? 0)
+    : 0;
+}
+
 export async function completePendingSend(input: {
   pending: StoredPendingSend;
   messageId: string;
@@ -494,7 +535,10 @@ export async function completePendingSend(input: {
 
 export async function stagePendingOperatorDelivery(input: {
   parentClientMessageId: string;
-  delivery: StoredOperatorDelivery;
+  runId: string;
+  runStatus: OperatorRunStatus;
+  runUpdatedAt: string;
+  outputs: readonly StoredOperatorOutputDraft[];
 }): Promise<StoredOperatorIntent> {
   const db = await openDb();
   return new Promise((resolve, reject) => {
@@ -524,20 +568,43 @@ export async function stagePendingOperatorDelivery(input: {
         return;
       }
       const existing = parent.operatorIntent.delivery;
-      if (existing) {
-        if (existing.runId !== input.delivery.runId) {
-          failure = new Error(
-            "Pending operator delivery run does not match",
-          );
-          tx.abort();
-          return;
-        }
-        result = parent.operatorIntent;
+      if (existing && existing.runId !== input.runId) {
+        failure = new Error(
+          "Pending operator delivery run does not match",
+        );
+        tx.abort();
         return;
       }
+
+      const outputs = [...(existing?.outputs ?? [])];
+      for (const draft of input.outputs) {
+        if (
+          outputs.some(
+            (output) =>
+              output.kind === draft.kind &&
+              output.plaintext === draft.plaintext,
+          )
+        ) {
+          continue;
+        }
+        outputs.push({
+          id: crypto.randomUUID(),
+          clientMessageId: crypto.randomUUID(),
+          kind: draft.kind,
+          plaintext: draft.plaintext,
+          delivered: false,
+        });
+      }
+
+      const delivery: StoredOperatorDelivery = {
+        runId: input.runId,
+        runStatus: input.runStatus,
+        runUpdatedAt: input.runUpdatedAt,
+        outputs,
+      };
       result = {
         ...parent.operatorIntent,
-        delivery: input.delivery,
+        delivery,
       };
       store.put(
         {
@@ -609,7 +676,8 @@ export async function completePendingOperatorIntent(
         !delivery ||
         delivery.outputs.some(
           (output) => !output.delivered,
-        )
+        ) ||
+        !isTerminalOperatorStatus(delivery.runStatus)
       ) {
         failure = new Error(
           "Pending operator delivery is incomplete",
@@ -702,6 +770,7 @@ export async function commitOutboundRatchets(input: {
   localDeviceId: string;
   updates: OutboundRatchetUpdate[];
   pendingSend: StoredPendingSend;
+  expectedPendingRevision: number | null;
 }): Promise<void> {
   if (input.updates.length === 0) {
     throw new Error("Outbound ratchet update set is empty");
@@ -721,6 +790,11 @@ export async function commitOutboundRatchets(input: {
       "readwrite",
     );
     const ratchets = tx.objectStore("ratchets");
+    const pendingSends = tx.objectStore("pendingSends");
+    const pendingRequest = pendingSends.get(
+      input.pendingSend.clientMessageId,
+    );
+    let pendingReady = false;
     const reads = input.updates.map((update) => {
       const key = ratchetStorageKey(
         input.conversationId,
@@ -744,6 +818,7 @@ export async function commitOutboundRatchets(input: {
 
     const apply = (): void => {
       if (
+        !pendingReady ||
         reads.some(
           (read) =>
             !read.currentReady || !read.legacyReady,
@@ -752,7 +827,33 @@ export async function commitOutboundRatchets(input: {
         return;
       }
       try {
-        for (const read of reads) {
+        const currentPending =
+          pendingRequest.result as
+            | StoredPendingSend
+            | undefined;
+        if (input.expectedPendingRevision === null) {
+          if (currentPending !== undefined) {
+            throw new PendingSendConflictError();
+          }
+        } else if (
+          currentPending === undefined ||
+          pendingSendRevision(currentPending) !==
+            input.expectedPendingRevision
+        ) {
+          throw new PendingSendConflictError();
+        }
+        pendingRequest.onsuccess = () => {
+      pendingReady = true;
+      apply();
+    };
+    pendingRequest.onerror = () => {
+      failure =
+        pendingRequest.error ??
+        new Error("Pending send read failed");
+      tx.abort();
+    };
+
+    for (const read of reads) {
           const useLegacy =
             read.current.result === undefined &&
             read.legacy.result !== undefined;
@@ -782,7 +883,7 @@ export async function commitOutboundRatchets(input: {
             ratchets.delete(read.legacyKey);
           }
         }
-        tx.objectStore("pendingSends").put(
+        pendingSends.put(
           input.pendingSend,
           input.pendingSend.clientMessageId,
         );
@@ -870,6 +971,7 @@ export async function withRatchetSessionLock<T>(
   return withCoordinationLock(
     ratchetLockKey(input),
     fn,
+    { maxHoldMs: RATCHET_SESSION_LOCK_MAX_HOLD_MS },
   );
 }
 
@@ -888,6 +990,7 @@ export async function withRatchetSessionLocks<T>(
     return withCoordinationLock(
       key,
       () => acquire(index + 1),
+      { maxHoldMs: RATCHET_SESSION_LOCK_MAX_HOLD_MS },
     );
   };
   return acquire(0);
@@ -899,6 +1002,7 @@ export async function withLocalDeviceBootstrapLock<T>(
   return withCoordinationLock(
     LOCAL_DEVICE_LOCK_KEY,
     fn,
+    { maxHoldMs: LOCAL_DEVICE_LOCK_MAX_HOLD_MS },
   );
 }
 
@@ -916,6 +1020,10 @@ export async function withPendingSendRecoveryLock<T>(
       input.localDeviceId,
     ].join(":"),
     fn,
+    {
+      maxHoldMs:
+        PENDING_SEND_RECOVERY_LOCK_MAX_HOLD_MS,
+    },
   );
 }
 
@@ -933,6 +1041,10 @@ export async function withPendingOperatorIntentLock<T>(
       input.localDeviceId,
     ].join(":"),
     () => fn(),
+    {
+      maxHoldMs:
+        PENDING_OPERATOR_LOCK_MAX_HOLD_MS,
+    },
   );
 }
 
@@ -1141,9 +1253,14 @@ async function commitRatchet(input: {
 async function withCoordinationLock<T>(
   key: string,
   fn: (lease: CoordinationLease) => Promise<T>,
+  options: { maxHoldMs: number },
 ): Promise<T> {
   const runWithLease = (): Promise<T> =>
-    withFallbackRatchetLease(key, fn);
+    withFallbackRatchetLease(
+      key,
+      fn,
+      options.maxHoldMs,
+    );
   if (
     typeof navigator !== "undefined" &&
     navigator.locks
@@ -1163,6 +1280,7 @@ async function withCoordinationLock<T>(
 async function withFallbackRatchetLease<T>(
   key: string,
   fn: (lease: CoordinationLease) => Promise<T>,
+  maxHoldMs: number,
 ): Promise<T> {
   const owner = crypto.randomUUID();
   const deadline =
@@ -1173,6 +1291,7 @@ async function withFallbackRatchetLease<T>(
       key,
       owner,
       Date.now(),
+      maxHoldMs,
     );
     if (lease) break;
     if (Date.now() >= deadline) {
@@ -1225,6 +1344,7 @@ async function tryAcquireRatchetLease(
   key: string,
   owner: string,
   now: number,
+  maxHoldMs: number,
 ): Promise<CoordinationLease | null> {
   const fence = await mutateRatchetLease<number | null>(
     key,
@@ -1234,7 +1354,7 @@ async function tryAcquireRatchetLease(
         owner,
         now,
         leaseMs: RATCHET_LOCK_LEASE_MS,
-        maxHoldMs: RATCHET_LOCK_MAX_HOLD_MS,
+        maxHoldMs,
       });
       if (!acquired) {
         return { changed: false, value: null };
@@ -1470,6 +1590,17 @@ function markLegacyRatchetsDuringUpgrade(
       cursor.continue();
     };
   };
+}
+
+function isTerminalOperatorStatus(
+  status: OperatorRunStatus,
+): boolean {
+  return (
+    status === "SUCCEEDED" ||
+    status === "FAILED" ||
+    status === "CANCELED" ||
+    status === "PARTIAL"
+  );
 }
 
 function ratchetStorageKey(
