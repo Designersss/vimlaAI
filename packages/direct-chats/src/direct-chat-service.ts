@@ -195,10 +195,6 @@ export class DirectChatService {
     conversationId: string,
     input: SendDirectMessage,
   ): Promise<DirectMessageView | null> {
-    await this.requireMemberConversation(
-      actor.userId,
-      conversationId,
-    );
     return this.findExactReplay(
       actor.userId,
       conversationId,
@@ -486,12 +482,13 @@ export class DirectChatService {
     conversationId: string,
     input: SendDirectMessage,
   ): Promise<DirectMessageView | null> {
-    const existing = await this.db.directMessage.findUnique({
+    const existing = await this.db.directMessage.findFirst({
       where: {
-        conversationId_senderUserId_clientMessageId: {
-          conversationId,
-          senderUserId: userId,
-          clientMessageId: input.clientMessageId,
+        conversationId,
+        senderUserId: userId,
+        clientMessageId: input.clientMessageId,
+        conversation: {
+          members: { some: { userId } },
         },
       },
       include: { envelopes: true },
@@ -614,8 +611,9 @@ export class DirectChatService {
 
   private toView(conversation: ConversationRecord, actorUserId: string): DirectConversationView {
     const summary = this.toSummary(conversation, actorUserId);
-    const devices = conversation.members.flatMap((member) =>
-      member.user.cryptoDevices.filter((device) => device.revokedAt === null).map(toDeviceView),
+    const devices = conversation.members.flatMap(
+      (member) =>
+        member.user.cryptoDevices.map(toDeviceView),
     );
     return {
       ...summary,
