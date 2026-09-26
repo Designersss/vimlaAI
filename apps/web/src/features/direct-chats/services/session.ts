@@ -34,6 +34,7 @@ import {
 } from "./api";
 import {
   acknowledgeRatchetHandshake,
+  assertLocalDeviceBootstrapLease,
   commitDecryptedRatchet,
   commitOutboundRatchets,
   completePendingSend,
@@ -60,16 +61,17 @@ import {
 import { decodeDirectPlaintext, encodeDirectPlaintext, type DirectPlaintextPayload } from "./payload";
 
 export async function ensureLocalDevice(): Promise<StoredDeviceMaterial> {
-  return withLocalDeviceBootstrapLock(async () => {
+  return withLocalDeviceBootstrapLock(async (lease) => {
     const existing = await loadDeviceMaterial();
     if (existing) {
       if (existing.registrationState === "PENDING") {
+        await assertLocalDeviceBootstrapLease(lease);
         await registerStoredDevice(existing);
         const registered = {
           ...existing,
           registrationState: "REGISTERED" as const,
         };
-        await saveDeviceMaterial(registered);
+        await saveDeviceMaterial(registered, lease);
         return registered;
       }
       return existing;
@@ -102,13 +104,14 @@ export async function ensureLocalDevice(): Promise<StoredDeviceMaterial> {
         ]),
       ),
     };
-    await saveDeviceMaterial(material);
+    await saveDeviceMaterial(material, lease);
+    await assertLocalDeviceBootstrapLease(lease);
     await registerStoredDevice(material);
     const registered = {
       ...material,
       registrationState: "REGISTERED" as const,
     };
-    await saveDeviceMaterial(registered);
+    await saveDeviceMaterial(registered, lease);
     return registered;
   });
 }
@@ -552,47 +555,32 @@ export async function acknowledgeSentRatchets(input: {
 
 const RATCHET_COORDINATION_ATTEMPTS = 3;
 
+type RatchetLockScope = {
+  conversationId: string;
+  localDeviceId: string;
+  peerDeviceId: string;
+};
+
 async function withRatchetRetryScopes<T>(
-  scopes: ReadonlyArray<{
-    conversationId: string;
-    localDeviceId: string;
-    peerDeviceId: string;
-  }>,
+  scopes: ReadonlyArray<RatchetLockScope>,
   operation: () => Promise<T>,
 ): Promise<T> {
-  let lastError: Error | null = null;
-  for (
-    let attempt = 0;
-    attempt < RATCHET_COORDINATION_ATTEMPTS;
-    attempt += 1
-  ) {
-    try {
-      return await withRatchetSessionLocks(
-        scopes,
-        operation,
-      );
-    } catch (error: unknown) {
-      if (!isRatchetCoordinationError(error)) {
-        throw error;
-      }
-      lastError = error;
-    }
-  }
-  throw (
-    lastError ??
-    new RatchetStateConflictError()
+  return retryRatchetCoordination(() =>
+    withRatchetSessionLocks(scopes, operation),
   );
 }
 
-
-
 async function withRatchetRetry<T>(
-  scope: {
-    conversationId: string;
-    localDeviceId: string;
-    peerDeviceId: string;
-  },
+  scope: RatchetLockScope,
   operation: () => Promise<T>,
+): Promise<T> {
+  return retryRatchetCoordination(() =>
+    withRatchetSessionLock(scope, operation),
+  );
+}
+
+async function retryRatchetCoordination<T>(
+  attemptOperation: () => Promise<T>,
 ): Promise<T> {
   let lastError: Error | null = null;
   for (
@@ -601,10 +589,7 @@ async function withRatchetRetry<T>(
     attempt += 1
   ) {
     try {
-      return await withRatchetSessionLock(
-        scope,
-        operation,
-      );
+      return await attemptOperation();
     } catch (error: unknown) {
       if (!isRatchetCoordinationError(error)) {
         throw error;
