@@ -29,8 +29,8 @@ const DB_VERSION = 4;
 const PLAINTEXT_CONVERSATION_TIME_INDEX = "conversation-created-at";
 const RATCHET_LOCK_LEASE_MS = 5_000;
 const RATCHET_LOCK_HEARTBEAT_MS = 1_000;
-const RATCHET_LOCK_ACQUIRE_TIMEOUT_MS = 15_000;
-const RATCHET_LOCK_MAX_HOLD_MS = 60_000;
+const RATCHET_LOCK_ACQUIRE_TIMEOUT_MS = 30_000;
+const RATCHET_LOCK_MAX_HOLD_MS = 90_000;
 const RATCHET_LOCK_POLL_MS = 40;
 const LOCAL_DEVICE_LOCK_KEY = "vimla-local-device-bootstrap";
 
@@ -69,10 +69,29 @@ export interface StoredPlaintext {
   createdAt: string;
 }
 
+export interface StoredOperatorOutput {
+  id: "response" | "action";
+  clientMessageId: string;
+  kind: DirectMessageKind;
+  plaintext: string;
+  delivered: boolean;
+}
+
+export interface StoredOperatorDelivery {
+  runId: string;
+  outputs: StoredOperatorOutput[];
+}
+
 export interface StoredOperatorIntent {
   clientRequestId: string;
   content: string;
   contextBundle: OperatorContextBundle;
+  delivery?: StoredOperatorDelivery;
+}
+
+export interface StoredOperatorOutputLink {
+  parentClientMessageId: string;
+  outputId: StoredOperatorOutput["id"];
 }
 
 export interface StoredPendingSend {
@@ -86,6 +105,7 @@ export interface StoredPendingSend {
   plaintext: string;
   createdAt: string;
   operatorIntent?: StoredOperatorIntent;
+  operatorOutput?: StoredOperatorOutputLink;
   committedMessageId?: string;
   committedCreatedAt?: string;
 }
@@ -345,6 +365,7 @@ export async function completePendingSend(input: {
       input.messageId,
     );
     const pendingStore = tx.objectStore("pendingSends");
+
     if (input.pending.operatorIntent) {
       pendingStore.put(
         {
@@ -354,11 +375,68 @@ export async function completePendingSend(input: {
         } satisfies StoredPendingSend,
         input.pending.clientMessageId,
       );
+    } else if (input.pending.operatorOutput) {
+      const link = input.pending.operatorOutput;
+      const parentRequest = pendingStore.get(
+        link.parentClientMessageId,
+      );
+      parentRequest.onsuccess = () => {
+        const parent = parentRequest.result as
+          | StoredPendingSend
+          | undefined;
+        const delivery = parent?.operatorIntent?.delivery;
+        const output = delivery?.outputs.find(
+          (candidate) =>
+            candidate.id === link.outputId &&
+            candidate.clientMessageId ===
+              input.pending.clientMessageId,
+        );
+        if (!parent || !delivery || !output) {
+          failure = new Error(
+            "Pending operator output parent is missing or inconsistent",
+          );
+          tx.abort();
+          return;
+        }
+        pendingStore.put(
+          {
+            ...parent,
+            operatorIntent: {
+              ...parent.operatorIntent!,
+              delivery: {
+                ...delivery,
+                outputs: delivery.outputs.map(
+                  (candidate) =>
+                    candidate.id === link.outputId
+                      ? {
+                          ...candidate,
+                          delivered: true,
+                        }
+                      : candidate,
+                ),
+              },
+            },
+          } satisfies StoredPendingSend,
+          link.parentClientMessageId,
+        );
+        pendingStore.delete(
+          input.pending.clientMessageId,
+        );
+      };
+      parentRequest.onerror = () => {
+        failure =
+          parentRequest.error ??
+          new Error(
+            "Pending operator output parent read failed",
+          );
+        tx.abort();
+      };
     } else {
       pendingStore.delete(
         input.pending.clientMessageId,
       );
     }
+
     tx.oncomplete = () => {
       db.close();
       resolve();
@@ -379,15 +457,163 @@ export async function completePendingSend(input: {
   });
 }
 
+export async function stagePendingOperatorDelivery(input: {
+  parentClientMessageId: string;
+  delivery: StoredOperatorDelivery;
+}): Promise<StoredOperatorIntent> {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    let failure: Error | null = null;
+    let result: StoredOperatorIntent | null = null;
+    const tx = db.transaction(
+      "pendingSends",
+      "readwrite",
+    );
+    const store = tx.objectStore("pendingSends");
+    const request = store.get(
+      input.parentClientMessageId,
+    );
+    request.onsuccess = () => {
+      const parent = request.result as
+        | StoredPendingSend
+        | undefined;
+      if (
+        !parent?.operatorIntent ||
+        !parent.committedMessageId ||
+        !parent.committedCreatedAt
+      ) {
+        failure = new Error(
+          "Pending operator invocation is not committed",
+        );
+        tx.abort();
+        return;
+      }
+      const existing = parent.operatorIntent.delivery;
+      if (existing) {
+        if (existing.runId !== input.delivery.runId) {
+          failure = new Error(
+            "Pending operator delivery run does not match",
+          );
+          tx.abort();
+          return;
+        }
+        result = parent.operatorIntent;
+        return;
+      }
+      result = {
+        ...parent.operatorIntent,
+        delivery: input.delivery,
+      };
+      store.put(
+        {
+          ...parent,
+          operatorIntent: result,
+        } satisfies StoredPendingSend,
+        input.parentClientMessageId,
+      );
+    };
+    request.onerror = () => {
+      failure =
+        request.error ??
+        new Error(
+          "Pending operator invocation read failed",
+        );
+      tx.abort();
+    };
+    tx.oncomplete = () => {
+      db.close();
+      if (!result) {
+        reject(
+          new Error(
+            "Pending operator delivery was not staged",
+          ),
+        );
+        return;
+      }
+      resolve(result);
+    };
+    tx.onabort = () => {
+      db.close();
+      reject(
+        failure ??
+          tx.error ??
+          new Error(
+            "Pending operator delivery staging aborted",
+          ),
+      );
+    };
+    tx.onerror = () => {
+      failure ??=
+        tx.error ??
+        new Error(
+          "Pending operator delivery staging failed",
+        );
+    };
+  });
+}
 
 export async function completePendingOperatorIntent(
   clientMessageId: string,
 ): Promise<void> {
-  await withStore<undefined>(
-    "pendingSends",
-    "readwrite",
-    (store) => store.delete(clientMessageId),
-  );
+  const db = await openDb();
+  await new Promise<void>((resolve, reject) => {
+    let failure: Error | null = null;
+    const tx = db.transaction(
+      "pendingSends",
+      "readwrite",
+    );
+    const store = tx.objectStore("pendingSends");
+    const request = store.get(clientMessageId);
+    request.onsuccess = () => {
+      const pending = request.result as
+        | StoredPendingSend
+        | undefined;
+      if (!pending) return;
+      const delivery = pending.operatorIntent?.delivery;
+      if (
+        !delivery ||
+        delivery.outputs.some(
+          (output) => !output.delivered,
+        )
+      ) {
+        failure = new Error(
+          "Pending operator delivery is incomplete",
+        );
+        tx.abort();
+        return;
+      }
+      store.delete(clientMessageId);
+    };
+    request.onerror = () => {
+      failure =
+        request.error ??
+        new Error(
+          "Pending operator invocation read failed",
+        );
+      tx.abort();
+    };
+    tx.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    tx.onabort = () => {
+      db.close();
+      reject(
+        failure ??
+          tx.error ??
+          new Error(
+            "Pending operator invocation completion aborted",
+          ),
+      );
+    };
+    tx.onerror = () => {
+      failure ??=
+        tx.error ??
+        new Error(
+          "Pending operator invocation completion failed",
+        );
+    };
+  });
 }
 
 export async function loadRatchet(
