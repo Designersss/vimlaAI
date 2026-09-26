@@ -980,7 +980,10 @@ test.describe("Secure Direct Chats", () => {
           await route.continue();
           return;
         }
-        const response = await route.fetch();
+        const response =
+          await aliceContext.request.fetch(
+            route.request(),
+          );
         signalLateInvokeCommitted?.();
         await lateInvokeResponseRelease;
         await route.fulfill({
