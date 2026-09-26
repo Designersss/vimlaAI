@@ -1077,7 +1077,22 @@ async function shortenActiveRatchetLease(
 }> {
   return page.evaluate(
     async ({ lockKey, expiresInMs, hardExpiresInMs }) => {
-      const db = await openE2eeDb();
+      const db = await new Promise<IDBDatabase>(
+        (resolve, reject) => {
+          const request = indexedDB.open(
+            "vimla-direct-e2ee",
+          );
+          request.onsuccess = () =>
+            resolve(request.result);
+          request.onerror = () =>
+            reject(
+              request.error ??
+                new Error(
+                  "E2EE database open failed",
+                ),
+            );
+        },
+      );
       try {
         return await new Promise((resolve, reject) => {
           const tx = db.transaction(
@@ -1165,7 +1180,22 @@ async function readRatchetLease(
   hardExpiresAt: number;
 }> {
   return page.evaluate(async (lockKey) => {
-    const db = await openE2eeDb();
+    const db = await new Promise<IDBDatabase>(
+        (resolve, reject) => {
+          const request = indexedDB.open(
+            "vimla-direct-e2ee",
+          );
+          request.onsuccess = () =>
+            resolve(request.result);
+          request.onerror = () =>
+            reject(
+              request.error ??
+                new Error(
+                  "E2EE database open failed",
+                ),
+            );
+        },
+      );
     try {
       return await new Promise((resolve, reject) => {
         const tx = db.transaction(
