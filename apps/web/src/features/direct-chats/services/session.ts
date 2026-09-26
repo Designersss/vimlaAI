@@ -318,8 +318,18 @@ export async function encryptForDevices(input: {
           kind: input.kind,
           plaintext: input.plaintext,
           mentions: input.mentions ?? [],
-          operatorIntent: input.operatorIntent,
-          operatorOutput: input.operatorOutput,
+          ...(input.operatorIntent
+            ? {
+                operatorIntent:
+                  input.operatorIntent,
+              }
+            : {}),
+          ...(input.operatorOutput
+            ? {
+                operatorOutput:
+                  input.operatorOutput,
+              }
+            : {}),
         })
       ) {
         return existing;
