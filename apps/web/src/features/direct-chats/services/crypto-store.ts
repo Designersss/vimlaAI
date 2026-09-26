@@ -1,6 +1,7 @@
 import type {
   DirectMessageKind,
   MessageMentionInput,
+  OperatorContextBundle,
   WireEnvelopeDto,
 } from "@vimla/contracts";
 import {
@@ -12,8 +13,9 @@ import {
 } from "@vimla/e2ee";
 import {
   RatchetLockLostError,
+  acquireRatchetLeaseRecord,
   assertRatchetVersion,
-  canAcquireRatchetLease,
+  renewRatchetLeaseRecord,
   decodeStoredRatchet,
   isRatchetLeaseRecord,
   markLegacyRatchetOwner,
@@ -28,6 +30,7 @@ const PLAINTEXT_CONVERSATION_TIME_INDEX = "conversation-created-at";
 const RATCHET_LOCK_LEASE_MS = 5_000;
 const RATCHET_LOCK_HEARTBEAT_MS = 1_000;
 const RATCHET_LOCK_ACQUIRE_TIMEOUT_MS = 15_000;
+const RATCHET_LOCK_MAX_HOLD_MS = 30_000;
 const RATCHET_LOCK_POLL_MS = 40;
 const LOCAL_DEVICE_LOCK_KEY = "vimla-local-device-bootstrap";
 
@@ -66,6 +69,12 @@ export interface StoredPlaintext {
   createdAt: string;
 }
 
+export interface StoredOperatorIntent {
+  clientRequestId: string;
+  content: string;
+  contextBundle: OperatorContextBundle;
+}
+
 export interface StoredPendingSend {
   conversationId: string;
   clientMessageId: string;
@@ -76,6 +85,9 @@ export interface StoredPendingSend {
   mentions: MessageMentionInput[];
   plaintext: string;
   createdAt: string;
+  operatorIntent?: StoredOperatorIntent;
+  committedMessageId?: string;
+  committedCreatedAt?: string;
 }
 
 export interface OutboundRatchetUpdate {
@@ -281,16 +293,7 @@ export async function saveDeviceMaterial(
 export async function assertLocalDeviceBootstrapLease(
   lease: CoordinationLease,
 ): Promise<void> {
-  const current = await withStore<unknown>(
-    "ratchetLocks",
-    "readonly",
-    (store) => store.get(lease.key),
-  );
-  assertActiveCoordinationLease(
-    current,
-    lease,
-    Date.now(),
-  );
+  await assertCoordinationLease(lease);
 }
 
 export async function loadPendingSends(
@@ -341,9 +344,21 @@ export async function completePendingSend(input: {
       } satisfies StoredPlaintext,
       input.messageId,
     );
-    tx.objectStore("pendingSends").delete(
-      input.pending.clientMessageId,
-    );
+    const pendingStore = tx.objectStore("pendingSends");
+    if (input.pending.operatorIntent) {
+      pendingStore.put(
+        {
+          ...input.pending,
+          committedMessageId: input.messageId,
+          committedCreatedAt: input.serverCreatedAt,
+        } satisfies StoredPendingSend,
+        input.pending.clientMessageId,
+      );
+    } else {
+      pendingStore.delete(
+        input.pending.clientMessageId,
+      );
+    }
     tx.oncomplete = () => {
       db.close();
       resolve();
@@ -364,6 +379,16 @@ export async function completePendingSend(input: {
   });
 }
 
+
+export async function completePendingOperatorIntent(
+  clientMessageId: string,
+): Promise<void> {
+  await withStore<void>(
+    "pendingSends",
+    "readwrite",
+    (store) => store.delete(clientMessageId),
+  );
+}
 
 export async function loadRatchet(
   conversationId: string,
@@ -906,6 +931,7 @@ async function withFallbackRatchetLease<T>(
     if (lost) {
       throw new RatchetLockLostError();
     }
+    await assertCoordinationLease(acquiredLease);
     return result;
   } finally {
     globalThis.clearInterval(heartbeat);
@@ -925,22 +951,20 @@ async function tryAcquireRatchetLease(
   const fence = await mutateRatchetLease<number | null>(
     key,
     (current) => {
-      if (!canAcquireRatchetLease(current, owner, now)) {
+      const acquired = acquireRatchetLeaseRecord({
+        current,
+        owner,
+        now,
+        leaseMs: RATCHET_LOCK_LEASE_MS,
+        maxHoldMs: RATCHET_LOCK_MAX_HOLD_MS,
+      });
+      if (!acquired) {
         return { changed: false, value: null };
       }
-      const currentFence = current?.fence ?? 0;
-      const nextFence =
-        current?.owner === owner
-          ? Math.max(1, currentFence)
-          : currentFence + 1;
       return {
         changed: true,
-        value: nextFence,
-        next: {
-          owner,
-          fence: nextFence,
-          expiresAt: now + RATCHET_LOCK_LEASE_MS,
-        },
+        value: acquired.fence,
+        next: acquired.record,
       };
     },
   );
@@ -956,22 +980,20 @@ async function renewRatchetLease(
   now: number,
 ): Promise<boolean> {
   return mutateRatchetLease(key, (current) => {
-    if (
-      !current ||
-      current.owner !== owner ||
-      (current.fence ?? 0) !== fence ||
-      current.expiresAt <= now
-    ) {
+    const renewed = renewRatchetLeaseRecord({
+      current,
+      owner,
+      fence,
+      now,
+      leaseMs: RATCHET_LOCK_LEASE_MS,
+    });
+    if (!renewed) {
       return { changed: false, value: false };
     }
     return {
       changed: true,
       value: true,
-      next: {
-        owner,
-        fence,
-        expiresAt: now + RATCHET_LOCK_LEASE_MS,
-      },
+      next: renewed,
     };
   });
 }
@@ -1105,6 +1127,21 @@ async function mutateRatchetLease<T>(
   });
 }
 
+async function assertCoordinationLease(
+  lease: CoordinationLease,
+): Promise<void> {
+  const current = await withStore<unknown>(
+    "ratchetLocks",
+    "readonly",
+    (store) => store.get(lease.key),
+  );
+  assertActiveCoordinationLease(
+    current,
+    lease,
+    Date.now(),
+  );
+}
+
 function assertActiveCoordinationLease(
   value: unknown,
   lease: CoordinationLease,
@@ -1114,7 +1151,9 @@ function assertActiveCoordinationLease(
     !isRatchetLeaseRecord(value) ||
     value.owner !== lease.owner ||
     (value.fence ?? 0) !== lease.fence ||
-    value.expiresAt <= now
+    value.expiresAt <= now ||
+    (value.hardExpiresAt !== undefined &&
+      value.hardExpiresAt <= now)
   ) {
     throw new RatchetLockLostError();
   }
