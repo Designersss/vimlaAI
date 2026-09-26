@@ -235,6 +235,7 @@ export class DirectChatsController {
       id,
       input,
       resolvedMentions,
+      { replayAlreadyChecked: true },
     );
     const created = result.message;
     await this.publishMessageNotification(
