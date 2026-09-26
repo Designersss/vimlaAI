@@ -1087,7 +1087,7 @@ async function resumeDirectOperatorInvocation(
         );
       }
 
-      let stagedIntent =
+      const stagedIntent =
         await stagePendingOperatorInvocationDelivery({
           pendingClientMessageId:
             current.pendingClientMessageId,
