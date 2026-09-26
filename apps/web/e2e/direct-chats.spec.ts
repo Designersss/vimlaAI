@@ -636,8 +636,6 @@ test.describe("Secure Direct Chats", () => {
     await expect(
       alicePage.getByTestId("direct-chat-shell"),
     ).toBeVisible({ timeout: 20_000 });
-    const directUrl = alicePage.url();
-
     await nikitaPage.goto("/app");
     await nikitaPage
       .getByRole("radio", { name: /личные|direct/i })
