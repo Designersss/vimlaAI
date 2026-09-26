@@ -952,44 +952,8 @@ test.describe("Secure Direct Chats", () => {
       await alicePage
         .getByTestId("direct-message-response")
         .count();
-    let signalLateInvokeCommitted:
-      | (() => void)
-      | null = null;
-    const lateInvokeCommitted =
-      new Promise<void>((resolve) => {
-        signalLateInvokeCommitted = resolve;
-      });
-    let releaseLateInvokeResponse:
-      | (() => void)
-      | null = null;
-    const lateInvokeResponseRelease =
-      new Promise<void>((resolve) => {
-        releaseLateInvokeResponse = resolve;
-      });
-
-    await alicePage.route(
-      "**/v1/direct-chats/*/messages",
-      async (route) => {
-        const body =
-          route.request().method() === "POST"
-            ? (route.request().postDataJSON() as {
-                kind?: string;
-              } | null)
-            : null;
-        if (body?.kind !== "OPERATOR_INVOKE") {
-          await route.continue();
-          return;
-        }
-        const response =
-          await aliceContext.request.fetch(
-            route.request(),
-          );
-        signalLateInvokeCommitted?.();
-        await lateInvokeResponseRelease;
-        await route.fulfill({
-          response,
-        });
-      },
+    await installLateDirectInvokeResponse(
+      alicePage,
     );
 
     await composer.fill(
@@ -998,7 +962,9 @@ test.describe("Secure Direct Chats", () => {
     await alicePage
       .getByTestId("chat-composer-send")
       .click();
-    await lateInvokeCommitted;
+    await expect.poll(
+      () => isLateDirectInvokeCommitted(alicePage),
+    ).toBe(true);
 
     await aliceRecoveryPage.reload();
     await expect(
@@ -1029,9 +995,8 @@ test.describe("Secure Direct Chats", () => {
         ),
     ).toBe(0);
 
-    releaseLateInvokeResponse?.();
-    await alicePage.unroute(
-      "**/v1/direct-chats/*/messages",
+    await releaseLateDirectInvokeResponse(
+      alicePage,
     );
     await expect(
       alicePage.getByTestId("chat-composer-send"),
@@ -1080,6 +1045,110 @@ function directConversationId(url: string): string {
     throw new Error("Direct Chat URL is missing a conversation id");
   }
   return id;
+}
+
+async function installLateDirectInvokeResponse(
+  page: Page,
+): Promise<void> {
+  await page.evaluate(() => {
+    const state = globalThis as typeof globalThis & {
+      __vimlaLateInvokeOriginalFetch?: typeof fetch;
+      __vimlaLateInvokeCommitted?: boolean;
+      __vimlaReleaseLateInvoke?: () => void;
+    };
+    if (state.__vimlaLateInvokeOriginalFetch) {
+      throw new Error(
+        "Late Direct Chat invoke fixture is already installed",
+      );
+    }
+    const originalFetch = globalThis.fetch;
+    let release: (() => void) | null = null;
+    const responseGate = new Promise<void>(
+      (resolve) => {
+        release = resolve;
+      },
+    );
+    state.__vimlaLateInvokeOriginalFetch =
+      originalFetch;
+    state.__vimlaLateInvokeCommitted = false;
+    state.__vimlaReleaseLateInvoke = () => {
+      release?.();
+    };
+
+    globalThis.fetch = async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ): Promise<Response> => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
+      let kind: string | undefined;
+      if (
+        init?.method?.toUpperCase() === "POST" &&
+        typeof init.body === "string"
+      ) {
+        try {
+          kind = (
+            JSON.parse(init.body) as {
+              kind?: string;
+            }
+          ).kind;
+        } catch {
+          kind = undefined;
+        }
+      }
+      if (
+        !state.__vimlaLateInvokeCommitted &&
+        kind === "OPERATOR_INVOKE" &&
+        /\/v1\/direct-chats\/[^/]+\/messages$/.test(
+          url,
+        )
+      ) {
+        const response = await originalFetch(
+          input,
+          init,
+        );
+        state.__vimlaLateInvokeCommitted = true;
+        await responseGate;
+        return response;
+      }
+      return originalFetch(input, init);
+    };
+  });
+}
+
+async function isLateDirectInvokeCommitted(
+  page: Page,
+): Promise<boolean> {
+  return page.evaluate(() => {
+    const state = globalThis as typeof globalThis & {
+      __vimlaLateInvokeCommitted?: boolean;
+    };
+    return state.__vimlaLateInvokeCommitted === true;
+  });
+}
+
+async function releaseLateDirectInvokeResponse(
+  page: Page,
+): Promise<void> {
+  await page.evaluate(() => {
+    const state = globalThis as typeof globalThis & {
+      __vimlaLateInvokeOriginalFetch?: typeof fetch;
+      __vimlaLateInvokeCommitted?: boolean;
+      __vimlaReleaseLateInvoke?: () => void;
+    };
+    state.__vimlaReleaseLateInvoke?.();
+    if (state.__vimlaLateInvokeOriginalFetch) {
+      globalThis.fetch =
+        state.__vimlaLateInvokeOriginalFetch;
+    }
+    delete state.__vimlaLateInvokeOriginalFetch;
+    delete state.__vimlaLateInvokeCommitted;
+    delete state.__vimlaReleaseLateInvoke;
+  });
 }
 
 async function failNextIndexedDbPut(
