@@ -263,49 +263,6 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
   }, [boot, conversationId, router, workspace]);
 
   useEffect(() => {
-    if (boot !== "ready" || !userId) return;
-    let cancelled = false;
-    void (async () => {
-      const device = await ensureLocalDevice();
-      const invocations =
-        await loadPendingOperatorInvocations({
-          conversationId,
-          localDeviceId: device.deviceId,
-        });
-      for (const invocation of invocations) {
-        const run = await resumeDirectOperatorInvocation(
-          invocation,
-          userId,
-        );
-        if (cancelled) return;
-        setPendingRun(run);
-        await publishOperatorRunMessages(run);
-      }
-    })().catch((caught: unknown) => {
-      if (cancelled) return;
-      if (caught instanceof AuthRequiredError) {
-        router.replace("/sign-in");
-        return;
-      }
-      setError(
-        caught instanceof OperatorRequestError ||
-          caught instanceof DirectChatsApiError
-          ? caught.code
-          : "internal_error",
-      );
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    boot,
-    conversationId,
-    publishOperatorRunMessages,
-    router,
-    userId,
-  ]);
-
-  useEffect(() => {
     if (!activeMention) return;
     let cancelled = false;
     const timer = window.setTimeout(() => {
@@ -608,6 +565,49 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
       setOperatorBusy(false);
     }
   }
+
+  useEffect(() => {
+    if (boot !== "ready" || !userId) return;
+    let cancelled = false;
+    void (async () => {
+      const device = await ensureLocalDevice();
+      const invocations =
+        await loadPendingOperatorInvocations({
+          conversationId,
+          localDeviceId: device.deviceId,
+        });
+      for (const invocation of invocations) {
+        const run = await resumeDirectOperatorInvocation(
+          invocation,
+          userId,
+        );
+        if (cancelled) return;
+        setPendingRun(run);
+        await publishOperatorRunMessages(run);
+      }
+    })().catch((caught: unknown) => {
+      if (cancelled) return;
+      if (caught instanceof AuthRequiredError) {
+        router.replace("/sign-in");
+        return;
+      }
+      setError(
+        caught instanceof OperatorRequestError ||
+          caught instanceof DirectChatsApiError
+          ? caught.code
+          : "internal_error",
+      );
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    boot,
+    conversationId,
+    publishOperatorRunMessages,
+    router,
+    userId,
+  ]);
 
   async function onLoadOlder(): Promise<void> {
     if (!nextCursor || !conversation) return;
