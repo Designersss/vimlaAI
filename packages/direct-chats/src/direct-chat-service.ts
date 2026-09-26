@@ -215,20 +215,6 @@ export class DirectChatService {
     };
   }
 
-  async replay(
-    actor: ActorContext,
-    conversationId: string,
-    input: SendDirectMessage,
-  ): Promise<DirectMessageView | null> {
-    return (
-      await this.preflightSend(
-        actor,
-        conversationId,
-        input,
-      )
-    ).replay;
-  }
-
   async send(
     actor: ActorContext,
     conversationId: string,
