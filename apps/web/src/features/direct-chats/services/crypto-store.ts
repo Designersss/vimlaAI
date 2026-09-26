@@ -16,7 +16,9 @@ import {
   canAcquireRatchetLease,
   decodeStoredRatchet,
   isRatchetLeaseRecord,
+  markLegacyRatchetOwner,
   storedRatchetRecord,
+  type RatchetLeaseRecord,
   type RatchetSnapshot,
 } from "./ratchet-coordination";
 
@@ -83,11 +85,17 @@ export interface OutboundRatchetUpdate {
   pendingX3dhInit: X3dhInitHeader | null;
 }
 
+export interface CoordinationLease {
+  key: string;
+  owner: string;
+  fence: number;
+}
+
 function openDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     let blocked = false;
     const request = indexedDB.open(DB_NAME, DB_VERSION);
-    request.onupgradeneeded = () => {
+    request.onupgradeneeded = (event) => {
       const db = request.result;
       if (!db.objectStoreNames.contains("device")) {
         db.createObjectStore("device");
@@ -114,6 +122,15 @@ function openDb(): Promise<IDBDatabase> {
           PLAINTEXT_CONVERSATION_TIME_INDEX,
           ["conversationId", "createdAt"],
           { unique: false },
+        );
+      }
+      if (
+        event.oldVersion > 0 &&
+        event.oldVersion < DB_VERSION &&
+        request.transaction
+      ) {
+        markLegacyRatchetsDuringUpgrade(
+          request.transaction,
         );
       }
     };
@@ -185,10 +202,95 @@ export async function loadDeviceMaterial(): Promise<StoredDeviceMaterial | null>
 
 export async function saveDeviceMaterial(
   material: StoredDeviceMaterial,
+  lease: CoordinationLease,
 ): Promise<void> {
-  await withStore("device", "readwrite", (store) => {
-    store.put(material, "local");
+  const db = await openDb();
+  await new Promise<void>((resolve, reject) => {
+    let failure: Error | null = null;
+    const tx = db.transaction(
+      ["device", "ratchetLocks"],
+      "readwrite",
+    );
+    const deviceStore = tx.objectStore("device");
+    const lockRequest = tx
+      .objectStore("ratchetLocks")
+      .get(lease.key);
+    lockRequest.onsuccess = () => {
+      try {
+        assertActiveCoordinationLease(
+          lockRequest.result,
+          lease,
+          Date.now(),
+        );
+      } catch (error: unknown) {
+        failure =
+          error instanceof Error
+            ? error
+            : new RatchetLockLostError();
+        tx.abort();
+        return;
+      }
+      const deviceRequest = deviceStore.get("local");
+      deviceRequest.onsuccess = () => {
+        const current = deviceRequest.result as
+          | StoredDeviceMaterial
+          | undefined;
+        if (
+          current &&
+          current.deviceId !== material.deviceId
+        ) {
+          failure = new RatchetLockLostError();
+          tx.abort();
+          return;
+        }
+        deviceStore.put(material, "local");
+      };
+      deviceRequest.onerror = () => {
+        failure =
+          deviceRequest.error ??
+          new Error("Local E2EE device read failed");
+        tx.abort();
+      };
+    };
+    lockRequest.onerror = () => {
+      failure =
+        lockRequest.error ??
+        new Error("Local E2EE bootstrap lease read failed");
+      tx.abort();
+    };
+    tx.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    tx.onabort = () => {
+      db.close();
+      reject(
+        failure ??
+          tx.error ??
+          new Error("Local E2EE device write aborted"),
+      );
+    };
+    tx.onerror = () => {
+      failure ??=
+        tx.error ??
+        new Error("Local E2EE device write failed");
+    };
   });
+}
+
+export async function assertLocalDeviceBootstrapLease(
+  lease: CoordinationLease,
+): Promise<void> {
+  const current = await withStore<unknown>(
+    "ratchetLocks",
+    "readonly",
+    (store) => store.get(lease.key),
+  );
+  assertActiveCoordinationLease(
+    current,
+    lease,
+    Date.now(),
+  );
 }
 
 export async function loadPendingSends(
@@ -506,7 +608,7 @@ export async function withRatchetSessionLocks<T>(
 }
 
 export async function withLocalDeviceBootstrapLock<T>(
-  fn: () => Promise<T>,
+  fn: (lease: CoordinationLease) => Promise<T>,
 ): Promise<T> {
   return withCoordinationLock(
     LOCAL_DEVICE_LOCK_KEY,
@@ -735,7 +837,7 @@ async function commitRatchet(input: {
 
 async function withCoordinationLock<T>(
   key: string,
-  fn: () => Promise<T>,
+  fn: (lease: CoordinationLease) => Promise<T>,
 ): Promise<T> {
   const runWithLease = (): Promise<T> =>
     withFallbackRatchetLease(key, fn);
@@ -745,8 +847,11 @@ async function withCoordinationLock<T>(
   ) {
     return navigator.locks.request(
       key,
-      { mode: "exclusive" },
-      runWithLease,
+      {
+        mode: "exclusive",
+        ifAvailable: true,
+      },
+      () => runWithLease(),
     );
   }
   return runWithLease();
@@ -754,19 +859,19 @@ async function withCoordinationLock<T>(
 
 async function withFallbackRatchetLease<T>(
   key: string,
-  fn: () => Promise<T>,
+  fn: (lease: CoordinationLease) => Promise<T>,
 ): Promise<T> {
   const owner = crypto.randomUUID();
   const deadline =
     Date.now() + RATCHET_LOCK_ACQUIRE_TIMEOUT_MS;
-  let acquired = false;
-  while (!acquired) {
-    acquired = await tryAcquireRatchetLease(
+  let lease: CoordinationLease | null = null;
+  while (!lease) {
+    lease = await tryAcquireRatchetLease(
       key,
       owner,
       Date.now(),
     );
-    if (acquired) break;
+    if (lease) break;
     if (Date.now() >= deadline) {
       throw new RatchetLockLostError();
     }
@@ -778,7 +883,12 @@ async function withFallbackRatchetLease<T>(
   const heartbeat = globalThis.setInterval(() => {
     if (renewing || lost) return;
     renewing = true;
-    void renewRatchetLease(key, owner, Date.now())
+    void renewRatchetLease(
+      key,
+      lease.owner,
+      lease.fence,
+      Date.now(),
+    )
       .then((renewed) => {
         if (!renewed) lost = true;
       })
@@ -791,16 +901,18 @@ async function withFallbackRatchetLease<T>(
   }, RATCHET_LOCK_HEARTBEAT_MS);
 
   try {
-    const result = await fn();
+    const result = await fn(lease);
     if (lost) {
       throw new RatchetLockLostError();
     }
     return result;
   } finally {
     globalThis.clearInterval(heartbeat);
-    await releaseRatchetLease(key, owner).catch(
-      () => undefined,
-    );
+    await releaseRatchetLease(
+      key,
+      lease.owner,
+      lease.fence,
+    ).catch(() => undefined);
   }
 }
 
@@ -808,29 +920,47 @@ async function tryAcquireRatchetLease(
   key: string,
   owner: string,
   now: number,
-): Promise<boolean> {
-  return mutateRatchetLease(key, (current) => {
-    if (!canAcquireRatchetLease(current, owner, now)) {
-      return { changed: false, value: false };
-    }
-    return {
-      changed: true,
-      value: true,
-      next: {
-        owner,
-        expiresAt: now + RATCHET_LOCK_LEASE_MS,
-      },
-    };
-  });
+): Promise<CoordinationLease | null> {
+  const fence = await mutateRatchetLease<number | null>(
+    key,
+    (current) => {
+      if (!canAcquireRatchetLease(current, owner, now)) {
+        return { changed: false, value: null };
+      }
+      const currentFence = current?.fence ?? 0;
+      const nextFence =
+        current?.owner === owner
+          ? Math.max(1, currentFence)
+          : currentFence + 1;
+      return {
+        changed: true,
+        value: nextFence,
+        next: {
+          owner,
+          fence: nextFence,
+          expiresAt: now + RATCHET_LOCK_LEASE_MS,
+        },
+      };
+    },
+  );
+  return fence === null
+    ? null
+    : { key, owner, fence };
 }
 
 async function renewRatchetLease(
   key: string,
   owner: string,
+  fence: number,
   now: number,
 ): Promise<boolean> {
   return mutateRatchetLease(key, (current) => {
-    if (!current || current.owner !== owner) {
+    if (
+      !current ||
+      current.owner !== owner ||
+      (current.fence ?? 0) !== fence ||
+      current.expiresAt <= now
+    ) {
       return { changed: false, value: false };
     }
     return {
@@ -838,6 +968,7 @@ async function renewRatchetLease(
       value: true,
       next: {
         owner,
+        fence,
         expiresAt: now + RATCHET_LOCK_LEASE_MS,
       },
     };
@@ -847,6 +978,7 @@ async function renewRatchetLease(
 async function releaseRatchetLease(
   key: string,
   owner: string,
+  fence: number,
 ): Promise<void> {
   const db = await openDb();
   await new Promise<void>((resolve, reject) => {
@@ -869,8 +1001,18 @@ async function releaseRatchetLease(
         tx.abort();
         return;
       }
-      if (current?.owner === owner) {
-        store.delete(key);
+      if (
+        current?.owner === owner &&
+        (current.fence ?? 0) === fence
+      ) {
+        store.put(
+          {
+            owner,
+            fence,
+            expiresAt: 0,
+          } satisfies RatchetLeaseRecord,
+          key,
+        );
       }
     };
     tx.oncomplete = () => {
@@ -896,16 +1038,13 @@ async function releaseRatchetLease(
 async function mutateRatchetLease<T>(
   key: string,
   decide: (
-    current: {
-      owner: string;
-      expiresAt: number;
-    } | null,
+    current: RatchetLeaseRecord | null,
   ) =>
     | { changed: false; value: T }
     | {
         changed: true;
         value: T;
-        next: { owner: string; expiresAt: number };
+        next: RatchetLeaseRecord;
       },
 ): Promise<T> {
   const db = await openDb();
@@ -963,6 +1102,55 @@ async function mutateRatchetLease<T>(
         new Error("Ratchet lock transaction failed");
     };
   });
+}
+
+function assertActiveCoordinationLease(
+  value: unknown,
+  lease: CoordinationLease,
+  now: number,
+): void {
+  if (
+    !isRatchetLeaseRecord(value) ||
+    value.owner !== lease.owner ||
+    (value.fence ?? 0) !== lease.fence ||
+    value.expiresAt <= now
+  ) {
+    throw new RatchetLockLostError();
+  }
+}
+
+function markLegacyRatchetsDuringUpgrade(
+  tx: IDBTransaction,
+): void {
+  const deviceRequest = tx
+    .objectStore("device")
+    .get("local");
+  deviceRequest.onsuccess = () => {
+    const device = deviceRequest.result as
+      | { deviceId?: unknown }
+      | undefined;
+    if (
+      !device ||
+      typeof device.deviceId !== "string" ||
+      device.deviceId.length === 0
+    ) {
+      return;
+    }
+    const ratchets = tx.objectStore("ratchets");
+    const cursorRequest = ratchets.openCursor();
+    cursorRequest.onsuccess = () => {
+      const cursor = cursorRequest.result;
+      if (!cursor) return;
+      const marked = markLegacyRatchetOwner(
+        cursor.value,
+        device.deviceId,
+      );
+      if (marked !== cursor.value) {
+        cursor.update(marked);
+      }
+      cursor.continue();
+    };
+  };
 }
 
 function ratchetStorageKey(
