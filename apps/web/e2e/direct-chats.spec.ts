@@ -728,6 +728,110 @@ test.describe("Secure Direct Chats", () => {
         .filter({ hasText: "works after idb abort" }),
     ).toBeVisible({ timeout: 20_000 });
 
+    let abortInvokeBeforeServer = true;
+    await alicePage.route(
+      "**/v1/direct-chats/*/messages",
+      async (route) => {
+        const body =
+          route.request().method() === "POST"
+            ? (route.request().postDataJSON() as {
+                kind?: string;
+              } | null)
+            : null;
+        if (
+          abortInvokeBeforeServer &&
+          body?.kind === "OPERATOR_INVOKE"
+        ) {
+          abortInvokeBeforeServer = false;
+          await route.abort("failed");
+          return;
+        }
+        await route.continue();
+      },
+    );
+    await composer.fill(
+      "@vimla восстанови запуск после смены набора устройств",
+    );
+    await alicePage
+      .getByTestId("chat-composer-send")
+      .click();
+    await expect.poll(
+      () => abortInvokeBeforeServer,
+    ).toBe(false);
+    await alicePage.unroute(
+      "**/v1/direct-chats/*/messages",
+    );
+    await expect.poll(
+      () => readPendingOperatorIntentCount(alicePage),
+    ).toBe(1);
+
+    const nikitaSecondContext =
+      await browser.newContext({
+        storageState:
+          await nikitaContext.storageState(),
+      });
+    const nikitaSecondPage =
+      await nikitaSecondContext.newPage();
+    await nikitaSecondPage.goto(recoveryDirectUrl);
+    await expect(
+      nikitaSecondPage.getByTestId(
+        "direct-chat-shell",
+      ),
+    ).toBeVisible({ timeout: 20_000 });
+    expect(
+      await readLocalDeviceId(nikitaSecondPage),
+    ).not.toBe(
+      await readLocalDeviceId(nikitaPage),
+    );
+
+    await alicePage.reload();
+    await expect(
+      alicePage.getByTestId("direct-chat-shell"),
+    ).toBeVisible({ timeout: 20_000 });
+    await expect(
+      alicePage
+        .getByTestId("direct-message-invoke")
+        .filter({
+          hasText:
+            "восстанови запуск после смены набора устройств",
+        }),
+    ).toHaveCount(1, { timeout: 20_000 });
+    await expect(
+      alicePage.getByTestId(
+        "direct-message-response",
+      ),
+    ).toHaveCount(1, { timeout: 20_000 });
+    await expect.poll(
+      () => readPendingOperatorIntentCount(alicePage),
+    ).toBe(0);
+    for (const page of [
+      nikitaPage,
+      nikitaSecondPage,
+    ]) {
+      await expect(
+        page
+          .getByTestId("direct-message-invoke")
+          .filter({
+            hasText:
+              "восстанови запуск после смены набора устройств",
+          }),
+      ).toHaveCount(1, { timeout: 20_000 });
+      await expect(
+        page.getByTestId(
+          "direct-message-response",
+        ),
+      ).toHaveCount(1, { timeout: 20_000 });
+    }
+
+    const invokeCountBeforeAmbiguous =
+      await alicePage
+        .getByTestId("direct-message-invoke")
+        .count();
+    const responseCountBeforeAmbiguous =
+      await alicePage
+        .getByTestId("direct-message-response")
+        .count();
+
     let abortOperatorAfterCommit = true;
     await alicePage.route(
       "**/v1/operator/runs",
@@ -762,6 +866,28 @@ test.describe("Secure Direct Chats", () => {
       () => readPendingOperatorIntentCount(alicePage),
     ).toBe(1);
 
+    let abortFirstOperatorOutputBeforeServer = true;
+    await aliceContext.route(
+      "**/v1/direct-chats/*/messages",
+      async (route) => {
+        const body =
+          route.request().method() === "POST"
+            ? (route.request().postDataJSON() as {
+                kind?: string;
+              } | null)
+            : null;
+        if (
+          abortFirstOperatorOutputBeforeServer &&
+          body?.kind === "OPERATOR_RESPONSE"
+        ) {
+          abortFirstOperatorOutputBeforeServer = false;
+          await route.abort("failed");
+          return;
+        }
+        await route.continue();
+      },
+    );
+
     const aliceRecoveryPage =
       await aliceContext.newPage();
     await Promise.all([
@@ -777,23 +903,42 @@ test.describe("Secure Direct Chats", () => {
       ).toBeVisible({ timeout: 20_000 });
       await expect(
         page.getByTestId("direct-message-invoke"),
-      ).toHaveCount(1, { timeout: 20_000 });
+      ).toHaveCount(
+        invokeCountBeforeAmbiguous + 1,
+        { timeout: 20_000 },
+      );
       await expect(
         page.getByTestId("direct-message-response"),
-      ).toHaveCount(1, { timeout: 20_000 });
+      ).toHaveCount(
+        responseCountBeforeAmbiguous + 1,
+        { timeout: 20_000 },
+      );
     }
     await expect.poll(
       () => readPendingOperatorIntentCount(alicePage),
     ).toBe(0);
+    expect(
+      abortFirstOperatorOutputBeforeServer,
+    ).toBe(false);
+    await aliceContext.unroute(
+      "**/v1/direct-chats/*/messages",
+    );
     await expect(
       nikitaPage.getByTestId("direct-message-invoke"),
-    ).toHaveCount(1, { timeout: 20_000 });
+    ).toHaveCount(
+      invokeCountBeforeAmbiguous + 1,
+      { timeout: 20_000 },
+    );
     await expect(
       nikitaPage.getByTestId("direct-message-response"),
-    ).toHaveCount(1, { timeout: 20_000 });
+    ).toHaveCount(
+      responseCountBeforeAmbiguous + 1,
+      { timeout: 20_000 },
+    );
 
     alicePage.off("request", countMessagePosts);
     await aliceRecoveryPage.close();
+    await nikitaSecondContext.close();
     await aliceContext.close();
     await nikitaContext.close();
   });
