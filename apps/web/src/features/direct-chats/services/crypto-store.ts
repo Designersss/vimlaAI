@@ -581,6 +581,16 @@ export async function stagePendingOperatorDelivery(input: {
         tx.abort();
         return;
       }
+      if (
+        existing &&
+        isOlderOperatorDelivery(
+          input.runUpdatedAt,
+          existing.runUpdatedAt,
+        )
+      ) {
+        result = parent.operatorIntent;
+        return;
+      }
 
       const outputs = [...(existing?.outputs ?? [])];
       for (const draft of input.outputs) {
@@ -1618,6 +1628,21 @@ function markLegacyRatchetsDuringUpgrade(
       cursor.continue();
     };
   };
+}
+
+function isOlderOperatorDelivery(
+  incomingUpdatedAt: string,
+  currentUpdatedAt: string,
+): boolean {
+  const incoming = Date.parse(incomingUpdatedAt);
+  const current = Date.parse(currentUpdatedAt);
+  if (
+    Number.isFinite(incoming) &&
+    Number.isFinite(current)
+  ) {
+    return incoming < current;
+  }
+  return incomingUpdatedAt < currentUpdatedAt;
 }
 
 function isTerminalOperatorStatus(
