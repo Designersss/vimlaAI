@@ -712,6 +712,76 @@ async function readLegacyV2Fixture(
   }, conversationId);
 }
 
+async function seedLegacyV2Database(
+  page: Page,
+  fixture: LegacyV2Fixture,
+): Promise<void> {
+  await page.evaluate(async (value) => {
+    await new Promise<void>((resolve, reject) => {
+      const request = indexedDB.deleteDatabase(
+        "vimla-direct-e2ee",
+      );
+      request.onsuccess = () => resolve();
+      request.onerror = () =>
+        reject(
+          request.error ??
+            new Error("Legacy IndexedDB reset failed"),
+        );
+      request.onblocked = () =>
+        reject(
+          new Error("Legacy IndexedDB reset was blocked"),
+        );
+    });
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open(
+        "vimla-direct-e2ee",
+        2,
+      );
+      request.onupgradeneeded = () => {
+        const created = request.result;
+        created.createObjectStore("device");
+        created.createObjectStore("ratchets");
+        created.createObjectStore("plaintexts");
+      };
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () =>
+        reject(
+          request.error ??
+            new Error("Legacy IndexedDB create failed"),
+        );
+    });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction(
+          ["device", "ratchets"],
+          "readwrite",
+        );
+        tx.objectStore("device").put(
+          value.device,
+          "local",
+        );
+        const ratchets = tx.objectStore("ratchets");
+        for (const row of value.ratchets) {
+          ratchets.put(row.state, row.key);
+        }
+        tx.oncomplete = () => resolve();
+        tx.onerror = () =>
+          reject(
+            tx.error ??
+              new Error("Legacy IndexedDB seed failed"),
+          );
+        tx.onabort = () =>
+          reject(
+            tx.error ??
+              new Error("Legacy IndexedDB seed aborted"),
+          );
+      });
+    } finally {
+      db.close();
+    }
+  }, fixture);
+}
+
 async function rewriteRatchetAsLegacy(
   page: Page,
   input: {
