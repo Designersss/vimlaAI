@@ -583,10 +583,18 @@ export async function stagePendingOperatorDelivery(input: {
       }
       if (
         existing &&
-        isOlderOperatorDelivery(
+        (isOlderOperatorDelivery(
           input.runUpdatedAt,
           existing.runUpdatedAt,
-        )
+        ) ||
+          (input.runUpdatedAt ===
+            existing.runUpdatedAt &&
+            isTerminalOperatorStatus(
+              existing.runStatus,
+            ) &&
+            !isTerminalOperatorStatus(
+              input.runStatus,
+            )))
       ) {
         result = parent.operatorIntent;
         return;
