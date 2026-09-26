@@ -480,9 +480,15 @@ export async function completePendingSend(input: {
             candidate.clientMessageId ===
               input.pending.clientMessageId,
         );
-        if (!parent || !delivery || !output) {
+        if (!parent) {
+          failure =
+            new PendingOperatorInvocationGoneError();
+          tx.abort();
+          return;
+        }
+        if (!delivery || !output) {
           failure = new Error(
-            "Pending operator output parent is missing or inconsistent",
+            "Pending operator output parent is inconsistent",
           );
           tx.abort();
           return;
