@@ -359,118 +359,150 @@ export async function recoverPendingSends(input: {
       localDeviceId: input.localDevice.deviceId,
     },
     async () => {
-  const pending = await loadPendingSends(
-    input.conversationId,
-    input.localDevice.deviceId,
-  );
-  let blocked:
-    | "LOCAL_DEVICE_INACTIVE"
-    | "RECIPIENT_DEVICE_MISSING"
-    | null = null;
-  for (const stored of pending) {
-    let row = stored;
-    if (
-      row.operatorIntent &&
-      row.committedMessageId &&
-      row.committedCreatedAt
-    ) {
-      continue;
-    }
-    try {
-      const created = await sendPendingRow(row);
-      await finalizePendingSend(row, created);
-      continue;
-    } catch (error: unknown) {
-      if (!(error instanceof DirectChatsApiError)) {
-        throw error;
-      }
-      if (error.code === "direct_chat_device_revoked") {
-        return "LOCAL_DEVICE_INACTIVE";
-      }
-      if (
-        error.code !== "validation_error" &&
-        error.code !==
-          "direct_chat_recipient_device_missing" &&
-        error.code !== "not_found"
-      ) {
-        throw error;
-      }
-
-      const detail = await fetchDirectConversation(
+      const pending = await loadPendingSends(
         input.conversationId,
-      );
-      const currentIds = detail.devices
-        .filter((device) => !device.revoked)
-        .map((device) => device.id)
-        .sort();
-      const pendingIds = row.envelopes
-        .map((envelope) => envelope.recipientDeviceId)
-        .sort();
-      const sameDeviceSet =
-        currentIds.length === pendingIds.length &&
-        currentIds.every(
-          (id, index) => id === pendingIds[index],
-        );
-      const localStillActive = currentIds.includes(
         input.localDevice.deviceId,
       );
-      const peerActive = detail.devices.some(
-        (device) =>
-          !device.revoked &&
-          device.userId !== row.senderUserId,
-      );
+      let blocked:
+        | "LOCAL_DEVICE_INACTIVE"
+        | "RECIPIENT_DEVICE_MISSING"
+        | null = null;
 
-      if (
-        sameDeviceSet &&
-        error.code !== "not_found"
-      ) {
-        throw error;
-      }
-      if (!localStillActive) {
-        blocked = "LOCAL_DEVICE_INACTIVE";
-        continue;
-      }
-      if (!peerActive) {
-        blocked ??= "RECIPIENT_DEVICE_MISSING";
-        continue;
-      }
-
-      try {
-        row = await encryptForDevices({
-          conversationId: row.conversationId,
-          senderUserId: row.senderUserId,
-          clientMessageId: row.clientMessageId,
-          localDevice: input.localDevice,
-          kind: row.kind,
-          plaintext: row.plaintext,
-          devices: detail.devices,
-          mentions: row.mentions,
-          expectedPendingRevision:
-            pendingSendRevision(row),
-          ...(row.operatorIntent
-            ? { operatorIntent: row.operatorIntent }
-            : {}),
-          ...(row.operatorOutput
-            ? { operatorOutput: row.operatorOutput }
-            : {}),
-        });
-      } catch (caught: unknown) {
-        if (!(caught instanceof PendingSendConflictError)) {
-          throw caught;
-        }
-        const current = await loadPendingSend(
-          row.clientMessageId,
-        );
-        if (!current) {
+      for (const stored of pending) {
+        let row = stored;
+        if (
+          row.operatorIntent &&
+          row.committedMessageId &&
+          row.committedCreatedAt
+        ) {
           continue;
         }
-        throw caught;
+
+        try {
+          const created = await sendPendingRow(row);
+          await finalizePendingSend(row, created);
+          continue;
+        } catch (error: unknown) {
+          if (!(error instanceof DirectChatsApiError)) {
+            throw error;
+          }
+          if (
+            error.code ===
+            "direct_chat_device_revoked"
+          ) {
+            return "LOCAL_DEVICE_INACTIVE";
+          }
+          if (
+            error.code !== "validation_error" &&
+            error.code !==
+              "direct_chat_recipient_device_missing" &&
+            error.code !== "not_found"
+          ) {
+            throw error;
+          }
+
+          const detail =
+            await fetchDirectConversation(
+              input.conversationId,
+            );
+          const currentIds = detail.devices
+            .filter((device) => !device.revoked)
+            .map((device) => device.id)
+            .sort();
+          const pendingIds = row.envelopes
+            .map(
+              (envelope) =>
+                envelope.recipientDeviceId,
+            )
+            .sort();
+          const sameDeviceSet =
+            currentIds.length === pendingIds.length &&
+            currentIds.every(
+              (id, index) =>
+                id === pendingIds[index],
+            );
+          const localStillActive =
+            currentIds.includes(
+              input.localDevice.deviceId,
+            );
+          const peerActive = detail.devices.some(
+            (device) =>
+              !device.revoked &&
+              device.userId !== row.senderUserId,
+          );
+
+          if (
+            sameDeviceSet &&
+            error.code !== "not_found"
+          ) {
+            throw error;
+          }
+          if (!localStillActive) {
+            blocked = "LOCAL_DEVICE_INACTIVE";
+            continue;
+          }
+          if (!peerActive) {
+            blocked ??=
+              "RECIPIENT_DEVICE_MISSING";
+            continue;
+          }
+
+          try {
+            row = await encryptForDevices({
+              conversationId:
+                row.conversationId,
+              senderUserId: row.senderUserId,
+              clientMessageId:
+                row.clientMessageId,
+              localDevice: input.localDevice,
+              kind: row.kind,
+              plaintext: row.plaintext,
+              devices: detail.devices,
+              mentions: row.mentions,
+              expectedPendingRevision:
+                pendingSendRevision(row),
+              ...(row.operatorIntent
+                ? {
+                    operatorIntent:
+                      row.operatorIntent,
+                  }
+                : {}),
+              ...(row.operatorOutput
+                ? {
+                    operatorOutput:
+                      row.operatorOutput,
+                  }
+                : {}),
+            });
+          } catch (caught: unknown) {
+            if (
+              !(
+                caught instanceof
+                PendingSendConflictError
+              )
+            ) {
+              throw caught;
+            }
+            const current =
+              await loadPendingSend(
+                row.clientMessageId,
+              );
+            if (!current) {
+              continue;
+            }
+            throw caught;
+          }
+
+          const created =
+            await sendPendingRow(row);
+          await finalizePendingSend(
+            row,
+            created,
+          );
+        }
       }
-      const created = await sendPendingRow(row);
-      await finalizePendingSend(row, created);
-    }
-  }
-  return blocked ?? "RESOLVED";
+
+      return blocked ?? "RESOLVED";
     },
   );
 }
