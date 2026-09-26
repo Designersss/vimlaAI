@@ -541,6 +541,39 @@ describe("direct chats API", () => {
         (item) => item.id === sent.json().id,
       );
     expect(originalDeviceMessage?.envelope).toBeTruthy();
+
+    const revoked = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/devices/${nikitaDevice.deviceId}/revoke`,
+      headers: jsonHeaders(),
+      cookies: nikita.cookies,
+      payload: {},
+    });
+    expect(revoked.statusCode).toBe(200);
+
+    const detailAfterRevoke = await app.inject({
+      method: "GET",
+      url: `/v1/direct-chats/${chat.id}`,
+      headers: { origin },
+      cookies: alice.cookies,
+    });
+    expect(detailAfterRevoke.statusCode).toBe(200);
+    expect(
+      (
+        detailAfterRevoke.json().devices as Array<{
+          id: string;
+          revoked: boolean;
+        }>
+      ).find(
+        (device) =>
+          device.id === nikitaDevice.deviceId,
+      ),
+    ).toEqual(
+      expect.objectContaining({
+        id: nikitaDevice.deviceId,
+        revoked: true,
+      }),
+    );
   });
 
   it("requires structured @vimla authority for Direct Chat operator routing", async () => {
