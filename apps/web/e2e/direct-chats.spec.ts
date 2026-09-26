@@ -782,56 +782,6 @@ async function seedLegacyV2Database(
   }, fixture);
 }
 
-async function rewriteRatchetAsLegacy(
-  page: Page,
-  input: {
-    conversationId: string;
-    localDeviceId: string;
-    peerDeviceId: string;
-  },
-): Promise<void> {
-  await page.evaluate(async (value) => {
-    const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open("vimla-direct-e2ee", 4);
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () =>
-        reject(request.error ?? new Error("E2EE IndexedDB open failed"));
-    });
-    try {
-      await new Promise<void>((resolve, reject) => {
-        const tx = db.transaction("ratchets", "readwrite");
-        const store = tx.objectStore("ratchets");
-        const scopedKey = [
-          value.conversationId,
-          value.localDeviceId,
-          value.peerDeviceId,
-        ].join(":");
-        const legacyKey = `${value.conversationId}:${value.peerDeviceId}`;
-        const request = store.get(scopedKey);
-        request.onsuccess = () => {
-          const current = request.result as
-            | { state?: unknown }
-            | undefined;
-          if (!current || !current.state) {
-            reject(new Error("Versioned ratchet fixture is missing"));
-            tx.abort();
-            return;
-          }
-          store.put(current.state, legacyKey);
-          store.delete(scopedKey);
-        };
-        tx.oncomplete = () => resolve();
-        tx.onerror = () =>
-          reject(tx.error ?? new Error("Legacy ratchet fixture failed"));
-        tx.onabort = () =>
-          reject(tx.error ?? new Error("Legacy ratchet fixture aborted"));
-      });
-    } finally {
-      db.close();
-    }
-  }, input);
-}
-
 async function readRatchetRecordVersion(
   page: Page,
   input: {
