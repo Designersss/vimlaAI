@@ -227,6 +227,7 @@ export class DirectChatService {
     conversationId: string,
     input: SendDirectMessage,
     resolvedMentions: MessageMentionView[] = [],
+    options: { replayAlreadyChecked?: boolean } = {},
   ): Promise<{
     message: DirectMessageView;
     replayed: boolean;
@@ -235,13 +236,15 @@ export class DirectChatService {
       actor.userId,
       conversationId,
     );
-    const replay = await this.findExactReplay(
-      actor.userId,
-      conversationId,
-      input,
-    );
-    if (replay) {
-      return { message: replay, replayed: true };
+    if (!options.replayAlreadyChecked) {
+      const replay = await this.findExactReplay(
+        actor.userId,
+        conversationId,
+        input,
+      );
+      if (replay) {
+        return { message: replay, replayed: true };
+      }
     }
 
     const senderDevice = await this.requireActiveDevice(actor.userId, input.senderDeviceId);
