@@ -538,8 +538,14 @@ export async function decryptMessageWithStatus(input: {
   const envelope = input.message.envelope;
   const senderIdentityEd25519Public =
     input.senderIdentityEd25519Public;
-  if (!envelope || !senderIdentityEd25519Public) {
+  if (!envelope) {
     return { payload: null, needsBootstrap: false };
+  }
+  if (!senderIdentityEd25519Public) {
+    return {
+      payload: null,
+      needsBootstrap: envelope.x3dhInit === null,
+    };
   }
   const material = await ensureLocalDevice();
   const identity = identityFromMaterial(material);
