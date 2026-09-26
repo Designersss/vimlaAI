@@ -410,6 +410,48 @@ test.describe("Secure Direct Chats", () => {
       }
     }
 
+    const legacyFixture = await readLegacyV2Fixture(
+      alicePage,
+      directConversationId(directUrl),
+    );
+    const legacyContext = await browser.newContext({
+      storageState: await aliceContext.storageState(),
+    });
+    const legacyPage = await legacyContext.newPage();
+    await legacyPage.goto("/login");
+    await seedLegacyV2Database(
+      legacyPage,
+      legacyFixture,
+    );
+    await disableWebLocks(legacyPage);
+    await legacyPage.goto(directUrl);
+    await expect(
+      legacyPage.getByTestId("direct-chat-shell"),
+    ).toBeVisible({ timeout: 20_000 });
+    const legacyComposer = legacyPage.getByPlaceholder(
+      /сообщение этому человеку|message this person/i,
+    );
+    await legacyComposer.fill("real indexeddb v2 to v4 migration");
+    await legacyPage.getByTestId("chat-composer-send").click();
+    await expect(
+      legacyPage
+        .getByTestId("direct-message-human")
+        .filter({
+          hasText: "real indexeddb v2 to v4 migration",
+        }),
+    ).toBeVisible({ timeout: 20_000 });
+    const migratedRatchet = await readRatchetRecordVersion(
+      legacyPage,
+      {
+        conversationId: directConversationId(directUrl),
+        localDeviceId: legacyFixture.deviceId,
+        peerDeviceId,
+      },
+    );
+    expect(migratedRatchet.schemaVersion).toBe(1);
+    expect(migratedRatchet.stateVersion).toBeGreaterThanOrEqual(1);
+    await legacyContext.close();
+
     const coldContext = await browser.newContext({
       storageState: await aliceContext.storageState(),
     });
