@@ -1146,6 +1146,9 @@ test.describe("Secure Direct Chats", () => {
       alicePage.getByTestId("chat-composer-send"),
     ).toBeEnabled({ timeout: 20_000 });
     await alicePage.waitForTimeout(500);
+    await expect.poll(
+      () => readPendingOperatorOutputCount(alicePage),
+    ).toBe(0);
     await expect(
       alicePage.getByTestId(
         "direct-message-response",
@@ -1637,6 +1640,61 @@ async function readPendingOperatorIntentCount(
               request.error ??
                 new Error(
                   "Pending operator intent read failed",
+                ),
+            );
+        },
+      );
+    } finally {
+      db.close();
+    }
+  });
+}
+
+async function readPendingOperatorOutputCount(
+  page: Page,
+): Promise<number> {
+  return page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>(
+      (resolve, reject) => {
+        const request = indexedDB.open(
+          "vimla-direct-e2ee",
+        );
+        request.onsuccess = () =>
+          resolve(request.result);
+        request.onerror = () =>
+          reject(
+            request.error ??
+              new Error(
+                "Pending operator output database read failed",
+              ),
+          );
+      },
+    );
+    try {
+      return await new Promise<number>(
+        (resolve, reject) => {
+          const tx = db.transaction(
+            "pendingSends",
+            "readonly",
+          );
+          const request = tx
+            .objectStore("pendingSends")
+            .getAll();
+          request.onsuccess = () => {
+            const rows = request.result as Array<{
+              operatorOutput?: unknown;
+            }>;
+            resolve(
+              rows.filter(
+                (row) => row.operatorOutput !== undefined,
+              ).length,
+            );
+          };
+          request.onerror = () =>
+            reject(
+              request.error ??
+                new Error(
+                  "Pending operator output read failed",
                 ),
             );
         },
