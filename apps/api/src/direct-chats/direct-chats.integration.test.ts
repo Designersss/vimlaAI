@@ -31,10 +31,7 @@ import {
   ContextAccessDeniedError,
   ContextSnapshotService,
 } from "@vimla/context";
-import {
-  DIRECT_CHAT_LIMITS,
-  type MessageMentionInput,
-} from "@vimla/contracts";
+import type { MessageMentionInput } from "@vimla/contracts";
 import { seedVimlaPlans } from "@vimla/billing";
 import { loadApiConfig } from "@vimla/config/server";
 import { createPrismaClient } from "@vimla/database";
