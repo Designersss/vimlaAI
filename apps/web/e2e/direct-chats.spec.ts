@@ -178,39 +178,107 @@ test.describe("Secure Direct Chats", () => {
       nikitaFirstDeviceId,
     );
 
-    const aliceRecoveryPage =
+    const aliceStaleRecoveryPage =
       await aliceContext.newPage();
-    await disableWebLocks(aliceRecoveryPage);
-    await Promise.all([
-      alicePage.reload(),
-      aliceRecoveryPage.goto(directUrl),
-    ]);
-    for (const page of [
-      alicePage,
-      aliceRecoveryPage,
-    ]) {
-      await expect(
-        page.getByTestId("direct-chat-shell"),
-      ).toBeVisible({ timeout: 20_000 });
-      await expect(
-        page
-          .getByTestId("direct-message-human")
-          .filter({
-            hasText: "pending before peer device change",
-          }),
-      ).toHaveCount(1);
-    }
+    const aliceTakeoverPage =
+      await aliceContext.newPage();
+    await disableWebLocks(aliceStaleRecoveryPage);
+    await disableWebLocks(aliceTakeoverPage);
+    await holdFirstPrekeyFetch(
+      aliceStaleRecoveryPage,
+    );
+    const staleNavigation =
+      aliceStaleRecoveryPage.goto(directUrl);
+    await expect.poll(
+      () =>
+        isPrekeyFetchHeld(
+          aliceStaleRecoveryPage,
+        ),
+    ).toBe(true);
+
     const aliceRecoveryDeviceId =
-      await readLocalDeviceId(aliceRecoveryPage);
+      await readLocalDeviceId(
+        aliceStaleRecoveryPage,
+      );
     expect(aliceRecoveryDeviceId).toBe(
       await readLocalDeviceId(alicePage),
     );
+    const pendingRecoveryLockKey = [
+      "vimla-pending-send-recovery",
+      directConversationId(directUrl),
+      aliceRecoveryDeviceId,
+    ].join(":");
+    const shortenedRecoveryLease =
+      await shortenActiveRatchetLease(
+        aliceStaleRecoveryPage,
+        pendingRecoveryLockKey,
+        {
+          expiresInMs: 1_200,
+          hardExpiresInMs: 3_500,
+        },
+      );
+    await aliceStaleRecoveryPage.waitForTimeout(
+      1_800,
+    );
+    const renewedRecoveryLease =
+      await readRatchetLease(
+        aliceStaleRecoveryPage,
+        pendingRecoveryLockKey,
+      );
+    expect(renewedRecoveryLease.owner).toBe(
+      shortenedRecoveryLease.owner,
+    );
     expect(
-      await aliceRecoveryPage.evaluate(
+      renewedRecoveryLease.expiresAt,
+    ).toBeGreaterThan(
+      shortenedRecoveryLease.initialExpiresAt,
+    );
+    expect(
+      renewedRecoveryLease.expiresAt,
+    ).toBeLessThanOrEqual(
+      shortenedRecoveryLease.hardExpiresAt,
+    );
+
+    await aliceStaleRecoveryPage.waitForTimeout(
+      2_000,
+    );
+    await aliceTakeoverPage.goto(directUrl);
+    await expect(
+      aliceTakeoverPage.getByTestId(
+        "direct-chat-shell",
+      ),
+    ).toBeVisible({ timeout: 20_000 });
+    await expect(
+      aliceTakeoverPage
+        .getByTestId("direct-message-human")
+        .filter({
+          hasText: "pending before peer device change",
+        }),
+    ).toHaveCount(1);
+
+    await releaseHeldPrekeyFetch(
+      aliceStaleRecoveryPage,
+    );
+    await staleNavigation;
+    await expect(
+      aliceStaleRecoveryPage.getByTestId(
+        "direct-chat-shell",
+      ),
+    ).toBeVisible({ timeout: 20_000 });
+    await expect(
+      aliceStaleRecoveryPage
+        .getByTestId("direct-message-human")
+        .filter({
+          hasText: "pending before peer device change",
+        }),
+    ).toHaveCount(1);
+    expect(
+      await aliceStaleRecoveryPage.evaluate(
         () => navigator.locks === undefined,
       ),
     ).toBe(true);
-    await aliceRecoveryPage.close();
+    await aliceStaleRecoveryPage.close();
+    await aliceTakeoverPage.close();
 
     for (const page of [
       nikitaPage,
@@ -1057,6 +1125,77 @@ function directConversationId(url: string): string {
     throw new Error("Direct Chat URL is missing a conversation id");
   }
   return id;
+}
+
+async function holdFirstPrekeyFetch(
+  page: Page,
+): Promise<void> {
+  await page.addInitScript(() => {
+    const state = globalThis as typeof globalThis & {
+      __vimlaOriginalPrekeyFetch?: typeof fetch;
+      __vimlaPrekeyFetchHeld?: boolean;
+      __vimlaReleasePrekeyFetch?: () => void;
+    };
+    const originalFetch = globalThis.fetch;
+    let release: (() => void) | null = null;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    state.__vimlaOriginalPrekeyFetch =
+      originalFetch;
+    state.__vimlaPrekeyFetchHeld = false;
+    state.__vimlaReleasePrekeyFetch = () => {
+      release?.();
+    };
+    globalThis.fetch = async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ): Promise<Response> => {
+      const url =
+        typeof input === "string"
+          ? input
+          : input instanceof URL
+            ? input.href
+            : input.url;
+      if (
+        !state.__vimlaPrekeyFetchHeld &&
+        /\/v1\/direct-chats\/users\/[^/]+\/prekeys$/.test(
+          url,
+        )
+      ) {
+        state.__vimlaPrekeyFetchHeld = true;
+        await gate;
+      }
+      return originalFetch(input, init);
+    };
+  });
+}
+
+async function isPrekeyFetchHeld(
+  page: Page,
+): Promise<boolean> {
+  return page.evaluate(() => {
+    const state = globalThis as typeof globalThis & {
+      __vimlaPrekeyFetchHeld?: boolean;
+    };
+    return state.__vimlaPrekeyFetchHeld === true;
+  });
+}
+
+async function releaseHeldPrekeyFetch(
+  page: Page,
+): Promise<void> {
+  await page.evaluate(() => {
+    const state = globalThis as typeof globalThis & {
+      __vimlaOriginalPrekeyFetch?: typeof fetch;
+      __vimlaReleasePrekeyFetch?: () => void;
+    };
+    state.__vimlaReleasePrekeyFetch?.();
+    if (state.__vimlaOriginalPrekeyFetch) {
+      globalThis.fetch =
+        state.__vimlaOriginalPrekeyFetch;
+    }
+  });
 }
 
 async function installLateDirectInvokeResponse(
