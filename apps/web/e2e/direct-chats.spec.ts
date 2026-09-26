@@ -636,6 +636,7 @@ test.describe("Secure Direct Chats", () => {
     await expect(
       alicePage.getByTestId("direct-chat-shell"),
     ).toBeVisible({ timeout: 20_000 });
+    const recoveryDirectUrl = alicePage.url();
     await nikitaPage.goto("/app");
     await nikitaPage
       .getByRole("radio", { name: /личные|direct/i })
@@ -734,16 +735,26 @@ test.describe("Secure Direct Chats", () => {
       () => readPendingOperatorIntentCount(alicePage),
     ).toBe(1);
 
-    await alicePage.reload();
-    await expect(
-      alicePage.getByTestId("direct-chat-shell"),
-    ).toBeVisible({ timeout: 20_000 });
-    await expect(
-      alicePage.getByTestId("direct-message-invoke"),
-    ).toHaveCount(1, { timeout: 20_000 });
-    await expect(
-      alicePage.getByTestId("direct-message-response"),
-    ).toHaveCount(1, { timeout: 20_000 });
+    const aliceRecoveryPage =
+      await aliceContext.newPage();
+    await Promise.all([
+      alicePage.reload(),
+      aliceRecoveryPage.goto(recoveryDirectUrl),
+    ]);
+    for (const page of [
+      alicePage,
+      aliceRecoveryPage,
+    ]) {
+      await expect(
+        page.getByTestId("direct-chat-shell"),
+      ).toBeVisible({ timeout: 20_000 });
+      await expect(
+        page.getByTestId("direct-message-invoke"),
+      ).toHaveCount(1, { timeout: 20_000 });
+      await expect(
+        page.getByTestId("direct-message-response"),
+      ).toHaveCount(1, { timeout: 20_000 });
+    }
     await expect.poll(
       () => readPendingOperatorIntentCount(alicePage),
     ).toBe(0);
@@ -755,6 +766,7 @@ test.describe("Secure Direct Chats", () => {
     ).toHaveCount(1, { timeout: 20_000 });
 
     alicePage.off("request", countMessagePosts);
+    await aliceRecoveryPage.close();
     await aliceContext.close();
     await nikitaContext.close();
   });
