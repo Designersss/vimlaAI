@@ -367,14 +367,46 @@ export async function completePendingSend(input: {
     const pendingStore = tx.objectStore("pendingSends");
 
     if (input.pending.operatorIntent) {
-      pendingStore.put(
-        {
-          ...input.pending,
-          committedMessageId: input.messageId,
-          committedCreatedAt: input.serverCreatedAt,
-        } satisfies StoredPendingSend,
+      const currentRequest = pendingStore.get(
         input.pending.clientMessageId,
       );
+      currentRequest.onsuccess = () => {
+        const current = currentRequest.result as
+          | StoredPendingSend
+          | undefined;
+        if (
+          current?.operatorIntent &&
+          current.operatorIntent.clientRequestId !==
+            input.pending.operatorIntent!.clientRequestId
+        ) {
+          failure = new Error(
+            "Pending operator invocation identity changed",
+          );
+          tx.abort();
+          return;
+        }
+        const operatorIntent =
+          current?.operatorIntent?.delivery
+            ? current.operatorIntent
+            : input.pending.operatorIntent!;
+        pendingStore.put(
+          {
+            ...input.pending,
+            operatorIntent,
+            committedMessageId: input.messageId,
+            committedCreatedAt: input.serverCreatedAt,
+          } satisfies StoredPendingSend,
+          input.pending.clientMessageId,
+        );
+      };
+      currentRequest.onerror = () => {
+        failure =
+          currentRequest.error ??
+          new Error(
+            "Pending operator invocation merge read failed",
+          );
+        tx.abort();
+      };
     } else if (input.pending.operatorOutput) {
       const link = input.pending.operatorOutput;
       const parentRequest = pendingStore.get(
