@@ -203,20 +203,39 @@ test.describe("Secure Direct Chats", () => {
     expect(aliceRecoveryDeviceId).toBe(
       await readLocalDeviceId(alicePage),
     );
+    const recoveryConversationId =
+      directConversationId(directUrl);
     const pendingRecoveryLockKey = [
       "vimla-pending-send-recovery",
-      directConversationId(directUrl),
+      recoveryConversationId,
       aliceRecoveryDeviceId,
     ].join(":");
+    const leaseTiming = {
+      expiresInMs: 1_200,
+      hardExpiresInMs: 3_500,
+    };
     const shortenedRecoveryLease =
       await shortenActiveRatchetLease(
         aliceStaleRecoveryPage,
         pendingRecoveryLockKey,
-        {
-          expiresInMs: 1_200,
-          hardExpiresInMs: 3_500,
-        },
+        leaseTiming,
       );
+    for (const peerDeviceId of [
+      aliceRecoveryDeviceId,
+      nikitaFirstDeviceId,
+      nikitaSecondDeviceId,
+    ]) {
+      await shortenActiveRatchetLease(
+        aliceStaleRecoveryPage,
+        [
+          "vimla-ratchet",
+          recoveryConversationId,
+          aliceRecoveryDeviceId,
+          peerDeviceId,
+        ].join(":"),
+        leaseTiming,
+      );
+    }
     await aliceStaleRecoveryPage.waitForTimeout(
       1_800,
     );
