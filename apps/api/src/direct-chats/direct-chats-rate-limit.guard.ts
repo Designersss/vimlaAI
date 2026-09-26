@@ -22,11 +22,7 @@ export class DirectChatsRateLimitGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<FastifyRequest>();
-    if (
-      request.method === "GET" ||
-      request.method === "HEAD" ||
-      request.method === "OPTIONS"
-    ) {
+    if (request.method === "GET" || request.method === "HEAD" || request.method === "OPTIONS") {
       return true;
     }
 
@@ -35,26 +31,13 @@ export class DirectChatsRateLimitGuard implements CanActivate {
       return true;
     }
 
-    const isReadReceipt =
-      request.method === "POST" &&
-      /\/v1\/direct-chats\/[^/?]+\/read(?:\?|$)/.test(
-        request.url,
-      );
-    const bucket = isReadReceipt
-      ? "read"
-      : "mutation";
     const allowed = await this.hit(
-      `ratelimit:direct-chats:${bucket}:user:${userId}`,
+      `ratelimit:direct-chats:user:${userId}`,
       this.config.directChatsMutationLimitPerMinute,
     );
     if (!allowed) {
       throw new HttpException(
-        {
-          code: "rate_limited",
-          message: isReadReceipt
-            ? "Too many Direct Chat read receipts"
-            : "Too many Direct Chat requests",
-        },
+        { code: "rate_limited", message: "Too many Direct Chat requests" },
         HttpStatus.TOO_MANY_REQUESTS,
       );
     }
