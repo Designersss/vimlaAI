@@ -1509,7 +1509,13 @@ async function registerHarness(
     },
   });
   expect(registered.statusCode).toBe(201);
-  return { deviceId, identity, signed, otk, ratchets: new Map() };
+  return {
+    deviceId,
+    identity,
+    signed,
+    otks: new Map([[otk.keyId, otk]]),
+    ratchets: new Map(),
+  };
 }
 
 async function createChat(
