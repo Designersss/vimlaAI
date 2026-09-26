@@ -484,6 +484,99 @@ test.describe("Secure Direct Chats", () => {
     expect(registrations).toBe(1);
     await coldContext.close();
 
+    const fencedContext = await browser.newContext({
+      storageState: await aliceContext.storageState(),
+    });
+    const staleOwnerPage = await fencedContext.newPage();
+    const takeoverPage = await fencedContext.newPage();
+    await disableWebLocks(staleOwnerPage);
+    await disableWebLocks(takeoverPage);
+    await disableLeaseHeartbeat(staleOwnerPage);
+
+    let signalStaleRegistrationStarted: (() => void) | null =
+      null;
+    const staleRegistrationStarted = new Promise<void>(
+      (resolve) => {
+        signalStaleRegistrationStarted = resolve;
+      },
+    );
+    let resumeStaleRegistration: (() => void) | null = null;
+    const staleRegistrationResume = new Promise<void>(
+      (resolve) => {
+        resumeStaleRegistration = resolve;
+      },
+    );
+    let takeoverRegistration:
+      | {
+          status: number;
+          headers: Record<string, string>;
+          body: string;
+        }
+      | null = null;
+
+    await staleOwnerPage.route(
+      "**/v1/direct-chats/devices",
+      async (route) => {
+        if (route.request().method() !== "POST") {
+          await route.continue();
+          return;
+        }
+        signalStaleRegistrationStarted?.();
+        await staleRegistrationResume;
+        if (!takeoverRegistration) {
+          await route.abort("failed");
+          return;
+        }
+        await route.fulfill(takeoverRegistration);
+      },
+    );
+    await takeoverPage.route(
+      "**/v1/direct-chats/devices",
+      async (route) => {
+        if (route.request().method() !== "POST") {
+          await route.continue();
+          return;
+        }
+        const response = await route.fetch();
+        const body = await response.text();
+        takeoverRegistration = {
+          status: response.status(),
+          headers: response.headers(),
+          body,
+        };
+        await route.fulfill(takeoverRegistration);
+      },
+    );
+
+    const staleNavigation = staleOwnerPage
+      .goto(directUrl)
+      .catch(() => null);
+    await staleRegistrationStarted;
+    await staleOwnerPage.waitForTimeout(5_250);
+
+    await takeoverPage.goto(directUrl);
+    await expect(
+      takeoverPage.getByTestId("direct-chat-shell"),
+    ).toBeVisible({ timeout: 20_000 });
+    expect(takeoverRegistration).not.toBeNull();
+    const takeoverDeviceId =
+      await readLocalDeviceId(takeoverPage);
+    await writeDeviceFenceMarker(
+      takeoverPage,
+      "takeover-won",
+    );
+
+    resumeStaleRegistration?.();
+    await staleNavigation;
+    await staleOwnerPage.waitForTimeout(500);
+    expect(
+      await readDeviceFenceMarker(takeoverPage),
+    ).toBe("takeover-won");
+    expect(
+      await readLocalDeviceId(staleOwnerPage),
+    ).toBe(takeoverDeviceId);
+    await fencedContext.close();
+
     await nikitaSecondContext.close();
     await aliceContext.close();
     await nikitaContext.close();
