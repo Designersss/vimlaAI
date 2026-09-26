@@ -728,7 +728,8 @@ test.describe("Secure Direct Chats", () => {
         .filter({ hasText: "works after idb abort" }),
     ).toBeVisible({ timeout: 20_000 });
 
-    let abortInvokeBeforeServer = true;
+    let blockInvokeBeforeServer = true;
+    let blockedInvokePosts = 0;
     await alicePage.route(
       "**/v1/direct-chats/*/messages",
       async (route) => {
@@ -739,10 +740,10 @@ test.describe("Secure Direct Chats", () => {
               } | null)
             : null;
         if (
-          abortInvokeBeforeServer &&
+          blockInvokeBeforeServer &&
           body?.kind === "OPERATOR_INVOKE"
         ) {
-          abortInvokeBeforeServer = false;
+          blockedInvokePosts += 1;
           await route.abort("failed");
           return;
         }
@@ -755,12 +756,9 @@ test.describe("Secure Direct Chats", () => {
     await alicePage
       .getByTestId("chat-composer-send")
       .click();
-    await expect.poll(
-      () => abortInvokeBeforeServer,
-    ).toBe(false);
-    await alicePage.unroute(
-      "**/v1/direct-chats/*/messages",
-    );
+    await expect
+      .poll(() => blockedInvokePosts)
+      .toBeGreaterThan(0);
     await expect.poll(
       () => readPendingOperatorIntentCount(alicePage),
     ).toBe(1);
@@ -784,10 +782,24 @@ test.describe("Secure Direct Chats", () => {
       await readLocalDeviceId(nikitaPage),
     );
 
-    await alicePage.reload();
+    blockInvokeBeforeServer = false;
+    await alicePage.unroute(
+      "**/v1/direct-chats/*/messages",
+    );
+    await composer.fill(
+      "trigger operator recovery without reload",
+    );
+    await alicePage
+      .getByTestId("chat-composer-send")
+      .click();
     await expect(
-      alicePage.getByTestId("direct-chat-shell"),
-    ).toBeVisible({ timeout: 20_000 });
+      alicePage
+        .getByTestId("direct-message-human")
+        .filter({
+          hasText:
+            "trigger operator recovery without reload",
+        }),
+    ).toHaveCount(1, { timeout: 20_000 });
     await expect(
       alicePage
         .getByTestId("direct-message-invoke")
