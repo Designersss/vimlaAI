@@ -636,9 +636,8 @@ export class DirectChatService {
 
   private toView(conversation: ConversationRecord, actorUserId: string): DirectConversationView {
     const summary = this.toSummary(conversation, actorUserId);
-    const devices = conversation.members.flatMap(
-      (member) =>
-        member.user.cryptoDevices.map(toDeviceView),
+    const devices = conversation.members.flatMap((member) =>
+      member.user.cryptoDevices.filter((device) => device.revokedAt === null).map(toDeviceView),
     );
     return {
       ...summary,
