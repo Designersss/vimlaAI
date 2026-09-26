@@ -64,6 +64,9 @@ import {
   boundDirectChatContextBefore,
   prepareDirectChatContext,
 } from "../services/context";
+import {
+  shouldContinueDeepHistoryBootstrap,
+} from "../services/history-bootstrap";
 import { decodeDirectPlaintext, encodeDirectPlaintext, type DirectPlaintextPayload } from "../services/payload";
 import { subscribeDirectChatEvents } from "../services/realtime";
 import {
@@ -89,7 +92,6 @@ interface DecryptedRow {
   needsBootstrap: boolean;
 }
 
-const DEEP_HISTORY_BOOTSTRAP_MAX_PAGES = 8;
 const OPERATOR_RECOVERY_REQUEST_TIMEOUT_MS = 20_000;
 
 type ActiveMentionQuery = {
@@ -1025,9 +1027,11 @@ async function fetchLatestDecryptedPage(
   let backfillPages = 0;
 
   while (
-    cursor &&
-    missingSenders.size > 0 &&
-    backfillPages < DEEP_HISTORY_BOOTSTRAP_MAX_PAGES
+    shouldContinueDeepHistoryBootstrap({
+      cursor,
+      missingSenderCount: missingSenders.size,
+      backfillPages,
+    })
   ) {
     backfillPages += 1;
     const older = await fetchDirectMessages(
