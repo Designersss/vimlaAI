@@ -776,10 +776,15 @@ export async function commitOutboundRatchets(input: {
     throw new Error("Outbound ratchet update set is empty");
   }
   if (
-    new Set(input.updates.map((update) => update.peerDeviceId))
-      .size !== input.updates.length
+    new Set(
+      input.updates.map(
+        (update) => update.peerDeviceId,
+      ),
+    ).size !== input.updates.length
   ) {
-    throw new Error("Outbound ratchet update set contains duplicates");
+    throw new Error(
+      "Outbound ratchet update set contains duplicates",
+    );
   }
 
   const db = await openDb();
@@ -790,11 +795,13 @@ export async function commitOutboundRatchets(input: {
       "readwrite",
     );
     const ratchets = tx.objectStore("ratchets");
-    const pendingSends = tx.objectStore("pendingSends");
+    const pendingSends =
+      tx.objectStore("pendingSends");
     const pendingRequest = pendingSends.get(
       input.pendingSend.clientMessageId,
     );
     let pendingReady = false;
+
     const reads = input.updates.map((update) => {
       const key = ratchetStorageKey(
         input.conversationId,
@@ -821,11 +828,13 @@ export async function commitOutboundRatchets(input: {
         !pendingReady ||
         reads.some(
           (read) =>
-            !read.currentReady || !read.legacyReady,
+            !read.currentReady ||
+            !read.legacyReady,
         )
       ) {
         return;
       }
+
       try {
         const currentPending =
           pendingRequest.result as
@@ -842,18 +851,8 @@ export async function commitOutboundRatchets(input: {
         ) {
           throw new PendingSendConflictError();
         }
-        pendingRequest.onsuccess = () => {
-      pendingReady = true;
-      apply();
-    };
-    pendingRequest.onerror = () => {
-      failure =
-        pendingRequest.error ??
-        new Error("Pending send read failed");
-      tx.abort();
-    };
 
-    for (const read of reads) {
+        for (const read of reads) {
           const useLegacy =
             read.current.result === undefined &&
             read.legacy.result !== undefined;
@@ -870,7 +869,8 @@ export async function commitOutboundRatchets(input: {
           );
           ratchets.put(
             storedRatchetRecord({
-              localDeviceId: input.localDeviceId,
+              localDeviceId:
+                input.localDeviceId,
               stateVersion:
                 read.update.expectedVersion + 1,
               state: read.update.state,
@@ -883,6 +883,7 @@ export async function commitOutboundRatchets(input: {
             ratchets.delete(read.legacyKey);
           }
         }
+
         pendingSends.put(
           input.pendingSend,
           input.pendingSend.clientMessageId,
@@ -891,9 +892,22 @@ export async function commitOutboundRatchets(input: {
         failure =
           error instanceof Error
             ? error
-            : new Error("Outbound ratchet commit failed");
+            : new Error(
+                "Outbound ratchet commit failed",
+              );
         tx.abort();
       }
+    };
+
+    pendingRequest.onsuccess = () => {
+      pendingReady = true;
+      apply();
+    };
+    pendingRequest.onerror = () => {
+      failure =
+        pendingRequest.error ??
+        new Error("Pending send read failed");
+      tx.abort();
     };
 
     for (const read of reads) {
@@ -908,13 +922,17 @@ export async function commitOutboundRatchets(input: {
       read.current.onerror = () => {
         failure =
           read.current.error ??
-          new Error("Outbound ratchet read failed");
+          new Error(
+            "Outbound ratchet read failed",
+          );
         tx.abort();
       };
       read.legacy.onerror = () => {
         failure =
           read.legacy.error ??
-          new Error("Outbound legacy ratchet read failed");
+          new Error(
+            "Outbound legacy ratchet read failed",
+          );
         tx.abort();
       };
     }
@@ -928,13 +946,17 @@ export async function commitOutboundRatchets(input: {
       reject(
         failure ??
           tx.error ??
-          new Error("Outbound ratchet commit aborted"),
+          new Error(
+            "Outbound ratchet commit aborted",
+          ),
       );
     };
     tx.onerror = () => {
       failure ??=
         tx.error ??
-        new Error("Outbound ratchet commit failed");
+        new Error(
+          "Outbound ratchet commit failed",
+        );
     };
   });
 }
