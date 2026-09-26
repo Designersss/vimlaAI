@@ -72,6 +72,7 @@ import {
   finalizePendingSend,
   loadPendingOperatorInvocations,
   recoverPendingSends,
+  withPendingOperatorInvocationLock,
   type PendingOperatorInvocation,
 } from "../services/session";
 import { useChatWorkspace, usePrepareChatDevice } from "../../chat/components/ChatWorkspace/ChatWorkspaceProvider";
@@ -537,6 +538,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         },
         userId,
       );
+      if (!run) return;
       setPendingRun(run);
       await publishOperatorRunMessages(run);
     } catch (caught: unknown) {
@@ -565,7 +567,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
           invocation,
           userId,
         );
-        if (cancelled) return;
+        if (cancelled || !run) continue;
         setPendingRun(run);
         const delivery =
           await publishOperatorRunMessagesDirect({
@@ -831,31 +833,56 @@ async function publishOperatorRunMessagesDirect(input: {
 async function resumeDirectOperatorInvocation(
   invocation: PendingOperatorInvocation,
   actorUserId: string,
-): Promise<OperatorRunView> {
-  const prepared = {
-    contextBundle: invocation.intent.contextBundle,
-    ownIncluded: false,
-    peerIncluded: false,
-  };
-  const sourceBoundContext = boundDirectChatContextBefore(
-    prepared,
-    invocation.messageCreatedAt,
-    actorUserId,
+): Promise<OperatorRunView | null> {
+  return withPendingOperatorInvocationLock(
+    {
+      conversationId: invocation.conversationId,
+      localDeviceId: invocation.senderDeviceId,
+    },
+    async () => {
+      const pending =
+        await loadPendingOperatorInvocations({
+          conversationId: invocation.conversationId,
+          localDeviceId: invocation.senderDeviceId,
+        });
+      const current = pending.find(
+        (candidate) =>
+          candidate.pendingClientMessageId ===
+          invocation.pendingClientMessageId,
+      );
+      if (!current) {
+        return null;
+      }
+      const prepared = {
+        contextBundle: current.intent.contextBundle,
+        ownIncluded: false,
+        peerIncluded: false,
+      };
+      const sourceBoundContext =
+        boundDirectChatContextBefore(
+          prepared,
+          current.messageCreatedAt,
+          actorUserId,
+        );
+      const run = await createOperatorRun({
+        clientRequestId: current.intent.clientRequestId,
+        content: current.intent.content,
+        invocationScope: "DIRECT_CHAT",
+        directConversationId: current.conversationId,
+        directSourceMessageId: current.messageId,
+        ...(sourceBoundContext.contextBundle.messages.length > 0
+          ? {
+              contextBundle:
+                sourceBoundContext.contextBundle,
+            }
+          : {}),
+      });
+      await finalizePendingOperatorInvocation(
+        current.pendingClientMessageId,
+      );
+      return run;
+    },
   );
-  const run = await createOperatorRun({
-    clientRequestId: invocation.intent.clientRequestId,
-    content: invocation.intent.content,
-    invocationScope: "DIRECT_CHAT",
-    directConversationId: invocation.conversationId,
-    directSourceMessageId: invocation.messageId,
-    ...(sourceBoundContext.contextBundle.messages.length > 0
-      ? { contextBundle: sourceBoundContext.contextBundle }
-      : {}),
-  });
-  await finalizePendingOperatorInvocation(
-    invocation.pendingClientMessageId,
-  );
-  return run;
 }
 
 async function fetchLatestDecryptedPage(
