@@ -56,6 +56,7 @@ import {
 } from "../services/api";
 import {
   loadConversationPlaintexts,
+  loadPendingSends,
   type StoredOperatorIntent,
   type StoredOperatorOutput,
   type StoredOperatorOutputLink,
@@ -708,24 +709,27 @@ async function sendEncryptedDirectMessage(input: {
   clientMessageId?: string;
   operatorIntent?: StoredOperatorIntent;
   operatorOutput?: StoredOperatorOutputLink;
+  recoverPending?: boolean;
 }): Promise<{
   message: DirectMessageView;
   latest: DirectConversationView;
 }> {
   const device = await ensureLocalDevice();
-  const recovery = await recoverPendingSends({
-    conversationId: input.conversationId,
-    localDevice: device,
-  });
-  if (recovery === "LOCAL_DEVICE_INACTIVE") {
-    throw new DirectChatsApiError(
-      "direct_chat_device_revoked",
-    );
-  }
-  if (recovery === "RECIPIENT_DEVICE_MISSING") {
-    throw new DirectChatsApiError(
-      "direct_chat_recipient_device_missing",
-    );
+  if (input.recoverPending !== false) {
+    const recovery = await recoverPendingSends({
+      conversationId: input.conversationId,
+      localDevice: device,
+    });
+    if (recovery === "LOCAL_DEVICE_INACTIVE") {
+      throw new DirectChatsApiError(
+        "direct_chat_device_revoked",
+      );
+    }
+    if (recovery === "RECIPIENT_DEVICE_MISSING") {
+      throw new DirectChatsApiError(
+        "direct_chat_recipient_device_missing",
+      );
+    }
   }
   const latest = await fetchDirectConversation(
     input.conversationId,
@@ -774,12 +778,6 @@ async function resumeDirectOperatorInvocation(
       localDeviceId: invocation.senderDeviceId,
     },
     async () => {
-      const localDevice = await ensureLocalDevice();
-      await recoverPendingSends({
-        conversationId: invocation.conversationId,
-        localDevice,
-      });
-
       const pending =
         await loadPendingOperatorInvocations({
           conversationId: invocation.conversationId,
@@ -792,6 +790,38 @@ async function resumeDirectOperatorInvocation(
       );
       if (!current) {
         return null;
+      }
+
+      if (current.intent.delivery) {
+        const pendingRows = await loadPendingSends(
+          current.conversationId,
+          current.senderDeviceId,
+        );
+        const hasStagedOutput = pendingRows.some(
+          (row) =>
+            row.operatorOutput?.parentClientMessageId ===
+            current!.pendingClientMessageId,
+        );
+        if (hasStagedOutput) {
+          const localDevice = await ensureLocalDevice();
+          await recoverPendingSends({
+            conversationId: current.conversationId,
+            localDevice,
+          });
+          const refreshed =
+            await loadPendingOperatorInvocations({
+              conversationId: current.conversationId,
+              localDeviceId: current.senderDeviceId,
+            });
+          current = refreshed.find(
+            (candidate) =>
+              candidate.pendingClientMessageId ===
+              invocation.pendingClientMessageId,
+          );
+          if (!current) {
+            return null;
+          }
+        }
       }
 
       let run: OperatorRunView;
@@ -883,6 +913,7 @@ async function resumeDirectOperatorInvocation(
               current.pendingClientMessageId,
             outputId: output.id,
           },
+          recoverPending: false,
         });
         latest = result.latest;
         rows.push({
