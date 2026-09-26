@@ -1322,12 +1322,24 @@ async function holdFirstPrekeyFetch(
 async function isPrekeyFetchHeld(
   page: Page,
 ): Promise<boolean> {
-  return page.evaluate(() => {
-    const state = globalThis as typeof globalThis & {
-      __vimlaPrekeyFetchHeld?: boolean;
-    };
-    return state.__vimlaPrekeyFetchHeld === true;
-  });
+  try {
+    return await page.evaluate(() => {
+      const state = globalThis as typeof globalThis & {
+        __vimlaPrekeyFetchHeld?: boolean;
+      };
+      return state.__vimlaPrekeyFetchHeld === true;
+    });
+  } catch (error: unknown) {
+    if (
+      error instanceof Error &&
+      /Execution context was destroyed|Cannot find context with specified id/i.test(
+        error.message,
+      )
+    ) {
+      return false;
+    }
+    throw error;
+  }
 }
 
 async function releaseHeldPrekeyFetch(
