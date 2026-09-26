@@ -1,6 +1,7 @@
 import type { SerializedRatchetState, X3dhInitHeader } from "@vimla/e2ee";
 
 export const RATCHET_RECORD_SCHEMA_VERSION = 1 as const;
+export const LEGACY_RATCHET_RECORD_SCHEMA_VERSION = 0 as const;
 
 export interface StoredRatchetRecord {
   schemaVersion: typeof RATCHET_RECORD_SCHEMA_VERSION;
@@ -8,6 +9,12 @@ export interface StoredRatchetRecord {
   stateVersion: number;
   state: SerializedRatchetState;
   pendingX3dhInit: X3dhInitHeader | null;
+}
+
+export interface StoredLegacyRatchetRecord {
+  schemaVersion: typeof LEGACY_RATCHET_RECORD_SCHEMA_VERSION;
+  localDeviceId: string;
+  state: SerializedRatchetState;
 }
 
 export interface RatchetSnapshot {
@@ -19,6 +26,7 @@ export interface RatchetSnapshot {
 export interface RatchetLeaseRecord {
   owner: string;
   expiresAt: number;
+  fence?: number;
 }
 
 export class RatchetStateConflictError extends Error {
@@ -59,14 +67,31 @@ export function decodeStoredRatchet(
       pendingX3dhInit: value.pendingX3dhInit,
     };
   }
-  if (isSerializedRatchetState(value)) {
+  if (isStoredLegacyRatchetRecord(value)) {
+    if (value.localDeviceId !== localDeviceId) {
+      throw new RatchetStateCorruptError();
+    }
     return {
       stateVersion: 0,
-      state: value,
+      state: value.state,
       pendingX3dhInit: null,
     };
   }
   throw new RatchetStateCorruptError();
+}
+
+export function markLegacyRatchetOwner(
+  value: unknown,
+  localDeviceId: string,
+): unknown {
+  if (!isSerializedRatchetState(value)) {
+    return value;
+  }
+  return {
+    schemaVersion: LEGACY_RATCHET_RECORD_SCHEMA_VERSION,
+    localDeviceId,
+    state: value,
+  } satisfies StoredLegacyRatchetRecord;
 }
 
 export function storedRatchetRecord(input: {
@@ -120,7 +145,24 @@ export function isRatchetLeaseRecord(
     typeof value.owner === "string" &&
     value.owner.length > 0 &&
     typeof value.expiresAt === "number" &&
-    Number.isFinite(value.expiresAt)
+    Number.isFinite(value.expiresAt) &&
+    (value.fence === undefined ||
+      (typeof value.fence === "number" &&
+        Number.isSafeInteger(value.fence) &&
+        value.fence >= 0))
+  );
+}
+
+function isStoredLegacyRatchetRecord(
+  value: unknown,
+): value is StoredLegacyRatchetRecord {
+  if (!isRecord(value)) return false;
+  return (
+    value.schemaVersion ===
+      LEGACY_RATCHET_RECORD_SCHEMA_VERSION &&
+    typeof value.localDeviceId === "string" &&
+    value.localDeviceId.length > 0 &&
+    isSerializedRatchetState(value.state)
   );
 }
 
