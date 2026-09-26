@@ -1009,9 +1009,9 @@ test.describe("Secure Direct Chats", () => {
       alicePage,
       aliceRecoveryPage,
     ]) {
-      await expect(
-        page.getByTestId("direct-chat-shell"),
-      ).toBeVisible({ timeout: 20_000 });
+      await ensureDirectChatReadyAfterInjectedFailure(
+        page,
+      );
       await expect(
         page.getByTestId("direct-message-invoke"),
       ).toHaveCount(
@@ -1269,6 +1269,28 @@ test.describe("Secure Direct Chats", () => {
     await nikitaContext.close();
   });
 });
+
+async function ensureDirectChatReadyAfterInjectedFailure(
+  page: Page,
+): Promise<void> {
+  const shell = page.getByTestId("direct-chat-shell");
+  const retry = page.getByRole("button", {
+    name: /повторить|retry/i,
+  });
+  await expect
+    .poll(async () => {
+      if (await shell.isVisible()) return "ready";
+      if (await retry.isVisible()) return "retry";
+      return "loading";
+    }, { timeout: 20_000 })
+    .not.toBe("loading");
+  if (await retry.isVisible()) {
+    await retry.click();
+  }
+  await expect(shell).toBeVisible({
+    timeout: 20_000,
+  });
+}
 
 function directConversationId(url: string): string {
   const id = new URL(url).pathname.split("/").filter(Boolean).at(-1);
