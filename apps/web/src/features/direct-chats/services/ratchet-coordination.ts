@@ -27,6 +27,7 @@ export interface RatchetLeaseRecord {
   owner: string;
   expiresAt: number;
   fence?: number;
+  hardExpiresAt?: number;
 }
 
 export class RatchetStateConflictError extends Error {
@@ -137,6 +138,83 @@ export function canAcquireRatchetLease(
   );
 }
 
+export function acquireRatchetLeaseRecord(input: {
+  current: RatchetLeaseRecord | null;
+  owner: string;
+  now: number;
+  leaseMs: number;
+  maxHoldMs: number;
+}): { fence: number; record: RatchetLeaseRecord } | null {
+  if (
+    !Number.isFinite(input.leaseMs) ||
+    input.leaseMs <= 0 ||
+    !Number.isFinite(input.maxHoldMs) ||
+    input.maxHoldMs < input.leaseMs ||
+    !canAcquireRatchetLease(
+      input.current,
+      input.owner,
+      input.now,
+    )
+  ) {
+    return null;
+  }
+  const currentFence = input.current?.fence ?? 0;
+  const fence =
+    input.current?.owner === input.owner
+      ? Math.max(1, currentFence)
+      : currentFence + 1;
+  const hardExpiresAt =
+    input.current?.owner === input.owner &&
+    input.current.hardExpiresAt !== undefined &&
+    input.current.hardExpiresAt > input.now
+      ? input.current.hardExpiresAt
+      : input.now + input.maxHoldMs;
+  return {
+    fence,
+    record: {
+      owner: input.owner,
+      fence,
+      hardExpiresAt,
+      expiresAt: Math.min(
+        input.now + input.leaseMs,
+        hardExpiresAt,
+      ),
+    },
+  };
+}
+
+export function renewRatchetLeaseRecord(input: {
+  current: RatchetLeaseRecord | null;
+  owner: string;
+  fence: number;
+  now: number;
+  leaseMs: number;
+}): RatchetLeaseRecord | null {
+  const current = input.current;
+  if (
+    !current ||
+    current.owner !== input.owner ||
+    (current.fence ?? 0) !== input.fence ||
+    current.expiresAt <= input.now
+  ) {
+    return null;
+  }
+  const hardExpiresAt =
+    current.hardExpiresAt ?? current.expiresAt;
+  if (hardExpiresAt <= input.now) {
+    return null;
+  }
+  return {
+    owner: input.owner,
+    fence: input.fence,
+    hardExpiresAt,
+    expiresAt: Math.min(
+      input.now + input.leaseMs,
+      hardExpiresAt,
+    ),
+  };
+}
+
 export function isRatchetLeaseRecord(
   value: unknown,
 ): value is RatchetLeaseRecord {
@@ -149,7 +227,10 @@ export function isRatchetLeaseRecord(
     (value.fence === undefined ||
       (typeof value.fence === "number" &&
         Number.isSafeInteger(value.fence) &&
-        value.fence >= 0))
+        value.fence >= 0)) &&
+    (value.hardExpiresAt === undefined ||
+      (typeof value.hardExpiresAt === "number" &&
+        Number.isFinite(value.hardExpiresAt)))
   );
 }
 
