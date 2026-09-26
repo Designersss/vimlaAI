@@ -190,16 +190,43 @@ export class DirectChatService {
     };
   }
 
+  async preflightSend(
+    actor: ActorContext,
+    conversationId: string,
+    input: SendDirectMessage,
+  ): Promise<{
+    replay: DirectMessageView | null;
+    memberIds: string[];
+  }> {
+    const conversation =
+      await this.requireMemberConversation(
+        actor.userId,
+        conversationId,
+      );
+    return {
+      replay: await this.findExactReplay(
+        actor.userId,
+        conversationId,
+        input,
+      ),
+      memberIds: conversation.members.map(
+        (member) => member.userId,
+      ),
+    };
+  }
+
   async replay(
     actor: ActorContext,
     conversationId: string,
     input: SendDirectMessage,
   ): Promise<DirectMessageView | null> {
-    return this.findExactReplay(
-      actor.userId,
-      conversationId,
-      input,
-    );
+    return (
+      await this.preflightSend(
+        actor,
+        conversationId,
+        input,
+      )
+    ).replay;
   }
 
   async send(
@@ -223,15 +250,28 @@ export class DirectChatService {
     conversationId: string,
     input: SendDirectMessage,
     resolvedMentions: MessageMentionView[] = [],
-    options: { replayAlreadyChecked?: boolean } = {},
+    options: {
+      replayAlreadyChecked?: boolean;
+      authorizedMemberIds?: readonly string[];
+    } = {},
   ): Promise<{
     message: DirectMessageView;
     replayed: boolean;
   }> {
-    const conversation = await this.requireMemberConversation(
-      actor.userId,
-      conversationId,
-    );
+    const memberIds = options.authorizedMemberIds
+      ? [...options.authorizedMemberIds]
+      : (
+          await this.requireMemberConversation(
+            actor.userId,
+            conversationId,
+          )
+        ).members.map((member) => member.userId);
+    if (!memberIds.includes(actor.userId)) {
+      throw new DirectChatError(
+        "NOT_FOUND",
+        "Direct Chat was not found",
+      );
+    }
     if (!options.replayAlreadyChecked) {
       const replay = await this.findExactReplay(
         actor.userId,
@@ -248,7 +288,6 @@ export class DirectChatService {
       throw new DirectChatError("VALIDATION_ERROR", "Too many envelopes");
     }
 
-    const memberIds = conversation.members.map((member) => member.userId);
     const memberDevices = await this.db.userCryptoDevice.findMany({
       where: { userId: { in: memberIds }, revokedAt: null },
     });
