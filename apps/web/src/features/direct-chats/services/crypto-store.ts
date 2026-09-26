@@ -1660,7 +1660,8 @@ function isTerminalOperatorStatus(
     status === "SUCCEEDED" ||
     status === "FAILED" ||
     status === "CANCELED" ||
-    status === "PARTIAL"
+    status === "PARTIAL" ||
+    status === "AWAITING_CLARIFICATION"
   );
 }
 
