@@ -293,14 +293,39 @@ export async function encryptForDevices(input: {
         ? { operatorOutput: input.operatorOutput }
         : {}),
     };
-    await commitOutboundRatchets({
-      conversationId: input.conversationId,
-      localDeviceId: material.deviceId,
-      updates,
-      pendingSend: pending,
-      expectedPendingRevision,
-    });
-    return pending;
+    try {
+      await commitOutboundRatchets({
+        conversationId: input.conversationId,
+        localDeviceId: material.deviceId,
+        updates,
+        pendingSend: pending,
+        expectedPendingRevision,
+      });
+      return pending;
+    } catch (caught: unknown) {
+      if (!(caught instanceof PendingSendConflictError)) {
+        throw caught;
+      }
+      const existing = await loadPendingSend(
+        input.clientMessageId,
+      );
+      if (
+        existing &&
+        pendingSendMatchesInput(existing, {
+          conversationId: input.conversationId,
+          senderUserId: input.senderUserId,
+          senderDeviceId: material.deviceId,
+          kind: input.kind,
+          plaintext: input.plaintext,
+          mentions: input.mentions ?? [],
+          operatorIntent: input.operatorIntent,
+          operatorOutput: input.operatorOutput,
+        })
+      ) {
+        return existing;
+      }
+      throw caught;
+    }
   });
 }
 
@@ -410,37 +435,24 @@ export async function recoverPendingSends(input: {
         continue;
       }
 
-      try {
-        row = await encryptForDevices({
-          conversationId: row.conversationId,
-          senderUserId: row.senderUserId,
-          clientMessageId: row.clientMessageId,
-          localDevice: input.localDevice,
-          kind: row.kind,
-          plaintext: row.plaintext,
-          devices: detail.devices,
-          mentions: row.mentions,
-          expectedPendingRevision:
-            pendingSendRevision(row),
-          ...(row.operatorIntent
-            ? { operatorIntent: row.operatorIntent }
-            : {}),
-          ...(row.operatorOutput
-            ? { operatorOutput: row.operatorOutput }
-            : {}),
-        });
-      } catch (caught: unknown) {
-        if (!(caught instanceof PendingSendConflictError)) {
-          throw caught;
-        }
-        const current = await loadPendingSend(
-          row.clientMessageId,
-        );
-        if (!current) {
-          continue;
-        }
-        row = current;
-      }
+      row = await encryptForDevices({
+        conversationId: row.conversationId,
+        senderUserId: row.senderUserId,
+        clientMessageId: row.clientMessageId,
+        localDevice: input.localDevice,
+        kind: row.kind,
+        plaintext: row.plaintext,
+        devices: detail.devices,
+        mentions: row.mentions,
+        expectedPendingRevision:
+          pendingSendRevision(row),
+        ...(row.operatorIntent
+          ? { operatorIntent: row.operatorIntent }
+          : {}),
+        ...(row.operatorOutput
+          ? { operatorOutput: row.operatorOutput }
+          : {}),
+      });
       const created = await sendPendingRow(row);
       await finalizePendingSend(row, created);
     }
@@ -771,6 +783,38 @@ function isRatchetCoordinationError(
   return (
     error instanceof RatchetStateConflictError ||
     error instanceof RatchetLockLostError
+  );
+}
+
+function pendingSendMatchesInput(
+  pending: StoredPendingSend,
+  input: {
+    conversationId: string;
+    senderUserId: string;
+    senderDeviceId: string;
+    kind: DirectMessageKind;
+    plaintext: string;
+    mentions: MessageMentionInput[];
+    operatorIntent?: StoredOperatorIntent;
+    operatorOutput?: StoredOperatorOutputLink;
+  },
+): boolean {
+  return (
+    pending.conversationId === input.conversationId &&
+    pending.senderUserId === input.senderUserId &&
+    pending.senderDeviceId === input.senderDeviceId &&
+    pending.kind === input.kind &&
+    pending.plaintext === input.plaintext &&
+    JSON.stringify(pending.mentions) ===
+      JSON.stringify(input.mentions) &&
+    (pending.operatorIntent?.clientRequestId ?? null) ===
+      (input.operatorIntent?.clientRequestId ?? null) &&
+    (pending.operatorOutput?.parentClientMessageId ??
+      null) ===
+      (input.operatorOutput?.parentClientMessageId ??
+        null) &&
+    (pending.operatorOutput?.outputId ?? null) ===
+      (input.operatorOutput?.outputId ?? null)
   );
 }
 
