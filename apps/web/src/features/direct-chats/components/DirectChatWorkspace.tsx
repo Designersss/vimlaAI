@@ -1060,14 +1060,42 @@ async function resumeDirectOperatorInvocation(
         );
       }
 
-      await stagePendingOperatorInvocationDelivery({
-        pendingClientMessageId:
-          current.pendingClientMessageId,
-        runId: run.id,
-        runStatus: run.status,
-        runUpdatedAt: run.updatedAt,
-        outputs: operatorDeliveryOutputs(run),
-      });
+      let stagedIntent =
+        await stagePendingOperatorInvocationDelivery({
+          pendingClientMessageId:
+            current.pendingClientMessageId,
+          runId: run.id,
+          runStatus: run.status,
+          runUpdatedAt: run.updatedAt,
+          outputs: operatorDeliveryOutputs(run),
+        });
+
+      if (
+        stagedIntent.delivery &&
+        (stagedIntent.delivery.runUpdatedAt !==
+          run.updatedAt ||
+          stagedIntent.delivery.runStatus !== run.status)
+      ) {
+        run = await withOperatorRecoveryTimeout(
+          fetchOperatorRun(
+            stagedIntent.delivery.runId,
+          ),
+        );
+        if (isTransientOperatorRun(run)) {
+          throw new Error(
+            "Direct Chat operator run is still in progress",
+          );
+        }
+        stagedIntent =
+          await stagePendingOperatorInvocationDelivery({
+            pendingClientMessageId:
+              current.pendingClientMessageId,
+            runId: run.id,
+            runStatus: run.status,
+            runUpdatedAt: run.updatedAt,
+            outputs: operatorDeliveryOutputs(run),
+          });
+      }
 
       const staged =
         await loadPendingOperatorInvocations({
