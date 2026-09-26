@@ -452,7 +452,6 @@
     "direct_chats_disabled": "Direct Chats are temporarily disabled.",
     "direct_chat_device_revoked": "This device was revoked for Direct Chats.",
     "direct_chat_recipient_device_missing": "The other person has no active device yet.",
-    "direct_chat_prekeys_depleted": "The other person's secure session keys are temporarily unavailable. Ask them to open Vimla and try again.",
     "direct_chat_context_denied": "Chat context was not shared with @Vimla.",
     "generic": "The request failed. Try again."
   },
