@@ -66,6 +66,7 @@ import {
   prepareDirectChatContext,
 } from "../services/context";
 import {
+  pageUnlocksHistoryBootstrap,
   shouldContinueDeepHistoryBootstrap,
 } from "../services/history-bootstrap";
 import { decodeDirectPlaintext, encodeDirectPlaintext, type DirectPlaintextPayload } from "../services/payload";
@@ -593,9 +594,41 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
   async function onLoadOlder(): Promise<void> {
     if (!nextCursor || !conversation) return;
     const device = await ensureLocalDevice();
-    const page = await fetchDirectMessages(conversationId, device.deviceId, nextCursor);
-    const decrypted = await decryptPage(conversation, page.items);
-    setRows((current) => mergeDecryptedRows(current, decrypted.reverse()));
+    const page = await fetchDirectMessages(
+      conversationId,
+      device.deviceId,
+      nextCursor,
+    );
+    const missingSenderDeviceIds = new Set(
+      rows
+        .filter((row) => row.needsBootstrap)
+        .map((row) => row.message.senderDeviceId),
+    );
+    if (
+      pageUnlocksHistoryBootstrap({
+        missingSenderDeviceIds,
+        messages: page.items,
+      })
+    ) {
+      const decrypted = await decryptPage(
+        conversation,
+        [
+          ...page.items,
+          ...rows.map((row) => row.message),
+        ],
+      );
+      setRows(
+        mergeDecryptedRows([], decrypted),
+      );
+    } else {
+      const decrypted = await decryptPage(
+        conversation,
+        page.items,
+      );
+      setRows((current) =>
+        mergeDecryptedRows(current, decrypted),
+      );
+    }
     setNextCursor(page.nextCursor);
   }
 
