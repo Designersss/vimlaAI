@@ -6,6 +6,7 @@ import {
   canAcquireRatchetLease,
   decodeStoredRatchet,
   assertRatchetVersion,
+  markLegacyRatchetOwner,
   storedRatchetRecord,
 } from "./ratchet-coordination";
 
@@ -31,12 +32,25 @@ const pendingX3dhInit: X3dhInitHeader = {
 };
 
 describe("ratchet coordination", () => {
-  it("loads legacy v2 ratchet state at version zero for safe migration", () => {
-    expect(decodeStoredRatchet(state, "device-a")).toEqual({
+  it("requires an owner marker before accepting legacy v2 ratchet state", () => {
+    expect(() =>
+      decodeStoredRatchet(state, "device-a"),
+    ).toThrow(RatchetStateCorruptError);
+
+    const marked = markLegacyRatchetOwner(
+      state,
+      "device-a",
+    );
+    expect(
+      decodeStoredRatchet(marked, "device-a"),
+    ).toEqual({
       stateVersion: 0,
       state,
       pendingX3dhInit: null,
     });
+    expect(() =>
+      decodeStoredRatchet(marked, "device-b"),
+    ).toThrow(RatchetStateCorruptError);
   });
 
   it("binds versioned ratchet state to the current local device", () => {
@@ -85,6 +99,7 @@ describe("ratchet coordination", () => {
   it("does not let another owner steal an active lease", () => {
     const lease = {
       owner: "tab-a",
+      fence: 3,
       expiresAt: 2_000,
     };
     expect(canAcquireRatchetLease(lease, "tab-b", 1_999)).toBe(false);
@@ -94,6 +109,7 @@ describe("ratchet coordination", () => {
   it("recovers an expired lease", () => {
     const lease = {
       owner: "crashed-tab",
+      fence: 7,
       expiresAt: 2_000,
     };
     expect(canAcquireRatchetLease(lease, "tab-b", 2_000)).toBe(true);
