@@ -208,17 +208,20 @@ export class DirectChatsController {
       "Invalid Direct Chat message payload",
     );
     const actor = this.directChats.actor(user);
-    const replay = await this.directChats.chats.replay(
-      actor,
-      id,
-      input,
-    );
-    if (replay) {
+    const preflight =
+      await this.directChats.chats.preflightSend(
+        actor,
+        id,
+        input,
+      );
+    if (preflight.replay) {
       await this.publishMessageNotification(
         user.id,
-        replay,
+        preflight.replay,
       );
-      return directMessageViewSchema.parse(replay);
+      return directMessageViewSchema.parse(
+        preflight.replay,
+      );
     }
 
     const resolvedMentions = await this.mentionRouting.resolve({
@@ -235,7 +238,11 @@ export class DirectChatsController {
       id,
       input,
       resolvedMentions,
-      { replayAlreadyChecked: true },
+      {
+        replayAlreadyChecked: true,
+        authorizedMemberIds:
+          preflight.memberIds,
+      },
     );
     const created = result.message;
     await this.publishMessageNotification(
