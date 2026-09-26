@@ -6,7 +6,6 @@ export const DIRECT_CHAT_LIMITS = {
   headerMax: 4_096,
   signatureMax: 256,
   envelopesMax: 32,
-  activeDevicesPerUserMax: 16,
   mentionsMax: 32,
   pageLimitDefault: 30,
   pageLimitMax: 50,
@@ -14,11 +13,6 @@ export const DIRECT_CHAT_LIMITS = {
   contextTextMax: 4_000,
   contextCharsMax: 32_000,
   prekeysMax: 32,
-  prekeysLowWater: 8,
-  prekeysTarget: 16,
-  prekeysAvailableMax: 64,
-  consumedPrekeysRetainedMax: 256,
-  prekeyStatusMaxAgeMs: 300_000,
   deviceLabelMax: 80,
   peerEmailMax: 254,
 } as const;
@@ -78,13 +72,7 @@ export const registerCryptoDeviceSchema = z
       .max(DIRECT_CHAT_LIMITS.prekeysMax),
     label: z.string().trim().max(DIRECT_CHAT_LIMITS.deviceLabelMax).optional(),
   })
-  .strict()
-  .superRefine((value, ctx) => {
-    addDuplicatePrekeyIdIssues(
-      value.oneTimePrekeys,
-      ctx,
-    );
-  });
+  .strict();
 export type RegisterCryptoDevice = z.infer<typeof registerCryptoDeviceSchema>;
 
 export const rotatePrekeysSchema = z
@@ -104,78 +92,8 @@ export const rotatePrekeysSchema = z
       .min(1)
       .max(DIRECT_CHAT_LIMITS.prekeysMax),
   })
-  .strict()
-  .superRefine((value, ctx) => {
-    addDuplicatePrekeyIdIssues(
-      value.oneTimePrekeys,
-      ctx,
-    );
-  });
-export type RotatePrekeys = z.infer<typeof rotatePrekeysSchema>;
-
-export const replenishOneTimePrekeysSchema = z
-  .object({
-    oneTimePrekeys: z
-      .array(
-        z
-          .object({
-            keyId: z.number().int().min(1).max(1_000_000),
-            publicKey: z.string().min(16).max(128),
-          })
-          .strict(),
-      )
-      .min(1)
-      .max(DIRECT_CHAT_LIMITS.prekeysMax),
-  })
-  .strict()
-  .superRefine((value, ctx) => {
-    addDuplicatePrekeyIdIssues(
-      value.oneTimePrekeys,
-      ctx,
-    );
-  });
-export type ReplenishOneTimePrekeys = z.infer<
-  typeof replenishOneTimePrekeysSchema
->;
-
-export const prekeyStatusResponseSchema = z
-  .object({
-    deviceId: z.string().uuid(),
-    available: z
-      .number()
-      .int()
-      .min(0)
-      .max(DIRECT_CHAT_LIMITS.prekeysAvailableMax),
-    availableKeyIds: z
-      .array(z.number().int().min(1).max(1_000_000))
-      .max(DIRECT_CHAT_LIMITS.prekeysAvailableMax),
-    recentlyConsumedKeyIds: z
-      .array(z.number().int().min(1).max(1_000_000))
-      .max(
-        DIRECT_CHAT_LIMITS.consumedPrekeysRetainedMax,
-      ),
-  })
   .strict();
-export type PrekeyStatusResponse = z.infer<
-  typeof prekeyStatusResponseSchema
->;
-
-function addDuplicatePrekeyIdIssues(
-  keys: ReadonlyArray<{ keyId: number }>,
-  ctx: z.RefinementCtx,
-): void {
-  const ids = new Set<number>();
-  keys.forEach((key, index) => {
-    if (ids.has(key.keyId)) {
-      ctx.addIssue({
-        code: "custom",
-        path: ["oneTimePrekeys", index, "keyId"],
-        message: "One-time prekey ids must be unique",
-      });
-    }
-    ids.add(key.keyId);
-  });
-}
+export type RotatePrekeys = z.infer<typeof rotatePrekeysSchema>;
 
 export const createDirectConversationSchema = z
   .object({
@@ -234,19 +152,10 @@ export const prekeyBundleSchema = z.object({
   signedPrekeyId: z.number().int(),
   signedPrekeyPublic: z.string(),
   signedPrekeySignature: z.string(),
-  oneTimePrekeyId: z.number().int().min(1).max(1_000_000),
-  oneTimePrekeyPublic: z.string().min(16).max(128),
+  oneTimePrekeyId: z.number().int().nullable(),
+  oneTimePrekeyPublic: z.string().nullable(),
 });
 export type PrekeyBundle = z.infer<typeof prekeyBundleSchema>;
-
-export const claimPrekeyBundlesSchema = z
-  .object({
-    deviceId: z.string().uuid(),
-  })
-  .strict();
-export type ClaimPrekeyBundles = z.infer<
-  typeof claimPrekeyBundlesSchema
->;
 
 export const prekeyBundlesResponseSchema = z.object({
   userId: z.string(),
