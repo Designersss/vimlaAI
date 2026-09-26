@@ -3,7 +3,9 @@ import type { SerializedRatchetState, X3dhInitHeader } from "@vimla/e2ee";
 import {
   RatchetStateConflictError,
   RatchetStateCorruptError,
+  acquireRatchetLeaseRecord,
   canAcquireRatchetLease,
+  renewRatchetLeaseRecord,
   decodeStoredRatchet,
   assertRatchetVersion,
   markLegacyRatchetOwner,
@@ -114,5 +116,47 @@ describe("ratchet coordination", () => {
     };
     expect(canAcquireRatchetLease(lease, "tab-b", 2_000)).toBe(true);
     expect(canAcquireRatchetLease(null, "tab-b", 2_000)).toBe(true);
+  });
+
+  it("caps heartbeat renewal at a hard lease deadline", () => {
+    const acquired = acquireRatchetLeaseRecord({
+      current: null,
+      owner: "tab-a",
+      now: 1_000,
+      leaseMs: 5_000,
+      maxHoldMs: 30_000,
+    });
+    expect(acquired).not.toBeNull();
+    expect(acquired?.record).toEqual({
+      owner: "tab-a",
+      fence: 1,
+      expiresAt: 6_000,
+      hardExpiresAt: 31_000,
+    });
+
+    const renewed = renewRatchetLeaseRecord({
+      current: {
+        ...acquired!.record,
+        expiresAt: 30_500,
+      },
+      owner: "tab-a",
+      fence: acquired!.fence,
+      now: 30_000,
+      leaseMs: 5_000,
+    });
+    expect(renewed?.expiresAt).toBe(31_000);
+
+    expect(
+      renewRatchetLeaseRecord({
+        current: renewed,
+        owner: "tab-a",
+        fence: acquired!.fence,
+        now: 31_000,
+        leaseMs: 5_000,
+      }),
+    ).toBeNull();
+    expect(
+      canAcquireRatchetLease(renewed, "tab-b", 31_000),
+    ).toBe(true);
   });
 });
