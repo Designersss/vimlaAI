@@ -18,21 +18,18 @@ import {
   type PublicPreKeyBundle,
   type WireEnvelope,
 } from "@vimla/e2ee";
-import {
-  DIRECT_CHAT_LIMITS,
-  type CryptoDeviceView,
-  type DirectEnvelopeView,
-  type DirectMessageView,
-  type MessageMentionInput,
-  type WireEnvelopeDto,
+import type {
+  CryptoDeviceView,
+  DirectEnvelopeView,
+  DirectMessageView,
+  MessageMentionInput,
+  WireEnvelopeDto,
 } from "@vimla/contracts";
 import {
   DirectChatsApiError,
   fetchDirectConversation,
   fetchPrekeyBundles,
-  fetchPrekeyStatus,
   registerCryptoDevice,
-  replenishOneTimePrekeys,
   sendDirectMessage,
 } from "./api";
 import {
@@ -62,38 +59,31 @@ import {
 } from "./ratchet-coordination";
 import { decodeDirectPlaintext, encodeDirectPlaintext, type DirectPlaintextPayload } from "./payload";
 
-export async function ensureLocalDevice(
-  options: { forcePrekeyCheck?: boolean } = {},
-): Promise<StoredDeviceMaterial> {
+export async function ensureLocalDevice(): Promise<StoredDeviceMaterial> {
   return withLocalDeviceBootstrapLock(async () => {
     const existing = await loadDeviceMaterial();
     if (existing) {
-      let current = existing;
-      if (current.registrationState === "PENDING") {
-        await registerStoredDevice(current);
-        current = {
-          ...current,
+      if (existing.registrationState === "PENDING") {
+        await registerStoredDevice(existing);
+        const registered = {
+          ...existing,
           registrationState: "REGISTERED" as const,
-          prekeyStatusCheckedAt: new Date().toISOString(),
         };
-        await saveDeviceMaterial(current);
+        await saveDeviceMaterial(registered);
+        return registered;
       }
-      return ensurePrekeySupply(
-        current,
-        options.forcePrekeyCheck === true,
-      );
+      return existing;
     }
 
     const identity = generateIdentity();
     const signed = generateSignedPreKey(identity, 1);
     const oneTime = Array.from(
-      { length: DIRECT_CHAT_LIMITS.prekeysTarget },
+      { length: 16 },
       (_, index) => generateOneTimePreKey(index + 1),
     );
     const material: StoredDeviceMaterial = {
       deviceId: crypto.randomUUID(),
       registrationState: "PENDING",
-      nextOneTimePrekeyId: DIRECT_CHAT_LIMITS.prekeysTarget + 1,
       identity: encodeIdentity(identity),
       signedPrekeys: {
         [String(signed.keyId)]: {
@@ -114,175 +104,13 @@ export async function ensureLocalDevice(
     };
     await saveDeviceMaterial(material);
     await registerStoredDevice(material);
-    const registered: StoredDeviceMaterial = {
+    const registered = {
       ...material,
-      registrationState: "REGISTERED",
-      prekeyStatusCheckedAt: new Date().toISOString(),
+      registrationState: "REGISTERED" as const,
     };
     await saveDeviceMaterial(registered);
     return registered;
   });
-}
-
-async function ensurePrekeySupply(
-  material: StoredDeviceMaterial,
-  forceCheck: boolean,
-): Promise<StoredDeviceMaterial> {
-  let current = material;
-  if (
-    current.nextOneTimePrekeyId === undefined ||
-    !Number.isSafeInteger(current.nextOneTimePrekeyId) ||
-    current.nextOneTimePrekeyId < 1
-  ) {
-    const existingIds = Object.keys(
-      current.oneTimePrekeys,
-    )
-      .map(Number)
-      .filter(Number.isSafeInteger);
-    current = {
-      ...current,
-      nextOneTimePrekeyId:
-        (existingIds.length > 0
-          ? Math.max(...existingIds)
-          : 0) + 1,
-    };
-    await saveDeviceMaterial(current);
-  }
-  const pendingIds =
-    current.pendingOneTimePrekeyIds ?? [];
-  if (pendingIds.length > 0) {
-    await uploadPendingOneTimePrekeys(
-      current,
-      pendingIds,
-    );
-    current = {
-      ...current,
-      pendingOneTimePrekeyIds: [],
-      prekeyStatusCheckedAt: undefined,
-    };
-    await saveDeviceMaterial(current);
-  }
-
-  const checkedAt = current.prekeyStatusCheckedAt
-    ? Date.parse(current.prekeyStatusCheckedAt)
-    : Number.NaN;
-  if (
-    !forceCheck &&
-    Number.isFinite(checkedAt) &&
-    Date.now() - checkedAt < DIRECT_CHAT_LIMITS.prekeyStatusMaxAgeMs
-  ) {
-    return current;
-  }
-
-  const status = await fetchPrekeyStatus(
-    current.deviceId,
-  );
-  const retainedKeyIds = new Set([
-    ...status.availableKeyIds,
-    ...status.recentlyConsumedKeyIds,
-    ...(current.pendingOneTimePrekeyIds ?? []),
-  ]);
-  const retainedEntries = Object.entries(
-    current.oneTimePrekeys,
-  ).filter(([keyId]) =>
-    retainedKeyIds.has(Number(keyId)),
-  );
-  if (
-    retainedEntries.length !==
-    Object.keys(current.oneTimePrekeys).length
-  ) {
-    current = {
-      ...current,
-      oneTimePrekeys:
-        Object.fromEntries(retainedEntries),
-    };
-    await saveDeviceMaterial(current);
-  }
-
-  if (status.available >= DIRECT_CHAT_LIMITS.prekeysLowWater) {
-    const checked: StoredDeviceMaterial = {
-      ...current,
-      prekeyStatusCheckedAt: new Date().toISOString(),
-    };
-    await saveDeviceMaterial(checked);
-    return checked;
-  }
-
-  const needed = Math.min(
-    DIRECT_CHAT_LIMITS.prekeysTarget - status.available,
-    32,
-  );
-  const nextOneTimePrekeyId =
-    current.nextOneTimePrekeyId ?? 1;
-  if (
-    nextOneTimePrekeyId + needed - 1 >
-    1_000_000
-  ) {
-    throw new Error("Local E2EE prekey id space exhausted");
-  }
-  const generated = Array.from(
-    { length: needed },
-    (_, index) =>
-      generateOneTimePreKey(
-        nextOneTimePrekeyId + index,
-      ),
-  );
-  const next: StoredDeviceMaterial = {
-    ...current,
-    oneTimePrekeys: {
-      ...current.oneTimePrekeys,
-      ...Object.fromEntries(
-        generated.map((key) => [
-          String(key.keyId),
-          {
-            secret: bytesToB64(key.secret),
-            publicKey: bytesToB64(key.publicKey),
-          },
-        ]),
-      ),
-    },
-    pendingOneTimePrekeyIds: generated.map(
-      (key) => key.keyId,
-    ),
-    nextOneTimePrekeyId:
-      nextOneTimePrekeyId + generated.length,
-  };
-  await saveDeviceMaterial(next);
-  await uploadPendingOneTimePrekeys(
-    next,
-    next.pendingOneTimePrekeyIds ?? [],
-  );
-  const completed: StoredDeviceMaterial = {
-    ...next,
-    pendingOneTimePrekeyIds: [],
-    prekeyStatusCheckedAt: new Date().toISOString(),
-  };
-  await saveDeviceMaterial(completed);
-  return completed;
-}
-
-async function uploadPendingOneTimePrekeys(
-  material: StoredDeviceMaterial,
-  ids: readonly number[],
-): Promise<void> {
-  if (ids.length === 0) return;
-  const oneTimePrekeys = ids.map((keyId) => {
-    const key =
-      material.oneTimePrekeys[String(keyId)];
-    if (!key) {
-      throw new Error(
-        "Pending local E2EE prekey material is missing",
-      );
-    }
-    return {
-      keyId,
-      publicKey: key.publicKey,
-    };
-  });
-  await replenishOneTimePrekeys(
-    material.deviceId,
-    { oneTimePrekeys },
-  );
 }
 
 async function registerStoredDevice(
@@ -355,10 +183,7 @@ export async function encryptForDevices(input: {
       ? serializeDirectRoutingMentions(input.mentions)
       : undefined;
 
-  let consumedSelfOtk = false;
-  const pending = await withRatchetRetryScopes(
-    scopes,
-    async () => {
+  return withRatchetRetryScopes(scopes, async () => {
     const envelopes: WireEnvelopeDto[] = [];
     const updates: OutboundRatchetUpdate[] = [];
 
@@ -374,13 +199,10 @@ export async function encryptForDevices(input: {
         ? deserializeRatchet(existing.state)
         : null;
       if (!state) {
-        let bundlesRequest = bundleRequests.get(device.id);
+        let bundlesRequest = bundleRequests.get(device.userId);
         if (!bundlesRequest) {
-          bundlesRequest = fetchPrekeyBundles(
-            device.userId,
-            device.id,
-          );
-          bundleRequests.set(device.id, bundlesRequest);
+          bundlesRequest = fetchPrekeyBundles(device.userId);
+          bundleRequests.set(device.userId, bundlesRequest);
         }
         const bundles = await bundlesRequest;
         const bundle = bundles.bundles.find(
@@ -443,22 +265,14 @@ export async function encryptForDevices(input: {
       plaintext: input.plaintext,
       createdAt: new Date().toISOString(),
     };
-    consumedSelfOtk =
-      (await commitOutboundRatchets({
-        conversationId: input.conversationId,
-        localDeviceId: material.deviceId,
-        updates,
-        pendingSend: pending,
-      })) || consumedSelfOtk;
+    await commitOutboundRatchets({
+      conversationId: input.conversationId,
+      localDeviceId: material.deviceId,
+      updates,
+      pendingSend: pending,
+    });
     return pending;
-    },
-  );
-  if (consumedSelfOtk) {
-    void ensureLocalDevice({
-      forcePrekeyCheck: true,
-    }).catch(() => undefined);
-  }
-  return pending;
+  });
 }
 
 export async function finalizePendingSend(
@@ -611,7 +425,6 @@ export async function decryptMessage(input: {
   }
   const material = await ensureLocalDevice();
   const identity = identityFromMaterial(material);
-  let consumedLocalOtk = false;
   try {
     const result = await withRatchetRetry(
       {
@@ -636,7 +449,6 @@ export async function decryptMessage(input: {
         let state = stateRecord
           ? deserializeRatchet(stateRecord.state)
           : null;
-        let consumedOneTimePrekeyId: number | null = null;
         if (!state && envelope.x3dhInit) {
           const signed =
             material.signedPrekeys[
@@ -645,18 +457,12 @@ export async function decryptMessage(input: {
           if (!signed) {
             return null;
           }
-          const oneTimePrekeyId =
-            envelope.x3dhInit.oneTimePrekeyId;
           const otk =
-            oneTimePrekeyId !== null
+            envelope.x3dhInit.oneTimePrekeyId !== null
               ? material.oneTimePrekeys[
-                  String(oneTimePrekeyId)
+                  String(envelope.x3dhInit.oneTimePrekeyId)
                 ]
               : null;
-          if (oneTimePrekeyId !== null && !otk) {
-            return null;
-          }
-          consumedOneTimePrekeyId = oneTimePrekeyId;
           const shared = x3dhRespond(
             identity,
             b64ToBytes(signed.secret),
@@ -710,23 +516,14 @@ export async function decryptMessage(input: {
           state: serializeRatchet(state),
           pendingX3dhInit:
             stateRecord?.pendingX3dhInit ?? null,
-          consumedOneTimePrekeyId,
           plaintext: row,
         });
-        if (consumedOneTimePrekeyId !== null) {
-          consumedLocalOtk = true;
-        }
         return decodeDirectPlaintext(
           input.message.kind,
           text,
         );
       },
     );
-    if (consumedLocalOtk) {
-      void ensureLocalDevice({
-        forcePrekeyCheck: true,
-      }).catch(() => undefined);
-    }
     return result;
   } catch (error: unknown) {
     if (isRatchetCoordinationError(error)) {
