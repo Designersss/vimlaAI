@@ -10,8 +10,6 @@ import {
 import { publicWebConfig } from "../../../shared/config/public-env";
 import { AuthRequiredError } from "../../auth/services/current-user";
 
-const OPERATOR_REQUEST_TIMEOUT_MS = 20_000;
-
 function headers(): HeadersInit {
   return { "content-type": "application/json" };
 }
@@ -92,9 +90,6 @@ export async function createOperatorRun(input: {
     credentials: "include",
     headers: headers(),
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(
-      OPERATOR_REQUEST_TIMEOUT_MS,
-    ),
   });
   return parseRun(response);
 }
