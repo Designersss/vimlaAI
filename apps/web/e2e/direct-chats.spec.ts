@@ -600,6 +600,29 @@ async function disableWebLocks(page: Page): Promise<void> {
   });
 }
 
+async function disableLeaseHeartbeat(
+  page: Page,
+): Promise<void> {
+  await page.addInitScript(() => {
+    const nativeSetInterval =
+      globalThis.setInterval.bind(globalThis);
+    globalThis.setInterval = ((
+      handler: TimerHandler,
+      timeout?: number,
+      ...args: unknown[]
+    ) => {
+      if (timeout === 1_000) {
+        return 0;
+      }
+      return nativeSetInterval(
+        handler,
+        timeout,
+        ...args,
+      );
+    }) as typeof globalThis.setInterval;
+  });
+}
+
 async function holdWebLock(
   page: Page,
   key: string,
