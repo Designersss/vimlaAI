@@ -465,6 +465,72 @@ async function disableWebLocks(page: Page): Promise<void> {
   });
 }
 
+async function holdWebLock(
+  page: Page,
+  key: string,
+): Promise<void> {
+  await page.evaluate((lockKey) => {
+    const state = globalThis as typeof globalThis & {
+      __vimlaHeldWebLock?: boolean;
+      __vimlaReleaseWebLock?: () => void;
+    };
+    let release: (() => void) | null = null;
+    const blocker = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    state.__vimlaReleaseWebLock = () => release?.();
+    void navigator.locks.request(
+      lockKey,
+      { mode: "exclusive" },
+      async () => {
+        state.__vimlaHeldWebLock = true;
+        await blocker;
+        state.__vimlaHeldWebLock = false;
+      },
+    );
+  }, key);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          Boolean(
+            (
+              globalThis as typeof globalThis & {
+                __vimlaHeldWebLock?: boolean;
+              }
+            ).__vimlaHeldWebLock,
+          ),
+      ),
+    )
+    .toBe(true);
+}
+
+async function releaseHeldWebLock(
+  page: Page,
+): Promise<void> {
+  await page.evaluate(() => {
+    (
+      globalThis as typeof globalThis & {
+        __vimlaReleaseWebLock?: () => void;
+      }
+    ).__vimlaReleaseWebLock?.();
+  });
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          Boolean(
+            (
+              globalThis as typeof globalThis & {
+                __vimlaHeldWebLock?: boolean;
+              }
+            ).__vimlaHeldWebLock,
+          ),
+      ),
+    )
+    .toBe(false);
+}
+
 async function readLocalDeviceId(page: Page): Promise<string> {
   return page.evaluate(async () => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
