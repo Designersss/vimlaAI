@@ -247,8 +247,6 @@ function directChatCodeToApi(code: DirectChatErrorCode): ApiErrorCode {
       return "direct_chat_device_revoked";
     case "RECIPIENT_DEVICE_MISSING":
       return "direct_chat_recipient_device_missing";
-    case "PREKEYS_DEPLETED":
-      return "direct_chat_prekeys_depleted";
     default:
       return "internal_error";
   }
