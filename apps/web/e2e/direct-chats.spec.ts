@@ -279,6 +279,15 @@ test.describe("Secure Direct Chats", () => {
       aliceStaleRecoveryPage,
     );
     await staleNavigation;
+    const staleRetry =
+      aliceStaleRecoveryPage.getByRole(
+        "button",
+        { name: /повторить|retry/i },
+      );
+    await expect(staleRetry).toBeVisible({
+      timeout: 20_000,
+    });
+    await staleRetry.click();
     await expect(
       aliceStaleRecoveryPage.getByTestId(
         "direct-chat-shell",
