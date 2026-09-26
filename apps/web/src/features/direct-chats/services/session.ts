@@ -47,6 +47,7 @@ import {
   loadRatchet,
   saveDeviceMaterial,
   withLocalDeviceBootstrapLock,
+  withPendingOperatorIntentLock,
   withPendingSendRecoveryLock,
   withRatchetSessionLock,
   withRatchetSessionLocks,
@@ -449,6 +450,19 @@ export async function finalizePendingOperatorInvocation(
 ): Promise<void> {
   await completePendingOperatorIntent(
     pendingClientMessageId,
+  );
+}
+
+export async function withPendingOperatorInvocationLock<T>(
+  input: {
+    conversationId: string;
+    localDeviceId: string;
+  },
+  operation: () => Promise<T>,
+): Promise<T> {
+  return withPendingOperatorIntentLock(
+    input,
+    operation,
   );
 }
 
