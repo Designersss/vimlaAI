@@ -435,24 +435,37 @@ export async function recoverPendingSends(input: {
         continue;
       }
 
-      row = await encryptForDevices({
-        conversationId: row.conversationId,
-        senderUserId: row.senderUserId,
-        clientMessageId: row.clientMessageId,
-        localDevice: input.localDevice,
-        kind: row.kind,
-        plaintext: row.plaintext,
-        devices: detail.devices,
-        mentions: row.mentions,
-        expectedPendingRevision:
-          pendingSendRevision(row),
-        ...(row.operatorIntent
-          ? { operatorIntent: row.operatorIntent }
-          : {}),
-        ...(row.operatorOutput
-          ? { operatorOutput: row.operatorOutput }
-          : {}),
-      });
+      try {
+        row = await encryptForDevices({
+          conversationId: row.conversationId,
+          senderUserId: row.senderUserId,
+          clientMessageId: row.clientMessageId,
+          localDevice: input.localDevice,
+          kind: row.kind,
+          plaintext: row.plaintext,
+          devices: detail.devices,
+          mentions: row.mentions,
+          expectedPendingRevision:
+            pendingSendRevision(row),
+          ...(row.operatorIntent
+            ? { operatorIntent: row.operatorIntent }
+            : {}),
+          ...(row.operatorOutput
+            ? { operatorOutput: row.operatorOutput }
+            : {}),
+        });
+      } catch (caught: unknown) {
+        if (!(caught instanceof PendingSendConflictError)) {
+          throw caught;
+        }
+        const current = await loadPendingSend(
+          row.clientMessageId,
+        );
+        if (!current) {
+          continue;
+        }
+        throw caught;
+      }
       const created = await sendPendingRow(row);
       await finalizePendingSend(row, created);
     }
