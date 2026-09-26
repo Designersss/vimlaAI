@@ -467,25 +467,44 @@ async function sendPendingRow(
   );
 }
 
+export interface DecryptMessageResult {
+  payload: DirectPlaintextPayload | null;
+  needsBootstrap: boolean;
+}
+
 export async function decryptMessage(input: {
   conversationId: string;
   message: DirectMessageView;
   senderIdentityEd25519Public?: string;
 }): Promise<DirectPlaintextPayload | null> {
+  return (await decryptMessageWithStatus(input)).payload;
+}
+
+export async function decryptMessageWithStatus(input: {
+  conversationId: string;
+  message: DirectMessageView;
+  senderIdentityEd25519Public?: string;
+}): Promise<DecryptMessageResult> {
   const cached = await loadPlaintext(input.message.id);
   if (cached) {
-    return decodeDirectPlaintext(input.message.kind, cached.text);
+    return {
+      payload: decodeDirectPlaintext(
+        input.message.kind,
+        cached.text,
+      ),
+      needsBootstrap: false,
+    };
   }
   const envelope = input.message.envelope;
   const senderIdentityEd25519Public =
     input.senderIdentityEd25519Public;
   if (!envelope || !senderIdentityEd25519Public) {
-    return null;
+    return { payload: null, needsBootstrap: false };
   }
   const material = await ensureLocalDevice();
   const identity = identityFromMaterial(material);
   try {
-    const result = await withRatchetRetry(
+    return await withRatchetRetry(
       {
         conversationId: input.conversationId,
         localDeviceId: material.deviceId,
@@ -494,10 +513,13 @@ export async function decryptMessage(input: {
       async () => {
         const committed = await loadPlaintext(input.message.id);
         if (committed) {
-          return decodeDirectPlaintext(
-            input.message.kind,
-            committed.text,
-          );
+          return {
+            payload: decodeDirectPlaintext(
+              input.message.kind,
+              committed.text,
+            ),
+            needsBootstrap: false,
+          };
         }
 
         const stateRecord = await loadRatchet(
@@ -514,7 +536,10 @@ export async function decryptMessage(input: {
               String(envelope.x3dhInit.signedPrekeyId)
             ];
           if (!signed) {
-            return null;
+            return {
+              payload: null,
+              needsBootstrap: false,
+            };
           }
           const otk =
             envelope.x3dhInit.oneTimePrekeyId !== null
@@ -534,7 +559,10 @@ export async function decryptMessage(input: {
           });
         }
         if (!state) {
-          return null;
+          return {
+            payload: null,
+            needsBootstrap: envelope.x3dhInit === null,
+          };
         }
 
         const routingContext =
@@ -577,18 +605,17 @@ export async function decryptMessage(input: {
             stateRecord?.pendingX3dhInit ?? null,
           plaintext: row,
         });
-        return decodeDirectPlaintext(
-          input.message.kind,
-          text,
-        );
+        return {
+          payload: decodeDirectPlaintext(
+            input.message.kind,
+            text,
+          ),
+          needsBootstrap: false,
+        };
       },
     );
-    return result;
-  } catch (error: unknown) {
-    if (isRatchetCoordinationError(error)) {
-      return null;
-    }
-    return null;
+  } catch {
+    return { payload: null, needsBootstrap: false };
   }
 }
 
