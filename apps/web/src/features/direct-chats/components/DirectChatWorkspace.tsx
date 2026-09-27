@@ -614,10 +614,10 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         if (cancelled) return;
         for (const delivery of deliveries) {
           setPendingRun(
-      operatorRunNeedsPanel(delivery.run)
-        ? delivery.run
-        : null,
-    );
+            operatorRunNeedsPanel(delivery.run)
+              ? delivery.run
+              : null,
+          );
           if (delivery.latest) {
             setConversation(delivery.latest);
           }
@@ -754,10 +754,10 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
                       runId: pendingRun.id,
                     });
                   setPendingRun(
-      operatorRunNeedsPanel(run)
-        ? run
-        : null,
-    );
+                    operatorRunNeedsPanel(run)
+                      ? run
+                      : null,
+                  );
                   const recovered =
                     await recoverDirectOperatorInvocations({
                       conversationId,
@@ -793,10 +793,10 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
                       },
                     );
                   setPendingRun(
-      operatorRunNeedsPanel(run)
-        ? run
-        : null,
-    );
+                    operatorRunNeedsPanel(run)
+                      ? run
+                      : null,
+                  );
                   const recovered =
                     await recoverDirectOperatorInvocations({
                       conversationId,
