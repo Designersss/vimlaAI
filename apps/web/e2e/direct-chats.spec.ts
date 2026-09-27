@@ -794,7 +794,7 @@ test.describe("Secure Direct Chats", () => {
     alicePage.on("request", countMessagePosts);
 
     const beforeAbortPosts = messagePosts;
-    await failNextIndexedDbPut(
+    await abortNextIndexedDbTransaction(
       alicePage,
       "pendingSends",
     );
@@ -1718,7 +1718,7 @@ async function releaseLateDirectInvokeResponse(
   });
 }
 
-async function failNextIndexedDbPut(
+async function abortNextIndexedDbTransaction(
   page: Page,
   storeName: string,
 ): Promise<void> {
@@ -1733,18 +1733,16 @@ async function failNextIndexedDbPut(
       value: unknown,
       key?: IDBValidKey,
     ): IDBRequest<IDBValidKey> {
-      if (armed && this.name === targetStore) {
-        armed = false;
-        throw new DOMException(
-          "Simulated IndexedDB quota failure",
-          "QuotaExceededError",
-        );
-      }
-      return Reflect.apply(
+      const request = Reflect.apply(
         originalPut,
         this,
         key === undefined ? [value] : [value, key],
       ) as IDBRequest<IDBValidKey>;
+      if (armed && this.name === targetStore) {
+        armed = false;
+        this.transaction.abort();
+      }
+      return request;
     };
     state.__vimlaRestoreIndexedDbPut = () => {
       prototype.put = originalPut;
