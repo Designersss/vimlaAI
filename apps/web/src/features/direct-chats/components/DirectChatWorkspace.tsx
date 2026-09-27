@@ -1438,15 +1438,15 @@ function directActionStatusLabel(
   status: string,
 ): string {
   if (status === "pending_confirmation") {
-    return t("operator.needsConfirmation");
+    return tx(t, "operator.needsConfirmation");
   }
   if (status === "error") {
-    return t("operator.failed");
+    return tx(t, "operator.failed");
   }
   if (status === "skipped") {
-    return t("operator.skipped");
+    return tx(t, "operator.skipped");
   }
-  return t("operator.completed");
+  return tx(t, "operator.completed");
 }
 
 function DirectRow({ row, self, youLabel, peerName }: { row: DecryptedRow; self: boolean; youLabel: string; peerName: string }): ReactElement {
