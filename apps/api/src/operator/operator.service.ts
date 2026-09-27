@@ -376,10 +376,31 @@ export class OperatorService {
     if (run.status === "SUCCEEDED" || run.status === "PARTIAL") {
       return this.toView(run, null);
     }
-    const updated = await this.prisma.operatorRun.update({
-      where: { id: run.id },
-      data: { status: "CANCELED", confirmationTokenHash: null, confirmationExpiresAt: null },
-      include: { steps: { orderBy: { sequence: "asc" } } },
+    const updated = await this.prisma.$transaction(async (tx) => {
+      await tx.operatorRunStep.updateMany({
+        where: {
+          runId: run.id,
+          status: {
+            in: [
+              "PENDING",
+              "NEEDS_CONFIRMATION",
+              "CONFIRMED",
+            ],
+          },
+        },
+        data: { status: "SKIPPED" },
+      });
+      return tx.operatorRun.update({
+        where: { id: run.id },
+        data: {
+          status: "CANCELED",
+          confirmationTokenHash: null,
+          confirmationExpiresAt: null,
+        },
+        include: {
+          steps: { orderBy: { sequence: "asc" } },
+        },
+      });
     });
     return this.toView(updated, null);
   }
