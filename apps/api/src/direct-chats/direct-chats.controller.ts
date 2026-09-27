@@ -240,8 +240,6 @@ export class DirectChatsController {
       resolvedMentions,
       {
         replayAlreadyChecked: true,
-        authorizedMemberIds:
-          preflight.memberIds,
       },
     );
     const created = result.message;
