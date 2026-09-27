@@ -636,18 +636,42 @@ export async function decryptMessageWithStatus(input: {
     };
   }
   const envelope = input.message.envelope;
-  const senderIdentityEd25519Public =
-    input.senderIdentityEd25519Public;
   if (!envelope) {
     return { payload: null, needsBootstrap: false };
   }
+
+  const material = await ensureLocalDevice();
+  if (
+    input.message.senderDeviceId === material.deviceId
+  ) {
+    const pending = await loadPendingSend(
+      input.message.clientMessageId,
+    );
+    if (
+      pending &&
+      pendingSendMatchesCommittedMessage(
+        pending,
+        input.message,
+      )
+    ) {
+      return {
+        payload: decodeDirectPlaintext(
+          input.message.kind,
+          pending.plaintext,
+        ),
+        needsBootstrap: false,
+      };
+    }
+  }
+
+  const senderIdentityEd25519Public =
+    input.senderIdentityEd25519Public;
   if (!senderIdentityEd25519Public) {
     return {
       payload: null,
       needsBootstrap: envelope.x3dhInit === null,
     };
   }
-  const material = await ensureLocalDevice();
   const identity = identityFromMaterial(material);
   try {
     return await withRatchetRetry(
@@ -838,6 +862,41 @@ function isRatchetCoordinationError(
   return (
     error instanceof RatchetStateConflictError ||
     error instanceof RatchetLockLostError
+  );
+}
+
+function pendingSendMatchesCommittedMessage(
+  pending: StoredPendingSend,
+  message: DirectMessageView,
+): boolean {
+  const envelope = message.envelope;
+  if (
+    !envelope ||
+    pending.conversationId !== message.conversationId ||
+    pending.clientMessageId !== message.clientMessageId ||
+    pending.senderUserId !== message.senderUserId ||
+    pending.senderDeviceId !== message.senderDeviceId ||
+    pending.kind !== message.kind
+  ) {
+    return false;
+  }
+  const candidate = pending.envelopes.find(
+    (item) =>
+      item.recipientDeviceId ===
+      envelope.recipientDeviceId,
+  );
+  if (!candidate) return false;
+  return (
+    candidate.headerB64 === envelope.headerB64 &&
+    candidate.ciphertextB64 === envelope.ciphertextB64 &&
+    candidate.dhPublicB64 === envelope.dhPublicB64 &&
+    candidate.messageNumber === envelope.messageNumber &&
+    candidate.previousChainLength ===
+      envelope.previousChainLength &&
+    candidate.senderSignatureB64 ===
+      envelope.senderSignatureB64 &&
+    JSON.stringify(candidate.x3dhInit ?? null) ===
+      JSON.stringify(envelope.x3dhInit ?? null)
   );
 }
 
