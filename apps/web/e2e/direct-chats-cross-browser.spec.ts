@@ -116,6 +116,72 @@ test.describe("Direct Chat cross-browser coordination", () => {
           "direct-message-undecryptable",
         ),
       ).toHaveCount(0);
+
+      const siblingRaceText =
+        "same-device realtime before sender response";
+      let releaseHeldResponse!: () => void;
+      let markCommitted!: () => void;
+      const heldResponse = new Promise<void>(
+        (resolve) => {
+          releaseHeldResponse = resolve;
+        },
+      );
+      const serverCommitted = new Promise<void>(
+        (resolve) => {
+          markCommitted = resolve;
+        },
+      );
+      let holdNextHumanSend = true;
+      await aliceSecondPage.route(
+        "**/v1/direct-chats/*/messages",
+        async (route) => {
+          const body =
+            route.request().method() === "POST"
+              ? (route.request().postDataJSON() as {
+                  kind?: string;
+                } | null)
+              : null;
+          if (
+            holdNextHumanSend &&
+            body?.kind === "HUMAN"
+          ) {
+            holdNextHumanSend = false;
+            const response = await route.fetch();
+            markCommitted();
+            await heldResponse;
+            await route.fulfill({ response });
+            return;
+          }
+          await route.continue();
+        },
+      );
+
+      await secondComposer.fill(siblingRaceText);
+      await aliceSecondPage
+        .getByTestId("chat-composer-send")
+        .click();
+      await serverCommitted;
+
+      await expect(
+        alicePage
+          .getByTestId("direct-message-human")
+          .filter({ hasText: siblingRaceText }),
+      ).toHaveCount(1, { timeout: 20_000 });
+      await expect(
+        alicePage.getByTestId(
+          "direct-message-undecryptable",
+        ),
+      ).toHaveCount(0);
+
+      releaseHeldResponse();
+      await aliceSecondPage.unroute(
+        "**/v1/direct-chats/*/messages",
+      );
+      await expect(
+        nikitaPage
+          .getByTestId("direct-message-human")
+          .filter({ hasText: siblingRaceText }),
+      ).toHaveCount(1, { timeout: 20_000 });
       await aliceSecondPage.close();
     } finally {
       await aliceContext.close();
