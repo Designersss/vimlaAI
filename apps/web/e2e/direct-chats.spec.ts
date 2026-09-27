@@ -1262,6 +1262,153 @@ test.describe("Secure Direct Chats", () => {
       );
     }
 
+    const clarificationText =
+      "Какого именно Никиту вы имеете в виду?";
+    let mockClarification = true;
+    await alicePage.route(
+      "**/v1/operator/runs",
+      async (route) => {
+        if (
+          !mockClarification ||
+          route.request().method() !== "POST"
+        ) {
+          await route.continue();
+          return;
+        }
+        mockClarification = false;
+        const response = await route.fetch();
+        const payload = (await response.json()) as Record<
+          string,
+          unknown
+        >;
+        await route.fulfill({
+          response,
+          json: {
+            ...payload,
+            status: "AWAITING_CLARIFICATION",
+            publicMessage: "Нужно уточнение.",
+            clarificationQuestion: clarificationText,
+            confirmationRequired: false,
+            confirmationToken: null,
+            errorCode: null,
+            actions: [],
+          },
+        });
+      },
+    );
+    await composer.fill(
+      "@vimla уточни, какого Никиту выбрать",
+    );
+    await alicePage
+      .getByTestId("chat-composer-send")
+      .click();
+    await expect.poll(
+      () => mockClarification,
+    ).toBe(false);
+    await alicePage.unroute("**/v1/operator/runs");
+    await expect(
+      alicePage.getByTestId(
+        "direct-message-clarification",
+      ),
+    ).toContainText(clarificationText, {
+      timeout: 20_000,
+    });
+    await expect.poll(
+      () => readPendingOperatorIntentCount(alicePage),
+    ).toBe(0);
+
+    await alicePage.reload();
+    await expect(
+      alicePage.getByTestId("direct-chat-shell"),
+    ).toBeVisible({ timeout: 20_000 });
+    await expect(
+      alicePage.getByTestId(
+        "direct-message-clarification",
+      ),
+    ).toContainText(clarificationText, {
+      timeout: 20_000,
+    });
+    await expect(
+      nikitaPage.getByTestId(
+        "direct-message-clarification",
+      ),
+    ).toContainText(clarificationText, {
+      timeout: 20_000,
+    });
+
+    const syntheticActionTitle =
+      "Synthetic durable action status";
+    let mockActionStatus = true;
+    await alicePage.route(
+      "**/v1/operator/runs",
+      async (route) => {
+        if (
+          !mockActionStatus ||
+          route.request().method() !== "POST"
+        ) {
+          await route.continue();
+          return;
+        }
+        mockActionStatus = false;
+        const response = await route.fetch();
+        const payload = (await response.json()) as Record<
+          string,
+          unknown
+        >;
+        await route.fulfill({
+          response,
+          json: {
+            ...payload,
+            status: "SUCCEEDED",
+            publicMessage: "Action status persisted.",
+            clarificationQuestion: null,
+            confirmationRequired: false,
+            confirmationToken: null,
+            errorCode: null,
+            actions: [
+              {
+                kind: "task",
+                operation: "created",
+                title: syntheticActionTitle,
+                detail: "Synthetic error state",
+                status: "error",
+                hrefPath: null,
+              },
+            ],
+          },
+        });
+      },
+    );
+    const reloadedComposer =
+      alicePage.getByPlaceholder(
+        /сообщение этому человеку|message this person/i,
+      );
+    await reloadedComposer.fill(
+      "@vimla проверь durable action status",
+    );
+    await alicePage
+      .getByTestId("chat-composer-send")
+      .click();
+    await expect.poll(
+      () => mockActionStatus,
+    ).toBe(false);
+    await alicePage.unroute("**/v1/operator/runs");
+    const syntheticAction = alicePage
+      .getByTestId("direct-message-action")
+      .filter({ hasText: syntheticActionTitle });
+    await expect(syntheticAction).toContainText("error", {
+      timeout: 20_000,
+    });
+    await alicePage.reload();
+    await expect(
+      alicePage.getByTestId("direct-chat-shell"),
+    ).toBeVisible({ timeout: 20_000 });
+    await expect(
+      alicePage
+        .getByTestId("direct-message-action")
+        .filter({ hasText: syntheticActionTitle }),
+    ).toContainText("error", { timeout: 20_000 });
+
     alicePage.off("request", countMessagePosts);
     await aliceRecoveryPage.close();
     await nikitaSecondContext.close();
