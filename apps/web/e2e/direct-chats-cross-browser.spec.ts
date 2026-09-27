@@ -121,6 +121,7 @@ test.describe("Direct Chat cross-browser coordination", () => {
         "same-device realtime before sender response";
       let releaseHeldResponse!: () => void;
       let markCommitted!: () => void;
+      let markResponseFulfilled!: () => void;
       const heldResponse = new Promise<void>(
         (resolve) => {
           releaseHeldResponse = resolve;
@@ -129,6 +130,11 @@ test.describe("Direct Chat cross-browser coordination", () => {
       const serverCommitted = new Promise<void>(
         (resolve) => {
           markCommitted = resolve;
+        },
+      );
+      const responseFulfilled = new Promise<void>(
+        (resolve) => {
+          markResponseFulfilled = resolve;
         },
       );
       let holdNextHumanSend = true;
@@ -150,6 +156,7 @@ test.describe("Direct Chat cross-browser coordination", () => {
             markCommitted();
             await heldResponse;
             await route.fulfill({ response });
+            markResponseFulfilled();
             return;
           }
           await route.continue();
@@ -174,6 +181,7 @@ test.describe("Direct Chat cross-browser coordination", () => {
       ).toHaveCount(0);
 
       releaseHeldResponse();
+      await responseFulfilled;
       await aliceSecondPage.unroute(
         "**/v1/direct-chats/*/messages",
       );
