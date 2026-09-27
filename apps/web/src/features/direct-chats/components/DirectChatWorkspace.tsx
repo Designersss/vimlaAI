@@ -775,6 +775,10 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
                   const run =
                     await cancelOperatorRun(
                       pendingRun.id,
+                      {
+                        signal:
+                          operatorRequestSignal(),
+                      },
                     );
                   setPendingRun(run);
                   const recovered =
@@ -905,14 +909,21 @@ async function confirmDirectOperatorRun(input: {
 }): Promise<OperatorRunView> {
   const device = await ensureLocalDevice();
   const attempt = async (): Promise<OperatorRunView> => {
-    const fresh = await fetchOperatorRun(input.runId);
+    const fresh = await fetchOperatorRun(
+      input.runId,
+      { signal: operatorRequestSignal() },
+    );
     const token = fresh.confirmationToken;
     if (!token) {
       throw new OperatorRequestError(
         "operator_confirmation_invalid",
       );
     }
-    return confirmOperatorRun(input.runId, token);
+    return confirmOperatorRun(
+      input.runId,
+      token,
+      { signal: operatorRequestSignal() },
+    );
   };
 
   return withPendingOperatorInvocationLock(
@@ -1047,10 +1058,9 @@ async function resumeDirectOperatorInvocation(
 
       let run: OperatorRunView;
       if (current.intent.delivery) {
-        run = await withOperatorRecoveryTimeout(
-          fetchOperatorRun(
-            current.intent.delivery.runId,
-          ),
+        run = await fetchOperatorRun(
+          current.intent.delivery.runId,
+          { signal: operatorRequestSignal() },
         );
       } else {
         const prepared = {
@@ -1064,8 +1074,8 @@ async function resumeDirectOperatorInvocation(
             current.messageCreatedAt,
             actorUserId,
           );
-        run = await withOperatorRecoveryTimeout(
-          createOperatorRun({
+        run = await createOperatorRun(
+          {
             clientRequestId:
               current.intent.clientRequestId,
             content: current.intent.content,
@@ -1081,7 +1091,8 @@ async function resumeDirectOperatorInvocation(
                     sourceBoundContext.contextBundle,
                 }
               : {}),
-          }),
+          },
+          { signal: operatorRequestSignal() },
         );
       }
 
@@ -1107,10 +1118,9 @@ async function resumeDirectOperatorInvocation(
           run.updatedAt ||
           stagedIntent.delivery.runStatus !== run.status)
       ) {
-        run = await withOperatorRecoveryTimeout(
-          fetchOperatorRun(
-            stagedIntent.delivery.runId,
-          ),
+        run = await fetchOperatorRun(
+          stagedIntent.delivery.runId,
+          { signal: operatorRequestSignal() },
         );
         if (isTransientOperatorRun(run)) {
           throw new Error(
@@ -1210,17 +1220,20 @@ function operatorDeliveryOutputs(
   run: OperatorRunView,
 ): StoredOperatorOutputDraft[] {
   const outputs: StoredOperatorOutputDraft[] = [];
-  if (run.publicMessage) {
+  if (run.publicMessage || run.clarificationQuestion) {
     outputs.push({
       id: JSON.stringify([
         "response",
         run.publicMessage,
+        run.clarificationQuestion,
       ]),
       kind: "OPERATOR_RESPONSE",
       plaintext: encodeDirectPlaintext({
         type: "response",
-        text: run.publicMessage,
+        text: run.publicMessage ?? "",
         runId: run.id,
+        clarificationQuestion:
+          run.clarificationQuestion,
       }),
     });
   }
@@ -1257,30 +1270,10 @@ function isTransientOperatorRun(
   );
 }
 
-async function withOperatorRecoveryTimeout<T>(
-  operation: Promise<T>,
-): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | null = null;
-  try {
-    return await Promise.race([
-      operation,
-      new Promise<T>((_, reject) => {
-        timer = setTimeout(
-          () =>
-            reject(
-              new Error(
-                "Direct Chat operator recovery timed out",
-              ),
-            ),
-          OPERATOR_RECOVERY_REQUEST_TIMEOUT_MS,
-        );
-      }),
-    ]);
-  } finally {
-    if (timer !== null) {
-      clearTimeout(timer);
-    }
-  }
+function operatorRequestSignal(): AbortSignal {
+  return AbortSignal.timeout(
+    OPERATOR_RECOVERY_REQUEST_TIMEOUT_MS,
+  );
 }
 
 async function fetchLatestDecryptedPage(
@@ -1443,11 +1436,29 @@ function DirectRow({ row, self, youLabel, peerName }: { row: DecryptedRow; self:
     );
   }
   if (row.payload.type === "response") {
-    return <AssistantMessage label={t("chat.assistant")}><span data-testid="direct-message-response">{row.payload.text}</span></AssistantMessage>;
+    return (
+      <AssistantMessage label={t("chat.assistant")}>
+        {row.payload.text ? (
+          <span data-testid="direct-message-response">
+            {row.payload.text}
+          </span>
+        ) : null}
+        {row.payload.clarificationQuestion ? (
+          <Text tone="secondary">
+            <span data-testid="direct-message-clarification">
+              {row.payload.clarificationQuestion}
+            </span>
+          </Text>
+        ) : null}
+      </AssistantMessage>
+    );
   }
   return (
     <Card data-testid="direct-message-action">
-      <Badge variant="accent">{t("direct.action")}</Badge>
+      <div className={styles.kind}>
+        <Badge variant="accent">{t("direct.action")}</Badge>
+        <Badge>{row.payload.status}</Badge>
+      </div>
       <Text>{row.payload.title}</Text>
       {row.payload.detail ? <Text tone="secondary">{row.payload.detail}</Text> : null}
     </Card>
