@@ -654,6 +654,10 @@ export async function decryptMessageWithStatus(input: {
         input.message,
       )
     ) {
+      await finalizePendingSend(
+        pending,
+        input.message,
+      );
       return {
         payload: decodeDirectPlaintext(
           input.message.kind,
