@@ -1396,9 +1396,16 @@ test.describe("Secure Direct Chats", () => {
     const syntheticAction = alicePage
       .getByTestId("direct-message-action")
       .filter({ hasText: syntheticActionTitle });
-    await expect(syntheticAction).toContainText("error", {
-      timeout: 20_000,
-    });
+    await expect(syntheticAction).toContainText(
+      /Ошибка|Failed/i,
+      { timeout: 20_000 },
+    );
+    await expect(
+      alicePage.getByText(
+        syntheticActionTitle,
+        { exact: true },
+      ),
+    ).toHaveCount(1);
     await alicePage.reload();
     await expect(
       alicePage.getByTestId("direct-chat-shell"),
@@ -1407,7 +1414,15 @@ test.describe("Secure Direct Chats", () => {
       alicePage
         .getByTestId("direct-message-action")
         .filter({ hasText: syntheticActionTitle }),
-    ).toContainText("error", { timeout: 20_000 });
+    ).toContainText(/Ошибка|Failed/i, {
+      timeout: 20_000,
+    });
+    await expect(
+      alicePage.getByText(
+        syntheticActionTitle,
+        { exact: true },
+      ),
+    ).toHaveCount(1);
 
     alicePage.off("request", countMessagePosts);
     await aliceRecoveryPage.close();
