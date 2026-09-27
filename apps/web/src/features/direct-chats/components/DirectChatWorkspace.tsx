@@ -1482,11 +1482,12 @@ function DirectRow({ row, self, youLabel, peerName }: { row: DecryptedRow; self:
           </span>
         ) : null}
         {row.payload.clarificationQuestion ? (
-          <Text tone="secondary">
+          <>
+            <br />
             <span data-testid="direct-message-clarification">
               {row.payload.clarificationQuestion}
             </span>
-          </Text>
+          </>
         ) : null}
       </AssistantMessage>
     );
