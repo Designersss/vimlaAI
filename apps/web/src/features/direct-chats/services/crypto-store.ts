@@ -26,8 +26,10 @@ import {
 } from "./ratchet-coordination";
 
 const DB_NAME = "vimla-direct-e2ee";
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 const PLAINTEXT_CONVERSATION_TIME_INDEX = "conversation-created-at";
+const PENDING_SEND_SCOPE_INDEX =
+  "conversation-sender-device";
 const RATCHET_LOCK_LEASE_MS = 5_000;
 const RATCHET_LOCK_HEARTBEAT_MS = 1_000;
 const RATCHET_LOCK_ACQUIRE_TIMEOUT_MS = 30_000;
@@ -165,8 +167,22 @@ function openDb(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains("ratchetLocks")) {
         db.createObjectStore("ratchetLocks");
       }
-      if (!db.objectStoreNames.contains("pendingSends")) {
-        db.createObjectStore("pendingSends");
+      const pendingSends = db.objectStoreNames.contains(
+        "pendingSends",
+      )
+        ? request.transaction?.objectStore("pendingSends")
+        : db.createObjectStore("pendingSends");
+      if (
+        pendingSends &&
+        !pendingSends.indexNames.contains(
+          PENDING_SEND_SCOPE_INDEX,
+        )
+      ) {
+        pendingSends.createIndex(
+          PENDING_SEND_SCOPE_INDEX,
+          ["conversationId", "senderDeviceId"],
+          { unique: false },
+        );
       }
       const plaintexts = db.objectStoreNames.contains("plaintexts")
         ? request.transaction?.objectStore("plaintexts")
@@ -347,25 +363,50 @@ export async function loadPendingSends(
   conversationId: string,
   senderDeviceId: string,
 ): Promise<StoredPendingSend[]> {
-  const rows = await withStore<StoredPendingSend[]>(
-    "pendingSends",
-    "readonly",
-    (store) => store.getAll(),
+  const db = await openDb();
+  const rows = await new Promise<StoredPendingSend[]>(
+    (resolve, reject) => {
+      const tx = db.transaction(
+        "pendingSends",
+        "readonly",
+      );
+      const store = tx.objectStore("pendingSends");
+      const request = store
+        .index(PENDING_SEND_SCOPE_INDEX)
+        .getAll(
+          IDBKeyRange.only([
+            conversationId,
+            senderDeviceId,
+          ]),
+        );
+      request.onsuccess = () =>
+        resolve(
+          request.result as StoredPendingSend[],
+        );
+      request.onerror = () =>
+        reject(
+          request.error ??
+            new Error(
+              "Pending send index read failed",
+            ),
+        );
+      tx.onabort = () =>
+        reject(
+          tx.error ??
+            new Error(
+              "Pending send index transaction aborted",
+            ),
+        );
+    },
+  ).finally(() => db.close());
+  return rows.sort(
+    (left, right) =>
+      Date.parse(left.createdAt) -
+        Date.parse(right.createdAt) ||
+      left.clientMessageId.localeCompare(
+        right.clientMessageId,
+      ),
   );
-  return rows
-    .filter(
-      (row) =>
-        row.conversationId === conversationId &&
-        row.senderDeviceId === senderDeviceId,
-    )
-    .sort(
-      (left, right) =>
-        Date.parse(left.createdAt) -
-          Date.parse(right.createdAt) ||
-        left.clientMessageId.localeCompare(
-          right.clientMessageId,
-        ),
-    );
 }
 
 export async function loadPendingSend(
