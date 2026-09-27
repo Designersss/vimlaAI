@@ -16,6 +16,7 @@ export interface ResponsePayload {
   type: "response";
   text: string;
   runId: string;
+  clarificationQuestion: string | null;
 }
 
 export interface ActionPayload {
@@ -52,7 +53,15 @@ export function decodeDirectPlaintext(kind: DirectMessageKind, text: string): Di
     };
   }
   if (kind === "OPERATOR_RESPONSE" && parsed?.type === "response" && typeof parsed.text === "string" && typeof parsed.runId === "string") {
-    return { type: "response", text: parsed.text, runId: parsed.runId };
+    return {
+      type: "response",
+      text: parsed.text,
+      runId: parsed.runId,
+      clarificationQuestion:
+        typeof parsed.clarificationQuestion === "string"
+          ? parsed.clarificationQuestion
+          : null,
+    };
   }
   if (kind === "OPERATOR_ACTION" && parsed?.type === "action" && typeof parsed.title === "string") {
     return {
