@@ -246,6 +246,69 @@ describe("operator API", () => {
     expect(gone.statusCode).toBe(404);
   });
 
+  it("marks confirmation-gated actions skipped when the run is canceled", async () => {
+    const owner = await readyUser(app, "op-cancel-owner");
+    const task = await app.inject({
+      method: "POST",
+      url: "/v1/workspace/tasks",
+      headers: jsonHeaders(),
+      cookies: owner.cookies,
+      payload: { title: "Cancel me safely" },
+    });
+    const taskId = task.json().id as string;
+
+    const run = await app.inject({
+      method: "POST",
+      url: "/v1/operator/runs",
+      headers: jsonHeaders(),
+      cookies: owner.cookies,
+      payload: {
+        clientRequestId: randomUUID(),
+        content: `@Vimla удали задачу ${taskId}`,
+      },
+    });
+    expect(run.statusCode).toBe(201);
+    expect(run.json().status).toBe(
+      "AWAITING_CONFIRMATION",
+    );
+    expect(
+      run.json().actions.some(
+        (action: { status: string }) =>
+          action.status === "pending_confirmation",
+      ),
+    ).toBe(true);
+
+    const canceled = await app.inject({
+      method: "POST",
+      url: `/v1/operator/runs/${run.json().id}/cancel`,
+      headers: jsonHeaders(),
+      cookies: owner.cookies,
+      payload: {},
+    });
+    expect(canceled.statusCode).toBe(200);
+    expect(canceled.json().status).toBe("CANCELED");
+    expect(
+      canceled.json().actions.every(
+        (action: { status: string }) =>
+          action.status !== "pending_confirmation",
+      ),
+    ).toBe(true);
+    expect(
+      canceled.json().actions.some(
+        (action: { status: string }) =>
+          action.status === "skipped",
+      ),
+    ).toBe(true);
+
+    const stillThere = await app.inject({
+      method: "GET",
+      url: `/v1/workspace/tasks/${taskId}`,
+      headers: { origin },
+      cookies: owner.cookies,
+    });
+    expect(stillThere.statusCode).toBe(200);
+  });
+
   it("asks for clarification when a reschedule is ambiguous", async () => {
     const user = await readyUser(app, "op-clarify");
     const run = await app.inject({
