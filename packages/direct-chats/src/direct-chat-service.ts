@@ -196,7 +196,6 @@ export class DirectChatService {
     input: SendDirectMessage,
   ): Promise<{
     replay: DirectMessageView | null;
-    memberIds: string[];
   }> {
     const conversation =
       await this.requireMemberConversation(
@@ -208,9 +207,6 @@ export class DirectChatService {
         actor.userId,
         conversationId,
         input,
-      ),
-      memberIds: conversation.members.map(
-        (member) => member.userId,
       ),
     };
   }
@@ -238,26 +234,17 @@ export class DirectChatService {
     resolvedMentions: MessageMentionView[] = [],
     options: {
       replayAlreadyChecked?: boolean;
-      authorizedMemberIds?: readonly string[];
     } = {},
   ): Promise<{
     message: DirectMessageView;
     replayed: boolean;
   }> {
-    const memberIds = options.authorizedMemberIds
-      ? [...options.authorizedMemberIds]
-      : (
-          await this.requireMemberConversation(
-            actor.userId,
-            conversationId,
-          )
-        ).members.map((member) => member.userId);
-    if (!memberIds.includes(actor.userId)) {
-      throw new DirectChatError(
-        "NOT_FOUND",
-        "Direct Chat was not found",
-      );
-    }
+    const memberIds = (
+      await this.requireMemberConversation(
+        actor.userId,
+        conversationId,
+      )
+    ).members.map((member) => member.userId);
     if (!options.replayAlreadyChecked) {
       const replay = await this.findExactReplay(
         actor.userId,
