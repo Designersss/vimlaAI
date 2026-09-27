@@ -14,6 +14,17 @@ function headers(): HeadersInit {
   return { "content-type": "application/json" };
 }
 
+export interface OperatorRequestOptions {
+  signal?: AbortSignal;
+  fetchImpl?: typeof fetch;
+}
+
+function requestFetch(
+  options: OperatorRequestOptions,
+): typeof fetch {
+  return options.fetchImpl ?? fetch;
+}
+
 async function parseRun(response: Response): Promise<OperatorRunView> {
   if (response.status === 401) {
     throw new AuthRequiredError();
@@ -60,11 +71,18 @@ export async function fetchOperatorConversation(
   return operatorConversationSchema.parse(await response.json());
 }
 
-export async function fetchOperatorRun(runId: string): Promise<OperatorRunView> {
-  const response = await fetch(`${publicWebConfig.apiBaseUrl}/v1/operator/runs/${runId}`, {
-    credentials: "include",
-    cache: "no-store",
-  });
+export async function fetchOperatorRun(
+  runId: string,
+  options: OperatorRequestOptions = {},
+): Promise<OperatorRunView> {
+  const response = await requestFetch(options)(
+    `${publicWebConfig.apiBaseUrl}/v1/operator/runs/${runId}`,
+    {
+      credentials: "include",
+      cache: "no-store",
+      signal: options.signal,
+    },
+  );
   return parseRun(response);
 }
 
@@ -83,25 +101,41 @@ export async function createOperatorRun(input: {
       text: string;
     }>;
   };
-}): Promise<OperatorRunView> {
+},
+  options: OperatorRequestOptions = {},
+): Promise<OperatorRunView> {
   const body = createOperatorRunSchema.parse(input);
-  const response = await fetch(`${publicWebConfig.apiBaseUrl}/v1/operator/runs`, {
-    method: "POST",
-    credentials: "include",
-    headers: headers(),
-    body: JSON.stringify(body),
-  });
+  const response = await requestFetch(options)(
+    `${publicWebConfig.apiBaseUrl}/v1/operator/runs`,
+    {
+      method: "POST",
+      credentials: "include",
+      headers: headers(),
+      body: JSON.stringify(body),
+      signal: options.signal,
+    },
+  );
   return parseRun(response);
 }
 
-export async function confirmOperatorRun(runId: string, confirmationToken: string): Promise<OperatorRunView> {
-  const body = confirmOperatorRunSchema.parse({ confirmationToken });
-  const response = await fetch(`${publicWebConfig.apiBaseUrl}/v1/operator/runs/${runId}/confirm`, {
-    method: "POST",
-    credentials: "include",
-    headers: headers(),
-    body: JSON.stringify(body),
+export async function confirmOperatorRun(
+  runId: string,
+  confirmationToken: string,
+  options: OperatorRequestOptions = {},
+): Promise<OperatorRunView> {
+  const body = confirmOperatorRunSchema.parse({
+    confirmationToken,
   });
+  const response = await requestFetch(options)(
+    `${publicWebConfig.apiBaseUrl}/v1/operator/runs/${runId}/confirm`,
+    {
+      method: "POST",
+      credentials: "include",
+      headers: headers(),
+      body: JSON.stringify(body),
+      signal: options.signal,
+    },
+  );
   return parseRun(response);
 }
 
@@ -119,12 +153,19 @@ export async function continueOperatorRun(
   return parseRun(response);
 }
 
-export async function cancelOperatorRun(runId: string): Promise<OperatorRunView> {
-  const response = await fetch(`${publicWebConfig.apiBaseUrl}/v1/operator/runs/${runId}/cancel`, {
-    method: "POST",
-    credentials: "include",
-    headers: headers(),
-    body: JSON.stringify({}),
-  });
+export async function cancelOperatorRun(
+  runId: string,
+  options: OperatorRequestOptions = {},
+): Promise<OperatorRunView> {
+  const response = await requestFetch(options)(
+    `${publicWebConfig.apiBaseUrl}/v1/operator/runs/${runId}/cancel`,
+    {
+      method: "POST",
+      credentials: "include",
+      headers: headers(),
+      body: JSON.stringify({}),
+      signal: options.signal,
+    },
+  );
   return parseRun(response);
 }
