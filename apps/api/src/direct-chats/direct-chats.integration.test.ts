@@ -38,6 +38,7 @@ import { createPrismaClient } from "@vimla/database";
 import { createVimlaApiApp } from "../create-app.js";
 import { PrismaService } from "../persistence/prisma.service.js";
 import { DirectChatRealtimeService } from "./direct-chat-realtime.service.js";
+import { DirectMentionRoutingService } from "./direct-mention-routing.service.js";
 import { registerVerifiedUser } from "../test/identity-helpers.js";
 
 const testDatabaseUrl = process.env.TEST_DATABASE_URL;
@@ -542,6 +543,106 @@ describe("direct chats API", () => {
       );
     expect(originalDeviceMessage?.envelope).toBeTruthy();
 
+  });
+
+  it("rechecks exact replay after preflight before mutable device validation", async () => {
+    const alice = await readyUser(
+      app,
+      "dc-replay-preflight-alice",
+      "Alice",
+    );
+    const nikita = await readyUser(
+      app,
+      "dc-replay-preflight-nikita",
+      "Nikita",
+    );
+    const aliceDevice = await registerHarness(app, alice);
+    await registerHarness(app, nikita);
+    const chat = await createChat(
+      app,
+      alice.cookies,
+      nikita.email,
+    );
+    const envelopes = [];
+    for (const device of chat.devices) {
+      envelopes.push(
+        await encryptTo(
+          app,
+          alice,
+          aliceDevice,
+          device,
+          chat.id,
+          "HUMAN",
+          "preflight replay race",
+        ),
+      );
+    }
+    const payload = {
+      clientMessageId: randomUUID(),
+      senderDeviceId: aliceDevice.deviceId,
+      kind: "HUMAN" as const,
+      envelopes,
+      mentions: [],
+    };
+
+    const routing = app.get(
+      DirectMentionRoutingService,
+    );
+    const originalResolve =
+      routing.resolve.bind(routing);
+    let releaseFirst!: () => void;
+    let firstResolveEntered!: () => void;
+    const firstEntered = new Promise<void>(
+      (resolve) => {
+        firstResolveEntered = resolve;
+      },
+    );
+    const release = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let holdFirst = true;
+    const resolveSpy = vi
+      .spyOn(routing, "resolve")
+      .mockImplementation(async (input) => {
+        if (holdFirst) {
+          holdFirst = false;
+          firstResolveEntered();
+          await release;
+        }
+        return originalResolve(input);
+      });
+
+    try {
+      const firstRequest = app.inject({
+        method: "POST",
+        url: `/v1/direct-chats/${chat.id}/messages`,
+        headers: jsonHeaders(),
+        cookies: alice.cookies,
+        payload,
+      });
+      await firstEntered;
+
+      const committed = await app.inject({
+        method: "POST",
+        url: `/v1/direct-chats/${chat.id}/messages`,
+        headers: jsonHeaders(),
+        cookies: alice.cookies,
+        payload,
+      });
+      expect(committed.statusCode).toBe(201);
+
+      await registerHarness(app, nikita);
+      releaseFirst();
+
+      const replayed = await firstRequest;
+      expect(replayed.statusCode).toBe(201);
+      expect(replayed.json().id).toBe(
+        committed.json().id,
+      );
+    } finally {
+      releaseFirst();
+      resolveSpy.mockRestore();
+    }
   });
 
   it("requires structured @vimla authority for Direct Chat operator routing", async () => {
