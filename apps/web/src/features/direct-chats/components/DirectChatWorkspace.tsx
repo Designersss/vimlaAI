@@ -494,7 +494,11 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
     delivery: OperatorInvocationDeliveryResult,
   ): void {
     setError(null);
-    setPendingRun(delivery.run);
+    setPendingRun(
+      operatorRunNeedsPanel(delivery.run)
+        ? delivery.run
+        : null,
+    );
     if (delivery.latest) {
       setConversation(delivery.latest);
     }
@@ -609,7 +613,11 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
       .then((deliveries) => {
         if (cancelled) return;
         for (const delivery of deliveries) {
-          setPendingRun(delivery.run);
+          setPendingRun(
+      operatorRunNeedsPanel(delivery.run)
+        ? delivery.run
+        : null,
+    );
           if (delivery.latest) {
             setConversation(delivery.latest);
           }
@@ -745,7 +753,11 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
                       conversationId,
                       runId: pendingRun.id,
                     });
-                  setPendingRun(run);
+                  setPendingRun(
+      operatorRunNeedsPanel(run)
+        ? run
+        : null,
+    );
                   const recovered =
                     await recoverDirectOperatorInvocations({
                       conversationId,
@@ -780,7 +792,11 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
                           operatorRequestSignal(),
                       },
                     );
-                  setPendingRun(run);
+                  setPendingRun(
+      operatorRunNeedsPanel(run)
+        ? run
+        : null,
+    );
                   const recovered =
                     await recoverDirectOperatorInvocations({
                       conversationId,
@@ -1411,6 +1427,28 @@ async function decryptPage(detail: DirectConversationView, items: DirectMessageV
   );
 }
 
+function operatorRunNeedsPanel(
+  run: OperatorRunView,
+): boolean {
+  return run.status === "AWAITING_CONFIRMATION";
+}
+
+function directActionStatusLabel(
+  t: ReturnType<typeof useTranslations>,
+  status: string,
+): string {
+  if (status === "pending_confirmation") {
+    return t("operator.needsConfirmation");
+  }
+  if (status === "error") {
+    return t("operator.failed");
+  }
+  if (status === "skipped") {
+    return t("operator.skipped");
+  }
+  return t("operator.completed");
+}
+
 function DirectRow({ row, self, youLabel, peerName }: { row: DecryptedRow; self: boolean; youLabel: string; peerName: string }): ReactElement {
   const t = useTranslations();
   const label = self ? youLabel : peerName;
@@ -1457,7 +1495,12 @@ function DirectRow({ row, self, youLabel, peerName }: { row: DecryptedRow; self:
     <Card data-testid="direct-message-action">
       <div className={styles.kind}>
         <Badge variant="accent">{t("direct.action")}</Badge>
-        <Badge>{row.payload.status}</Badge>
+        <Badge>
+          {directActionStatusLabel(
+            t,
+            row.payload.status,
+          )}
+        </Badge>
       </div>
       <Text>{row.payload.title}</Text>
       {row.payload.detail ? <Text tone="secondary">{row.payload.detail}</Text> : null}
