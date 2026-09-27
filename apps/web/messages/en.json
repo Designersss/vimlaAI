@@ -258,6 +258,7 @@
     "processing": "Working…",
     "confirm": "Confirm",
     "open": "Open",
+    "completed": "Completed",
     "needsConfirmation": "Needs confirmation",
     "failed": "Failed",
     "skipped": "Skipped",
