@@ -14,6 +14,9 @@ import {
 } from "@vimla/e2ee";
 import {
   RatchetLockLostError,
+  RatchetStateConflictError,
+  RatchetStateCorruptError,
+  RATCHET_RECORD_SCHEMA_VERSION,
   acquireRatchetLeaseRecord,
   assertRatchetVersion,
   renewRatchetLeaseRecord,
@@ -24,9 +27,18 @@ import {
   type RatchetLeaseRecord,
   type RatchetSnapshot,
 } from "./ratchet-coordination";
+import {
+  clearLocalProtectionKey,
+  deleteIndexedDb,
+  isProtectedLocalString,
+  protectLocalJson,
+  protectLocalString,
+  unprotectLocalJson,
+  unprotectLocalString,
+} from "./local-protection";
 
 const DB_NAME = "vimla-direct-e2ee";
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 const PLAINTEXT_CONVERSATION_TIME_INDEX = "conversation-created-at";
 const PENDING_SEND_SCOPE_INDEX =
   "conversation-sender-device";
@@ -150,6 +162,479 @@ export class PendingOperatorInvocationGoneError extends Error {
     super("Pending operator invocation was already completed");
     this.name = "PendingOperatorInvocationGoneError";
   }
+}
+
+const PROTECTED_RATCHET_SCHEMA_VERSION = 2 as const;
+
+interface ProtectedRatchetRecord {
+  schemaVersion: typeof PROTECTED_RATCHET_SCHEMA_VERSION;
+  localDeviceId: string;
+  stateVersion: number;
+  protectedState: string;
+  pendingX3dhInit: X3dhInitHeader | null;
+}
+
+function deviceSecretAad(
+  deviceId: string,
+  field: string,
+): string {
+  return `vimla:e2ee:device:${deviceId}:${field}`;
+}
+
+function plaintextAad(messageId: string): string {
+  return `vimla:e2ee:plaintext:${messageId}:text`;
+}
+
+function pendingAad(
+  clientMessageId: string,
+  field: string,
+): string {
+  return `vimla:e2ee:pending:${clientMessageId}:${field}`;
+}
+
+function ratchetStateAad(input: {
+  conversationId: string;
+  localDeviceId: string;
+  peerDeviceId: string;
+  stateVersion: number;
+}): string {
+  return [
+    "vimla:e2ee:ratchet",
+    input.conversationId,
+    input.localDeviceId,
+    input.peerDeviceId,
+    String(input.stateVersion),
+  ].join(":");
+}
+
+async function protectMaybe(
+  value: string,
+  aad: string,
+): Promise<string> {
+  return isProtectedLocalString(value)
+    ? value
+    : protectLocalString(value, aad);
+}
+
+async function protectDeviceMaterial(
+  material: StoredDeviceMaterial,
+): Promise<StoredDeviceMaterial> {
+  const signedPrekeys = Object.fromEntries(
+    await Promise.all(
+      Object.entries(material.signedPrekeys).map(
+        async ([keyId, key]) => [
+          keyId,
+          {
+            ...key,
+            secret: await protectMaybe(
+              key.secret,
+              deviceSecretAad(
+                material.deviceId,
+                `signed-prekey:${keyId}`,
+              ),
+            ),
+          },
+        ],
+      ),
+    ),
+  );
+  const oneTimePrekeys = Object.fromEntries(
+    await Promise.all(
+      Object.entries(material.oneTimePrekeys).map(
+        async ([keyId, key]) => [
+          keyId,
+          {
+            ...key,
+            secret: await protectMaybe(
+              key.secret,
+              deviceSecretAad(
+                material.deviceId,
+                `one-time-prekey:${keyId}`,
+              ),
+            ),
+          },
+        ],
+      ),
+    ),
+  );
+  return {
+    ...material,
+    identity: {
+      ...material.identity,
+      ed25519Secret: await protectMaybe(
+        material.identity.ed25519Secret,
+        deviceSecretAad(
+          material.deviceId,
+          "identity:ed25519",
+        ),
+      ),
+      x25519Secret: await protectMaybe(
+        material.identity.x25519Secret,
+        deviceSecretAad(
+          material.deviceId,
+          "identity:x25519",
+        ),
+      ),
+    },
+    signedPrekeys,
+    oneTimePrekeys,
+  };
+}
+
+async function unprotectDeviceMaterial(
+  material: StoredDeviceMaterial,
+): Promise<StoredDeviceMaterial> {
+  const signedPrekeys = Object.fromEntries(
+    await Promise.all(
+      Object.entries(material.signedPrekeys).map(
+        async ([keyId, key]) => [
+          keyId,
+          {
+            ...key,
+            secret: await unprotectLocalString(
+              key.secret,
+              deviceSecretAad(
+                material.deviceId,
+                `signed-prekey:${keyId}`,
+              ),
+            ),
+          },
+        ],
+      ),
+    ),
+  );
+  const oneTimePrekeys = Object.fromEntries(
+    await Promise.all(
+      Object.entries(material.oneTimePrekeys).map(
+        async ([keyId, key]) => [
+          keyId,
+          {
+            ...key,
+            secret: await unprotectLocalString(
+              key.secret,
+              deviceSecretAad(
+                material.deviceId,
+                `one-time-prekey:${keyId}`,
+              ),
+            ),
+          },
+        ],
+      ),
+    ),
+  );
+  return {
+    ...material,
+    identity: {
+      ...material.identity,
+      ed25519Secret: await unprotectLocalString(
+        material.identity.ed25519Secret,
+        deviceSecretAad(
+          material.deviceId,
+          "identity:ed25519",
+        ),
+      ),
+      x25519Secret: await unprotectLocalString(
+        material.identity.x25519Secret,
+        deviceSecretAad(
+          material.deviceId,
+          "identity:x25519",
+        ),
+      ),
+    },
+    signedPrekeys,
+    oneTimePrekeys,
+  };
+}
+
+function deviceMaterialNeedsProtection(
+  material: StoredDeviceMaterial,
+): boolean {
+  return (
+    !isProtectedLocalString(
+      material.identity.ed25519Secret,
+    ) ||
+    !isProtectedLocalString(
+      material.identity.x25519Secret,
+    ) ||
+    Object.values(material.signedPrekeys).some(
+      (key) => !isProtectedLocalString(key.secret),
+    ) ||
+    Object.values(material.oneTimePrekeys).some(
+      (key) => !isProtectedLocalString(key.secret),
+    )
+  );
+}
+
+async function protectPlaintext(
+  row: StoredPlaintext,
+): Promise<StoredPlaintext> {
+  return {
+    ...row,
+    text: await protectMaybe(
+      row.text,
+      plaintextAad(row.messageId),
+    ),
+  };
+}
+
+async function unprotectPlaintext(
+  row: StoredPlaintext,
+): Promise<StoredPlaintext> {
+  return {
+    ...row,
+    text: await unprotectLocalString(
+      row.text,
+      plaintextAad(row.messageId),
+    ),
+  };
+}
+
+async function protectOperatorIntent(
+  clientMessageId: string,
+  intent: StoredOperatorIntent,
+): Promise<StoredOperatorIntent> {
+  const contextBundle = {
+    ...intent.contextBundle,
+    messages: await Promise.all(
+      intent.contextBundle.messages.map(
+        async (message) => ({
+          ...message,
+          text: await protectMaybe(
+            message.text,
+            pendingAad(
+              clientMessageId,
+              `context:${message.messageId}`,
+            ),
+          ),
+        }),
+      ),
+    ),
+  };
+  const delivery = intent.delivery
+    ? {
+        ...intent.delivery,
+        outputs: await Promise.all(
+          intent.delivery.outputs.map(
+            async (output) => ({
+              ...output,
+              plaintext: await protectMaybe(
+                output.plaintext,
+                pendingAad(
+                  clientMessageId,
+                  `operator-output:${output.id}`,
+                ),
+              ),
+            }),
+          ),
+        ),
+      }
+    : undefined;
+  return {
+    ...intent,
+    content: await protectMaybe(
+      intent.content,
+      pendingAad(clientMessageId, "operator-content"),
+    ),
+    contextBundle,
+    ...(delivery ? { delivery } : {}),
+  };
+}
+
+async function unprotectOperatorIntent(
+  clientMessageId: string,
+  intent: StoredOperatorIntent,
+): Promise<StoredOperatorIntent> {
+  const contextBundle = {
+    ...intent.contextBundle,
+    messages: await Promise.all(
+      intent.contextBundle.messages.map(
+        async (message) => ({
+          ...message,
+          text: await unprotectLocalString(
+            message.text,
+            pendingAad(
+              clientMessageId,
+              `context:${message.messageId}`,
+            ),
+          ),
+        }),
+      ),
+    ),
+  };
+  const delivery = intent.delivery
+    ? {
+        ...intent.delivery,
+        outputs: await Promise.all(
+          intent.delivery.outputs.map(
+            async (output) => ({
+              ...output,
+              plaintext: await unprotectLocalString(
+                output.plaintext,
+                pendingAad(
+                  clientMessageId,
+                  `operator-output:${output.id}`,
+                ),
+              ),
+            }),
+          ),
+        ),
+      }
+    : undefined;
+  return {
+    ...intent,
+    content: await unprotectLocalString(
+      intent.content,
+      pendingAad(clientMessageId, "operator-content"),
+    ),
+    contextBundle,
+    ...(delivery ? { delivery } : {}),
+  };
+}
+
+async function protectPendingSend(
+  pending: StoredPendingSend,
+): Promise<StoredPendingSend> {
+  return {
+    ...pending,
+    plaintext: await protectMaybe(
+      pending.plaintext,
+      pendingAad(
+        pending.clientMessageId,
+        "message-plaintext",
+      ),
+    ),
+    ...(pending.operatorIntent
+      ? {
+          operatorIntent: await protectOperatorIntent(
+            pending.clientMessageId,
+            pending.operatorIntent,
+          ),
+        }
+      : {}),
+  };
+}
+
+async function unprotectPendingSend(
+  pending: StoredPendingSend,
+): Promise<StoredPendingSend> {
+  return {
+    ...pending,
+    plaintext: await unprotectLocalString(
+      pending.plaintext,
+      pendingAad(
+        pending.clientMessageId,
+        "message-plaintext",
+      ),
+    ),
+    ...(pending.operatorIntent
+      ? {
+          operatorIntent: await unprotectOperatorIntent(
+            pending.clientMessageId,
+            pending.operatorIntent,
+          ),
+        }
+      : {}),
+  };
+}
+
+function isProtectedRatchetRecord(
+  value: unknown,
+): value is ProtectedRatchetRecord {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value)
+  ) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return (
+    record.schemaVersion ===
+      PROTECTED_RATCHET_SCHEMA_VERSION &&
+    typeof record.localDeviceId === "string" &&
+    record.localDeviceId.length > 0 &&
+    typeof record.stateVersion === "number" &&
+    Number.isSafeInteger(record.stateVersion) &&
+    record.stateVersion >= 1 &&
+    typeof record.protectedState === "string" &&
+    isProtectedLocalString(record.protectedState)
+  );
+}
+
+async function protectRatchetRecord(input: {
+  conversationId: string;
+  localDeviceId: string;
+  peerDeviceId: string;
+  stateVersion: number;
+  state: SerializedRatchetState;
+  pendingX3dhInit: X3dhInitHeader | null;
+}): Promise<ProtectedRatchetRecord> {
+  return {
+    schemaVersion: PROTECTED_RATCHET_SCHEMA_VERSION,
+    localDeviceId: input.localDeviceId,
+    stateVersion: input.stateVersion,
+    protectedState: await protectLocalJson(
+      input.state,
+      ratchetStateAad(input),
+    ),
+    pendingX3dhInit: input.pendingX3dhInit,
+  };
+}
+
+async function decodePersistedRatchet(
+  value: unknown,
+  input: {
+    conversationId: string;
+    localDeviceId: string;
+    peerDeviceId: string;
+  },
+): Promise<RatchetSnapshot | null> {
+  if (!isProtectedRatchetRecord(value)) {
+    return decodeStoredRatchet(
+      value,
+      input.localDeviceId,
+    );
+  }
+  if (value.localDeviceId !== input.localDeviceId) {
+    throw new RatchetStateCorruptError();
+  }
+  const state = await unprotectLocalJson(
+    value.protectedState,
+    ratchetStateAad({
+      ...input,
+      stateVersion: value.stateVersion,
+    }),
+  );
+  return decodeStoredRatchet(
+    {
+      schemaVersion: RATCHET_RECORD_SCHEMA_VERSION,
+      localDeviceId: value.localDeviceId,
+      stateVersion: value.stateVersion,
+      state,
+      pendingX3dhInit: value.pendingX3dhInit,
+    },
+    input.localDeviceId,
+  );
+}
+
+function assertPersistedRatchetVersion(
+  value: unknown,
+  localDeviceId: string,
+  expectedVersion: number,
+): void {
+  if (isProtectedRatchetRecord(value)) {
+    if (value.localDeviceId !== localDeviceId) {
+      throw new RatchetStateCorruptError();
+    }
+    if (value.stateVersion !== expectedVersion) {
+      throw new RatchetStateConflictError();
+    }
+    return;
+  }
+  assertRatchetVersion(
+    decodeStoredRatchet(value, localDeviceId),
+    expectedVersion,
+  );
 }
 
 function openDb(): Promise<IDBDatabase> {
