@@ -23,7 +23,6 @@ import {
   decodeStoredRatchet,
   isRatchetLeaseRecord,
   markLegacyRatchetOwner,
-  storedRatchetRecord,
   type RatchetLeaseRecord,
   type RatchetSnapshot,
 } from "./ratchet-coordination";
