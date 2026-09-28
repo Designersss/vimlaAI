@@ -785,13 +785,10 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
                 setOperatorBusy(true);
                 void (async () => {
                   const run =
-                    await cancelOperatorRun(
-                      pendingRun.id,
-                      {
-                        signal:
-                          operatorRequestSignal(),
-                      },
-                    );
+                    await cancelDirectOperatorRun({
+                      conversationId,
+                      runId: pendingRun.id,
+                    });
                   setPendingRun(
                     operatorRunNeedsPanel(run)
                       ? run
@@ -961,6 +958,23 @@ async function confirmDirectOperatorRun(input: {
         return attempt();
       }
     },
+  );
+}
+
+async function cancelDirectOperatorRun(input: {
+  conversationId: string;
+  runId: string;
+}): Promise<OperatorRunView> {
+  const device = await ensureLocalDevice();
+  return withPendingOperatorInvocationLock(
+    {
+      conversationId: input.conversationId,
+      localDeviceId: device.deviceId,
+    },
+    () =>
+      cancelOperatorRun(input.runId, {
+        signal: operatorRequestSignal(),
+      }),
   );
 }
 
