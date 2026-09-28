@@ -219,11 +219,10 @@ test.describe("Direct Chat cross-browser coordination", () => {
         },
       );
       let holdPrimaryReceive = true;
+      let olderMessageId: string | null = null;
+      let olderHiddenMarked = false;
       let olderSendCommitted: Promise<void> | null = null;
-      let secondaryPhase:
-        | "hide-older"
-        | "newest-only"
-        | "passthrough" = "hide-older";
+      let secondaryPassthrough = false;
 
       await nikitaPage.route(
         "**/v1/direct-chats/*/messages?**",
@@ -234,8 +233,25 @@ test.describe("Direct Chat cross-browser coordination", () => {
             olderSendCommitted
           ) {
             await olderSendCommitted;
-            holdPrimaryReceive = false;
+            if (!holdPrimaryReceive) {
+              await route.continue();
+              return;
+            }
             const response = await route.fetch();
+            const payload = (await response.json()) as {
+              items?: Array<{ id?: unknown }>;
+            };
+            const containsOlder =
+              typeof olderMessageId === "string" &&
+              Array.isArray(payload.items) &&
+              payload.items.some(
+                (item) => item.id === olderMessageId,
+              );
+            if (!containsOlder) {
+              await route.fulfill({ response });
+              return;
+            }
+            holdPrimaryReceive = false;
             markOlderReceiveHeld();
             await olderReceiveRelease;
             await route.fulfill({ response });
@@ -247,12 +263,9 @@ test.describe("Direct Chat cross-browser coordination", () => {
       await nikitaSecondPage.route(
         "**/v1/direct-chats/*/messages?**",
         async (route) => {
-          if (route.request().method() !== "GET") {
-            await route.continue();
-            return;
-          }
           if (
-            secondaryPhase === "passthrough" ||
+            route.request().method() !== "GET" ||
+            secondaryPassthrough ||
             !olderSendCommitted
           ) {
             await route.continue();
@@ -261,29 +274,31 @@ test.describe("Direct Chat cross-browser coordination", () => {
           await olderSendCommitted;
           const response = await route.fetch();
           const payload = (await response.json()) as {
-            items?: unknown[];
+            items?: Array<{ id?: unknown }>;
             nextCursor?: string | null;
           };
           const items = Array.isArray(payload.items)
             ? payload.items
             : [];
-          if (secondaryPhase === "hide-older") {
-            secondaryPhase = "newest-only";
+          const filtered =
+            typeof olderMessageId === "string"
+              ? items.filter(
+                  (item) =>
+                    item.id !== olderMessageId,
+                )
+              : items;
+          if (
+            !olderHiddenMarked &&
+            filtered.length !== items.length
+          ) {
+            olderHiddenMarked = true;
             markOlderHidden();
-            await route.fulfill({
-              response,
-              json: {
-                ...payload,
-                items: items.slice(1),
-              },
-            });
-            return;
           }
           await route.fulfill({
             response,
             json: {
               ...payload,
-              items: items.slice(0, 1),
+              items: filtered,
             },
           });
         },
@@ -303,7 +318,17 @@ test.describe("Direct Chat cross-browser coordination", () => {
             ) &&
             response.ok(),
         )
-        .then(() => undefined);
+        .then(async (response) => {
+          const payload = (await response.json()) as {
+            id?: unknown;
+          };
+          if (typeof payload.id !== "string") {
+            throw new Error(
+              "Committed delayed message id is missing",
+            );
+          }
+          olderMessageId = payload.id;
+        });
       await alicePage
         .getByTestId("chat-composer-send")
         .click();
@@ -328,7 +353,7 @@ test.describe("Direct Chat cross-browser coordination", () => {
           .filter({ hasText: delayedOlderText }),
       ).toHaveCount(0);
 
-      secondaryPhase = "passthrough";
+      secondaryPassthrough = true;
       releaseOlderReceive();
       await expect(
         nikitaPage
