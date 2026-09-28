@@ -737,6 +737,48 @@ describe("direct chats API", () => {
 
   });
 
+  it("returns DEVICE_REVOKED for message access through a revoked local device", async () => {
+    const alice = await readyUser(
+      app,
+      "dc-revoked-reader-alice",
+      "Alice",
+    );
+    const nikita = await readyUser(
+      app,
+      "dc-revoked-reader-nikita",
+      "Nikita",
+    );
+    await registerHarness(app, alice);
+    const nikitaDevice = await registerHarness(
+      app,
+      nikita,
+    );
+    const chat = await createChat(
+      app,
+      alice.cookies,
+      nikita.email,
+    );
+
+    const revoked = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/devices/${nikitaDevice.deviceId}/revoke`,
+      headers: jsonHeaders(),
+      cookies: nikita.cookies,
+    });
+    expect(revoked.statusCode).toBe(200);
+
+    const messages = await app.inject({
+      method: "GET",
+      url: `/v1/direct-chats/${chat.id}/messages?deviceId=${nikitaDevice.deviceId}`,
+      headers: { origin },
+      cookies: nikita.cookies,
+    });
+    expect(messages.statusCode).toBe(403);
+    expect(errorCode(messages)).toBe(
+      "direct_chat_device_revoked",
+    );
+  });
+
   it("rechecks exact replay after preflight before mutable device validation", async () => {
     const alice = await readyUser(
       app,
