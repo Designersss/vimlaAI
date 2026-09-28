@@ -54,6 +54,7 @@ function openKeyring(): Promise<IDBDatabase> {
     );
   }
   return new Promise((resolve, reject) => {
+    let blocked = false;
     const request = indexedDB.open(
       KEYRING_DB_NAME,
       KEYRING_DB_VERSION,
@@ -70,6 +71,10 @@ function openKeyring(): Promise<IDBDatabase> {
     };
     request.onsuccess = () => {
       const db = request.result;
+      if (blocked) {
+        db.close();
+        return;
+      }
       if (isLocalDeviceRevoked()) {
         db.close();
         void deleteIndexedDb(KEYRING_DB_NAME).catch(
@@ -90,12 +95,14 @@ function openKeyring(): Promise<IDBDatabase> {
         request.error ??
           new Error("E2EE keyring is unavailable"),
       );
-    request.onblocked = () =>
+    request.onblocked = () => {
+      blocked = true;
       reject(
         new Error(
           "E2EE keyring upgrade is blocked by another browser context",
         ),
       );
+    };
   });
 }
 
