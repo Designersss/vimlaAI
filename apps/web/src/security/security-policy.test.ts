@@ -124,7 +124,18 @@ describe("web security policy", () => {
               /dangerouslySetInnerHTML/.source &&
             relativePath === reviewedDangerousHtmlSink
           ) {
-            continue;
+            const sinkCount = (
+              source.match(/dangerouslySetInnerHTML/g) ?? []
+            ).length;
+            if (
+              sinkCount === 1 &&
+              source.includes(
+                "__html: APPEARANCE_BOOTSTRAP_SCRIPT",
+              ) &&
+              source.includes("nonce={nonce}")
+            ) {
+              continue;
+            }
           }
           if (pattern.test(source)) {
             violations.push(
