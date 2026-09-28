@@ -69,6 +69,7 @@ import {
   RatchetStateConflictError,
 } from "./ratchet-coordination";
 import { decodeDirectPlaintext, encodeDirectPlaintext, type DirectPlaintextPayload } from "./payload";
+import { clearLocalDataAfterDeviceRevocation } from "./local-data";
 
 export async function ensureLocalDevice(): Promise<StoredDeviceMaterial> {
   return withLocalDeviceBootstrapLock(async (lease) => {
@@ -76,7 +77,17 @@ export async function ensureLocalDevice(): Promise<StoredDeviceMaterial> {
     if (existing) {
       if (existing.registrationState === "PENDING") {
         await assertLocalDeviceBootstrapLease(lease);
-        await registerStoredDevice(existing);
+        try {
+          await registerStoredDevice(existing);
+        } catch (error: unknown) {
+          if (
+            error instanceof DirectChatsApiError &&
+            error.code === "direct_chat_device_revoked"
+          ) {
+            await clearLocalDataAfterDeviceRevocation();
+          }
+          throw error;
+        }
         const registered = {
           ...existing,
           registrationState: "REGISTERED" as const,
@@ -116,7 +127,17 @@ export async function ensureLocalDevice(): Promise<StoredDeviceMaterial> {
     };
     await saveDeviceMaterial(material, lease);
     await assertLocalDeviceBootstrapLease(lease);
-    await registerStoredDevice(material);
+    try {
+      await registerStoredDevice(material);
+    } catch (error: unknown) {
+      if (
+        error instanceof DirectChatsApiError &&
+        error.code === "direct_chat_device_revoked"
+      ) {
+        await clearLocalDataAfterDeviceRevocation();
+      }
+      throw error;
+    }
     const registered = {
       ...material,
       registrationState: "REGISTERED" as const,
@@ -363,7 +384,7 @@ export async function recoverPendingSends(input: {
   | "LOCAL_DEVICE_INACTIVE"
   | "RECIPIENT_DEVICE_MISSING"
 > {
-  return withPendingSendRecoveryLock(
+  const result = await withPendingSendRecoveryLock(
     {
       conversationId: input.conversationId,
       localDeviceId: input.localDevice.deviceId,
@@ -515,6 +536,10 @@ export async function recoverPendingSends(input: {
       return blocked ?? "RESOLVED";
     },
   );
+  if (result === "LOCAL_DEVICE_INACTIVE") {
+    await clearLocalDataAfterDeviceRevocation();
+  }
+  return result;
 }
 
 export interface PendingOperatorInvocation {
