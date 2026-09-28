@@ -36,28 +36,39 @@ export async function clearLocalDirectChatData(
   } = {},
 ): Promise<LocalDirectChatCleanupResult> {
   let remoteDeviceRevoked = false;
+  let localDevice:
+    | Awaited<ReturnType<typeof loadDeviceMaterial>>
+    | null = null;
 
   if (options.revokeCurrentDevice) {
     try {
-      const localDevice = await loadDeviceMaterial();
-      if (
-        localDevice &&
-        localDevice.registrationState === "REGISTERED"
-      ) {
-        await revokeCryptoDevice(localDevice.deviceId);
-        remoteDeviceRevoked = true;
-      }
+      localDevice = await loadDeviceMaterial();
+    } catch {
+      // A corrupt/unavailable local store must not prevent an intentional
+      // privacy wipe. Remote revoke is best-effort when the device id cannot
+      // be recovered locally.
+    }
+  }
+
+  // Freeze every browser tab before any network wait or deletion. A stale
+  // recovery/bootstrap task must not mutate or recreate E2EE storage once
+  // destructive cleanup has begun.
+  markLocalDeviceRevoked();
+
+  if (
+    options.revokeCurrentDevice &&
+    localDevice &&
+    localDevice.registrationState === "REGISTERED"
+  ) {
+    try {
+      await revokeCryptoDevice(localDevice.deviceId);
+      remoteDeviceRevoked = true;
     } catch (error: unknown) {
       if (!isExpectedRevokeFailure(error)) {
         remoteDeviceRevoked = false;
       }
     }
   }
-
-  // Freeze every browser tab before deleting the shared origin stores.
-  // This prevents a stale recovery/bootstrap task from recreating storage
-  // while an intentional wipe is in progress.
-  markLocalDeviceRevoked();
 
   // Local privacy wins over a failed network revoke. H05 owns durable
   // device lifecycle/recovery; H02 must not leave keys/plaintext behind
