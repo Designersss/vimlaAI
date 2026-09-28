@@ -1667,6 +1667,24 @@ export async function commitOutboundRatchets(input: {
     );
   }
 
+  const protectedRatchets = new Map(
+    await Promise.all(
+      input.updates.map(async (update) => [
+        update.peerDeviceId,
+        await protectRatchetRecord({
+          conversationId: input.conversationId,
+          localDeviceId: input.localDeviceId,
+          peerDeviceId: update.peerDeviceId,
+          stateVersion:
+            update.expectedVersion + 1,
+          state: update.state,
+          pendingX3dhInit:
+            update.pendingX3dhInit,
+        }),
+      ] as const),
+    ),
+  );
+
   const db = await openDb();
   await new Promise<void>((resolve, reject) => {
     let failure: Error | null = null;
@@ -1771,24 +1789,20 @@ export async function commitOutboundRatchets(input: {
           const raw = useLegacy
             ? read.legacy.result
             : read.current.result;
-          const current = decodeStoredRatchet(
+          assertPersistedRatchetVersion(
             raw,
             input.localDeviceId,
-          );
-          assertRatchetVersion(
-            current,
             read.update.expectedVersion,
           );
+          const protectedRecord =
+            protectedRatchets.get(
+              read.update.peerDeviceId,
+            );
+          if (!protectedRecord) {
+            throw new RatchetStateCorruptError();
+          }
           ratchets.put(
-            storedRatchetRecord({
-              localDeviceId:
-                input.localDeviceId,
-              stateVersion:
-                read.update.expectedVersion + 1,
-              state: read.update.state,
-              pendingX3dhInit:
-                read.update.pendingX3dhInit,
-            }),
+            protectedRecord,
             read.key,
           );
           if (useLegacy) {
