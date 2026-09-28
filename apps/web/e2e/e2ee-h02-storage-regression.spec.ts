@@ -454,6 +454,270 @@ test.describe("E2EE H02 storage regressions", () => {
     }
   });
 
+  test("scrubs plaintext-bearing legacy operator output ids while preserving parent-child linkage", async ({
+    browser,
+    request,
+  }) => {
+    test.setTimeout(120_000);
+    const password = "correct-horse-battery";
+    const email = uniqueEmail(
+      "h02-legacy-output-id",
+    );
+    const context = await browser.newContext();
+    const page = await context.newPage();
+    const legacyOutputId = JSON.stringify([
+      "response",
+      "legacy secret response text",
+      null,
+    ]);
+
+    try {
+      await signUp(page, {
+        name: "Legacy Output",
+        email,
+        password,
+      });
+      await verifyEmail(page, request, email);
+      await purchasePro(page);
+      await page.goto("/settings/security");
+
+      await page.evaluate(
+        async ({ oldOutputId }) => {
+          await new Promise<void>(
+            (resolve, reject) => {
+              const request =
+                indexedDB.deleteDatabase(
+                  "vimla-direct-e2ee",
+                );
+              request.onsuccess = () => resolve();
+              request.onerror = () =>
+                reject(request.error);
+              request.onblocked = () =>
+                reject(
+                  new Error(
+                    "Legacy output-id reset was blocked",
+                  ),
+                );
+            },
+          );
+          const db =
+            await new Promise<IDBDatabase>(
+              (resolve, reject) => {
+                const request = indexedDB.open(
+                  "vimla-direct-e2ee",
+                  5,
+                );
+                request.onupgradeneeded = () => {
+                  request.result.createObjectStore(
+                    "pendingSends",
+                  );
+                };
+                request.onsuccess = () =>
+                  resolve(request.result);
+                request.onerror = () =>
+                  reject(request.error);
+              },
+            );
+          try {
+            await new Promise<void>(
+              (resolve, reject) => {
+                const tx = db.transaction(
+                  "pendingSends",
+                  "readwrite",
+                );
+                const store =
+                  tx.objectStore("pendingSends");
+                store.put(
+                  {
+                    conversationId:
+                      "legacy-conversation",
+                    clientMessageId:
+                      "legacy-parent",
+                    senderUserId: "legacy-user",
+                    senderDeviceId:
+                      "legacy-device",
+                    kind: "OPERATOR_INVOKE",
+                    envelopes: [],
+                    mentions: [],
+                    plaintext:
+                      "legacy invoke plaintext",
+                    createdAt:
+                      "2026-01-01T00:00:00.000Z",
+                    committedMessageId:
+                      "legacy-message",
+                    committedCreatedAt:
+                      "2026-01-01T00:00:01.000Z",
+                    operatorIntent: {
+                      clientRequestId:
+                        "legacy-request",
+                      content:
+                        "legacy command plaintext",
+                      contextBundle: {
+                        conversationId:
+                          "legacy-conversation",
+                        generatedAt:
+                          "2026-01-01T00:00:00.000Z",
+                        messages: [],
+                      },
+                      delivery: {
+                        runId: "legacy-run",
+                        runStatus: "SUCCEEDED",
+                        runUpdatedAt:
+                          "2026-01-01T00:00:01.000Z",
+                        outputs: [
+                          {
+                            id: oldOutputId,
+                            clientMessageId:
+                              "legacy-child",
+                            kind:
+                              "OPERATOR_RESPONSE",
+                            plaintext:
+                              "legacy secret response text",
+                            delivered: false,
+                          },
+                        ],
+                      },
+                    },
+                  },
+                  "legacy-parent",
+                );
+                store.put(
+                  {
+                    conversationId:
+                      "legacy-conversation",
+                    clientMessageId:
+                      "legacy-child",
+                    senderUserId: "legacy-user",
+                    senderDeviceId:
+                      "legacy-device",
+                    kind: "OPERATOR_RESPONSE",
+                    envelopes: [],
+                    mentions: [],
+                    plaintext:
+                      "legacy secret response text",
+                    createdAt:
+                      "2026-01-01T00:00:02.000Z",
+                    operatorOutput: {
+                      parentClientMessageId:
+                        "legacy-parent",
+                      outputId: oldOutputId,
+                    },
+                  },
+                  "legacy-child",
+                );
+                tx.oncomplete = () => resolve();
+                tx.onerror = () =>
+                  reject(tx.error);
+                tx.onabort = () =>
+                  reject(
+                    tx.error ??
+                      new Error(
+                        "Legacy output-id seed aborted",
+                      ),
+                  );
+              },
+            );
+          } finally {
+            db.close();
+          }
+        },
+        { oldOutputId: legacyOutputId },
+      );
+
+      await page.goto("/app");
+      await expect(
+        page.getByRole("heading", {
+          name: /сообщения|messages/i,
+        }),
+      ).toBeVisible({ timeout: 20_000 });
+
+      const migrated = await page.evaluate(
+        async () => {
+          const db =
+            await new Promise<IDBDatabase>(
+              (resolve, reject) => {
+                const request = indexedDB.open(
+                  "vimla-direct-e2ee",
+                );
+                request.onsuccess = () =>
+                  resolve(request.result);
+                request.onerror = () =>
+                  reject(request.error);
+              },
+            );
+          try {
+            return await new Promise<{
+              parentId: string | null;
+              childId: string | null;
+              serialized: string;
+            }>((resolve, reject) => {
+              const tx = db.transaction(
+                "pendingSends",
+                "readonly",
+              );
+              const request = tx
+                .objectStore("pendingSends")
+                .getAll();
+              request.onsuccess = () => {
+                const rows =
+                  request.result as Array<{
+                    clientMessageId?: string;
+                    operatorIntent?: {
+                      delivery?: {
+                        outputs?: Array<{
+                          id?: string;
+                        }>;
+                      };
+                    };
+                    operatorOutput?: {
+                      outputId?: string;
+                    };
+                  }>;
+                const parent = rows.find(
+                  (row) =>
+                    row.clientMessageId ===
+                    "legacy-parent",
+                );
+                const child = rows.find(
+                  (row) =>
+                    row.clientMessageId ===
+                    "legacy-child",
+                );
+                resolve({
+                  parentId:
+                    parent?.operatorIntent?.delivery
+                      ?.outputs?.[0]?.id ?? null,
+                  childId:
+                    child?.operatorOutput?.outputId ??
+                    null,
+                  serialized: JSON.stringify(rows),
+                });
+              };
+              request.onerror = () =>
+                reject(request.error);
+            });
+          } finally {
+            db.close();
+          }
+        },
+      );
+      expect(migrated.parentId).toMatch(
+        /^legacy-output:[0-9a-f-]+$/,
+      );
+      expect(migrated.childId).toBe(
+        migrated.parentId,
+      );
+      expect(migrated.serialized).not.toContain(
+        legacyOutputId,
+      );
+      expect(migrated.parentId).not.toContain(
+        "legacy secret response text",
+      );
+    } finally {
+      await context.close();
+    }
+  });
+
   test("migrates legacy raw plaintext and pending rows through the protected schema", async ({
     browser,
     request,
