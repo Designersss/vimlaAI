@@ -7,6 +7,14 @@ const master = (page: Page) => page.getByRole("region", { name: /список р
 const detail = (page: Page) => page.getByRole("region", { name: /^(разговор|conversation detail)$/i, includeHidden: true });
 const composer = (page: Page) => page.getByPlaceholder(/сообщение для vimla|message vimla/i);
 
+async function hideNextJsPortal(page: Page): Promise<void> {
+  await page.locator("nextjs-portal").evaluateAll((portals) => {
+    for (const portal of portals) {
+      portal.setAttribute("hidden", "");
+    }
+  });
+}
+
 async function createChat(page: Page, title: string): Promise<string> {
   const response = await page.request.post(`${apiBase}/v1/conversations`, {
     headers: { origin: webOrigin }, data: { title },
@@ -69,7 +77,7 @@ test("desktop preserves shell, list, search, filter, scroll and drafts while det
   await persistence.evaluate((s) => s.observer.disconnect());
   await expect(detail(page).getByRole("link", { name: /назад|back/i })).toBeHidden();
   await assertNoDocumentOverflow(page);
-  await page.addStyleTag({ content: "nextjs-portal { display: none !important; }" });
+  await hideNextJsPortal(page);
   await page.screenshot({ path: testInfo.outputPath("desktop-detail.png") });
   await testInfo.attach("desktop-detail", { path: testInfo.outputPath("desktop-detail.png"), contentType: "image/png" });
   await page.reload();
@@ -98,7 +106,7 @@ test("mobile uses the same panes, deterministic back and browser history across 
     if (viewport.width < 768) await expect(detail(page)).toBeHidden();
     if (viewport.width === 390) {
       await list.getByRole("link", { name: title, exact: true }).waitFor({ state: "visible" });
-      await page.addStyleTag({ content: "nextjs-portal { display: none !important; }" });
+      await hideNextJsPortal(page);
       await page.screenshot({ path: testInfo.outputPath("mobile-list.png") });
       await testInfo.attach("mobile-list", { path: testInfo.outputPath("mobile-list.png"), contentType: "image/png" });
     }
@@ -159,7 +167,7 @@ test("loading and failed detail stay scoped, and the consumer shell persists acr
   await detail(page).getByRole("button", { name: /повторить|try again/i }).click();
   await expect(composer(page)).toBeVisible();
   await persistence.evaluate((s) => s.observer.disconnect());
-  await page.addStyleTag({ content: "nextjs-portal { display: none !important; }" });
+  await hideNextJsPortal(page);
   const shell = await page.getByTestId("consumer-shell").elementHandle();
   for (const href of ["/work", "/projects", "/settings/account", "/app"]) {
     await page.locator(`nav a[href="${href}"]:visible`).first().click();
