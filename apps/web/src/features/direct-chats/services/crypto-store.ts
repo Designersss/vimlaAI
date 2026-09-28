@@ -2010,6 +2010,55 @@ export async function withPendingOperatorIntentLock<T>(
   );
 }
 
+async function migratePlaintext(
+  legacy: StoredPlaintext,
+): Promise<void> {
+  const protectedRow = await protectPlaintext(legacy);
+  const db = await openDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(
+      "plaintexts",
+      "readwrite",
+    );
+    const store = tx.objectStore("plaintexts");
+    const request = store.get(legacy.messageId);
+    request.onsuccess = () => {
+      const current = request.result as
+        | StoredPlaintext
+        | undefined;
+      if (
+        current &&
+        !isProtectedLocalString(current.text) &&
+        current.text === legacy.text &&
+        current.conversationId ===
+          legacy.conversationId
+      ) {
+        store.put(protectedRow, legacy.messageId);
+      }
+    };
+    request.onerror = () =>
+      reject(
+        request.error ??
+          new Error(
+            "Legacy plaintext migration read failed",
+          ),
+      );
+    tx.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    tx.onabort = () => {
+      db.close();
+      reject(
+        tx.error ??
+          new Error(
+            "Legacy plaintext migration aborted",
+          ),
+      );
+    };
+  });
+}
+
 export async function loadPlaintext(
   messageId: string,
 ): Promise<StoredPlaintext | null> {
@@ -2018,7 +2067,13 @@ export async function loadPlaintext(
     "readonly",
     (store) => store.get(messageId),
   );
-  return value ?? null;
+  if (!value) {
+    return null;
+  }
+  if (!isProtectedLocalString(value.text)) {
+    await migratePlaintext(value);
+  }
+  return unprotectPlaintext(value);
 }
 
 export async function loadConversationPlaintexts(
@@ -2030,41 +2085,70 @@ export async function loadConversationPlaintexts(
     Math.min(512, Math.trunc(limit)),
   );
   const db = await openDb();
-  return new Promise((resolve, reject) => {
-    const rows: StoredPlaintext[] = [];
-    const tx = db.transaction("plaintexts", "readonly");
-    const store = tx.objectStore("plaintexts");
-    const index = store.index(
-      PLAINTEXT_CONVERSATION_TIME_INDEX,
-    );
-    const range = IDBKeyRange.bound(
-      [conversationId, ""],
-      [conversationId, "\uffff"],
-    );
-    const request = index.openCursor(range, "prev");
-    request.onsuccess = () => {
-      const cursor = request.result;
-      if (!cursor || rows.length >= boundedLimit) return;
-      rows.push(cursor.value as StoredPlaintext);
-      cursor.continue();
-    };
-    tx.oncomplete = () => {
-      db.close();
-      resolve(rows);
-    };
-    tx.onabort = () => {
-      db.close();
-      reject(
-        tx.error ?? new Error("IndexedDB transaction aborted"),
+  const rows = await new Promise<StoredPlaintext[]>(
+    (resolve, reject) => {
+      const result: StoredPlaintext[] = [];
+      const tx = db.transaction(
+        "plaintexts",
+        "readonly",
       );
-    };
-    tx.onerror = () => {
-      db.close();
-      reject(
-        tx.error ?? new Error("IndexedDB transaction failed"),
+      const store = tx.objectStore("plaintexts");
+      const index = store.index(
+        PLAINTEXT_CONVERSATION_TIME_INDEX,
       );
-    };
-  });
+      const range = IDBKeyRange.bound(
+        [conversationId, ""],
+        [conversationId, "\uffff"],
+      );
+      const request = index.openCursor(
+        range,
+        "prev",
+      );
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (
+          !cursor ||
+          result.length >= boundedLimit
+        ) {
+          return;
+        }
+        result.push(
+          cursor.value as StoredPlaintext,
+        );
+        cursor.continue();
+      };
+      tx.oncomplete = () => {
+        db.close();
+        resolve(result);
+      };
+      tx.onabort = () => {
+        db.close();
+        reject(
+          tx.error ??
+            new Error(
+              "IndexedDB transaction aborted",
+            ),
+        );
+      };
+      tx.onerror = () => {
+        db.close();
+        reject(
+          tx.error ??
+            new Error(
+              "IndexedDB transaction failed",
+            ),
+        );
+      };
+    },
+  );
+  for (const row of rows) {
+    if (!isProtectedLocalString(row.text)) {
+      await migratePlaintext(row);
+    }
+  }
+  return Promise.all(
+    rows.map((row) => unprotectPlaintext(row)),
+  );
 }
 
 export function identityFromMaterial(
