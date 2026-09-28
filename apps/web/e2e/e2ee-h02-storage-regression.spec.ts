@@ -315,6 +315,297 @@ test.describe("E2EE H02 storage regressions", () => {
     }
   });
 
+  test("migrates legacy raw plaintext and pending rows through the protected schema", async ({
+    browser,
+    request,
+  }) => {
+    test.setTimeout(150_000);
+    const password = "correct-horse-battery";
+    const aliceEmail = uniqueEmail(
+      "h02-legacy-alice",
+    );
+    const nikitaEmail = uniqueEmail(
+      "h02-legacy-nikita",
+    );
+    const aliceContext =
+      await browser.newContext();
+    const nikitaContext =
+      await browser.newContext();
+    const alicePage =
+      await aliceContext.newPage();
+    const nikitaPage =
+      await nikitaContext.newPage();
+
+    try {
+      await signUp(alicePage, {
+        name: "Alice",
+        email: aliceEmail,
+        password,
+      });
+      await verifyEmail(
+        alicePage,
+        request,
+        aliceEmail,
+      );
+      await purchasePro(alicePage);
+      await signUp(nikitaPage, {
+        name: "Nikita",
+        email: nikitaEmail,
+        password,
+      });
+      await verifyEmail(
+        nikitaPage,
+        request,
+        nikitaEmail,
+      );
+      await purchasePro(nikitaPage);
+      await nikitaPage.goto("/app");
+
+      await openDirectChat(alicePage, nikitaEmail);
+      const composer =
+        alicePage.getByPlaceholder(
+          /сообщение этому человеку|message this person/i,
+        );
+      const legacyCacheText =
+        `${PROTECTED_PREFIX}legacy raw cache`;
+      const sentResponse = alicePage.waitForResponse(
+        (response) =>
+          response.request().method() === "POST" &&
+          /\/v1\/direct-chats\/[^/]+\/messages$/.test(
+            new URL(response.url()).pathname,
+          ) &&
+          response.ok(),
+      );
+      await composer.fill(legacyCacheText);
+      await alicePage
+        .getByTestId("chat-composer-send")
+        .click();
+      const sent = (await (
+        await sentResponse
+      ).json()) as { id: string };
+
+      await alicePage.evaluate(
+        async ({ messageId, plaintext }) => {
+          const db =
+            await new Promise<IDBDatabase>(
+              (resolve, reject) => {
+                const request = indexedDB.open(
+                  "vimla-direct-e2ee",
+                );
+                request.onsuccess = () =>
+                  resolve(request.result);
+                request.onerror = () =>
+                  reject(request.error);
+              },
+            );
+          try {
+            await new Promise<void>(
+              (resolve, reject) => {
+                const tx = db.transaction(
+                  "plaintexts",
+                  "readwrite",
+                );
+                const store =
+                  tx.objectStore("plaintexts");
+                const request =
+                  store.get(messageId);
+                request.onsuccess = () => {
+                  const row = request.result;
+                  if (!row) {
+                    tx.abort();
+                    return;
+                  }
+                  store.put(
+                    {
+                      ...row,
+                      protectionVersion: 0,
+                      text: plaintext,
+                    },
+                    messageId,
+                  );
+                };
+                request.onerror = () =>
+                  reject(request.error);
+                tx.oncomplete = () => resolve();
+                tx.onabort = () =>
+                  reject(
+                    tx.error ??
+                      new Error(
+                        "Legacy plaintext seed aborted",
+                      ),
+                  );
+              },
+            );
+          } finally {
+            db.close();
+          }
+        },
+        {
+          messageId: sent.id,
+          plaintext: legacyCacheText,
+        },
+      );
+
+      await alicePage.reload();
+      await expect(
+        alicePage
+          .getByTestId("direct-message-human")
+          .filter({ hasText: legacyCacheText }),
+      ).toBeVisible({ timeout: 20_000 });
+
+      const migratedCache =
+        await alicePage.evaluate(
+          async (messageId) => {
+            const db =
+              await new Promise<IDBDatabase>(
+                (resolve, reject) => {
+                  const request = indexedDB.open(
+                    "vimla-direct-e2ee",
+                  );
+                  request.onsuccess = () =>
+                    resolve(request.result);
+                  request.onerror = () =>
+                    reject(request.error);
+                },
+              );
+            try {
+              return await new Promise<{
+                protectionVersion?: number;
+                text: string;
+              }>((resolve, reject) => {
+                const tx = db.transaction(
+                  "plaintexts",
+                  "readonly",
+                );
+                const request = tx
+                  .objectStore("plaintexts")
+                  .get(messageId);
+                request.onsuccess = () =>
+                  resolve(request.result);
+                request.onerror = () =>
+                  reject(request.error);
+              });
+            } finally {
+              db.close();
+            }
+          },
+          sent.id,
+        );
+      expect(
+        migratedCache.protectionVersion,
+      ).toBe(1);
+      expect(migratedCache.text).not.toBe(
+        legacyCacheText,
+      );
+      expect(
+        migratedCache.text.startsWith(
+          PROTECTED_PREFIX,
+        ),
+      ).toBe(true);
+
+      let blockedPending = true;
+      await alicePage.route(
+        "**/v1/direct-chats/*/messages",
+        async (route) => {
+          if (
+            blockedPending &&
+            route.request().method() === "POST"
+          ) {
+            blockedPending = false;
+            await route.abort("failed");
+            return;
+          }
+          await route.continue();
+        },
+      );
+      const legacyPendingText =
+        `${PROTECTED_PREFIX}legacy raw pending`;
+      await composer.fill(legacyPendingText);
+      await alicePage
+        .getByTestId("chat-composer-send")
+        .click();
+      await expect.poll(() => blockedPending).toBe(false);
+
+      await alicePage.evaluate(
+        async (plaintext) => {
+          const db =
+            await new Promise<IDBDatabase>(
+              (resolve, reject) => {
+                const request = indexedDB.open(
+                  "vimla-direct-e2ee",
+                );
+                request.onsuccess = () =>
+                  resolve(request.result);
+                request.onerror = () =>
+                  reject(request.error);
+              },
+            );
+          try {
+            await new Promise<void>(
+              (resolve, reject) => {
+                const tx = db.transaction(
+                  "pendingSends",
+                  "readwrite",
+                );
+                const store =
+                  tx.objectStore("pendingSends");
+                const request = store.getAll();
+                request.onsuccess = () => {
+                  const row = (
+                    request.result as Array<{
+                      clientMessageId: string;
+                      committedMessageId?: string;
+                    }>
+                  ).find(
+                    (candidate) =>
+                      !candidate.committedMessageId,
+                  );
+                  if (!row) {
+                    tx.abort();
+                    return;
+                  }
+                  store.put(
+                    {
+                      ...row,
+                      protectionVersion: 0,
+                      plaintext,
+                    },
+                    row.clientMessageId,
+                  );
+                };
+                request.onerror = () =>
+                  reject(request.error);
+                tx.oncomplete = () => resolve();
+                tx.onabort = () =>
+                  reject(
+                    tx.error ??
+                      new Error(
+                        "Legacy pending seed aborted",
+                      ),
+                  );
+              },
+            );
+          } finally {
+            db.close();
+          }
+        },
+        legacyPendingText,
+      );
+      await alicePage.unroute(
+        "**/v1/direct-chats/*/messages",
+      );
+      await alicePage.reload();
+      await expect(
+        alicePage
+          .getByTestId("direct-message-human")
+          .filter({ hasText: legacyPendingText }),
+      ).toBeVisible({ timeout: 20_000 });
+    } finally {
+      await aliceContext.close();
+      await nikitaContext.close();
+    }
+  });
+
   test("shares authoritative revocation across tabs and never silently re-enrolls", async ({
     browser,
     request,
