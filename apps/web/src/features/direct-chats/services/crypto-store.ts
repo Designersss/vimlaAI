@@ -1014,7 +1014,15 @@ export async function loadPendingSends(
         );
     },
   ).finally(() => db.close());
-  return rows.sort(
+  for (const row of rows) {
+    if (pendingSendNeedsProtection(row)) {
+      await migratePendingSend(row);
+    }
+  }
+  const decrypted = await Promise.all(
+    rows.map((row) => unprotectPendingSend(row)),
+  );
+  return decrypted.sort(
     (left, right) =>
       Date.parse(left.createdAt) -
         Date.parse(right.createdAt) ||
@@ -1034,7 +1042,13 @@ export async function loadPendingSend(
     "readonly",
     (store) => store.get(clientMessageId),
   );
-  return value ?? null;
+  if (!value) {
+    return null;
+  }
+  if (pendingSendNeedsProtection(value)) {
+    await migratePendingSend(value);
+  }
+  return unprotectPendingSend(value);
 }
 
 export function pendingSendRevision(
