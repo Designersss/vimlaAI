@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import {
   apiBase,
   purchasePro,
+  webOrigin,
   signUp,
   uniqueEmail,
   verifyEmail,
@@ -243,7 +244,7 @@ test.describe("E2EE H02 browser hardening", () => {
     await purchasePro(nikitaPage);
     await nikitaPage.goto("/app");
 
-    await openDirectChat(
+    const directUrl = await openDirectChat(
       alicePage,
       nikitaEmail,
     );
@@ -497,6 +498,9 @@ test.describe("E2EE H02 browser hardening", () => {
       `${apiBase}/v1/direct-chats/devices/${encodeURIComponent(
         localDeviceId,
       )}/revoke`,
+      {
+        headers: { origin: webOrigin },
+      },
     );
     expect(revoke.ok()).toBe(true);
 
