@@ -209,6 +209,99 @@ describe("direct chats API", () => {
     expect(stored.signedPrekeyPublic).toBe(
       firstPayload.signedPrekeyPublic,
     );
+
+    const raceDeviceId = randomUUID();
+    const raceIdentityA = generateIdentity();
+    const raceIdentityB = generateIdentity();
+    const raceSignedA = generateSignedPreKey(
+      raceIdentityA,
+      1,
+    );
+    const raceSignedB = generateSignedPreKey(
+      raceIdentityB,
+      1,
+    );
+    const raceOtkA = generateOneTimePreKey(1);
+    const raceOtkB = generateOneTimePreKey(1);
+    const racePayloads = [
+      {
+        deviceId: raceDeviceId,
+        identityEd25519Public: bytesToB64(
+          raceIdentityA.ed25519Public,
+        ),
+        identityX25519Public: bytesToB64(
+          raceIdentityA.x25519Public,
+        ),
+        signedPrekeyId: raceSignedA.keyId,
+        signedPrekeyPublic: bytesToB64(
+          raceSignedA.publicKey,
+        ),
+        signedPrekeySignature: bytesToB64(
+          raceSignedA.signature,
+        ),
+        oneTimePrekeys: [
+          {
+            keyId: raceOtkA.keyId,
+            publicKey: bytesToB64(raceOtkA.publicKey),
+          },
+        ],
+      },
+      {
+        deviceId: raceDeviceId,
+        identityEd25519Public: bytesToB64(
+          raceIdentityB.ed25519Public,
+        ),
+        identityX25519Public: bytesToB64(
+          raceIdentityB.x25519Public,
+        ),
+        signedPrekeyId: raceSignedB.keyId,
+        signedPrekeyPublic: bytesToB64(
+          raceSignedB.publicKey,
+        ),
+        signedPrekeySignature: bytesToB64(
+          raceSignedB.signature,
+        ),
+        oneTimePrekeys: [
+          {
+            keyId: raceOtkB.keyId,
+            publicKey: bytesToB64(raceOtkB.publicKey),
+          },
+        ],
+      },
+    ];
+
+    const raced = await Promise.all(
+      racePayloads.map((payload) =>
+        app.inject({
+          method: "POST",
+          url: "/v1/direct-chats/devices",
+          headers: jsonHeaders(),
+          cookies: user.cookies,
+          payload,
+        }),
+      ),
+    );
+    expect(
+      raced.map((response) => response.statusCode).sort(),
+    ).toEqual([201, 400]);
+
+    const raceStored = await app
+      .get(PrismaService)
+      .client.userCryptoDevice.findUniqueOrThrow({
+        where: { id: raceDeviceId },
+      });
+    const winningPayload = racePayloads.find(
+      (payload) =>
+        payload.identityEd25519Public ===
+        raceStored.identityEd25519Public,
+    );
+    expect(winningPayload).toBeTruthy();
+    expect(raceStored.identityX25519Public).toBe(
+      winningPayload?.identityX25519Public,
+    );
+    expect(raceStored.signedPrekeyPublic).toBe(
+      winningPayload?.signedPrekeyPublic,
+    );
   });
 
   it("covers lifecycle, ciphertext storage, IDOR, spoof, tamper, unread and pagination", async () => {
