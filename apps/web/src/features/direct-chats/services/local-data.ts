@@ -9,6 +9,10 @@ import {
   clearLocalE2eeData,
   loadDeviceMaterial,
 } from "./crypto-store";
+import {
+  clearLocalDeviceRevocationLatch,
+  markLocalDeviceRevoked,
+} from "./revocation-state";
 
 export interface LocalDirectChatCleanupResult {
   remoteDeviceRevoked: boolean;
@@ -51,10 +55,12 @@ export async function clearLocalDirectChatData(
   // device lifecycle/recovery; H02 must not leave keys/plaintext behind
   // merely because the server is unreachable during logout/local wipe.
   await clearLocalE2eeData();
+  clearLocalDeviceRevocationLatch();
 
   return { remoteDeviceRevoked };
 }
 
 export async function clearLocalDataAfterDeviceRevocation(): Promise<void> {
+  markLocalDeviceRevoked();
   await clearLocalE2eeData();
 }
