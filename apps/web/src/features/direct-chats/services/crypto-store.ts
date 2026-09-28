@@ -233,6 +233,70 @@ function localProtectionVersion(
   );
 }
 
+function assertLegacyValueIsRaw(
+  value: string,
+  recordType: string,
+): void {
+  if (isProtectedLocalString(value)) {
+    throw new LocalE2eeProtectionError(
+      `Persisted ${recordType} cannot downgrade a protected envelope to legacy plaintext`,
+    );
+  }
+}
+
+function assertLegacyDeviceMaterialIsRaw(
+  material: StoredDeviceMaterial,
+): void {
+  assertLegacyValueIsRaw(
+    material.identity.ed25519Secret,
+    "device identity",
+  );
+  assertLegacyValueIsRaw(
+    material.identity.x25519Secret,
+    "device identity",
+  );
+  for (const key of Object.values(material.signedPrekeys)) {
+    assertLegacyValueIsRaw(
+      key.secret,
+      "device signed prekey",
+    );
+  }
+  for (const key of Object.values(material.oneTimePrekeys)) {
+    assertLegacyValueIsRaw(
+      key.secret,
+      "device one-time prekey",
+    );
+  }
+}
+
+function assertLegacyPendingSendIsRaw(
+  pending: StoredPendingSend,
+): void {
+  assertLegacyValueIsRaw(
+    pending.plaintext,
+    "pending send",
+  );
+  if (!pending.operatorIntent) {
+    return;
+  }
+  assertLegacyValueIsRaw(
+    pending.operatorIntent.content,
+    "pending operator content",
+  );
+  for (const message of pending.operatorIntent.contextBundle.messages) {
+    assertLegacyValueIsRaw(
+      message.text,
+      "pending operator context",
+    );
+  }
+  for (const output of pending.operatorIntent.delivery?.outputs ?? []) {
+    assertLegacyValueIsRaw(
+      output.plaintext,
+      "pending operator output",
+    );
+  }
+}
+
 async function protectDeviceMaterial(
   material: StoredDeviceMaterial,
 ): Promise<StoredDeviceMaterial> {
@@ -306,6 +370,7 @@ async function unprotectDeviceMaterial(
     localProtectionVersion(material, "device") ===
     LEGACY_LOCAL_PROTECTION_VERSION
   ) {
+    assertLegacyDeviceMaterialIsRaw(material);
     return {
       ...material,
       protectionVersion: undefined,
@@ -403,6 +468,10 @@ async function unprotectPlaintext(
     localProtectionVersion(row, "plaintext") ===
     LEGACY_LOCAL_PROTECTION_VERSION
   ) {
+    assertLegacyValueIsRaw(
+      row.text,
+      "plaintext cache",
+    );
     return {
       ...row,
       protectionVersion: undefined,
@@ -551,6 +620,7 @@ async function unprotectPendingSend(
     localProtectionVersion(pending, "pending send") ===
     LEGACY_LOCAL_PROTECTION_VERSION
   ) {
+    assertLegacyPendingSendIsRaw(pending);
     return {
       ...pending,
       protectionVersion: undefined,
