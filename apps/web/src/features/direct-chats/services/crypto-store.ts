@@ -697,6 +697,10 @@ function openDb(): Promise<IDBDatabase> {
     let blocked = false;
     const request = indexedDB.open(DB_NAME, DB_VERSION);
     request.onupgradeneeded = (event) => {
+      if (isLocalDeviceRevoked()) {
+        request.transaction?.abort();
+        return;
+      }
       const db = request.result;
       if (!db.objectStoreNames.contains("device")) {
         db.createObjectStore("device");
@@ -768,6 +772,9 @@ function openDb(): Promise<IDBDatabase> {
       }
       if (isLocalDeviceRevoked()) {
         db.close();
+        void deleteIndexedDb(DB_NAME).catch(
+          () => undefined,
+        );
         reject(
           new LocalE2eeProtectionError(
             "Local E2EE device is revoked",
