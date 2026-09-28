@@ -22,6 +22,24 @@ interface ProtectedPayloadV1 {
   ciphertext: string;
 }
 
+function isValidWrappingKey(value: unknown): value is CryptoKey {
+  if (!(value instanceof CryptoKey)) {
+    return false;
+  }
+  const algorithm = value.algorithm as KeyAlgorithm & {
+    length?: unknown;
+  };
+  return (
+    value.type === "secret" &&
+    value.extractable === false &&
+    algorithm.name === "AES-GCM" &&
+    algorithm.length === 256 &&
+    value.usages.length === 2 &&
+    value.usages.includes("encrypt") &&
+    value.usages.includes("decrypt")
+  );
+}
+
 function bytesToBase64(bytes: Uint8Array): string {
   let binary = "";
   for (const byte of bytes) {
@@ -134,7 +152,7 @@ async function localWrappingKey(): Promise<CryptoKey> {
       let selected: CryptoKey | null = null;
       request.onsuccess = () => {
         const current = request.result;
-        if (current instanceof CryptoKey) {
+        if (isValidWrappingKey(current)) {
           selected = current;
           return;
         }
@@ -185,10 +203,48 @@ async function localWrappingKey(): Promise<CryptoKey> {
   }
 }
 
+function parseProtectedPayload(
+  value: string,
+): ProtectedPayloadV1 | null {
+  if (!value.startsWith(PROTECTED_PREFIX)) {
+    return null;
+  }
+  try {
+    const encoded = value.slice(PROTECTED_PREFIX.length);
+    const parsed: unknown = JSON.parse(
+      decoder.decode(base64ToBytes(encoded)),
+    );
+    if (
+      !parsed ||
+      typeof parsed !== "object" ||
+      Array.isArray(parsed)
+    ) {
+      return null;
+    }
+    const record = parsed as Record<string, unknown>;
+    if (
+      record.v !== 1 ||
+      typeof record.iv !== "string" ||
+      typeof record.ciphertext !== "string" ||
+      record.iv.length === 0 ||
+      record.ciphertext.length === 0
+    ) {
+      return null;
+    }
+    return {
+      v: 1,
+      iv: record.iv,
+      ciphertext: record.ciphertext,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function isProtectedLocalString(
   value: string,
 ): boolean {
-  return value.startsWith(PROTECTED_PREFIX);
+  return parseProtectedPayload(value) !== null;
 }
 
 export async function protectLocalString(
@@ -223,30 +279,12 @@ export async function unprotectLocalString(
   value: string,
   aad: string,
 ): Promise<string> {
-  if (!isProtectedLocalString(value)) {
+  const record = parseProtectedPayload(value);
+  if (!record) {
     throw new LocalE2eeProtectionError();
   }
 
   try {
-    const encoded = value.slice(PROTECTED_PREFIX.length);
-    const parsed: unknown = JSON.parse(
-      decoder.decode(base64ToBytes(encoded)),
-    );
-    if (
-      !parsed ||
-      typeof parsed !== "object" ||
-      Array.isArray(parsed)
-    ) {
-      throw new LocalE2eeProtectionError();
-    }
-    const record = parsed as Record<string, unknown>;
-    if (
-      record.v !== 1 ||
-      typeof record.iv !== "string" ||
-      typeof record.ciphertext !== "string"
-    ) {
-      throw new LocalE2eeProtectionError();
-    }
     const key = await localWrappingKey();
     const decrypted = await crypto.subtle.decrypt(
       {
