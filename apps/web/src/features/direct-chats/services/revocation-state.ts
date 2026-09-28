@@ -43,6 +43,7 @@ export function isLocalDeviceRevoked(): boolean {
   }
   try {
     return (
+      fallbackRevoked ||
       storage.getItem(REVOCATION_LATCH_KEY) === "1"
     );
   } catch {
