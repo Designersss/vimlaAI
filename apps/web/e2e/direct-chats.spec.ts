@@ -814,6 +814,27 @@ test.describe("Secure Direct Chats", () => {
       await restoreIndexedDbPut(alicePage);
     }
 
+    const beforeQuotaPosts = messagePosts;
+    await failNextIndexedDbPutWithQuota(
+      alicePage,
+      "pendingSends",
+    );
+    try {
+      await composer.fill(
+        "must not reach server after idb quota failure",
+      );
+      await alicePage
+        .getByTestId("chat-composer-send")
+        .click();
+      await expect(
+        alicePage.getByTestId("chat-composer-send"),
+      ).toBeEnabled({ timeout: 20_000 });
+      await alicePage.waitForTimeout(300);
+      expect(messagePosts).toBe(beforeQuotaPosts);
+    } finally {
+      await restoreIndexedDbPut(alicePage);
+    }
+
     await composer.fill("works after idb abort");
     await alicePage
       .getByTestId("chat-composer-send")
@@ -1758,6 +1779,41 @@ async function abortNextIndexedDbTransaction(
         this.transaction.abort();
       }
       return request;
+    };
+    state.__vimlaRestoreIndexedDbPut = () => {
+      prototype.put = originalPut;
+      delete state.__vimlaRestoreIndexedDbPut;
+    };
+  }, storeName);
+}
+
+async function failNextIndexedDbPutWithQuota(
+  page: Page,
+  storeName: string,
+): Promise<void> {
+  await page.evaluate((targetStore) => {
+    const state = globalThis as typeof globalThis & {
+      __vimlaRestoreIndexedDbPut?: () => void;
+    };
+    const prototype = IDBObjectStore.prototype;
+    const originalPut = prototype.put;
+    let armed = true;
+    prototype.put = function (
+      value: unknown,
+      key?: IDBValidKey,
+    ): IDBRequest<IDBValidKey> {
+      if (armed && this.name === targetStore) {
+        armed = false;
+        throw new DOMException(
+          "Synthetic IndexedDB quota exceeded",
+          "QuotaExceededError",
+        );
+      }
+      return Reflect.apply(
+        originalPut,
+        this,
+        key === undefined ? [value] : [value, key],
+      ) as IDBRequest<IDBValidKey>;
     };
     state.__vimlaRestoreIndexedDbPut = () => {
       prototype.put = originalPut;
