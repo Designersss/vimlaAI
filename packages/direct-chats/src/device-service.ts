@@ -7,41 +7,109 @@ export class DeviceService {
   constructor(private readonly db: DbClient) {}
 
   async register(actor: ActorContext, input: RegisterCryptoDevice): Promise<CryptoDeviceView> {
-    assertSignedPrekey(input.identityEd25519Public, input.signedPrekeyId, input.signedPrekeyPublic, input.signedPrekeySignature);
-    const existing = await this.db.userCryptoDevice.findUnique({ where: { id: input.deviceId } });
-    if (existing && existing.userId !== actor.userId) {
-      throw new DirectChatError("FORBIDDEN", "Device id is already registered");
-    }
-    if (existing?.revokedAt) {
-      throw new DirectChatError("DEVICE_REVOKED", "This device was revoked");
-    }
+    assertSignedPrekey(
+      input.identityEd25519Public,
+      input.signedPrekeyId,
+      input.signedPrekeyPublic,
+      input.signedPrekeySignature,
+    );
 
-    const saved = await this.db.userCryptoDevice.upsert({
-      where: { id: input.deviceId },
-      create: {
-        id: input.deviceId,
-        userId: actor.userId,
-        identityEd25519Public: input.identityEd25519Public,
-        identityX25519Public: input.identityX25519Public,
-        signedPrekeyId: input.signedPrekeyId,
-        signedPrekeyPublic: input.signedPrekeyPublic,
-        signedPrekeySignature: input.signedPrekeySignature,
-        label: input.label ?? null,
-        oneTimePrekeys: {
-          create: input.oneTimePrekeys.map((key) => ({ keyId: key.keyId, publicKey: key.publicKey })),
+    const saved = await this.db.$transaction(async (tx) => {
+      // A row lock cannot serialize the first insert because the row does
+      // not exist yet. Use a transaction-scoped advisory lock keyed by the
+      // stable client-generated device id so two first registrations for
+      // the same id cannot race through the identity check.
+      await tx.$queryRaw<Array<{ locked: number }>>`
+        WITH "device_registration_lock" AS (
+          SELECT pg_advisory_xact_lock(
+            hashtextextended(${input.deviceId}, 0)
+          )
+        )
+        SELECT 1::int AS "locked"
+        FROM "device_registration_lock"
+      `;
+
+      const existing =
+        await tx.userCryptoDevice.findUnique({
+          where: { id: input.deviceId },
+        });
+      if (existing && existing.userId !== actor.userId) {
+        throw new DirectChatError(
+          "FORBIDDEN",
+          "Device id is already registered",
+        );
+      }
+      if (existing?.revokedAt) {
+        throw new DirectChatError(
+          "DEVICE_REVOKED",
+          "This device was revoked",
+        );
+      }
+      if (
+        existing &&
+        (existing.identityEd25519Public !==
+          input.identityEd25519Public ||
+          existing.identityX25519Public !==
+            input.identityX25519Public)
+      ) {
+        throw new DirectChatError(
+          "TAMPERED",
+          "Device identity does not match the registered device",
+        );
+      }
+
+      if (!existing) {
+        return tx.userCryptoDevice.create({
+          data: {
+            id: input.deviceId,
+            userId: actor.userId,
+            identityEd25519Public:
+              input.identityEd25519Public,
+            identityX25519Public:
+              input.identityX25519Public,
+            signedPrekeyId: input.signedPrekeyId,
+            signedPrekeyPublic:
+              input.signedPrekeyPublic,
+            signedPrekeySignature:
+              input.signedPrekeySignature,
+            label: input.label ?? null,
+            oneTimePrekeys: {
+              create: input.oneTimePrekeys.map((key) => ({
+                keyId: key.keyId,
+                publicKey: key.publicKey,
+              })),
+            },
+          },
+        });
+      }
+
+      const updated = await tx.userCryptoDevice.update({
+        where: { id: existing.id },
+        data: {
+          signedPrekeyId: input.signedPrekeyId,
+          signedPrekeyPublic: input.signedPrekeyPublic,
+          signedPrekeySignature:
+            input.signedPrekeySignature,
+          label: input.label ?? undefined,
         },
-      },
-      update: {
-        signedPrekeyId: input.signedPrekeyId,
-        signedPrekeyPublic: input.signedPrekeyPublic,
-        signedPrekeySignature: input.signedPrekeySignature,
-        label: input.label ?? undefined,
-      },
+      });
+      await tx.directOneTimePrekey.deleteMany({
+        where: {
+          deviceId: existing.id,
+          consumedAt: null,
+        },
+      });
+      await tx.directOneTimePrekey.createMany({
+        data: input.oneTimePrekeys.map((key) => ({
+          deviceId: existing.id,
+          keyId: key.keyId,
+          publicKey: key.publicKey,
+        })),
+        skipDuplicates: true,
+      });
+      return updated;
     });
 
-    if (existing) {
-      await this.replaceUnusedPrekeys(saved.id, input.oneTimePrekeys);
-    }
     return toDeviceView(saved);
   }
 

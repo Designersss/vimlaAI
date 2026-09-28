@@ -80,12 +80,14 @@ export default defineConfig({
     { name: "chromium", use: { ...devices["Desktop Chrome"] } },
     {
       name: "webkit-mobile",
-      testMatch: /responsive-cross-browser\.spec\.ts/,
+      testMatch:
+        /(responsive-cross-browser|direct-chats-cross-browser)\.spec\.ts/,
       use: { ...devices["iPhone 13"] },
     },
     {
       name: "firefox-shell",
-      testMatch: /responsive-cross-browser\.spec\.ts/,
+      testMatch:
+        /(responsive-cross-browser|direct-chats-cross-browser)\.spec\.ts/,
       use: { ...devices["Desktop Firefox"] },
     },
   ],

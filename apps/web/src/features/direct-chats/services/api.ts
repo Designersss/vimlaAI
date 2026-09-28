@@ -28,6 +28,8 @@ export class DirectChatsApiError extends Error {
   }
 }
 
+const DIRECT_CHAT_REQUEST_TIMEOUT_MS = 20_000;
+
 function jsonHeaders(): HeadersInit {
   return { "content-type": "application/json" };
 }
@@ -42,6 +44,9 @@ async function request<T>(
     credentials: "include",
     cache: "no-store",
     ...init,
+    signal:
+      init.signal ??
+      AbortSignal.timeout(DIRECT_CHAT_REQUEST_TIMEOUT_MS),
   });
   if (response.status === 401) {
     throw new AuthRequiredError();
