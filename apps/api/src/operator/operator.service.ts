@@ -1121,7 +1121,11 @@ export class OperatorService {
         where: { id: runId },
         include: { steps: { orderBy: { sequence: "asc" } } },
       });
-      if (isTerminalOperatorRunStatus(current.status)) {
+      if (
+        isTerminalOperatorRunStatus(current.status) ||
+        (current.status !== "CREATED" &&
+          current.status !== "PLANNING")
+      ) {
         return current;
       }
       return tx.operatorRun.update({
