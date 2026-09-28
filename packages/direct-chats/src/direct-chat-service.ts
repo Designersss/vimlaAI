@@ -607,10 +607,13 @@ export class DirectChatService {
 
   private async requireActiveDevice(userId: string, deviceId: string) {
     const device = await this.db.userCryptoDevice.findFirst({
-      where: { id: deviceId, userId, revokedAt: null },
+      where: { id: deviceId, userId },
     });
     if (!device) {
       throw new DirectChatError("NOT_FOUND", "Device was not found");
+    }
+    if (device.revokedAt) {
+      throw new DirectChatError("DEVICE_REVOKED", "This device was revoked");
     }
     return device;
   }
