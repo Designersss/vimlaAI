@@ -41,10 +41,13 @@ async function openDirectChat(
 
 async function readProtectedStorage(page: Page): Promise<{
   deviceSecret: string | null;
+  deviceProtectionVersions: number[];
   ratchetSchemaVersions: number[];
   ratchetStates: string[];
   plaintexts: string[];
+  plaintextProtectionVersions: number[];
   pendingPlaintexts: string[];
+  pendingProtectionVersions: number[];
   keyExtractable: boolean | null;
 }> {
   return page.evaluate(async () => {
@@ -83,6 +86,7 @@ async function readProtectedStorage(page: Page): Promise<{
       "vimla-direct-e2ee",
       "device",
     )) as Array<{
+      protectionVersion?: number;
       identity?: { ed25519Secret?: string };
     }>;
     const ratchets = (await readStore(
@@ -95,11 +99,17 @@ async function readProtectedStorage(page: Page): Promise<{
     const plaintexts = (await readStore(
       "vimla-direct-e2ee",
       "plaintexts",
-    )) as Array<{ text?: string }>;
+    )) as Array<{
+      protectionVersion?: number;
+      text?: string;
+    }>;
     const pending = (await readStore(
       "vimla-direct-e2ee",
       "pendingSends",
-    )) as Array<{ plaintext?: string }>;
+    )) as Array<{
+      protectionVersion?: number;
+      plaintext?: string;
+    }>;
 
     const keyRows = (await readStore(
       "vimla-e2ee-keyring",
@@ -110,6 +120,12 @@ async function readProtectedStorage(page: Page): Promise<{
       deviceSecret:
         deviceRows[0]?.identity?.ed25519Secret ??
         null,
+      deviceProtectionVersions: deviceRows
+        .map((row) => row.protectionVersion)
+        .filter(
+          (value): value is number =>
+            typeof value === "number",
+        ),
       ratchetSchemaVersions: ratchets
         .map((row) => row.schemaVersion)
         .filter(
@@ -128,11 +144,23 @@ async function readProtectedStorage(page: Page): Promise<{
           (value): value is string =>
             typeof value === "string",
         ),
+      plaintextProtectionVersions: plaintexts
+        .map((row) => row.protectionVersion)
+        .filter(
+          (value): value is number =>
+            typeof value === "number",
+        ),
       pendingPlaintexts: pending
         .map((row) => row.plaintext)
         .filter(
           (value): value is string =>
             typeof value === "string",
+        ),
+      pendingProtectionVersions: pending
+        .map((row) => row.protectionVersion)
+        .filter(
+          (value): value is number =>
+            typeof value === "number",
         ),
       keyExtractable:
         keyRows[0]?.extractable ?? null,
