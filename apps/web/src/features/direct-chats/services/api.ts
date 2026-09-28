@@ -21,6 +21,7 @@ import {
 import { publicWebConfig } from "../../../shared/config/public-env";
 import { AuthRequiredError } from "../../auth/services/current-user";
 import { clearLocalE2eeData } from "./crypto-store";
+import { markLocalDeviceRevoked } from "./revocation-state";
 
 export class DirectChatsApiError extends Error {
   constructor(readonly code: string) {
@@ -126,6 +127,9 @@ export async function fetchDirectMessages(
     ) {
       // This request identifies the recipient by the browser's own
       // deviceId, so this error authoritatively applies to local state.
+      // Latch before deletion so concurrent bootstrap paths cannot
+      // silently create a replacement device after the wipe.
+      markLocalDeviceRevoked();
       await clearLocalE2eeData();
     }
     throw error;
