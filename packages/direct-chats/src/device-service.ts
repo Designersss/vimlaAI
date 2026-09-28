@@ -15,6 +15,18 @@ export class DeviceService {
     if (existing?.revokedAt) {
       throw new DirectChatError("DEVICE_REVOKED", "This device was revoked");
     }
+    if (
+      existing &&
+      (existing.identityEd25519Public !==
+        input.identityEd25519Public ||
+        existing.identityX25519Public !==
+          input.identityX25519Public)
+    ) {
+      throw new DirectChatError(
+        "TAMPERED",
+        "Device identity does not match the registered device",
+      );
+    }
 
     const saved = await this.db.userCryptoDevice.upsert({
       where: { id: input.deviceId },
