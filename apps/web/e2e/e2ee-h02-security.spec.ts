@@ -235,6 +235,18 @@ test.describe("E2EE H02 browser hardening", () => {
     expect(secondNonce).toBeTruthy();
     expect(secondNonce).not.toBe(firstNonce);
 
+    const themeScriptNonce = await page
+      .locator("script")
+      .evaluateAll((scripts) => {
+        const bootstrap = scripts.find((script) =>
+          script.textContent?.includes(
+            "vimla_appearance",
+          ),
+        );
+        return bootstrap?.nonce ?? null;
+      });
+    expect(themeScriptNonce).toBe(secondNonce);
+
     await page.goto("/dev/ui");
     const progressFill = page
       .getByRole("progressbar")
