@@ -762,7 +762,7 @@ describe("direct chats API", () => {
     const revoked = await app.inject({
       method: "POST",
       url: `/v1/direct-chats/devices/${nikitaDevice.deviceId}/revoke`,
-      headers: jsonHeaders(),
+      headers: { origin },
       cookies: nikita.cookies,
     });
     expect(revoked.statusCode).toBe(200);
