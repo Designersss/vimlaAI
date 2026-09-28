@@ -46,12 +46,23 @@ function base64ToBytes(
 }
 
 function openKeyring(): Promise<IDBDatabase> {
+  if (isLocalDeviceRevoked()) {
+    return Promise.reject(
+      new LocalE2eeProtectionError(
+        "Local E2EE device is revoked",
+      ),
+    );
+  }
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(
       KEYRING_DB_NAME,
       KEYRING_DB_VERSION,
     );
     request.onupgradeneeded = () => {
+      if (isLocalDeviceRevoked()) {
+        request.transaction?.abort();
+        return;
+      }
       const db = request.result;
       if (!db.objectStoreNames.contains(KEYRING_STORE)) {
         db.createObjectStore(KEYRING_STORE);
@@ -59,6 +70,18 @@ function openKeyring(): Promise<IDBDatabase> {
     };
     request.onsuccess = () => {
       const db = request.result;
+      if (isLocalDeviceRevoked()) {
+        db.close();
+        void deleteIndexedDb(KEYRING_DB_NAME).catch(
+          () => undefined,
+        );
+        reject(
+          new LocalE2eeProtectionError(
+            "Local E2EE device is revoked",
+          ),
+        );
+        return;
+      }
       db.onversionchange = () => db.close();
       resolve(db);
     };
@@ -127,6 +150,14 @@ async function localWrappingKey(): Promise<CryptoKey> {
         );
       };
       tx.oncomplete = () => {
+        if (isLocalDeviceRevoked()) {
+          reject(
+            new LocalE2eeProtectionError(
+              "Local E2EE device is revoked",
+            ),
+          );
+          return;
+        }
         if (!selected) {
           reject(
             new Error("E2EE wrapping key transaction was incomplete"),
