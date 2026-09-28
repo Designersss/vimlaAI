@@ -10,7 +10,6 @@ import { passwordTooShort } from "../../services/validation";
 import { Alert, Button, Card, FormField, Heading, Input, OtpInput, PasswordInput, Skeleton, Text } from "@vimla/ui";
 import { authErrorMessageKey } from "../../../../shared/errors/error-keys";
 import { tx } from "../../../../shared/i18n/translate";
-import { clearLocalDirectChatData } from "../../../direct-chats/services/local-data";
 import styles from "../AuthForm/AuthForm.module.scss";
 import panel from "./SecuritySettings.module.scss";
 
@@ -165,26 +164,6 @@ export function SecuritySettings(): ReactElement {
     await reload();
   }
 
-  async function clearDirectChatData(): Promise<void> {
-    setBusy(true);
-    setError(null);
-    setMessage(null);
-    try {
-      await clearLocalDirectChatData({
-        revokeCurrentDevice: true,
-      });
-      setMessage(
-        t("settings.localDirectChatDataCleared"),
-      );
-    } catch {
-      setError(
-        t("settings.localDirectChatDataClearError"),
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
-
   if (boot === "loading") {
     return <Skeleton />;
   }
@@ -322,25 +301,6 @@ export function SecuritySettings(): ReactElement {
         </Button>
       </Card>
 
-      <Card>
-        <Heading as="h3" size="sub">
-          {t("settings.localDirectChatDataTitle")}
-        </Heading>
-        <Text tone="secondary">
-          {t("settings.localDirectChatDataHint")}
-        </Text>
-        <Button
-          type="button"
-          variant="destructive"
-          disabled={busy}
-          loading={busy}
-          onClick={() => {
-            void clearDirectChatData();
-          }}
-        >
-          {t("settings.clearLocalDirectChatData")}
-        </Button>
-      </Card>
 
       {error ? <Alert variant="error">{error}</Alert> : null}
       {message ? <Alert variant="success">{message}</Alert> : null}
