@@ -150,11 +150,6 @@ export async function protectLocalString(
   plaintext: string,
   aad: string,
 ): Promise<string> {
-  if (isProtectedLocalString(plaintext)) {
-    throw new LocalE2eeProtectionError(
-      "Refusing to double-protect local E2EE payload",
-    );
-  }
   const key = await localWrappingKey();
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const encrypted = await crypto.subtle.encrypt(
