@@ -179,7 +179,7 @@ export async function unprotectLocalString(
   aad: string,
 ): Promise<string> {
   if (!isProtectedLocalString(value)) {
-    return value;
+    throw new LocalE2eeProtectionError();
   }
 
   try {
