@@ -11,6 +11,7 @@ import {
   generateSignedPreKey,
   publicBundleFrom,
 } from "./keys.js";
+import { kdfChain, messageNonce } from "./kdf.js";
 import { deserializeRatchet, initRatchetInitiator, initRatchetResponder, serializeRatchet } from "./ratchet.js";
 import { x3dhInitiate, x3dhRespond } from "./x3dh.js";
 
@@ -163,7 +164,7 @@ describe("Vimla X3DH + Double Ratchet", () => {
     ).toThrow();
   });
 
-  it("decrypts out-of-order messages and then rejects a replay", () => {
+  it("keeps skipped keys valid across a newer receive and then rejects a replay", () => {
     const alice = generateIdentity();
     const bob = generateIdentity();
     const bobSigned = generateSignedPreKey(bob, 1);
@@ -188,12 +189,24 @@ describe("Vimla X3DH + Double Ratchet", () => {
       plaintext: new TextEncoder().encode("two"),
       ad: ad(),
     });
+    const three = encryptEnvelope({
+      identity: alice,
+      state: aliceState,
+      plaintext: new TextEncoder().encode("three"),
+      ad: ad(),
+    });
     expect(new TextDecoder().decode(decryptEnvelope({
       senderIdentityEd25519Public: alice.ed25519Public,
       state: bobState,
       envelope: two,
       ad: ad(),
     }))).toBe("two");
+    expect(new TextDecoder().decode(decryptEnvelope({
+      senderIdentityEd25519Public: alice.ed25519Public,
+      state: bobState,
+      envelope: three,
+      ad: ad(),
+    }))).toBe("three");
     expect(new TextDecoder().decode(decryptEnvelope({
       senderIdentityEd25519Public: alice.ed25519Public,
       state: bobState,
@@ -208,6 +221,19 @@ describe("Vimla X3DH + Double Ratchet", () => {
         ad: ad(),
       }),
     ).toThrow();
+  });
+
+  it("derives distinct message keys and nonces for sequential chain steps", () => {
+    const initialChainKey = new Uint8Array(32).fill(0x42);
+    const first = kdfChain(initialChainKey);
+    const second = kdfChain(first.chainKey);
+
+    expect(Array.from(first.messageKey)).not.toEqual(
+      Array.from(second.messageKey),
+    );
+    expect(Array.from(messageNonce(first.messageKey))).not.toEqual(
+      Array.from(messageNonce(second.messageKey)),
+    );
   });
 });
 
