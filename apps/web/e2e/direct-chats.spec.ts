@@ -897,6 +897,23 @@ test.describe("Secure Direct Chats", () => {
     await expect.poll(
       () => readPendingOperatorIntentCount(alicePage),
     ).toBe(1);
+    const protectedIntent =
+      await readPendingOperatorProtection(alicePage);
+    expect(
+      protectedIntent.protectionVersions.every(
+        (version) => version === 1,
+      ),
+    ).toBe(true);
+    expect(
+      protectedIntent.contents.every((value) =>
+        value.startsWith("vimla-protected:v1:"),
+      ),
+    ).toBe(true);
+    expect(
+      protectedIntent.contextTexts.every((value) =>
+        value.startsWith("vimla-protected:v1:"),
+      ),
+    ).toBe(true);
 
     const nikitaSecondContext =
       await browser.newContext({
@@ -1941,6 +1958,104 @@ async function readPendingOperatorIntentCount(
               request.error ??
                 new Error(
                   "Pending operator intent read failed",
+                ),
+            );
+        },
+      );
+    } finally {
+      db.close();
+    }
+  });
+}
+
+async function readPendingOperatorProtection(
+  page: Page,
+): Promise<{
+  protectionVersions: number[];
+  contents: string[];
+  contextTexts: string[];
+}> {
+  return page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>(
+      (resolve, reject) => {
+        const request = indexedDB.open(
+          "vimla-direct-e2ee",
+        );
+        request.onsuccess = () =>
+          resolve(request.result);
+        request.onerror = () =>
+          reject(
+            request.error ??
+              new Error(
+                "Pending operator protection database read failed",
+              ),
+          );
+      },
+    );
+    try {
+      return await new Promise(
+        (resolve, reject) => {
+          const tx = db.transaction(
+            "pendingSends",
+            "readonly",
+          );
+          const request = tx
+            .objectStore("pendingSends")
+            .getAll();
+          request.onsuccess = () => {
+            const rows = request.result as Array<{
+              protectionVersion?: number;
+              operatorIntent?: {
+                content?: string;
+                contextBundle?: {
+                  messages?: Array<{
+                    text?: string;
+                  }>;
+                };
+              };
+            }>;
+            const operatorRows = rows.filter(
+              (row) =>
+                row.operatorIntent !== undefined,
+            );
+            resolve({
+              protectionVersions: operatorRows
+                .map(
+                  (row) => row.protectionVersion,
+                )
+                .filter(
+                  (value): value is number =>
+                    typeof value === "number",
+                ),
+              contents: operatorRows
+                .map(
+                  (row) =>
+                    row.operatorIntent?.content,
+                )
+                .filter(
+                  (value): value is string =>
+                    typeof value === "string",
+                ),
+              contextTexts: operatorRows.flatMap(
+                (row) =>
+                  (
+                    row.operatorIntent
+                      ?.contextBundle?.messages ??
+                    []
+                  )
+                    .map((message) => message.text)
+                    .filter(
+                      (value): value is string =>
+                        typeof value === "string",
+                    ),
+              ),
+            });
+          };
+          request.onerror = () =>
+            reject(
+              request.error ??
+                new Error(
+                  "Pending operator protection read failed",
                 ),
             );
         },
