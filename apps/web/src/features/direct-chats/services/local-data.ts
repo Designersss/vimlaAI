@@ -29,7 +29,6 @@ export async function clearLocalDirectChatData(
   options: { revokeCurrentDevice?: boolean } = {},
 ): Promise<LocalDirectChatCleanupResult> {
   let remoteDeviceRevoked = false;
-  let revokeFailure: unknown = null;
 
   if (options.revokeCurrentDevice) {
     try {
@@ -43,7 +42,7 @@ export async function clearLocalDirectChatData(
       }
     } catch (error: unknown) {
       if (!isExpectedRevokeFailure(error)) {
-        revokeFailure = error;
+        remoteDeviceRevoked = false;
       }
     }
   }
@@ -52,13 +51,6 @@ export async function clearLocalDirectChatData(
   // device lifecycle/recovery; H02 must not leave keys/plaintext behind
   // merely because the server is unreachable during logout/local wipe.
   await clearLocalE2eeData();
-
-  if (revokeFailure) {
-    throw new Error(
-      "Local Direct Chat data was cleared, but the remote device could not be revoked",
-      { cause: revokeFailure },
-    );
-  }
 
   return { remoteDeviceRevoked };
 }
