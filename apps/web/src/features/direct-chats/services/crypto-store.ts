@@ -1495,6 +1495,8 @@ export async function commitOutboundRatchets(input: {
   pendingSend: StoredPendingSend;
   expectedPendingRevision: number | null;
 }): Promise<void> {
+  const protectedPendingSend =
+    await protectPendingSend(input.pendingSend);
   if (input.updates.length === 0) {
     throw new Error("Outbound ratchet update set is empty");
   }
@@ -1640,7 +1642,7 @@ export async function commitOutboundRatchets(input: {
         }
 
         pendingSends.put(
-          input.pendingSend,
+          protectedPendingSend,
           input.pendingSend.clientMessageId,
         );
       } catch (error: unknown) {
