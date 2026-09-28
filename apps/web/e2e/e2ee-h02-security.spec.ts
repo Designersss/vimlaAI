@@ -243,7 +243,7 @@ test.describe("E2EE H02 browser hardening", () => {
     await purchasePro(nikitaPage);
     await nikitaPage.goto("/app");
 
-    const directUrl = await openDirectChat(
+    await openDirectChat(
       alicePage,
       nikitaEmail,
     );
