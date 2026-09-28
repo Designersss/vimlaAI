@@ -20,6 +20,7 @@ import {
 } from "@vimla/contracts";
 import { publicWebConfig } from "../../../shared/config/public-env";
 import { AuthRequiredError } from "../../auth/services/current-user";
+import { clearLocalE2eeData } from "./crypto-store";
 
 export class DirectChatsApiError extends Error {
   constructor(readonly code: string) {
@@ -111,14 +112,25 @@ export async function fetchDirectMessages(
   if (cursor) {
     params.set("cursor", cursor);
   }
-  return request(
-    `/v1/direct-chats/${id}/messages?${params.toString()}`,
-    {},
-    (payload) => directMessagesResponseSchema.parse(payload),
-    fetchImpl,
-  );
+  try {
+    return await request(
+      `/v1/direct-chats/${id}/messages?${params.toString()}`,
+      {},
+      (payload) => directMessagesResponseSchema.parse(payload),
+      fetchImpl,
+    );
+  } catch (error: unknown) {
+    if (
+      error instanceof DirectChatsApiError &&
+      error.code === "direct_chat_device_revoked"
+    ) {
+      // This request identifies the recipient by the browser's own
+      // deviceId, so this error authoritatively applies to local state.
+      await clearLocalE2eeData();
+    }
+    throw error;
+  }
 }
-
 export async function sendDirectMessage(
   id: string,
   input: SendDirectMessage,
