@@ -2106,6 +2106,18 @@ async function commitRatchet(input: {
   pendingX3dhInit: X3dhInitHeader | null;
   plaintext?: StoredPlaintext;
 }): Promise<RatchetSnapshot> {
+  const nextVersion = input.expectedVersion + 1;
+  const protectedRecord = await protectRatchetRecord({
+    conversationId: input.conversationId,
+    localDeviceId: input.localDeviceId,
+    peerDeviceId: input.peerDeviceId,
+    stateVersion: nextVersion,
+    state: input.state,
+    pendingX3dhInit: input.pendingX3dhInit,
+  });
+  const protectedPlaintext = input.plaintext
+    ? await protectPlaintext(input.plaintext)
+    : undefined;
   const db = await openDb();
   return new Promise((resolve, reject) => {
     let failure: Error | null = null;
@@ -2125,7 +2137,6 @@ async function commitRatchet(input: {
     );
     const currentRequest = ratchets.get(key);
     const legacyRequest = ratchets.get(legacyKey);
-    const nextVersion = input.expectedVersion + 1;
     let currentReady = false;
     let legacyReady = false;
 
@@ -2138,30 +2149,22 @@ async function commitRatchet(input: {
         const raw = useLegacy
           ? legacyRequest.result
           : currentRequest.result;
-        const current = decodeStoredRatchet(
+        assertPersistedRatchetVersion(
           raw,
           input.localDeviceId,
-        );
-        assertRatchetVersion(
-          current,
           input.expectedVersion,
         );
         ratchets.put(
-          storedRatchetRecord({
-            localDeviceId: input.localDeviceId,
-            stateVersion: nextVersion,
-            state: input.state,
-            pendingX3dhInit: input.pendingX3dhInit,
-          }),
+          protectedRecord,
           key,
         );
         if (useLegacy) {
           ratchets.delete(legacyKey);
         }
-        if (input.plaintext) {
+        if (protectedPlaintext) {
           tx.objectStore("plaintexts").put(
-            input.plaintext,
-            input.plaintext.messageId,
+            protectedPlaintext,
+            protectedPlaintext.messageId,
           );
         }
       } catch (error: unknown) {
