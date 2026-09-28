@@ -484,7 +484,11 @@ export async function completePendingSend(input: {
             : input.pending.operatorIntent!;
         pendingStore.put(
           {
-            ...input.pending,
+            // Preserve the newest durable row. A sibling recovery may have
+            // rebuilt recipient envelopes or advanced local outbox metadata
+            // while this HTTP response was in flight; finalization must only
+            // add commit metadata, never restore the caller's stale snapshot.
+            ...current,
             revision:
               Math.max(
                 pendingSendRevision(current),
