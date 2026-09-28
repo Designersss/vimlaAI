@@ -1247,140 +1247,164 @@ export async function stagePendingOperatorDelivery(input: {
   runUpdatedAt: string;
   outputs: readonly StoredOperatorOutputDraft[];
 }): Promise<StoredOperatorIntent> {
+  // Reading through the public boundary upgrades any legacy plaintext row
+  // before this transaction mutates delivery metadata in place.
+  await loadPendingSend(input.parentClientMessageId);
+  const protectedDrafts = await Promise.all(
+    input.outputs.map(async (draft) => ({
+      ...draft,
+      plaintext: await protectMaybe(
+        draft.plaintext,
+        pendingAad(
+          input.parentClientMessageId,
+          `operator-output:${draft.id}`,
+        ),
+      ),
+    })),
+  );
   const db = await openDb();
-  return new Promise((resolve, reject) => {
-    let failure: Error | null = null;
-    let result: StoredOperatorIntent | null = null;
-    const tx = db.transaction(
-      "pendingSends",
-      "readwrite",
-    );
-    const store = tx.objectStore("pendingSends");
-    const request = store.get(
-      input.parentClientMessageId,
-    );
-    request.onsuccess = () => {
-      const parent = request.result as
-        | StoredPendingSend
-        | undefined;
-      if (!parent) {
-        failure =
-          new PendingOperatorInvocationGoneError();
-        tx.abort();
-        return;
-      }
-      if (
-        !parent.operatorIntent ||
-        !parent.committedMessageId ||
-        !parent.committedCreatedAt
-      ) {
-        failure = new Error(
-          "Pending operator invocation is not committed",
-        );
-        tx.abort();
-        return;
-      }
-      const existing = parent.operatorIntent.delivery;
-      if (existing && existing.runId !== input.runId) {
-        failure = new Error(
-          "Pending operator delivery run does not match",
-        );
-        tx.abort();
-        return;
-      }
-      if (
-        existing &&
-        (isOlderOperatorDelivery(
-          input.runUpdatedAt,
-          existing.runUpdatedAt,
-        ) ||
-          (input.runUpdatedAt ===
-            existing.runUpdatedAt &&
-            isTerminalOperatorStatus(
-              existing.runStatus,
-            ) &&
-            !isTerminalOperatorStatus(
-              input.runStatus,
-            )))
-      ) {
-        result = parent.operatorIntent;
-        return;
-      }
-
-      const outputs = [...(existing?.outputs ?? [])];
-      for (const draft of input.outputs) {
-        if (
-          outputs.some(
-            (output) => output.id === draft.id,
-          )
-        ) {
-          continue;
-        }
-        outputs.push({
-          id: draft.id,
-          clientMessageId: crypto.randomUUID(),
-          kind: draft.kind,
-          plaintext: draft.plaintext,
-          delivered: false,
-        });
-      }
-
-      const delivery: StoredOperatorDelivery = {
-        runId: input.runId,
-        runStatus: input.runStatus,
-        runUpdatedAt: input.runUpdatedAt,
-        outputs,
-      };
-      result = {
-        ...parent.operatorIntent,
-        delivery,
-      };
-      store.put(
-        {
-          ...parent,
-          operatorIntent: result,
-        } satisfies StoredPendingSend,
+  const persisted = await new Promise<StoredOperatorIntent>(
+    (resolve, reject) => {
+      let failure: Error | null = null;
+      let result: StoredOperatorIntent | null = null;
+      const tx = db.transaction(
+        "pendingSends",
+        "readwrite",
+      );
+      const store = tx.objectStore("pendingSends");
+      const request = store.get(
         input.parentClientMessageId,
       );
-    };
-    request.onerror = () => {
-      failure =
-        request.error ??
-        new Error(
-          "Pending operator invocation read failed",
+      request.onsuccess = () => {
+        const parent = request.result as
+          | StoredPendingSend
+          | undefined;
+        if (!parent) {
+          failure =
+            new PendingOperatorInvocationGoneError();
+          tx.abort();
+          return;
+        }
+        if (
+          !parent.operatorIntent ||
+          !parent.committedMessageId ||
+          !parent.committedCreatedAt
+        ) {
+          failure = new Error(
+            "Pending operator invocation is not committed",
+          );
+          tx.abort();
+          return;
+        }
+        const existing =
+          parent.operatorIntent.delivery;
+        if (existing && existing.runId !== input.runId) {
+          failure = new Error(
+            "Pending operator delivery run does not match",
+          );
+          tx.abort();
+          return;
+        }
+        if (
+          existing &&
+          (isOlderOperatorDelivery(
+            input.runUpdatedAt,
+            existing.runUpdatedAt,
+          ) ||
+            (input.runUpdatedAt ===
+              existing.runUpdatedAt &&
+              isTerminalOperatorStatus(
+                existing.runStatus,
+              ) &&
+              !isTerminalOperatorStatus(
+                input.runStatus,
+              )))
+        ) {
+          result = parent.operatorIntent;
+          return;
+        }
+
+        const outputs = [
+          ...(existing?.outputs ?? []),
+        ];
+        for (const draft of protectedDrafts) {
+          if (
+            outputs.some(
+              (output) => output.id === draft.id,
+            )
+          ) {
+            continue;
+          }
+          outputs.push({
+            id: draft.id,
+            clientMessageId: crypto.randomUUID(),
+            kind: draft.kind,
+            plaintext: draft.plaintext,
+            delivered: false,
+          });
+        }
+
+        const delivery: StoredOperatorDelivery = {
+          runId: input.runId,
+          runStatus: input.runStatus,
+          runUpdatedAt: input.runUpdatedAt,
+          outputs,
+        };
+        result = {
+          ...parent.operatorIntent,
+          delivery,
+        };
+        store.put(
+          {
+            ...parent,
+            operatorIntent: result,
+          } satisfies StoredPendingSend,
+          input.parentClientMessageId,
         );
-      tx.abort();
-    };
-    tx.oncomplete = () => {
-      db.close();
-      if (!result) {
-        reject(
+      };
+      request.onerror = () => {
+        failure =
+          request.error ??
           new Error(
-            "Pending operator delivery was not staged",
-          ),
+            "Pending operator invocation read failed",
+          );
+        tx.abort();
+      };
+      tx.oncomplete = () => {
+        db.close();
+        if (!result) {
+          reject(
+            new Error(
+              "Pending operator delivery was not staged",
+            ),
+          );
+          return;
+        }
+        resolve(result);
+      };
+      tx.onabort = () => {
+        db.close();
+        reject(
+          failure ??
+            tx.error ??
+            new Error(
+              "Pending operator delivery staging aborted",
+            ),
         );
-        return;
-      }
-      resolve(result);
-    };
-    tx.onabort = () => {
-      db.close();
-      reject(
-        failure ??
+      };
+      tx.onerror = () => {
+        failure ??=
           tx.error ??
           new Error(
-            "Pending operator delivery staging aborted",
-          ),
-      );
-    };
-    tx.onerror = () => {
-      failure ??=
-        tx.error ??
-        new Error(
-          "Pending operator delivery staging failed",
-        );
-    };
-  });
+            "Pending operator delivery staging failed",
+          );
+      };
+    },
+  );
+  return unprotectOperatorIntent(
+    input.parentClientMessageId,
+    persisted,
+  );
 }
 
 export async function completePendingOperatorIntent(
