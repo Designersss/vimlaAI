@@ -31,6 +31,7 @@ import {
   clearLocalProtectionKey,
   deleteIndexedDb,
   isProtectedLocalString,
+  LocalE2eeProtectionError,
   protectLocalJson,
   protectLocalString,
   unprotectLocalJson,
@@ -51,6 +52,11 @@ const PENDING_SEND_RECOVERY_LOCK_MAX_HOLD_MS = 120_000;
 const PENDING_OPERATOR_LOCK_MAX_HOLD_MS = 120_000;
 const RATCHET_LOCK_POLL_MS = 40;
 const LOCAL_DEVICE_LOCK_KEY = "vimla-local-device-bootstrap";
+const LEGACY_LOCAL_PROTECTION_VERSION = 0 as const;
+const LOCAL_PROTECTION_VERSION = 1 as const;
+type LocalProtectionVersion =
+  | typeof LEGACY_LOCAL_PROTECTION_VERSION
+  | typeof LOCAL_PROTECTION_VERSION;
 
 type StoreName =
   | "device"
@@ -60,6 +66,7 @@ type StoreName =
   | "plaintexts";
 
 export interface StoredDeviceMaterial {
+  protectionVersion?: LocalProtectionVersion;
   deviceId: string;
   registrationState?: "PENDING" | "REGISTERED";
   identity: {
@@ -79,6 +86,7 @@ export interface StoredDeviceMaterial {
 }
 
 export interface StoredPlaintext {
+  protectionVersion?: LocalProtectionVersion;
   conversationId: string;
   messageId: string;
   text: string;
@@ -121,6 +129,7 @@ export interface StoredOperatorOutputLink {
 }
 
 export interface StoredPendingSend {
+  protectionVersion?: LocalProtectionVersion;
   revision?: number;
   conversationId: string;
   clientMessageId: string;
@@ -207,13 +216,20 @@ function ratchetStateAad(input: {
   ].join(":");
 }
 
-async function protectMaybe(
-  value: string,
-  aad: string,
-): Promise<string> {
-  return isProtectedLocalString(value)
-    ? value
-    : protectLocalString(value, aad);
+function localProtectionVersion(
+  value: { protectionVersion?: LocalProtectionVersion },
+  recordType: string,
+): LocalProtectionVersion {
+  if (
+    value.protectionVersion ===
+      LEGACY_LOCAL_PROTECTION_VERSION ||
+    value.protectionVersion === LOCAL_PROTECTION_VERSION
+  ) {
+    return value.protectionVersion;
+  }
+  throw new LocalE2eeProtectionError(
+    `Persisted ${recordType} protection version is invalid`,
+  );
 }
 
 async function protectDeviceMaterial(
@@ -226,7 +242,7 @@ async function protectDeviceMaterial(
           keyId,
           {
             ...key,
-            secret: await protectMaybe(
+            secret: await protectLocalString(
               key.secret,
               deviceSecretAad(
                 material.deviceId,
@@ -245,7 +261,7 @@ async function protectDeviceMaterial(
           keyId,
           {
             ...key,
-            secret: await protectMaybe(
+            secret: await protectLocalString(
               key.secret,
               deviceSecretAad(
                 material.deviceId,
@@ -259,16 +275,17 @@ async function protectDeviceMaterial(
   );
   return {
     ...material,
+    protectionVersion: LOCAL_PROTECTION_VERSION,
     identity: {
       ...material.identity,
-      ed25519Secret: await protectMaybe(
+      ed25519Secret: await protectLocalString(
         material.identity.ed25519Secret,
         deviceSecretAad(
           material.deviceId,
           "identity:ed25519",
         ),
       ),
-      x25519Secret: await protectMaybe(
+      x25519Secret: await protectLocalString(
         material.identity.x25519Secret,
         deviceSecretAad(
           material.deviceId,
@@ -284,6 +301,15 @@ async function protectDeviceMaterial(
 async function unprotectDeviceMaterial(
   material: StoredDeviceMaterial,
 ): Promise<StoredDeviceMaterial> {
+  if (
+    localProtectionVersion(material, "device") ===
+    LEGACY_LOCAL_PROTECTION_VERSION
+  ) {
+    return {
+      ...material,
+      protectionVersion: undefined,
+    };
+  }
   const signedPrekeys = Object.fromEntries(
     await Promise.all(
       Object.entries(material.signedPrekeys).map(
@@ -324,6 +350,7 @@ async function unprotectDeviceMaterial(
   );
   return {
     ...material,
+    protectionVersion: undefined,
     identity: {
       ...material.identity,
       ed25519Secret: await unprotectLocalString(
@@ -350,18 +377,8 @@ function deviceMaterialNeedsProtection(
   material: StoredDeviceMaterial,
 ): boolean {
   return (
-    !isProtectedLocalString(
-      material.identity.ed25519Secret,
-    ) ||
-    !isProtectedLocalString(
-      material.identity.x25519Secret,
-    ) ||
-    Object.values(material.signedPrekeys).some(
-      (key) => !isProtectedLocalString(key.secret),
-    ) ||
-    Object.values(material.oneTimePrekeys).some(
-      (key) => !isProtectedLocalString(key.secret),
-    )
+    localProtectionVersion(material, "device") ===
+    LEGACY_LOCAL_PROTECTION_VERSION
   );
 }
 
@@ -370,7 +387,8 @@ async function protectPlaintext(
 ): Promise<StoredPlaintext> {
   return {
     ...row,
-    text: await protectMaybe(
+    protectionVersion: LOCAL_PROTECTION_VERSION,
+    text: await protectLocalString(
       row.text,
       plaintextAad(row.messageId),
     ),
@@ -380,8 +398,18 @@ async function protectPlaintext(
 async function unprotectPlaintext(
   row: StoredPlaintext,
 ): Promise<StoredPlaintext> {
+  if (
+    localProtectionVersion(row, "plaintext") ===
+    LEGACY_LOCAL_PROTECTION_VERSION
+  ) {
+    return {
+      ...row,
+      protectionVersion: undefined,
+    };
+  }
   return {
     ...row,
+    protectionVersion: undefined,
     text: await unprotectLocalString(
       row.text,
       plaintextAad(row.messageId),
@@ -399,7 +427,7 @@ async function protectOperatorIntent(
       intent.contextBundle.messages.map(
         async (message) => ({
           ...message,
-          text: await protectMaybe(
+          text: await protectLocalString(
             message.text,
             pendingAad(
               clientMessageId,
@@ -417,7 +445,7 @@ async function protectOperatorIntent(
           intent.delivery.outputs.map(
             async (output) => ({
               ...output,
-              plaintext: await protectMaybe(
+              plaintext: await protectLocalString(
                 output.plaintext,
                 pendingAad(
                   clientMessageId,
@@ -431,7 +459,7 @@ async function protectOperatorIntent(
     : undefined;
   return {
     ...intent,
-    content: await protectMaybe(
+    content: await protectLocalString(
       intent.content,
       pendingAad(clientMessageId, "operator-content"),
     ),
@@ -496,7 +524,8 @@ async function protectPendingSend(
 ): Promise<StoredPendingSend> {
   return {
     ...pending,
-    plaintext: await protectMaybe(
+    protectionVersion: LOCAL_PROTECTION_VERSION,
+    plaintext: await protectLocalString(
       pending.plaintext,
       pendingAad(
         pending.clientMessageId,
@@ -517,8 +546,18 @@ async function protectPendingSend(
 async function unprotectPendingSend(
   pending: StoredPendingSend,
 ): Promise<StoredPendingSend> {
+  if (
+    localProtectionVersion(pending, "pending send") ===
+    LEGACY_LOCAL_PROTECTION_VERSION
+  ) {
+    return {
+      ...pending,
+      protectionVersion: undefined,
+    };
+  }
   return {
     ...pending,
+    protectionVersion: undefined,
     plaintext: await unprotectLocalString(
       pending.plaintext,
       pendingAad(
@@ -939,20 +978,8 @@ function pendingSendNeedsProtection(
   pending: StoredPendingSend,
 ): boolean {
   return (
-    !isProtectedLocalString(pending.plaintext) ||
-    (pending.operatorIntent !== undefined &&
-      (!isProtectedLocalString(
-        pending.operatorIntent.content,
-      ) ||
-        pending.operatorIntent.contextBundle.messages.some(
-          (message) =>
-            !isProtectedLocalString(message.text),
-        ) ||
-        (pending.operatorIntent.delivery?.outputs.some(
-          (output) =>
-            !isProtectedLocalString(output.plaintext),
-        ) ??
-          false)))
+    localProtectionVersion(pending, "pending send") ===
+    LEGACY_LOCAL_PROTECTION_VERSION
   );
 }
 
@@ -1287,7 +1314,7 @@ export async function stagePendingOperatorDelivery(input: {
   const protectedDrafts = await Promise.all(
     input.outputs.map(async (draft) => ({
       ...draft,
-      plaintext: await protectMaybe(
+      plaintext: await protectLocalString(
         draft.plaintext,
         pendingAad(
           input.parentClientMessageId,
