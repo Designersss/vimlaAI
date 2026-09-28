@@ -106,6 +106,12 @@ export class OperatorService {
         return contextFailure;
       }
       confirmationToken = await this.rotateConfirmationToken(run.id);
+      if (!confirmationToken) {
+        return this.toView(
+          await this.loadOwnedRun(userId, runId),
+          null,
+        );
+      }
     }
     return this.toView(run, confirmationToken);
   }
@@ -609,6 +615,19 @@ export class OperatorService {
     for (const listedStep of steps) {
       try {
         const outcome = await this.prisma.$transaction(async (tx) => {
+          const runLock = await tx.$queryRaw<
+            Array<{ id: string; status: string }>
+          >`
+            SELECT "id", "status" FROM "operator_run"
+            WHERE "id" = ${runId}
+            FOR UPDATE
+          `;
+          if (
+            runLock.length === 0 ||
+            runLock[0]?.status !== "EXECUTING"
+          ) {
+            return { kind: "skipped" as const };
+          }
           await tx.$queryRaw<Array<{ id: string }>>`
             SELECT "id" FROM "operator_run_step"
             WHERE "id" = ${listedStep.id}
@@ -763,6 +782,13 @@ export class OperatorService {
     code: string,
   ): Promise<"FAILED" | "EXECUTED"> {
     return this.prisma.$transaction(async (tx) => {
+      const runLock = await tx.$queryRaw<
+        Array<{ id: string; status: string }>
+      >`
+        SELECT "id", "status" FROM "operator_run"
+        WHERE "id" = ${runId}
+        FOR UPDATE
+      `;
       await tx.$queryRaw<Array<{ id: string }>>`
         SELECT "id" FROM "operator_run_step"
         WHERE "id" = ${stepId}
@@ -772,7 +798,12 @@ export class OperatorService {
       if (step?.status === "EXECUTED") {
         return "EXECUTED" as const;
       }
-      if (!step || step.status === "FAILED") {
+      if (
+        !step ||
+        step.status === "FAILED" ||
+        runLock.length === 0 ||
+        runLock[0]?.status !== "EXECUTING"
+      ) {
         return "FAILED" as const;
       }
       await tx.operatorRunStep.update({
@@ -818,33 +849,64 @@ export class OperatorService {
     status: "SUCCEEDED" | "PARTIAL" | "FAILED",
     confirmationToken: string | null,
   ): Promise<OperatorRunView> {
-    const failedStep =
-      status === "FAILED"
-        ? await this.prisma.operatorRunStep.findFirst({
-            where: {
-              runId,
-              status: "FAILED",
-              errorCode: { not: null },
-            },
-            orderBy: { sequence: "asc" },
-            select: { errorCode: true },
-          })
-        : null;
-    const updated = await this.prisma.operatorRun.update({
-      where: { id: runId },
-      data: {
-        status,
-        publicMessage: sanitizePublicText(publicMessage, 2_000),
-        errorCode:
-          status === "FAILED"
-            ? failedStep?.errorCode ?? "operator_plan_invalid"
-            : null,
-      },
-      include: { steps: { orderBy: { sequence: "asc" } } },
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const locked = await tx.$queryRaw<
+        Array<{ id: string; status: string }>
+      >`
+        SELECT "id", "status" FROM "operator_run"
+        WHERE "id" = ${runId}
+        FOR UPDATE
+      `;
+      if (locked.length === 0) {
+        throw new NotFoundException("Operator run was not found");
+      }
+      const current = await tx.operatorRun.findUniqueOrThrow({
+        where: { id: runId },
+        include: { steps: { orderBy: { sequence: "asc" } } },
+      });
+      if (
+        isTerminalOperatorRunStatus(current.status) ||
+        current.status !== "EXECUTING"
+      ) {
+        return current;
+      }
+
+      const failedStep =
+        status === "FAILED"
+          ? current.steps.find(
+              (step) =>
+                step.status === "FAILED" &&
+                step.errorCode !== null,
+            )
+          : null;
+      return tx.operatorRun.update({
+        where: { id: runId },
+        data: {
+          status,
+          publicMessage: sanitizePublicText(publicMessage, 2_000),
+          errorCode:
+            status === "FAILED"
+              ? failedStep?.errorCode ?? "operator_plan_invalid"
+              : null,
+          confirmationTokenHash: null,
+          confirmationExpiresAt: null,
+        },
+        include: { steps: { orderBy: { sequence: "asc" } } },
+      });
     });
     await this.persistAssistant(updated, updated.publicMessage ?? publicMessage);
-    this.logger.log({ msg: "operator.finished", operatorRunId: runId, actorUserId: updated.userId, status });
-    return this.toView(updated, confirmationToken);
+    this.logger.log({
+      msg: "operator.finished",
+      operatorRunId: runId,
+      actorUserId: updated.userId,
+      status: updated.status,
+    });
+    return this.toView(
+      updated,
+      updated.status === "AWAITING_CONFIRMATION"
+        ? confirmationToken
+        : null,
+    );
   }
 
   private async succeedWithoutTools(runId: string, message: string): Promise<OperatorRunView> {
@@ -858,14 +920,37 @@ export class OperatorService {
   }
 
   private async awaitClarification(runId: string, message: string, question: string): Promise<OperatorRunView> {
-    const updated = await this.prisma.operatorRun.update({
-      where: { id: runId },
-      data: {
-        status: "AWAITING_CLARIFICATION",
-        publicMessage: sanitizePublicText(message, 2_000),
-        clarificationQuestion: sanitizePublicText(question, 500),
-      },
-      include: { steps: { orderBy: { sequence: "asc" } } },
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const locked = await tx.$queryRaw<
+        Array<{ id: string; status: string }>
+      >`
+        SELECT "id", "status" FROM "operator_run"
+        WHERE "id" = ${runId}
+        FOR UPDATE
+      `;
+      if (locked.length === 0) {
+        throw new NotFoundException("Operator run was not found");
+      }
+      const current = await tx.operatorRun.findUniqueOrThrow({
+        where: { id: runId },
+        include: { steps: { orderBy: { sequence: "asc" } } },
+      });
+      if (
+        isTerminalOperatorRunStatus(current.status) ||
+        (current.status !== "EXECUTING" &&
+          current.status !== "PLANNING")
+      ) {
+        return current;
+      }
+      return tx.operatorRun.update({
+        where: { id: runId },
+        data: {
+          status: "AWAITING_CLARIFICATION",
+          publicMessage: sanitizePublicText(message, 2_000),
+          clarificationQuestion: sanitizePublicText(question, 500),
+        },
+        include: { steps: { orderBy: { sequence: "asc" } } },
+      });
     });
     await this.persistAssistant(updated, `${updated.publicMessage ?? message}\n${updated.clarificationQuestion ?? question}`);
     return this.toView(updated, null);
@@ -1167,23 +1252,85 @@ export class OperatorService {
   private async failDirectChatContextRevoked(
     run: RunRecord,
   ): Promise<OperatorRunView> {
-    await this.prisma.operatorRunStep.updateMany({
-      where: {
-        runId: run.id,
-        status: {
-          in: ["PENDING", "NEEDS_CONFIRMATION", "CONFIRMED"],
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const locked = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT "id" FROM "operator_run"
+        WHERE "id" = ${run.id} AND "userId" = ${run.userId}
+        FOR UPDATE
+      `;
+      if (locked.length === 0) {
+        throw new NotFoundException("Operator run was not found");
+      }
+
+      const current = await tx.operatorRun.findUniqueOrThrow({
+        where: { id: run.id },
+        include: { steps: { orderBy: { sequence: "asc" } } },
+      });
+      if (isTerminalOperatorRunStatus(current.status)) {
+        return current;
+      }
+
+      const unfinishedStatuses = [
+        "PENDING",
+        "NEEDS_CONFIRMATION",
+        "CONFIRMED",
+      ];
+      const hasExecuted = current.steps.some(
+        (step) => step.status === "EXECUTED",
+      );
+      const hasExistingFailure = current.steps.some(
+        (step) => step.status === "FAILED",
+      );
+      const hasUnfinished = current.steps.some((step) =>
+        unfinishedStatuses.includes(step.status),
+      );
+
+      if (hasUnfinished) {
+        await tx.operatorRunStep.updateMany({
+          where: {
+            runId: current.id,
+            status: { in: unfinishedStatuses },
+          },
+          data: {
+            status: "FAILED",
+            errorCode: "direct_chat_context_revoked",
+          },
+        });
+      }
+
+      // executePersistedSteps() takes the same run row lock before every
+      // side effect. If an effect committed before consent was revoked,
+      // preserve that durable fact instead of rewriting the whole run as
+      // FAILED. Remaining steps become failed and the run becomes PARTIAL.
+      const terminalStatus =
+        current.status === "EXECUTING" && hasExecuted
+          ? hasExistingFailure || hasUnfinished
+            ? "PARTIAL"
+            : "SUCCEEDED"
+          : "FAILED";
+      const publicMessage =
+        terminalStatus === "SUCCEEDED"
+          ? current.publicMessage ?? "Done."
+          : terminalStatus === "PARTIAL"
+            ? "Some actions completed, others failed."
+            : "Direct Chat context permission changed. Invoke @Vimla again.";
+
+      return tx.operatorRun.update({
+        where: { id: current.id },
+        data: {
+          status: terminalStatus,
+          publicMessage: sanitizePublicText(publicMessage, 2_000),
+          errorCode:
+            terminalStatus === "FAILED"
+              ? "direct_chat_context_revoked"
+              : null,
+          confirmationTokenHash: null,
+          confirmationExpiresAt: null,
         },
-      },
-      data: {
-        status: "FAILED",
-        errorCode: "direct_chat_context_revoked",
-      },
+        include: { steps: { orderBy: { sequence: "asc" } } },
+      });
     });
-    return this.failRun(
-      run.id,
-      "direct_chat_context_revoked",
-      "Direct Chat context permission changed. Invoke @Vimla again.",
-    );
+    return this.toView(updated, null);
   }
 
   private async assertDirectChatExecutionConsentTx(
@@ -1376,16 +1523,40 @@ export class OperatorService {
     return run;
   }
 
-  private async rotateConfirmationToken(runId: string): Promise<string> {
+  private async rotateConfirmationToken(
+    runId: string,
+  ): Promise<string | null> {
     const token = generateConfirmationToken();
-    await this.prisma.operatorRun.update({
-      where: { id: runId },
-      data: {
-        confirmationTokenHash: hashConfirmationToken(token, this.config.betterAuthSecret),
-        confirmationExpiresAt: new Date(Date.now() + this.config.operatorConfirmationTtlSeconds * 1_000),
-      },
+    return this.prisma.$transaction(async (tx) => {
+      const locked = await tx.$queryRaw<
+        Array<{ id: string; status: string }>
+      >`
+        SELECT "id", "status" FROM "operator_run"
+        WHERE "id" = ${runId}
+        FOR UPDATE
+      `;
+      if (
+        locked.length === 0 ||
+        locked[0]?.status !== "AWAITING_CONFIRMATION"
+      ) {
+        return null;
+      }
+      await tx.operatorRun.update({
+        where: { id: runId },
+        data: {
+          confirmationTokenHash: hashConfirmationToken(
+            token,
+            this.config.betterAuthSecret,
+          ),
+          confirmationExpiresAt: new Date(
+            Date.now() +
+              this.config.operatorConfirmationTtlSeconds *
+                1_000,
+          ),
+        },
+      });
+      return token;
     });
-    return token;
   }
 
   private toView(run: RunRecord, confirmationToken: string | null): OperatorRunView {
@@ -1414,6 +1585,12 @@ export class OperatorService {
         return contextFailure;
       }
       const token = await this.rotateConfirmationToken(run.id);
+      if (!token) {
+        return this.toView(
+          await this.loadOwnedRun(run.userId, run.id),
+          null,
+        );
+      }
       return this.toView(run, token);
     }
     return this.toView(run, null);
@@ -1452,6 +1629,15 @@ function errorCodeOf(error: unknown): string {
       : error.code.toLowerCase();
   }
   return "internal_error";
+}
+
+function isTerminalOperatorRunStatus(status: string): boolean {
+  return (
+    status === "SUCCEEDED" ||
+    status === "PARTIAL" ||
+    status === "FAILED" ||
+    status === "CANCELED"
+  );
 }
 
 function isUniqueConstraint(error: unknown): boolean {
