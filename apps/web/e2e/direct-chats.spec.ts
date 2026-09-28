@@ -2282,7 +2282,7 @@ async function writeDeviceFenceMarker(
 ): Promise<void> {
   await page.evaluate(async (value) => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open("vimla-direct-e2ee", 5);
+      const request = indexedDB.open("vimla-direct-e2ee");
       request.onsuccess = () => resolve(request.result);
       request.onerror = () =>
         reject(
@@ -2335,7 +2335,7 @@ async function readDeviceFenceMarker(
 ): Promise<string | null> {
   return page.evaluate(async () => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open("vimla-direct-e2ee", 5);
+      const request = indexedDB.open("vimla-direct-e2ee");
       request.onsuccess = () => resolve(request.result);
       request.onerror = () =>
         reject(
@@ -2372,7 +2372,7 @@ async function readDeviceFenceMarker(
 async function readLocalDeviceId(page: Page): Promise<string> {
   return page.evaluate(async () => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open("vimla-direct-e2ee", 5);
+      const request = indexedDB.open("vimla-direct-e2ee");
       request.onsuccess = () => resolve(request.result);
       request.onerror = () =>
         reject(request.error ?? new Error("E2EE IndexedDB open failed"));
@@ -2413,7 +2413,7 @@ async function readLegacyV2Fixture(
 ): Promise<LegacyV2Fixture> {
   return page.evaluate(async (targetConversationId) => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open("vimla-direct-e2ee", 5);
+      const request = indexedDB.open("vimla-direct-e2ee");
       request.onsuccess = () => resolve(request.result);
       request.onerror = () =>
         reject(
@@ -2588,7 +2588,7 @@ async function readRatchetRecordVersion(
 ): Promise<{ schemaVersion: number; stateVersion: number }> {
   return page.evaluate(async (value) => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open("vimla-direct-e2ee", 5);
+      const request = indexedDB.open("vimla-direct-e2ee");
       request.onsuccess = () => resolve(request.result);
       request.onerror = () =>
         reject(request.error ?? new Error("E2EE IndexedDB open failed"));
@@ -2641,7 +2641,7 @@ async function seedExpiredRatchetLease(
 ): Promise<void> {
   await page.evaluate(async (value) => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open("vimla-direct-e2ee", 5);
+      const request = indexedDB.open("vimla-direct-e2ee");
       request.onsuccess = () => resolve(request.result);
       request.onerror = () =>
         reject(request.error ?? new Error("E2EE IndexedDB open failed"));
