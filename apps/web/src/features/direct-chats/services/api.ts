@@ -30,6 +30,19 @@ export class DirectChatsApiError extends Error {
   }
 }
 
+async function wipeAfterCurrentDeviceRevocation(
+  error: unknown,
+): Promise<never> {
+  if (
+    error instanceof DirectChatsApiError &&
+    error.code === "direct_chat_device_revoked"
+  ) {
+    markLocalDeviceRevoked();
+    await clearLocalE2eeData();
+  }
+  throw error;
+}
+
 const DIRECT_CHAT_REQUEST_TIMEOUT_MS = 20_000;
 
 function jsonHeaders(): HeadersInit {
@@ -121,18 +134,9 @@ export async function fetchDirectMessages(
       fetchImpl,
     );
   } catch (error: unknown) {
-    if (
-      error instanceof DirectChatsApiError &&
-      error.code === "direct_chat_device_revoked"
-    ) {
-      // This request identifies the recipient by the browser's own
-      // deviceId, so this error authoritatively applies to local state.
-      // Latch before deletion so concurrent bootstrap paths cannot
-      // silently create a replacement device after the wipe.
-      markLocalDeviceRevoked();
-      await clearLocalE2eeData();
-    }
-    throw error;
+    // This request identifies the recipient by the browser's own deviceId,
+    // so DEVICE_REVOKED authoritatively applies to the local crypto state.
+    return wipeAfterCurrentDeviceRevocation(error);
   }
 }
 export async function sendDirectMessage(
@@ -140,12 +144,23 @@ export async function sendDirectMessage(
   input: SendDirectMessage,
   fetchImpl: typeof fetch = fetch,
 ): Promise<DirectMessageView> {
-  return request(
-    `/v1/direct-chats/${id}/messages`,
-    { method: "POST", headers: jsonHeaders(), body: JSON.stringify(input) },
-    (payload) => directMessageViewSchema.parse(payload),
-    fetchImpl,
-  );
+  try {
+    return await request(
+      `/v1/direct-chats/${id}/messages`,
+      {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify(input),
+      },
+      (payload) => directMessageViewSchema.parse(payload),
+      fetchImpl,
+    );
+  } catch (error: unknown) {
+    // senderDeviceId is this browser's local sender device. A revoked
+    // response is therefore authoritative even if revocation raced the
+    // preflight/recovery checks immediately before this POST.
+    return wipeAfterCurrentDeviceRevocation(error);
+  }
 }
 
 export async function registerCryptoDevice(
