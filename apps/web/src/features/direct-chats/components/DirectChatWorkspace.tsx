@@ -475,7 +475,18 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
               applyOperatorDelivery(delivery);
             }
           })
-          .catch(() => undefined);
+          .catch((caught: unknown) => {
+            if (caught instanceof AuthRequiredError) {
+              router.replace("/sign-in");
+              return;
+            }
+            setError(
+              caught instanceof OperatorRequestError ||
+                caught instanceof DirectChatsApiError
+                ? caught.code
+                : "internal_error",
+            );
+          });
       }
       return result.message;
     } catch (caught: unknown) {
@@ -524,7 +535,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         await loadConversationPlaintexts(
           conversation.id,
           256,
-        ).catch(() => []);
+        );
       const preparedContext = prepareDirectChatContext({
         actorUserId: userId,
         privacy: conversation.privacy,
@@ -651,43 +662,56 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
 
   async function onLoadOlder(): Promise<void> {
     if (!nextCursor || !conversation) return;
-    const device = await ensureLocalDevice();
-    const page = await fetchDirectMessages(
-      conversationId,
-      device.deviceId,
-      nextCursor,
-    );
-    const missingSenderDeviceIds = new Set(
-      rows
-        .filter((row) => row.needsBootstrap)
-        .map((row) => row.message.senderDeviceId),
-    );
-    if (
-      pageUnlocksHistoryBootstrap({
-        missingSenderDeviceIds,
-        messages: page.items,
-      })
-    ) {
-      const decrypted = await decryptPage(
-        conversation,
-        [
-          ...page.items,
-          ...rows.map((row) => row.message),
-        ],
+    setError(null);
+    try {
+      const device = await ensureLocalDevice();
+      const page = await fetchDirectMessages(
+        conversationId,
+        device.deviceId,
+        nextCursor,
       );
-      setRows(
-        mergeDecryptedRows([], decrypted),
+      const missingSenderDeviceIds = new Set(
+        rows
+          .filter((row) => row.needsBootstrap)
+          .map((row) => row.message.senderDeviceId),
       );
-    } else {
-      const decrypted = await decryptPage(
-        conversation,
-        page.items,
-      );
-      setRows((current) =>
-        mergeDecryptedRows(current, decrypted),
+      if (
+        pageUnlocksHistoryBootstrap({
+          missingSenderDeviceIds,
+          messages: page.items,
+        })
+      ) {
+        const decrypted = await decryptPage(
+          conversation,
+          [
+            ...page.items,
+            ...rows.map((row) => row.message),
+          ],
+        );
+        setRows(
+          mergeDecryptedRows([], decrypted),
+        );
+      } else {
+        const decrypted = await decryptPage(
+          conversation,
+          page.items,
+        );
+        setRows((current) =>
+          mergeDecryptedRows(current, decrypted),
+        );
+      }
+      setNextCursor(page.nextCursor);
+    } catch (caught: unknown) {
+      if (caught instanceof AuthRequiredError) {
+        router.replace("/sign-in");
+        return;
+      }
+      setError(
+        caught instanceof DirectChatsApiError
+          ? caught.code
+          : "internal_error",
       );
     }
-    setNextCursor(page.nextCursor);
   }
 
   if (boot !== "ready" || !conversation) {
