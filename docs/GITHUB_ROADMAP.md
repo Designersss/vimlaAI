@@ -11,7 +11,8 @@ Engineering execution/audit/CI/merge rules are defined in `docs/ENGINEERING_WORK
 
 - E2EE-H02: #76 / PR #77 — merged into main at `15667f37b3749f8d266e25ab02e01f25e6fa4dea`.
 - Master roadmap: #78.
-- ARCH-00 guidance implementation: draft PR #135 (closes #90 when merged).
+- ARCH-00 guidance implementation: #90 / PR #135.
+- Next implementation after ARCH-00: #91 semantic NavigationTarget.
 
 ## Architecture
 
