@@ -16,6 +16,7 @@ import {
   RatchetLockLostError,
   RatchetStateConflictError,
   RatchetStateCorruptError,
+  LEGACY_RATCHET_RECORD_SCHEMA_VERSION,
   RATCHET_RECORD_SCHEMA_VERSION,
   acquireRatchetLeaseRecord,
   assertRatchetVersion,
@@ -554,7 +555,7 @@ function isProtectedRatchetRecord(
     record.localDeviceId.length > 0 &&
     typeof record.stateVersion === "number" &&
     Number.isSafeInteger(record.stateVersion) &&
-    record.stateVersion >= 1 &&
+    record.stateVersion >= 0 &&
     typeof record.protectedState === "string" &&
     isProtectedLocalString(record.protectedState)
   );
@@ -605,13 +606,21 @@ async function decodePersistedRatchet(
     }),
   );
   return decodeStoredRatchet(
-    {
-      schemaVersion: RATCHET_RECORD_SCHEMA_VERSION,
-      localDeviceId: value.localDeviceId,
-      stateVersion: value.stateVersion,
-      state,
-      pendingX3dhInit: value.pendingX3dhInit,
-    },
+    value.stateVersion === 0
+      ? {
+          schemaVersion:
+            LEGACY_RATCHET_RECORD_SCHEMA_VERSION,
+          localDeviceId: value.localDeviceId,
+          state,
+        }
+      : {
+          schemaVersion:
+            RATCHET_RECORD_SCHEMA_VERSION,
+          localDeviceId: value.localDeviceId,
+          stateVersion: value.stateVersion,
+          state,
+          pendingX3dhInit: value.pendingX3dhInit,
+        },
     input.localDeviceId,
   );
 }
