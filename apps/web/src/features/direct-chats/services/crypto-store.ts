@@ -757,13 +757,70 @@ export async function loadDeviceMaterial(): Promise<StoredDeviceMaterial | null>
     "readonly",
     (store) => store.get("local"),
   );
-  return value ?? null;
+  if (!value) {
+    return null;
+  }
+  const needsMigration =
+    deviceMaterialNeedsProtection(value);
+  const material = await unprotectDeviceMaterial(value);
+  if (needsMigration) {
+    await migrateDeviceMaterial(value);
+  }
+  return material;
+}
+
+async function migrateDeviceMaterial(
+  legacy: StoredDeviceMaterial,
+): Promise<void> {
+  const protectedMaterial =
+    await protectDeviceMaterial(legacy);
+  const db = await openDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction("device", "readwrite");
+    const store = tx.objectStore("device");
+    const request = store.get("local");
+    request.onsuccess = () => {
+      const current = request.result as
+        | StoredDeviceMaterial
+        | undefined;
+      if (
+        current &&
+        deviceMaterialNeedsProtection(current) &&
+        JSON.stringify(current) ===
+          JSON.stringify(legacy)
+      ) {
+        store.put(protectedMaterial, "local");
+      }
+    };
+    request.onerror = () =>
+      reject(
+        request.error ??
+          new Error(
+            "Legacy E2EE device migration read failed",
+          ),
+      );
+    tx.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    tx.onabort = () => {
+      db.close();
+      reject(
+        tx.error ??
+          new Error(
+            "Legacy E2EE device migration aborted",
+          ),
+      );
+    };
+  });
 }
 
 export async function saveDeviceMaterial(
   material: StoredDeviceMaterial,
   lease: CoordinationLease,
 ): Promise<void> {
+  const persisted =
+    await protectDeviceMaterial(material);
   const db = await openDb();
   await new Promise<void>((resolve, reject) => {
     let failure: Error | null = null;
@@ -803,7 +860,7 @@ export async function saveDeviceMaterial(
           tx.abort();
           return;
         }
-        deviceStore.put(material, "local");
+        deviceStore.put(persisted, "local");
       };
       deviceRequest.onerror = () => {
         failure =
