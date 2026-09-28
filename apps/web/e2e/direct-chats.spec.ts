@@ -900,15 +900,17 @@ test.describe("Secure Direct Chats", () => {
     const protectedIntent =
       await readPendingOperatorProtection(alicePage);
     expect(
-      protectedIntent.protectionVersions.every(
-        (version) => version === 1,
-      ),
-    ).toBe(true);
+      protectedIntent.protectionVersions,
+    ).toEqual([1]);
+    expect(protectedIntent.contents).toHaveLength(1);
     expect(
       protectedIntent.contents.every((value) =>
         value.startsWith("vimla-protected:v1:"),
       ),
     ).toBe(true);
+    expect(
+      protectedIntent.contextTexts.length,
+    ).toBeGreaterThan(0);
     expect(
       protectedIntent.contextTexts.every((value) =>
         value.startsWith("vimla-protected:v1:"),
