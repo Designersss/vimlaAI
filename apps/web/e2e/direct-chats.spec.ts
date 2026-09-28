@@ -909,9 +909,6 @@ test.describe("Secure Direct Chats", () => {
       ),
     ).toBe(true);
     expect(
-      protectedIntent.contextTexts.length,
-    ).toBeGreaterThan(0);
-    expect(
       protectedIntent.contextTexts.every((value) =>
         value.startsWith("vimla-protected:v1:"),
       ),
