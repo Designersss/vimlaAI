@@ -144,6 +144,18 @@ export async function registerCryptoDevice(
   );
 }
 
+export async function revokeCryptoDevice(
+  deviceId: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<CryptoDeviceView> {
+  return request(
+    `/v1/direct-chats/devices/${encodeURIComponent(deviceId)}/revoke`,
+    { method: "POST" },
+    (payload) => cryptoDeviceViewSchema.parse(payload),
+    fetchImpl,
+  );
+}
+
 export async function fetchMyCryptoDevices(fetchImpl: typeof fetch = fetch): Promise<CryptoDeviceView[]> {
   const page = await request(
     "/v1/direct-chats/devices",
