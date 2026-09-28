@@ -146,12 +146,7 @@
     "changeEmailConfirmCurrent": "Confirm current email",
     "changeEmailConfirmNew": "Confirm new email",
     "changeEmailSuccess": "Email updated",
-    "unknownDevice": "Unknown device",
-    "localDirectChatDataTitle": "Local Direct Chat data",
-    "localDirectChatDataHint": "Removes this browser's Direct Chat keys and decrypted local history. Server ciphertext cannot restore that history without the deleted keys. This browser will register a new crypto device the next time Direct Chat is used.",
-    "clearLocalDirectChatData": "Clear local Direct Chat data",
-    "localDirectChatDataCleared": "Local Direct Chat data was cleared.",
-    "localDirectChatDataClearError": "Local Direct Chat data could not be fully cleared. Try again before signing out or sharing this browser."
+    "unknownDevice": "Unknown device"
   },
   "appearance": {
     "theme": "Theme",
