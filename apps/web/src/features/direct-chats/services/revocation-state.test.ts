@@ -18,7 +18,10 @@ function installStorage(storage: Storage): void {
 }
 
 function memoryStorage(
-  options: { failWrites?: boolean } = {},
+  options: {
+    failReads?: boolean;
+    failWrites?: boolean;
+  } = {},
 ): Storage {
   const values = new Map<string, string>();
   return {
@@ -29,6 +32,12 @@ function memoryStorage(
       values.clear();
     },
     getItem(key) {
+      if (options.failReads) {
+        throw new DOMException(
+          "Storage read denied",
+          "SecurityError",
+        );
+      }
       return values.get(key) ?? null;
     },
     key(index) {
@@ -71,6 +80,18 @@ describe("local E2EE revocation latch", () => {
     expect(isLocalDeviceRevoked()).toBe(true);
     clearLocalDeviceRevocationLatch();
     expect(isLocalDeviceRevoked()).toBe(false);
+  });
+
+  it("remains fail closed when storage becomes unreadable after persistence", () => {
+    const storage = memoryStorage();
+    installStorage(storage);
+
+    markLocalDeviceRevoked();
+    installStorage(
+      memoryStorage({ failReads: true }),
+    );
+
+    expect(isLocalDeviceRevoked()).toBe(true);
   });
 
   it("remains fail closed when storage writes are denied", () => {
