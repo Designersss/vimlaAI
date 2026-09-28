@@ -137,6 +137,165 @@ describe("operator concurrency", () => {
     }
   });
 
+  it("serializes cancel against confirmation without contradicting the committed side effect", async () => {
+    const user = await readyUser(app, "op-race-cancel-confirm");
+    const taskId = await createTask(
+      app,
+      user.cookies,
+      "Cancel versus confirm target",
+    );
+    const created = await createOperatorRun(
+      app,
+      user.cookies,
+      randomUUID(),
+      `@Vimla удали задачу ${taskId}`,
+    );
+    expect(created.status).toBe("AWAITING_CONFIRMATION");
+
+    const current = await app.inject({
+      method: "GET",
+      url: `/v1/operator/runs/${created.id}`,
+      headers: { origin },
+      cookies: user.cookies,
+    });
+    expect(current.statusCode).toBe(200);
+    const confirmationToken = current.json()
+      .confirmationToken as string;
+    expect(confirmationToken).toEqual(expect.any(String));
+
+    const [confirmed, canceled] = await Promise.all([
+      app.inject({
+        method: "POST",
+        url: `/v1/operator/runs/${created.id}/confirm`,
+        headers: jsonHeaders(),
+        cookies: user.cookies,
+        payload: { confirmationToken },
+      }),
+      app.inject({
+        method: "POST",
+        url: `/v1/operator/runs/${created.id}/cancel`,
+        headers: jsonHeaders(),
+        cookies: user.cookies,
+        payload: {},
+      }),
+    ]);
+    expect(confirmed.statusCode).toBe(200);
+    expect(canceled.statusCode).toBe(200);
+
+    const finalResponse = await app.inject({
+      method: "GET",
+      url: `/v1/operator/runs/${created.id}`,
+      headers: { origin },
+      cookies: user.cookies,
+    });
+    expect(finalResponse.statusCode).toBe(200);
+    const finalStatus = finalResponse.json().status as string;
+    expect(["CANCELED", "SUCCEEDED"]).toContain(finalStatus);
+
+    const prisma = createPrismaClient(testDatabaseUrl);
+    try {
+      const task = await prisma.workspaceObject.findUniqueOrThrow({
+        where: { id: taskId },
+      });
+      const successfulDeletes =
+        await prisma.operatorAuditEvent.count({
+          where: {
+            runId: created.id,
+            toolName: "tasks.delete",
+            result: "ok",
+          },
+        });
+      const steps = await prisma.operatorRunStep.findMany({
+        where: { runId: created.id },
+      });
+
+      if (finalStatus === "CANCELED") {
+        expect(task.deletedAt).toBeNull();
+        expect(successfulDeletes).toBe(0);
+        expect(
+          steps.every((step) => step.status === "SKIPPED"),
+        ).toBe(true);
+      } else {
+        expect(task.deletedAt).not.toBeNull();
+        expect(successfulDeletes).toBe(1);
+        expect(
+          steps.every((step) => step.status === "EXECUTED"),
+        ).toBe(true);
+      }
+    } finally {
+      await prisma.$disconnect();
+    }
+  });
+
+  it("does not rewrite an already failed run as canceled", async () => {
+    const user = await readyUser(app, "op-cancel-terminal-failed");
+    const taskId = await createTask(
+      app,
+      user.cookies,
+      "Failed run cancellation target",
+    );
+    const created = await createOperatorRun(
+      app,
+      user.cookies,
+      randomUUID(),
+      `@Vimla удали задачу ${taskId}`,
+    );
+    expect(created.status).toBe("AWAITING_CONFIRMATION");
+
+    const prisma = createPrismaClient(testDatabaseUrl);
+    try {
+      await prisma.$transaction([
+        prisma.operatorRunStep.updateMany({
+          where: { runId: created.id },
+          data: {
+            status: "FAILED",
+            errorCode: "synthetic_terminal_failure",
+          },
+        }),
+        prisma.operatorRun.update({
+          where: { id: created.id },
+          data: {
+            status: "FAILED",
+            errorCode: "synthetic_terminal_failure",
+            confirmationTokenHash: null,
+            confirmationExpiresAt: null,
+          },
+        }),
+      ]);
+
+      const canceled = await app.inject({
+        method: "POST",
+        url: `/v1/operator/runs/${created.id}/cancel`,
+        headers: jsonHeaders(),
+        cookies: user.cookies,
+        payload: {},
+      });
+      expect(canceled.statusCode).toBe(200);
+      expect(canceled.json().status).toBe("FAILED");
+
+      const stored = await prisma.operatorRun.findUniqueOrThrow({
+        where: { id: created.id },
+        include: { steps: true },
+      });
+      expect(stored.status).toBe("FAILED");
+      expect(stored.errorCode).toBe(
+        "synthetic_terminal_failure",
+      );
+      expect(
+        stored.steps.every((step) => step.status === "FAILED"),
+      ).toBe(true);
+      expect(
+        (
+          await prisma.workspaceObject.findUniqueOrThrow({
+            where: { id: taskId },
+          })
+        ).deletedAt,
+      ).toBeNull();
+    } finally {
+      await prisma.$disconnect();
+    }
+  });
+
   it("recovers a durably accepted confirmation before execution and does not replay the side effect", async () => {
     const user = await readyUser(app, "op-confirm-recovery");
     const taskId = await createTask(app, user.cookies, "Crash recovery delete target");
