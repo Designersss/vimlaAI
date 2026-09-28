@@ -296,6 +296,62 @@ describe("operator concurrency", () => {
     }
   });
 
+  it("does not reintroduce confirmation material after concurrent cancellation", async () => {
+    const user = await readyUser(
+      app,
+      "op-race-token-cancel",
+    );
+
+    for (let index = 0; index < 4; index += 1) {
+      const taskId = await createTask(
+        app,
+        user.cookies,
+        `Token cancel race ${index}`,
+      );
+      const created = await createOperatorRun(
+        app,
+        user.cookies,
+        randomUUID(),
+        `@Vimla удали задачу ${taskId}`,
+      );
+      expect(created.status).toBe(
+        "AWAITING_CONFIRMATION",
+      );
+
+      const [read, canceled] = await Promise.all([
+        app.inject({
+          method: "GET",
+          url: `/v1/operator/runs/${created.id}`,
+          headers: { origin },
+          cookies: user.cookies,
+        }),
+        app.inject({
+          method: "POST",
+          url: `/v1/operator/runs/${created.id}/cancel`,
+          headers: jsonHeaders(),
+          cookies: user.cookies,
+          payload: {},
+        }),
+      ]);
+      expect(read.statusCode).toBe(200);
+      expect(canceled.statusCode).toBe(200);
+      expect(canceled.json().status).toBe("CANCELED");
+
+      const prisma = createPrismaClient(testDatabaseUrl);
+      try {
+        const stored =
+          await prisma.operatorRun.findUniqueOrThrow({
+            where: { id: created.id },
+          });
+        expect(stored.status).toBe("CANCELED");
+        expect(stored.confirmationTokenHash).toBeNull();
+        expect(stored.confirmationExpiresAt).toBeNull();
+      } finally {
+        await prisma.$disconnect();
+      }
+    }
+  });
+
   it("recovers a durably accepted confirmation before execution and does not replay the side effect", async () => {
     const user = await readyUser(app, "op-confirm-recovery");
     const taskId = await createTask(app, user.cookies, "Crash recovery delete target");
