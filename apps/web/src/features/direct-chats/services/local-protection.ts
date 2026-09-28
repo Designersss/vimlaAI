@@ -1,3 +1,5 @@
+import { isLocalDeviceRevoked } from "./revocation-state";
+
 const KEYRING_DB_NAME = "vimla-e2ee-keyring";
 const KEYRING_DB_VERSION = 1;
 const KEYRING_STORE = "keys";
@@ -87,6 +89,11 @@ async function generateWrappingKey(): Promise<CryptoKey> {
 }
 
 async function localWrappingKey(): Promise<CryptoKey> {
+  if (isLocalDeviceRevoked()) {
+    throw new LocalE2eeProtectionError(
+      "Local E2EE device is revoked",
+    );
+  }
   const candidate = await generateWrappingKey();
   const db = await openKeyring();
   try {
