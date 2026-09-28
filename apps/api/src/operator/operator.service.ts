@@ -562,30 +562,140 @@ export class OperatorService {
       throw error;
     }
 
-    await this.replaceSteps(run.id, steps);
+    const stepsPublished = await this.replaceSteps(
+      run.id,
+      steps,
+    );
+    if (!stepsPublished) {
+      return this.resumeExisting(
+        await this.loadOwnedRun(run.userId, run.id),
+        correlationId,
+      );
+    }
 
     const confirmationRequired = steps.some((step) => step.confirmationRequired);
     if (confirmationRequired) {
       const token = generateConfirmationToken();
-      const updated = await this.prisma.operatorRun.update({
-        where: { id: run.id },
-        data: {
-          status: "AWAITING_CONFIRMATION",
-          publicMessage: sanitizePublicText(plan.userMessage, 2_000),
-          confirmationTokenHash: hashConfirmationToken(token, this.config.betterAuthSecret),
-          confirmationExpiresAt: new Date(Date.now() + this.config.operatorConfirmationTtlSeconds * 1_000),
+      const transition = await this.prisma.$transaction(
+        async (tx) => {
+          const locked = await tx.$queryRaw<
+            Array<{ id: string; status: string }>
+          >`
+            SELECT "id", "status" FROM "operator_run"
+            WHERE "id" = ${run.id}
+            FOR UPDATE
+          `;
+          if (locked.length === 0) {
+            throw new NotFoundException(
+              "Operator run was not found",
+            );
+          }
+          const current =
+            await tx.operatorRun.findUniqueOrThrow({
+              where: { id: run.id },
+              include: {
+                steps: { orderBy: { sequence: "asc" } },
+              },
+            });
+          if (current.status !== "PLANNING") {
+            return {
+              run: current,
+              transitioned: false as const,
+            };
+          }
+          const updated = await tx.operatorRun.update({
+            where: { id: run.id },
+            data: {
+              status: "AWAITING_CONFIRMATION",
+              publicMessage: sanitizePublicText(
+                plan.userMessage,
+                2_000,
+              ),
+              confirmationTokenHash:
+                hashConfirmationToken(
+                  token,
+                  this.config.betterAuthSecret,
+                ),
+              confirmationExpiresAt: new Date(
+                Date.now() +
+                  this.config
+                    .operatorConfirmationTtlSeconds *
+                    1_000,
+              ),
+            },
+            include: {
+              steps: { orderBy: { sequence: "asc" } },
+            },
+          });
+          return {
+            run: updated,
+            transitioned: true as const,
+          };
         },
-        include: { steps: { orderBy: { sequence: "asc" } } },
+      );
+      if (!transition.transitioned) {
+        return this.resumeExisting(
+          transition.run,
+          correlationId,
+        );
+      }
+      await this.persistAssistant(
+        transition.run,
+        transition.run.publicMessage ?? plan.userMessage,
+      );
+      this.logger.log({
+        msg: "operator.confirm_required",
+        operatorRunId: run.id,
+        actorUserId: run.userId,
       });
-      await this.persistAssistant(updated, updated.publicMessage ?? plan.userMessage);
-      this.logger.log({ msg: "operator.confirm_required", operatorRunId: run.id, actorUserId: run.userId });
-      return this.toView(updated, token);
+      return this.toView(transition.run, token);
     }
 
-    await this.prisma.operatorRun.update({
-      where: { id: run.id },
-      data: { status: "EXECUTING", publicMessage: sanitizePublicText(plan.userMessage, 2_000) },
-    });
+    const executionRun = await this.prisma.$transaction(
+      async (tx) => {
+        const locked = await tx.$queryRaw<
+          Array<{ id: string; status: string }>
+        >`
+          SELECT "id", "status" FROM "operator_run"
+          WHERE "id" = ${run.id}
+          FOR UPDATE
+        `;
+        if (locked.length === 0) {
+          throw new NotFoundException(
+            "Operator run was not found",
+          );
+        }
+        const current =
+          await tx.operatorRun.findUniqueOrThrow({
+            where: { id: run.id },
+            include: {
+              steps: { orderBy: { sequence: "asc" } },
+            },
+          });
+        if (current.status !== "PLANNING") {
+          return current;
+        }
+        return tx.operatorRun.update({
+          where: { id: run.id },
+          data: {
+            status: "EXECUTING",
+            publicMessage: sanitizePublicText(
+              plan.userMessage,
+              2_000,
+            ),
+          },
+          include: {
+            steps: { orderBy: { sequence: "asc" } },
+          },
+        });
+      },
+    );
+    if (executionRun.status !== "EXECUTING") {
+      return this.resumeExisting(
+        executionRun,
+        correlationId,
+      );
+    }
     const executed = await this.executePersistedSteps(run.id, context, correlationId);
     if (executed.status === "CLARIFY") {
       return this.awaitClarification(run.id, executed.publicMessage, executed.question);
@@ -1035,24 +1145,45 @@ export class OperatorService {
     return this.toView(updated, null);
   }
 
-  private async replaceSteps(runId: string, steps: PreparedStep[]): Promise<void> {
+  private async replaceSteps(
+    runId: string,
+    steps: PreparedStep[],
+  ): Promise<boolean> {
     if (steps.length === 0) {
-      return;
+      return true;
     }
-    await this.prisma.operatorRunStep.createMany({
-      data: steps.map((step) => ({
-        runId,
-        sequence: step.sequence,
-        toolName: step.toolName,
-        status: step.confirmationRequired ? "NEEDS_CONFIRMATION" : "PENDING",
-        inputJson: step.args as Prisma.InputJsonValue,
-        publicKind: step.card.kind,
-        publicTitle: step.card.title,
-        publicDetail: step.card.detail,
-        publicHrefPath: step.card.hrefPath,
-        idempotencyKey: step.idempotencyKey,
-      })),
-      skipDuplicates: true,
+    return this.prisma.$transaction(async (tx) => {
+      const locked = await tx.$queryRaw<
+        Array<{ id: string; status: string }>
+      >`
+        SELECT "id", "status" FROM "operator_run"
+        WHERE "id" = ${runId}
+        FOR UPDATE
+      `;
+      if (
+        locked.length === 0 ||
+        locked[0]?.status !== "PLANNING"
+      ) {
+        return false;
+      }
+      await tx.operatorRunStep.createMany({
+        data: steps.map((step) => ({
+          runId,
+          sequence: step.sequence,
+          toolName: step.toolName,
+          status: step.confirmationRequired
+            ? "NEEDS_CONFIRMATION"
+            : "PENDING",
+          inputJson: step.args as Prisma.InputJsonValue,
+          publicKind: step.card.kind,
+          publicTitle: step.card.title,
+          publicDetail: step.card.detail,
+          publicHrefPath: step.card.hrefPath,
+          idempotencyKey: step.idempotencyKey,
+        })),
+        skipDuplicates: true,
+      });
+      return true;
     });
   }
 
