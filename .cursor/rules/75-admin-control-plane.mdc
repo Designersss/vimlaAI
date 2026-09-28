@@ -3,6 +3,14 @@ description: Owner/admin dashboard architecture, authorization and privileged-op
 alwaysApply: false
 globs: "apps/admin/**/*, apps/api/src/**/*admin*.ts, packages/**/*admin*.ts, packages/**/*permission*.ts, packages/**/*audit*.ts"
 ---
+
+## Current roadmap / platform inheritance
+
+GitHub #78 and `docs/MESSENGER_PLATFORM_ARCHITECTURE.md` are current authority. Existing domain/security rules remain valid.
+
+Admin remains a separate privileged surface and is not folded into the consumer multi-client shell. New messenger/social moderation admin actions require explicit permissions and audit logs.
+
+
 # Admin/control-plane rules — HIGH SECURITY
 
 Admin is a separate privileged security boundary, not merely another consumer page.

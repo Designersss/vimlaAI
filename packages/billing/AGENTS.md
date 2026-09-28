@@ -1,4 +1,7 @@
-# packages/billing — Codex guidance
+# packages/billing — Engineering guidance
+
+> **Current product/platform inheritance:** the messenger pivot does not replace or weaken existing billing safety. The same billing/usage domain serves all clients; native clients never get separate pricing/allowance authority. Product sequencing is #78.
+
 
 This file extends the root `AGENTS.md` for billing, subscriptions, usage reservations and ledger logic.
 

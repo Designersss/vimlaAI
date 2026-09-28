@@ -1,14 +1,17 @@
 # Vimla Design System 2026
 
+> **Current architecture note (2026-09-28):** Vimla is now messenger-first and multi-client by design. GitHub #78 and `docs/MESSENGER_PLATFORM_ARCHITECTURE.md` are the product/platform source of truth; `docs/CLIENT_ARCHITECTURE.md` and `docs/REALTIME_SYNC.md` define future-client and delivery boundaries. Existing implementation details in this document remain valid unless they conflict with those sources.
+
+
 This document is the canonical visual and interaction contract for Vimla. The authoritative implementation lives in `packages/ui` (`@vimla/ui`).
 
-The September 2026 approved design direction supersedes the Phase 6.1 / UI System v2 visual specification. Existing v2 documents and `docs/design/references-v2/` remain useful migration/history material, but they must not override this document or the semantic foundation in `@vimla/ui`.
+The current Design System 2026 is the **functional Web baseline**, not the final owner-approved product design. Existing semantic tokens/accessibility/responsive rules remain valid. After Web Functional Complete (#122), the owner will manually redesign Web; #123 then normalizes/finalizes tokens and reusable Web/Desktop components. Historical v2 references never override current product/platform architecture.
 
 Historical v1 references in `docs/design/references/` are archival only.
 
 ## Product character
 
-Vimla is an adult, intelligent AI product: calm, precise and visually confident. The design should minimize visual noise while making quality, hierarchy and state obvious.
+Vimla is an adult, intelligent communication product with native AI: calm, precise and visually confident. The design should minimize visual noise while making quality, hierarchy and state obvious.
 
 Core principles:
 

@@ -6,6 +6,14 @@ globs:
 alwaysApply: true
 ---
 
+## Current roadmap / platform inheritance
+
+GitHub #78 and `docs/MESSENGER_PLATFORM_ARCHITECTURE.md` are the current product/platform authority. Vimla is messenger-first with one backend for Web and future Desktop/Mobile. This rule's domain-specific constraints remain valid and must not be interpreted using the old workspace-first phase order.
+
+V2 visual references are historical. They never override owner-approved post-#122 design or current messenger product architecture.
+
+
+
 # Vimla v2 visual fidelity
 
 Use `docs/design/references-v2` as the approved visual reference set.

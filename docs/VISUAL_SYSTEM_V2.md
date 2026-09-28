@@ -1,5 +1,8 @@
 # Vimla Visual System v2
 
+> **Historical presentation reference:** retained for migration/design history. It does not define final owner-approved Web design, native UI, or product sequencing. Current architecture is #78 and `docs/MESSENGER_PLATFORM_ARCHITECTURE.md`; final Web presentation is owner-driven after #122 and normalized by #123.
+
+
 ## Character
 
 Vimla is a serious mass-market product, not a developer dashboard and not a playful AI toy. It should be understandable to teenagers, adults and older users.

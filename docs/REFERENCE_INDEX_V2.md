@@ -1,5 +1,8 @@
 # Vimla Reference Index v2
 
+> **Historical presentation reference:** retained for migration/design history. It does not define the final owner-approved Web design or the current product roadmap. Current design work must obey `docs/DESIGN_SYSTEM.md`, #78/#122, the owner's later manual Web redesign, and #123 Design Freeze.
+
+
 ## Canonical hierarchy
 
 1. **Foundation references** — theme, color roles, typography, radii, spacing, icon direction.

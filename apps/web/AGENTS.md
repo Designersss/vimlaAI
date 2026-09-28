@@ -1,5 +1,8 @@
 <!-- BEGIN:nextjs-agent-rules -->
 
+> **Current product/platform inheritance:** Vimla is messenger-first; GitHub #78 and root AGENTS apply. Web is the reference client implemented first, not the permanent architecture boundary. Keep reusable API/domain/sync/context logic independent from Next/router/DOM when #92 or a concrete task extracts it. Do not treat the current UI as final: after #122 the owner manually redesigns Web, then #123 freezes presentation for Desktop reuse.
+
+
 # This is NOT the Next.js you know
 
 This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.

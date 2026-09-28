@@ -61,8 +61,8 @@ test.describe("Secure Direct Chats", () => {
         route.request().method() === "POST"
       ) {
         await route.fetch();
-        abortFirstEncryptedSend = false;
         await route.abort("failed");
+        abortFirstEncryptedSend = false;
         return;
       }
       await route.continue();
@@ -147,8 +147,8 @@ test.describe("Secure Direct Chats", () => {
           abortBeforeServer &&
           route.request().method() === "POST"
         ) {
-          abortBeforeServer = false;
           await route.abort("failed");
+          abortBeforeServer = false;
           return;
         }
         await route.continue();
@@ -1004,8 +1004,8 @@ test.describe("Secure Direct Chats", () => {
           route.request().method() === "POST"
         ) {
           await route.fetch();
-          abortOperatorAfterCommit = false;
           await route.abort("failed");
+          abortOperatorAfterCommit = false;
           return;
         }
         await route.continue();
@@ -1368,7 +1368,6 @@ test.describe("Secure Direct Chats", () => {
           await route.continue();
           return;
         }
-        mockClarification = false;
         const response = await route.fetch();
         const payload = (await response.json()) as Record<
           string,
@@ -1387,6 +1386,7 @@ test.describe("Secure Direct Chats", () => {
             actions: [],
           },
         });
+        mockClarification = false;
       },
     );
     await composer.fill(
@@ -1442,7 +1442,6 @@ test.describe("Secure Direct Chats", () => {
           await route.continue();
           return;
         }
-        mockActionStatus = false;
         const response = await route.fetch();
         const payload = (await response.json()) as Record<
           string,
@@ -1470,6 +1469,7 @@ test.describe("Secure Direct Chats", () => {
             ],
           },
         });
+        mockActionStatus = false;
       },
     );
     const reloadedComposer =

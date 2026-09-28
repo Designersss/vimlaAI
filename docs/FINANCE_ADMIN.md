@@ -1,5 +1,8 @@
 # Finance Admin
 
+> **Roadmap note:** finance/admin domain invariants remain valid, but finance UI is not the current messenger roadmap driver. Product sequencing is #78; do not expand finance scope opportunistically during communication-platform work.
+
+
 Admin finance UI is a presentation layer over Phase 4.5 `FinanceQueryService` and `TariffEconomicsSimulator`. It does not reimplement money math. Integer microRUB / BPS remain authoritative.
 
 ## KPIs

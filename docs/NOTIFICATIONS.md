@@ -1,5 +1,8 @@
 # Notification Platform (Phase 6.5)
 
+> **Roadmap note:** current implemented delivery remains IN_APP/EMAIL. #103 evolves the same durable platform toward installation-scoped Web Push and future APNs/FCM. Push is never sync/message truth; durable recovery is defined in `docs/REALTIME_SYNC.md`.
+
+
 PostgreSQL is the source of truth for reminder delivery and the in-app inbox. Redis/BullMQ is only the transport/execution layer. Clearing Redis must not permanently lose a notification: reconciliation re-creates jobs from `notification_delivery` rows that still need execution.
 
 ## Scope
@@ -11,7 +14,7 @@ Phase 6.5 delivers existing one-shot personal `WorkspaceReminder` rows over:
 
 Current product identity and notifications are email-only. SMS/phone authentication is not part of the current product and may be introduced in a future phase after launch.
 
-Not in this phase: recurring reminders, Web Push, SMS, project reminders, or marketing. `@Vimla` may update reminder channel preferences through the same preference service.
+Not in the **currently implemented notification slice**: recurring reminders, Web Push, APNs/FCM, SMS, project reminders, or marketing. Web Push / installation destinations are explicitly tracked by #103; native push is implemented only in the Mobile phase. `@Vimla` may update reminder channel preferences through the same preference service.
 
 ## State machine (`notification_delivery.status`)
 

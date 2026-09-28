@@ -1,5 +1,8 @@
 # Vimla Security Model
 
+> **Current architecture note (2026-09-28):** Vimla is now messenger-first and multi-client by design. GitHub #78 and `docs/MESSENGER_PLATFORM_ARCHITECTURE.md` are the product/platform source of truth; `docs/CLIENT_ARCHITECTURE.md` and `docs/REALTIME_SYNC.md` define future-client and delivery boundaries. Existing implementation details in this document remain valid unless they conflict with those sources.
+
+
 ## Assumption
 Vimla is a public Internet service and will receive malicious traffic. Security and financial safety are first-class product requirements.
 
@@ -21,6 +24,16 @@ High-value assets include:
 5. Consumer surface -> admin/control plane.
 
 Everything crossing a boundary is untrusted until authenticated/validated/authorized.
+
+## Multi-client / realtime trust additions
+
+- ClientInstallation identifies an application install for sync/push/preferences; it never grants identity/roles/permissions.
+- Browser Origin/CSRF controls remain for cookie-authenticated Web requests. Future native session transport must be explicit; a platform header is never a security bypass.
+- WebSocket/push/Redis are delivery paths, not authorization or durable truth. Reconnect uses PostgreSQL-backed sync and re-checks current access.
+- Backend/domain navigation targets are semantic and cannot become open-redirect/model-controlled URL authority.
+- Desktop/Mobile Clear cache removes only reproducible cache. Crypto identity/ratchet/sync state is not cache.
+- Future encrypted Groups require approved #112 protocol design before implementation.
+- Cross-surface Context obeys: actor access != audience disclosure permission; authorize before retrieval.
 
 ## Primary threat classes
 - credential stuffing, brute force, OTP spam/interception/replay;

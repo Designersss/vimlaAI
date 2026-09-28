@@ -6,6 +6,12 @@ globs:
 alwaysApply: true
 ---
 
+## Current roadmap / platform inheritance
+
+GitHub #78 and `docs/MESSENGER_PLATFORM_ARCHITECTURE.md` are current authority. Vimla is messenger-first with one backend for Web and future Desktop/Mobile.
+
+Composer behavior is a communication-surface concern. New Group/Channel/Direct/AI thread composition must share typed semantics where appropriate without assuming all surfaces have identical permissions or encryption. Mentions/content never grant authority.
+
 # Messaging / AI composer
 
 Model selection belongs only inside ordinary AI Composer. Never render page-level AUTO/PRO controls.

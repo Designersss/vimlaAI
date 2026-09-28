@@ -1,5 +1,8 @@
 # PR-17 — Durable Memory and Compacted Context
 
+> **Roadmap note:** this PR-17/18 document records implemented Memory/context invariants. Future messenger surfaces are integrated through #99 SurfaceAuthority, #108 Channel indexing, #117 Project context and #121 global search. Authorization/audience checks remain before retrieval/disclosure.
+
+
 ## 1. Source-of-truth rule
 
 Memory and compacted state are derived context. They never replace raw messages, projects, workspace objects, artifacts, or other authoritative source records.

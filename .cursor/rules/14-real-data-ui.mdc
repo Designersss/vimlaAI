@@ -7,6 +7,12 @@ globs:
 alwaysApply: false
 ---
 
+## Current roadmap / platform inheritance
+
+GitHub #78 and `docs/MESSENGER_PLATFORM_ARCHITECTURE.md` are the current product/platform authority. Vimla is messenger-first with one backend for Web and future Desktop/Mobile. This rule's domain-specific constraints remain valid and must not be interpreted using the old workspace-first phase order.
+
+
+
 # Vimla Real Data & Visual Reference Rules
 
 These rules are mandatory for all production UI work.
@@ -58,7 +64,7 @@ Do NOT hardcode:
 - dates;
 - counts;
 - model catalog entries;
-- Project Brain facts;
+- fake Project/context/Memory facts;
 - decisions;
 - actions;
 - files;

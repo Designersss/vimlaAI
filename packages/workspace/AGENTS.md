@@ -1,4 +1,7 @@
-# packages/workspace — Codex guidance
+# packages/workspace — Engineering guidance
+
+> **Current product/platform inheritance:** Workspace remains PERSONAL-only until #115 explicitly migrates schema/services to PROJECT scope. The messenger pivot is not permission to add nullable/dangling project links. Shared Project work must reuse these services under explicit scope authority after that migration.
+
 
 This file extends the root `AGENTS.md` for Tasks, Reminders, Notes and Lists. Read `docs/PERSONAL_WORKSPACE.md` before changing this package or any Workspace integration in an app, worker or `@Vimla` tool.
 

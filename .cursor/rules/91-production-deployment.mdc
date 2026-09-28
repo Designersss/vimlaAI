@@ -3,6 +3,14 @@ description: Production deployment, hardening, backup, WAF and incident-readines
 alwaysApply: false
 globs: "infra/**/*, deploy/**/*, ops/**/*, Dockerfile*, docker-compose*.prod.*, .github/workflows/**/*"
 ---
+
+## Current roadmap / platform inheritance
+
+GitHub #78 and `docs/GITHUB_ROADMAP.md` are current planning authority.
+
+Production rollout must account for realtime gateway/outbox/sync health and later native client version skew. Feature implementation never implies enablement. Native minimum-version/compatibility policy is explicit and cannot be used as authorization.
+
+
 # Production deployment rules
 
 Before public launch ensure:

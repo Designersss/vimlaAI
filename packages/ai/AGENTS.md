@@ -1,4 +1,7 @@
-# packages/ai — Codex guidance
+# packages/ai — Engineering guidance
+
+> **Current product/platform inheritance:** AI is a native capability of the messenger, but provider/billing authority remains server-side. New surface integration must use authorized Context/Invocation boundaries; a model cannot turn retrieved chat/channel/project content into authority. Master roadmap: #78/#85.
+
 
 This file extends the root `AGENTS.md` for AI/provider integration.
 

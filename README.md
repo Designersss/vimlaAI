@@ -1,8 +1,18 @@
 # Vimla
 
-Unified consumer/prosumer AI workspace. This repository is a pnpm + Turborepo monorepo.
+Vimla is a **messenger-first communication platform with AI as a native system capability**. This repository is a pnpm + Turborepo monorepo containing the current Web client, one authoritative API/backend, workers, Admin control plane and reusable domain packages.
 
-Phase 4 adds T-Bank Internet Acquiring (hosted payment page only). Phase 4.5 adds an internal finance/tariff foundation (**TOPUP never expires**; no public finance API). Phase 5 adds a separate Admin control plane on `http://localhost:3002` (`/admin/v1/*`). Phase 5.5 adds the shared `@vimla/ui` design system used by Web and Admin. Images, video, agents and projects remain out of scope.
+The implementation order is **Backend + complete Web → owner manual Web redesign → Design Freeze → Desktop → Mobile**. Native clients are deliberately deferred, but all new backend/API/client-domain boundaries must be designed so they do not require a separate backend or business-logic fork later.
+
+Canonical current docs:
+- [Messenger/platform architecture](docs/MESSENGER_PLATFORM_ARCHITECTURE.md)
+- [Client architecture](docs/CLIENT_ARCHITECTURE.md)
+- [Realtime + durable sync](docs/REALTIME_SYNC.md)
+- [GitHub roadmap / issue hierarchy](docs/GITHUB_ROADMAP.md)
+- [Engineering workflow](docs/ENGINEERING_WORKFLOW.md)
+- Master roadmap: GitHub #78
+
+Older phase descriptions below document implemented history and development setup; they do not override the current roadmap.
 
 ## Requirements
 

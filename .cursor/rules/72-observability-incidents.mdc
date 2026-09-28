@@ -3,6 +3,14 @@ description: Structured logging, metrics, auditability, incident and reconciliat
 alwaysApply: false
 globs: "apps/api/**/*.ts, apps/worker/**/*.ts, packages/billing/**/*.ts, packages/ai/**/*.ts, packages/auth/**/*.ts"
 ---
+
+## Current roadmap / platform inheritance
+
+GitHub #78 and `docs/MESSENGER_PLATFORM_ARCHITECTURE.md` are current authority. Existing domain/security rules remain valid.
+
+Add content-free observability for WebSocket connections/reconnects, outbox backlog, sync cursor lag/pages, push failures and installation/device lifecycle. Never log E2EE plaintext or sensitive push contents.
+
+
 # Observability and incident rules
 
 - Use structured logs with correlation/request IDs.

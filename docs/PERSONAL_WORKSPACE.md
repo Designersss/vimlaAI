@@ -1,5 +1,8 @@
 # Personal Workspace (Phase 6)
 
+> **Roadmap note:** this file remains authoritative for existing PERSONAL Workspace behavior. Shared PROJECT scope is deliberately implemented later by #115 through a real schema/authorization migration; do not bolt a nullable project link onto current personal rows.
+
+
 Personal Workspace is the non-AI **My Work / Мои дела** domain: Today, Tasks, Reminders, Lists/Checklists, and Notes.
 
 ```text

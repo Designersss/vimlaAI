@@ -2,6 +2,12 @@
 description: Core Vimla architecture, product and engineering invariants
 alwaysApply: true
 ---
+
+## Current roadmap / platform inheritance
+
+GitHub #78 and `docs/MESSENGER_PLATFORM_ARCHITECTURE.md` are the current product/platform authority. Vimla is messenger-first with one backend for Web and future Desktop/Mobile. This rule's domain-specific constraints remain valid and must not be interpreted using the old workspace-first phase order.
+
+
 # Vimla core rule
 
 Treat Vimla as a public production SaaS with real users, money and hostile traffic.
@@ -9,7 +15,7 @@ Treat Vimla as a public production SaaS with real users, money and hostile traff
 ## Core invariants
 - TypeScript strict. No `any` in application/domain code.
 - Validate all external inputs and provider responses at boundaries.
-- Browser is never authoritative for identity, ownership, prices, plans, model IDs, costs, roles or limits.
+- No client (Web/Desktop/Mobile) is authoritative for identity, ownership, prices, plans, model IDs, costs, roles or limits.
 - Secrets are server-side only and must be redacted from logs/errors.
 - PostgreSQL is authoritative for persistent/financial state.
 - Redis is cache/queue/rate-limit coordination only.

@@ -3,6 +3,14 @@ description: Real/mock payment provider, webhook, idempotency and refund securit
 alwaysApply: false
 globs: "packages/billing/**/*payment*.ts, apps/api/src/**/*payment*.ts, apps/api/src/**/*purchase*.ts"
 ---
+
+## Current roadmap / platform inheritance
+
+GitHub #78 and `docs/MESSENGER_PLATFORM_ARCHITECTURE.md` are current product/platform authority. Existing domain-specific safety rules in this file remain valid.
+
+Messenger/native roadmap does not alter current payment-provider trust boundaries. Platform shells must call the same authoritative payment/billing APIs unless a future native-store payment issue explicitly designs another compliant provider flow.
+
+
 # Payment rules
 
 - Never grant subscription/top-up because browser says payment succeeded.

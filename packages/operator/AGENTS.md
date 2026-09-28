@@ -1,4 +1,7 @@
-# packages/operator — Codex guidance
+# packages/operator — Engineering guidance
+
+> **Current product/platform inheritance:** @Vimla evolves from PERSONAL/DIRECT_CHAT special cases toward actor + surface + audience + capabilities (#118), but current scopes remain authoritative until migrated. Do not introduce Web href paths into action contracts; #91 owns semantic NavigationTarget. Messenger context never expands tool authority.
+
 
 This file extends the root `AGENTS.md` for the secure `@Vimla` operator.
 

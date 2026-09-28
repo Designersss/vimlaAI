@@ -1,6 +1,6 @@
-# Vimla — Codex project guidance
+# Vimla — Engineering guidance
 
-This is the repository-wide instruction set for Codex and other coding agents. For Codex implementation work, read this file and `docs/CODEX_WORKFLOW.md` before editing. More specific `AGENTS.md` files in subdirectories extend these rules for that area.
+This is the repository-wide engineering instruction set for Vimla. For every implementation, fix, CI repair, refactor, audit, architecture change, or technical investigation, read this file and `docs/ENGINEERING_WORKFLOW.md` before editing. More specific `AGENTS.md` files in subdirectories extend these rules for that area.
 
 ## Instruction discovery and precedence
 
@@ -13,11 +13,11 @@ Apply repository guidance in this order, after platform/system instructions: the
 
 ## What Vimla is
 
-Vimla is a public production SaaS: an AI-native workspace combining ordinary AI chat, personal workspace objects, projects/collaboration, notifications, a privileged Admin control plane, and a secure `@Vimla` system operator.
+Vimla is a public production SaaS and a **messenger-first communication platform with AI as a native system capability**. Ordinary human messaging must stand on its own; AI Threads, `@Vimla`, Projects/Work and automation extend communication rather than replace it.
 
 Treat the repository as production software handling real users, money, sensitive data, hostile traffic, and expensive external providers. Correctness, authorization, financial integrity, crash recovery, idempotency and observability are part of feature correctness.
 
-Do not trust stale phase summaries. Before architectural work, inspect the current tree, relevant docs and the nearest `AGENTS.md` files.
+Do not trust stale phase summaries. The product/platform roadmap source of truth is GitHub #78 and `docs/GITHUB_ROADMAP.md`; the canonical architecture is `docs/MESSENGER_PLATFORM_ARCHITECTURE.md`. Before architectural work, inspect the current tree, relevant docs and the nearest `AGENTS.md` files.
 
 ## Repository map
 
@@ -55,6 +55,19 @@ Monorepo: pnpm + Turborepo, strict TypeScript.
 - Protected resources must be scoped with authenticated server-side authority. Authentication is not authorization.
 - For owner-scoped/private resources, preserve enumeration-safe `404` behavior where the API contract uses it.
 
+## Messenger-first / multi-client invariants
+
+- One authoritative Vimla backend/domain system serves current Web and future Desktop/Mobile clients. Do not create separate product backends or ordinary `/v1/web/*`, `/v1/mobile/*`, `/v1/desktop/*` API forks.
+- Web is implemented first, but new backend/contracts/client-domain logic must not rely on Next.js merely because native clients are deferred.
+- Desktop/Mobile application shells are not created until Web Functional Complete, the owner's manual Web redesign, and Design Freeze stages defined in #78.
+- Backend/domain outputs use semantic product intent, not presentation routes. Do not introduce new server/domain `hrefPath`/Next-route coupling; migrate existing cases through #91.
+- Reusable client/domain code must not directly depend on Next router, `window`/`document`, IndexedDB, Tauri or Expo/native APIs. Keep platform capabilities behind focused adapters when reuse is justified.
+- Realtime is a low-latency fast path; durable sync is the correctness/recovery path. PostgreSQL remains durable truth; Redis/WebSocket/push are delivery/coordination.
+- A user's ability to access information does **not** imply permission to disclose it to the current chat/group/channel/project audience. Authorization/audience resolution must happen before semantic retrieval/model disclosure.
+- A high-level communication surface may unify routing/inbox/context, but it must never replace domain-specific ACL/membership authority.
+- Normal user storage UX on Desktop/Mobile exposes only **Clear cache** for reproducible cache. It must not delete sync authority, E2EE identity/ratchets, messages, Memory or settings. Technical resync/reset-E2EE controls are not normal product UX.
+- See `docs/CLIENT_ARCHITECTURE.md` and `docs/REALTIME_SYNC.md`.
+
 ## Package dependency and layering policy
 
 Dependencies point inward: applications and framework/provider adapters may depend on domain and shared packages; domain packages must not depend on `apps/*`, Next.js or NestJS application modules. Current manifests and architecture docs support this policy but are not its sole source of truth.
@@ -82,7 +95,7 @@ Assume every public input and authenticated user can be malicious.
 - Fail closed when a critical authorization/security/cost-control dependency is unavailable.
 - Never weaken a security check, permission boundary, test or fail-closed behavior merely to make CI green.
 
-Detailed engineering policy under `.cursor/rules/` remains valid for Codex. Always read applicable rules, especially:
+Detailed machine-readable engineering policy under `.cursor/rules/` remains valid as repository guidance. The directory name is retained for compatibility and does not make Cursor the project workflow. Always read applicable rules, especially:
 
 - `00-project-core.mdc`
 - `70-security.mdc`
@@ -181,6 +194,8 @@ Read `apps/admin/AGENTS.md`, `.cursor/rules/75-admin-control-plane.mdc` and `doc
 
 ## Frontend / design system
 
+The current consumer implementation is Web. The owner will perform a manual Web design pass **after** Web Functional/Security Complete and **before** Desktop/Mobile. Keep business/client logic separable from layout so that visual rearrangement does not require messaging/sync/crypto/backend rewrites. After owner approval, #123 Design Freeze establishes reusable Web/Desktop DOM component boundaries and portable semantic design tokens. Mobile may use native presentation rather than DOM reuse.
+
 - Next.js App Router + React functional components + strict TypeScript.
 - Prefer Server Components unless browser state/interactivity requires a Client Component.
 - MobX is UI/client domain state only, not authoritative auth/billing state.
@@ -197,7 +212,7 @@ Read `.cursor/rules/10-frontend.mdc` through `.cursor/rules/24-brand-asset-v2.md
 
 ## Scope and Git workflow
 
-`docs/CODEX_WORKFLOW.md` is mandatory for Codex implementation work. A prepared task/specification is not authorization by itself: the owner must explicitly delegate implementation. Review or CI findings require fresh owner approval before follow-up edits; do not create an autonomous fix loop.
+`docs/ENGINEERING_WORKFLOW.md` is mandatory for all Vimla engineering work. The active user request defines the current task scope; follow-up fixes required to complete that requested task may be performed within that scope, while unrelated roadmap work remains out of scope.
 
 - Implement only the requested task/phase. Do not silently start future roadmap items.
 - Do not broad-refactor unrelated areas in a bugfix PR.
@@ -229,7 +244,7 @@ For security, billing, concurrency, retry or crash bugs, add regression tests re
 
 Report exactly which commands ran and which could not run. Never claim an unexecuted check passed.
 
-## Codex working protocol
+## Working protocol
 
 1. Read this file and every closer `AGENTS.md` governing the target path.
 2. Read the task/PR specification completely.

@@ -3,6 +3,13 @@ description: Authentication, verification, recovery, sessions, MFA and identity 
 alwaysApply: false
 globs: "packages/auth/**/*.ts, apps/api/src/**/*auth*.ts, apps/api/src/**/*user*.ts, apps/web/src/**/*auth*.{ts,tsx}, apps/admin/**/*.{ts,tsx}"
 ---
+
+## Current roadmap / platform inheritance
+
+GitHub #78 and `docs/MESSENGER_PLATFORM_ARCHITECTURE.md` are current authority. Vimla is messenger-first with one backend for Web and future Desktop/Mobile.
+
+Authentication transport may differ later by Web/Desktop/Mobile, but authorization is one server model. Browser Origin/CSRF protections remain; future native transport must be explicitly authenticated and must never rely on client-supplied platform/installation metadata as authority. `ClientInstallation` (#93) is not `UserCryptoDevice` and not a permission primitive.
+
 # Auth and identity rules
 
 Authentication is a security boundary. Prefer Better Auth/core proven functionality over hand-rolled crypto/session flows.

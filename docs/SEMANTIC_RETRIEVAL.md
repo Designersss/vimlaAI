@@ -1,5 +1,8 @@
 # PR-15 — Semantic retrieval / embeddings
 
+> **Roadmap note:** this document remains authoritative for the implemented semantic-retrieval safety model. Expansion to new communication surfaces must use current surface authorization (#99) and must not turn the index into an ACL or centralize E2EE plaintext. Channel sources are tracked by #108.
+
+
 Implements the next stage of [roadmap #33](https://github.com/Designersss/vimlaAI/issues/33) after PR #66 / Context retrieval v1. Semantic search augments the existing lexical retrievers, immutable snapshots and audience/target-aware bundles. It does not enable orchestration in production.
 
 ## Provider and configuration

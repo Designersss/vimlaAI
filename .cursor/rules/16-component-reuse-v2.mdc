@@ -6,6 +6,14 @@ globs:
 alwaysApply: true
 ---
 
+## Current roadmap / platform inheritance
+
+GitHub #78 and `docs/MESSENGER_PLATFORM_ARCHITECTURE.md` are the current product/platform authority. Vimla is messenger-first with one backend for Web and future Desktop/Mobile. This rule's domain-specific constraints remain valid and must not be interpreted using the old workspace-first phase order.
+
+Component reuse in this rule means current Web/Admin DOM reuse and later Web/Desktop reuse after #123. Do not force React Native Mobile to consume DOM components solely for reuse metrics; share logic/tokens/contracts instead.
+
+
+
 # Canonical component reuse
 
 Before creating UI, search `@vimla/ui`. Reuse first, extend second, create page-local only for genuinely unique domain composition.

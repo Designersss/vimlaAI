@@ -1,5 +1,8 @@
 # Vimla Design Reference Map
 
+> **Historical presentation reference:** retained for migration/design history. It does not define final owner-approved Web design, native UI, or product sequencing. Current architecture is #78 and `docs/MESSENGER_PLATFORM_ARCHITECTURE.md`; final Web presentation is owner-driven after #122 and normalized by #123.
+
+
 This directory contains the approved visual references for Vimla.
 
 The references are NOT independent design systems and are NOT literal sources of production data.

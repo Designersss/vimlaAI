@@ -3,6 +3,14 @@ description: ProxyAPI-specific adapter, secret, streaming and treasury rules
 alwaysApply: false
 globs: "packages/ai/**/*proxyapi*.ts, apps/api/src/**/*proxyapi*.ts, apps/worker/src/**/*proxyapi*.ts"
 ---
+
+## Current roadmap / platform inheritance
+
+GitHub #78 and `docs/MESSENGER_PLATFORM_ARCHITECTURE.md` are current authority. Existing domain/security rules remain valid.
+
+ProxyAPI remains a server adapter independent of Web/Desktop/Mobile. No client shell calls it directly; messenger surface context never changes provider trust/billing rules.
+
+
 # ProxyAPI adapter rules
 
 - ProxyAPI integration exists only inside provider/infrastructure adapters.

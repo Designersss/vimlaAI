@@ -1,5 +1,8 @@
 # PR-15 pre-merge security review
 
+> **Historical security-review record:** retained as evidence for PR-15. Do not use its historical roadmap references to select new work. Current roadmap is #78; the underlying security findings/invariants remain evidence where still applicable.
+
+
 Reviewed on 2026-09-23 against PR #67, following owner authorization to audit and merge only without blocking findings. This is a code/dependency review and automated regression validation, not a penetration test or an independent cryptographic assessment.
 
 ## Findings and remediation

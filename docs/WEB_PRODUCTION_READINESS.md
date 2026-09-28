@@ -1,6 +1,20 @@
-# Vimla Web Production Readiness
+# Vimla Web Functional / Production Readiness
+
+> **Current architecture note (2026-09-28):** Vimla is now messenger-first and multi-client by design. GitHub #78 and `docs/MESSENGER_PLATFORM_ARCHITECTURE.md` are the product/platform source of truth; `docs/CLIENT_ARCHITECTURE.md` and `docs/REALTIME_SYNC.md` define future-client and delivery boundaries. Existing implementation details in this document remain valid unless they conflict with those sources.
+
 
 This document is the release gate for the completed Vimla Web Design System 2026 migration.
+
+## New release/design gate
+
+“Web Functional Complete” is tracked by #122 and is a prerequisite for the owner's manual redesign. This file must not be interpreted as saying the current visual design is final.
+
+Before Desktop begins:
+1. product/security behavior reaches #122;
+2. owner manually finalizes Web presentation;
+3. #123 Design Freeze/UI consolidation completes.
+
+Native clients must reuse the same backend/client-domain contracts rather than forcing Web-specific API changes.
 
 ## Completed visual migration scope
 

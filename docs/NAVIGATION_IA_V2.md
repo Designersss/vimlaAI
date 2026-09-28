@@ -1,4 +1,9 @@
-# Vimla Navigation IA v2
+# Vimla Navigation IA v2 — historical Web IA
+
+> **Current architecture note (2026-09-28):** Vimla is now messenger-first and multi-client by design. GitHub #78 and `docs/MESSENGER_PLATFORM_ARCHITECTURE.md` are the product/platform source of truth; `docs/CLIENT_ARCHITECTURE.md` and `docs/REALTIME_SYNC.md` define future-client and delivery boundaries. Existing implementation details in this document remain valid unless they conflict with those sources.
+
+> This file documents the **pre-pivot Web route/navigation implementation** and is retained for migration/reference. It is not the final messenger IA and must not be used to decide placement of new Channels/Groups/native surfaces. The owner will manually finalize Web layout after #122. New backend/domain work uses semantic NavigationTarget (#91), while final visual/navigation placement is a presentation decision.
+
 
 ## Global
 

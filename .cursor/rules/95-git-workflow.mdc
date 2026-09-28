@@ -2,6 +2,14 @@
 description: Phase discipline, migrations, quality gate and safe change workflow
 alwaysApply: false
 ---
+
+## Current roadmap / platform inheritance
+
+GitHub #78 and `docs/GITHUB_ROADMAP.md` are current planning authority.
+
+GitHub structure is #78 master → #79–#89 EPICs → atomic child issues. Implement from the atomic child issue unless the owner explicitly scopes otherwise. EPIC/master bodies provide context, not authorization to implement every descendant. Stale trackers should be closed with replacement links rather than silently deleted. Do not push development directly to main and never auto-merge.
+
+
 # Development workflow rules
 
 - Read `AGENTS.md` and applicable rules/docs before architectural changes.

@@ -1,6 +1,20 @@
 # Vimla — Domain Model
 
+> **Current architecture note (2026-09-28):** Vimla is now messenger-first and multi-client by design. GitHub #78 and `docs/MESSENGER_PLATFORM_ARCHITECTURE.md` are the product/platform source of truth; `docs/CLIENT_ARCHITECTURE.md` and `docs/REALTIME_SYNC.md` define future-client and delivery boundaries. Existing implementation details in this document remain valid unless they conflict with those sources.
+
+
 This document defines concepts, not final Prisma syntax.
+
+## Planned cross-client / communication models
+
+These are roadmap models, not permission to fabricate schema outside their child issues:
+
+- **CommunicationSurface** (#98): stable routing/context identity for AI_THREAD, DIRECT, future GROUP/CHANNEL/PROJECT_ROOM. It is not universal ACL authority.
+- **PublicProfile** (#101): public social identity attached to existing canonical @handle; email remains an auth credential.
+- **ClientInstallation** (#93): application installation for sync/push/preferences; not authorization and not identical to UserCryptoDevice.
+- **Channel / ChannelPost / subscriptions** (#106): creator broadcast domain with one global handle namespace.
+- **Group / GroupMember** (#111): social group domain; encryption protocol is separately gated by #112.
+- **PROJECT-scoped WorkspaceObject** (#115): explicit authorized migration from PERSONAL-only, not an ad-hoc nullable projectId shortcut.
 
 ## User
 Owns conversations, files, projects, subscriptions and usage buckets. `User.id` is the canonical identity. Email/password credentials live in Better Auth `account` rows. `emailVerified` is false until a valid email OTP. `phoneNumber` / `phoneNumberVerified` columns exist in PostgreSQL as dormant leftovers from an earlier identity migration; they are not used for authentication or shown in product UI.
