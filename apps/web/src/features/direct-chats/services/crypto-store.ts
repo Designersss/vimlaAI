@@ -14,19 +14,33 @@ import {
 } from "@vimla/e2ee";
 import {
   RatchetLockLostError,
+  RatchetStateConflictError,
+  RatchetStateCorruptError,
+  LEGACY_RATCHET_RECORD_SCHEMA_VERSION,
+  RATCHET_RECORD_SCHEMA_VERSION,
   acquireRatchetLeaseRecord,
   assertRatchetVersion,
   renewRatchetLeaseRecord,
   decodeStoredRatchet,
   isRatchetLeaseRecord,
   markLegacyRatchetOwner,
-  storedRatchetRecord,
   type RatchetLeaseRecord,
   type RatchetSnapshot,
 } from "./ratchet-coordination";
+import {
+  clearLocalProtectionKey,
+  deleteIndexedDb,
+  isProtectedLocalString,
+  LocalE2eeProtectionError,
+  protectLocalJson,
+  protectLocalString,
+  unprotectLocalJson,
+  unprotectLocalString,
+} from "./local-protection";
+import { isLocalDeviceRevoked } from "./revocation-state";
 
 const DB_NAME = "vimla-direct-e2ee";
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 const PLAINTEXT_CONVERSATION_TIME_INDEX = "conversation-created-at";
 const PENDING_SEND_SCOPE_INDEX =
   "conversation-sender-device";
@@ -39,6 +53,11 @@ const PENDING_SEND_RECOVERY_LOCK_MAX_HOLD_MS = 120_000;
 const PENDING_OPERATOR_LOCK_MAX_HOLD_MS = 120_000;
 const RATCHET_LOCK_POLL_MS = 40;
 const LOCAL_DEVICE_LOCK_KEY = "vimla-local-device-bootstrap";
+const LEGACY_LOCAL_PROTECTION_VERSION = 0 as const;
+const LOCAL_PROTECTION_VERSION = 1 as const;
+type LocalProtectionVersion =
+  | typeof LEGACY_LOCAL_PROTECTION_VERSION
+  | typeof LOCAL_PROTECTION_VERSION;
 
 type StoreName =
   | "device"
@@ -48,6 +67,7 @@ type StoreName =
   | "plaintexts";
 
 export interface StoredDeviceMaterial {
+  protectionVersion?: LocalProtectionVersion;
   deviceId: string;
   registrationState?: "PENDING" | "REGISTERED";
   identity: {
@@ -67,6 +87,7 @@ export interface StoredDeviceMaterial {
 }
 
 export interface StoredPlaintext {
+  protectionVersion?: LocalProtectionVersion;
   conversationId: string;
   messageId: string;
   text: string;
@@ -109,6 +130,7 @@ export interface StoredOperatorOutputLink {
 }
 
 export interface StoredPendingSend {
+  protectionVersion?: LocalProtectionVersion;
   revision?: number;
   conversationId: string;
   clientMessageId: string;
@@ -152,11 +174,603 @@ export class PendingOperatorInvocationGoneError extends Error {
   }
 }
 
+const PROTECTED_RATCHET_SCHEMA_VERSION = 2 as const;
+
+interface ProtectedRatchetRecord {
+  schemaVersion: typeof PROTECTED_RATCHET_SCHEMA_VERSION;
+  localDeviceId: string;
+  stateVersion: number;
+  protectedState: string;
+  pendingX3dhInit: X3dhInitHeader | null;
+}
+
+function deviceSecretAad(
+  deviceId: string,
+  field: string,
+): string {
+  return `vimla:e2ee:device:${deviceId}:${field}`;
+}
+
+function plaintextAad(messageId: string): string {
+  return `vimla:e2ee:plaintext:${messageId}:text`;
+}
+
+function pendingAad(
+  clientMessageId: string,
+  field: string,
+): string {
+  return `vimla:e2ee:pending:${clientMessageId}:${field}`;
+}
+
+function ratchetStateAad(input: {
+  conversationId: string;
+  localDeviceId: string;
+  peerDeviceId: string;
+  stateVersion: number;
+}): string {
+  return [
+    "vimla:e2ee:ratchet",
+    input.conversationId,
+    input.localDeviceId,
+    input.peerDeviceId,
+    String(input.stateVersion),
+  ].join(":");
+}
+
+function localProtectionVersion(
+  value: { protectionVersion?: LocalProtectionVersion },
+  recordType: string,
+): LocalProtectionVersion {
+  if (
+    value.protectionVersion ===
+      LEGACY_LOCAL_PROTECTION_VERSION ||
+    value.protectionVersion === LOCAL_PROTECTION_VERSION
+  ) {
+    return value.protectionVersion;
+  }
+  throw new LocalE2eeProtectionError(
+    `Persisted ${recordType} protection version is invalid`,
+  );
+}
+
+function assertLegacyValueIsRaw(
+  value: string,
+  recordType: string,
+): void {
+  if (isProtectedLocalString(value)) {
+    throw new LocalE2eeProtectionError(
+      `Persisted ${recordType} cannot downgrade a protected envelope to legacy plaintext`,
+    );
+  }
+}
+
+function assertLegacyDeviceMaterialIsRaw(
+  material: StoredDeviceMaterial,
+): void {
+  assertLegacyValueIsRaw(
+    material.identity.ed25519Secret,
+    "device identity",
+  );
+  assertLegacyValueIsRaw(
+    material.identity.x25519Secret,
+    "device identity",
+  );
+  for (const key of Object.values(material.signedPrekeys)) {
+    assertLegacyValueIsRaw(
+      key.secret,
+      "device signed prekey",
+    );
+  }
+  for (const key of Object.values(material.oneTimePrekeys)) {
+    assertLegacyValueIsRaw(
+      key.secret,
+      "device one-time prekey",
+    );
+  }
+}
+
+function assertLegacyPendingSendIsRaw(
+  pending: StoredPendingSend,
+): void {
+  assertLegacyValueIsRaw(
+    pending.plaintext,
+    "pending send",
+  );
+  if (!pending.operatorIntent) {
+    return;
+  }
+  assertLegacyValueIsRaw(
+    pending.operatorIntent.content,
+    "pending operator content",
+  );
+  for (const message of pending.operatorIntent.contextBundle.messages) {
+    assertLegacyValueIsRaw(
+      message.text,
+      "pending operator context",
+    );
+  }
+  for (const output of pending.operatorIntent.delivery?.outputs ?? []) {
+    assertLegacyValueIsRaw(
+      output.plaintext,
+      "pending operator output",
+    );
+  }
+}
+
+async function protectDeviceMaterial(
+  material: StoredDeviceMaterial,
+): Promise<StoredDeviceMaterial> {
+  const signedPrekeys = Object.fromEntries(
+    await Promise.all(
+      Object.entries(material.signedPrekeys).map(
+        async ([keyId, key]) => [
+          keyId,
+          {
+            ...key,
+            secret: await protectLocalString(
+              key.secret,
+              deviceSecretAad(
+                material.deviceId,
+                `signed-prekey:${keyId}`,
+              ),
+            ),
+          },
+        ],
+      ),
+    ),
+  );
+  const oneTimePrekeys = Object.fromEntries(
+    await Promise.all(
+      Object.entries(material.oneTimePrekeys).map(
+        async ([keyId, key]) => [
+          keyId,
+          {
+            ...key,
+            secret: await protectLocalString(
+              key.secret,
+              deviceSecretAad(
+                material.deviceId,
+                `one-time-prekey:${keyId}`,
+              ),
+            ),
+          },
+        ],
+      ),
+    ),
+  );
+  return {
+    ...material,
+    protectionVersion: LOCAL_PROTECTION_VERSION,
+    identity: {
+      ...material.identity,
+      ed25519Secret: await protectLocalString(
+        material.identity.ed25519Secret,
+        deviceSecretAad(
+          material.deviceId,
+          "identity:ed25519",
+        ),
+      ),
+      x25519Secret: await protectLocalString(
+        material.identity.x25519Secret,
+        deviceSecretAad(
+          material.deviceId,
+          "identity:x25519",
+        ),
+      ),
+    },
+    signedPrekeys,
+    oneTimePrekeys,
+  };
+}
+
+async function unprotectDeviceMaterial(
+  material: StoredDeviceMaterial,
+): Promise<StoredDeviceMaterial> {
+  if (
+    localProtectionVersion(material, "device") ===
+    LEGACY_LOCAL_PROTECTION_VERSION
+  ) {
+    assertLegacyDeviceMaterialIsRaw(material);
+    return {
+      ...material,
+      protectionVersion: undefined,
+    };
+  }
+  const signedPrekeys = Object.fromEntries(
+    await Promise.all(
+      Object.entries(material.signedPrekeys).map(
+        async ([keyId, key]) => [
+          keyId,
+          {
+            ...key,
+            secret: await unprotectLocalString(
+              key.secret,
+              deviceSecretAad(
+                material.deviceId,
+                `signed-prekey:${keyId}`,
+              ),
+            ),
+          },
+        ],
+      ),
+    ),
+  );
+  const oneTimePrekeys = Object.fromEntries(
+    await Promise.all(
+      Object.entries(material.oneTimePrekeys).map(
+        async ([keyId, key]) => [
+          keyId,
+          {
+            ...key,
+            secret: await unprotectLocalString(
+              key.secret,
+              deviceSecretAad(
+                material.deviceId,
+                `one-time-prekey:${keyId}`,
+              ),
+            ),
+          },
+        ],
+      ),
+    ),
+  );
+  return {
+    ...material,
+    protectionVersion: undefined,
+    identity: {
+      ...material.identity,
+      ed25519Secret: await unprotectLocalString(
+        material.identity.ed25519Secret,
+        deviceSecretAad(
+          material.deviceId,
+          "identity:ed25519",
+        ),
+      ),
+      x25519Secret: await unprotectLocalString(
+        material.identity.x25519Secret,
+        deviceSecretAad(
+          material.deviceId,
+          "identity:x25519",
+        ),
+      ),
+    },
+    signedPrekeys,
+    oneTimePrekeys,
+  };
+}
+
+function deviceMaterialNeedsProtection(
+  material: StoredDeviceMaterial,
+): boolean {
+  return (
+    localProtectionVersion(material, "device") ===
+    LEGACY_LOCAL_PROTECTION_VERSION
+  );
+}
+
+async function protectPlaintext(
+  row: StoredPlaintext,
+): Promise<StoredPlaintext> {
+  return {
+    ...row,
+    protectionVersion: LOCAL_PROTECTION_VERSION,
+    text: await protectLocalString(
+      row.text,
+      plaintextAad(row.messageId),
+    ),
+  };
+}
+
+async function unprotectPlaintext(
+  row: StoredPlaintext,
+): Promise<StoredPlaintext> {
+  if (
+    localProtectionVersion(row, "plaintext") ===
+    LEGACY_LOCAL_PROTECTION_VERSION
+  ) {
+    assertLegacyValueIsRaw(
+      row.text,
+      "plaintext cache",
+    );
+    return {
+      ...row,
+      protectionVersion: undefined,
+    };
+  }
+  return {
+    ...row,
+    protectionVersion: undefined,
+    text: await unprotectLocalString(
+      row.text,
+      plaintextAad(row.messageId),
+    ),
+  };
+}
+
+async function protectOperatorIntent(
+  clientMessageId: string,
+  intent: StoredOperatorIntent,
+): Promise<StoredOperatorIntent> {
+  const contextBundle = {
+    ...intent.contextBundle,
+    messages: await Promise.all(
+      intent.contextBundle.messages.map(
+        async (message) => ({
+          ...message,
+          text: await protectLocalString(
+            message.text,
+            pendingAad(
+              clientMessageId,
+              `context:${message.messageId}`,
+            ),
+          ),
+        }),
+      ),
+    ),
+  };
+  const delivery = intent.delivery
+    ? {
+        ...intent.delivery,
+        outputs: await Promise.all(
+          intent.delivery.outputs.map(
+            async (output) => ({
+              ...output,
+              plaintext: await protectLocalString(
+                output.plaintext,
+                pendingAad(
+                  clientMessageId,
+                  `operator-output:${output.id}`,
+                ),
+              ),
+            }),
+          ),
+        ),
+      }
+    : undefined;
+  return {
+    ...intent,
+    content: await protectLocalString(
+      intent.content,
+      pendingAad(clientMessageId, "operator-content"),
+    ),
+    contextBundle,
+    ...(delivery ? { delivery } : {}),
+  };
+}
+
+async function unprotectOperatorIntent(
+  clientMessageId: string,
+  intent: StoredOperatorIntent,
+): Promise<StoredOperatorIntent> {
+  const contextBundle = {
+    ...intent.contextBundle,
+    messages: await Promise.all(
+      intent.contextBundle.messages.map(
+        async (message) => ({
+          ...message,
+          text: await unprotectLocalString(
+            message.text,
+            pendingAad(
+              clientMessageId,
+              `context:${message.messageId}`,
+            ),
+          ),
+        }),
+      ),
+    ),
+  };
+  const delivery = intent.delivery
+    ? {
+        ...intent.delivery,
+        outputs: await Promise.all(
+          intent.delivery.outputs.map(
+            async (output) => ({
+              ...output,
+              plaintext: await unprotectLocalString(
+                output.plaintext,
+                pendingAad(
+                  clientMessageId,
+                  `operator-output:${output.id}`,
+                ),
+              ),
+            }),
+          ),
+        ),
+      }
+    : undefined;
+  return {
+    ...intent,
+    content: await unprotectLocalString(
+      intent.content,
+      pendingAad(clientMessageId, "operator-content"),
+    ),
+    contextBundle,
+    ...(delivery ? { delivery } : {}),
+  };
+}
+
+async function protectPendingSend(
+  pending: StoredPendingSend,
+): Promise<StoredPendingSend> {
+  return {
+    ...pending,
+    protectionVersion: LOCAL_PROTECTION_VERSION,
+    plaintext: await protectLocalString(
+      pending.plaintext,
+      pendingAad(
+        pending.clientMessageId,
+        "message-plaintext",
+      ),
+    ),
+    ...(pending.operatorIntent
+      ? {
+          operatorIntent: await protectOperatorIntent(
+            pending.clientMessageId,
+            pending.operatorIntent,
+          ),
+        }
+      : {}),
+  };
+}
+
+async function unprotectPendingSend(
+  pending: StoredPendingSend,
+): Promise<StoredPendingSend> {
+  if (
+    localProtectionVersion(pending, "pending send") ===
+    LEGACY_LOCAL_PROTECTION_VERSION
+  ) {
+    assertLegacyPendingSendIsRaw(pending);
+    return {
+      ...pending,
+      protectionVersion: undefined,
+    };
+  }
+  return {
+    ...pending,
+    protectionVersion: undefined,
+    plaintext: await unprotectLocalString(
+      pending.plaintext,
+      pendingAad(
+        pending.clientMessageId,
+        "message-plaintext",
+      ),
+    ),
+    ...(pending.operatorIntent
+      ? {
+          operatorIntent: await unprotectOperatorIntent(
+            pending.clientMessageId,
+            pending.operatorIntent,
+          ),
+        }
+      : {}),
+  };
+}
+
+function isProtectedRatchetRecord(
+  value: unknown,
+): value is ProtectedRatchetRecord {
+  if (
+    !value ||
+    typeof value !== "object" ||
+    Array.isArray(value)
+  ) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return (
+    record.schemaVersion ===
+      PROTECTED_RATCHET_SCHEMA_VERSION &&
+    typeof record.localDeviceId === "string" &&
+    record.localDeviceId.length > 0 &&
+    typeof record.stateVersion === "number" &&
+    Number.isSafeInteger(record.stateVersion) &&
+    record.stateVersion >= 0 &&
+    typeof record.protectedState === "string" &&
+    isProtectedLocalString(record.protectedState)
+  );
+}
+
+async function protectRatchetRecord(input: {
+  conversationId: string;
+  localDeviceId: string;
+  peerDeviceId: string;
+  stateVersion: number;
+  state: SerializedRatchetState;
+  pendingX3dhInit: X3dhInitHeader | null;
+}): Promise<ProtectedRatchetRecord> {
+  return {
+    schemaVersion: PROTECTED_RATCHET_SCHEMA_VERSION,
+    localDeviceId: input.localDeviceId,
+    stateVersion: input.stateVersion,
+    protectedState: await protectLocalJson(
+      input.state,
+      ratchetStateAad(input),
+    ),
+    pendingX3dhInit: input.pendingX3dhInit,
+  };
+}
+
+async function decodePersistedRatchet(
+  value: unknown,
+  input: {
+    conversationId: string;
+    localDeviceId: string;
+    peerDeviceId: string;
+  },
+): Promise<RatchetSnapshot | null> {
+  if (!isProtectedRatchetRecord(value)) {
+    return decodeStoredRatchet(
+      value,
+      input.localDeviceId,
+    );
+  }
+  if (value.localDeviceId !== input.localDeviceId) {
+    throw new RatchetStateCorruptError();
+  }
+  const state = await unprotectLocalJson(
+    value.protectedState,
+    ratchetStateAad({
+      ...input,
+      stateVersion: value.stateVersion,
+    }),
+  );
+  return decodeStoredRatchet(
+    value.stateVersion === 0
+      ? {
+          schemaVersion:
+            LEGACY_RATCHET_RECORD_SCHEMA_VERSION,
+          localDeviceId: value.localDeviceId,
+          state,
+        }
+      : {
+          schemaVersion:
+            RATCHET_RECORD_SCHEMA_VERSION,
+          localDeviceId: value.localDeviceId,
+          stateVersion: value.stateVersion,
+          state,
+          pendingX3dhInit: value.pendingX3dhInit,
+        },
+    input.localDeviceId,
+  );
+}
+
+function assertPersistedRatchetVersion(
+  value: unknown,
+  localDeviceId: string,
+  expectedVersion: number,
+): void {
+  if (isProtectedRatchetRecord(value)) {
+    if (value.localDeviceId !== localDeviceId) {
+      throw new RatchetStateCorruptError();
+    }
+    if (value.stateVersion !== expectedVersion) {
+      throw new RatchetStateConflictError();
+    }
+    return;
+  }
+  assertRatchetVersion(
+    decodeStoredRatchet(value, localDeviceId),
+    expectedVersion,
+  );
+}
+
 function openDb(): Promise<IDBDatabase> {
+  if (isLocalDeviceRevoked()) {
+    return Promise.reject(
+      new LocalE2eeProtectionError(
+        "Local E2EE device is revoked",
+      ),
+    );
+  }
   return new Promise((resolve, reject) => {
     let blocked = false;
     const request = indexedDB.open(DB_NAME, DB_VERSION);
     request.onupgradeneeded = (event) => {
+      if (isLocalDeviceRevoked()) {
+        request.transaction?.abort();
+        return;
+      }
       const db = request.result;
       if (!db.objectStoreNames.contains("device")) {
         db.createObjectStore("device");
@@ -204,6 +818,9 @@ function openDb(): Promise<IDBDatabase> {
         event.oldVersion < DB_VERSION &&
         request.transaction
       ) {
+        markLegacyLocalRecordsDuringUpgrade(
+          request.transaction,
+        );
         markLegacyRatchetsDuringUpgrade(
           request.transaction,
         );
@@ -221,6 +838,18 @@ function openDb(): Promise<IDBDatabase> {
       const db = request.result;
       if (blocked) {
         db.close();
+        return;
+      }
+      if (isLocalDeviceRevoked()) {
+        db.close();
+        void deleteIndexedDb(DB_NAME).catch(
+          () => undefined,
+        );
+        reject(
+          new LocalE2eeProtectionError(
+            "Local E2EE device is revoked",
+          ),
+        );
         return;
       }
       db.onversionchange = () => db.close();
@@ -272,13 +901,71 @@ export async function loadDeviceMaterial(): Promise<StoredDeviceMaterial | null>
     "readonly",
     (store) => store.get("local"),
   );
-  return value ?? null;
+  if (!value) {
+    return null;
+  }
+  const needsMigration =
+    deviceMaterialNeedsProtection(value);
+  const material = await unprotectDeviceMaterial(value);
+  if (needsMigration) {
+    await migrateDeviceMaterial(value);
+  }
+  return material;
+}
+
+async function migrateDeviceMaterial(
+  legacy: StoredDeviceMaterial,
+): Promise<void> {
+  assertLegacyDeviceMaterialIsRaw(legacy);
+  const protectedMaterial =
+    await protectDeviceMaterial(legacy);
+  const db = await openDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction("device", "readwrite");
+    const store = tx.objectStore("device");
+    const request = store.get("local");
+    request.onsuccess = () => {
+      const current = request.result as
+        | StoredDeviceMaterial
+        | undefined;
+      if (
+        current &&
+        deviceMaterialNeedsProtection(current) &&
+        JSON.stringify(current) ===
+          JSON.stringify(legacy)
+      ) {
+        store.put(protectedMaterial, "local");
+      }
+    };
+    request.onerror = () =>
+      reject(
+        request.error ??
+          new Error(
+            "Legacy E2EE device migration read failed",
+          ),
+      );
+    tx.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    tx.onabort = () => {
+      db.close();
+      reject(
+        tx.error ??
+          new Error(
+            "Legacy E2EE device migration aborted",
+          ),
+      );
+    };
+  });
 }
 
 export async function saveDeviceMaterial(
   material: StoredDeviceMaterial,
   lease: CoordinationLease,
 ): Promise<void> {
+  const persisted =
+    await protectDeviceMaterial(material);
   const db = await openDb();
   await new Promise<void>((resolve, reject) => {
     let failure: Error | null = null;
@@ -318,7 +1005,7 @@ export async function saveDeviceMaterial(
           tx.abort();
           return;
         }
-        deviceStore.put(material, "local");
+        deviceStore.put(persisted, "local");
       };
       deviceRequest.onerror = () => {
         failure =
@@ -357,6 +1044,94 @@ export async function assertLocalDeviceBootstrapLease(
   lease: CoordinationLease,
 ): Promise<void> {
   await assertCoordinationLease(lease);
+}
+
+export async function clearLocalE2eeData(): Promise<void> {
+  let failure: Error | null = null;
+  try {
+    await deleteIndexedDb(DB_NAME);
+  } catch (error: unknown) {
+    failure =
+      error instanceof Error
+        ? error
+        : new Error("Local E2EE data deletion failed");
+  }
+  try {
+    await clearLocalProtectionKey();
+  } catch (error: unknown) {
+    failure ??=
+      error instanceof Error
+        ? error
+        : new Error("Local E2EE key deletion failed");
+  }
+  if (failure) {
+    throw new Error(
+      "Local E2EE data could not be fully cleared",
+      { cause: failure },
+    );
+  }
+}
+
+function pendingSendNeedsProtection(
+  pending: StoredPendingSend,
+): boolean {
+  return (
+    localProtectionVersion(pending, "pending send") ===
+    LEGACY_LOCAL_PROTECTION_VERSION
+  );
+}
+
+async function migratePendingSend(
+  legacy: StoredPendingSend,
+): Promise<void> {
+  assertLegacyPendingSendIsRaw(legacy);
+  const protectedPending =
+    await protectPendingSend(legacy);
+  const db = await openDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(
+      "pendingSends",
+      "readwrite",
+    );
+    const store = tx.objectStore("pendingSends");
+    const request = store.get(legacy.clientMessageId);
+    request.onsuccess = () => {
+      const current = request.result as
+        | StoredPendingSend
+        | undefined;
+      if (
+        current &&
+        pendingSendNeedsProtection(current) &&
+        JSON.stringify(current) ===
+          JSON.stringify(legacy)
+      ) {
+        store.put(
+          protectedPending,
+          legacy.clientMessageId,
+        );
+      }
+    };
+    request.onerror = () =>
+      reject(
+        request.error ??
+          new Error(
+            "Legacy pending-send migration read failed",
+          ),
+      );
+    tx.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    tx.onabort = () => {
+      db.close();
+      reject(
+        tx.error ??
+          new Error(
+            "Legacy pending-send migration aborted",
+          ),
+      );
+    };
+  });
 }
 
 export async function loadPendingSends(
@@ -399,7 +1174,15 @@ export async function loadPendingSends(
         );
     },
   ).finally(() => db.close());
-  return rows.sort(
+  for (const row of rows) {
+    if (pendingSendNeedsProtection(row)) {
+      await migratePendingSend(row);
+    }
+  }
+  const decrypted = await Promise.all(
+    rows.map((row) => unprotectPendingSend(row)),
+  );
+  return decrypted.sort(
     (left, right) =>
       Date.parse(left.createdAt) -
         Date.parse(right.createdAt) ||
@@ -419,7 +1202,13 @@ export async function loadPendingSend(
     "readonly",
     (store) => store.get(clientMessageId),
   );
-  return value ?? null;
+  if (!value) {
+    return null;
+  }
+  if (pendingSendNeedsProtection(value)) {
+    await migratePendingSend(value);
+  }
+  return unprotectPendingSend(value);
 }
 
 export function pendingSendRevision(
@@ -436,6 +1225,21 @@ export async function completePendingSend(input: {
   messageId: string;
   serverCreatedAt: string;
 }): Promise<void> {
+  const plaintextRecord = await protectPlaintext({
+    conversationId: input.pending.conversationId,
+    messageId: input.messageId,
+    text: input.pending.plaintext,
+    kind: input.pending.kind,
+    senderUserId: input.pending.senderUserId,
+    createdAt: input.serverCreatedAt,
+  });
+  const protectedPending =
+    await protectPendingSend(input.pending);
+  if (input.pending.operatorOutput) {
+    await loadPendingSend(
+      input.pending.operatorOutput.parentClientMessageId,
+    );
+  }
   const db = await openDb();
   await new Promise<void>((resolve, reject) => {
     let failure: Error | null = null;
@@ -444,14 +1248,7 @@ export async function completePendingSend(input: {
       "readwrite",
     );
     tx.objectStore("plaintexts").put(
-      {
-        conversationId: input.pending.conversationId,
-        messageId: input.messageId,
-        text: input.pending.plaintext,
-        kind: input.pending.kind,
-        senderUserId: input.pending.senderUserId,
-        createdAt: input.serverCreatedAt,
-      } satisfies StoredPlaintext,
+      plaintextRecord,
       input.messageId,
     );
     const pendingStore = tx.objectStore("pendingSends");
@@ -481,7 +1278,7 @@ export async function completePendingSend(input: {
         const operatorIntent =
           current.operatorIntent.delivery
             ? current.operatorIntent
-            : input.pending.operatorIntent!;
+            : protectedPending.operatorIntent!;
         pendingStore.put(
           {
             // Preserve the newest durable row. A sibling recovery may have
@@ -610,140 +1407,164 @@ export async function stagePendingOperatorDelivery(input: {
   runUpdatedAt: string;
   outputs: readonly StoredOperatorOutputDraft[];
 }): Promise<StoredOperatorIntent> {
+  // Reading through the public boundary upgrades any legacy plaintext row
+  // before this transaction mutates delivery metadata in place.
+  await loadPendingSend(input.parentClientMessageId);
+  const protectedDrafts = await Promise.all(
+    input.outputs.map(async (draft) => ({
+      ...draft,
+      plaintext: await protectLocalString(
+        draft.plaintext,
+        pendingAad(
+          input.parentClientMessageId,
+          `operator-output:${draft.id}`,
+        ),
+      ),
+    })),
+  );
   const db = await openDb();
-  return new Promise((resolve, reject) => {
-    let failure: Error | null = null;
-    let result: StoredOperatorIntent | null = null;
-    const tx = db.transaction(
-      "pendingSends",
-      "readwrite",
-    );
-    const store = tx.objectStore("pendingSends");
-    const request = store.get(
-      input.parentClientMessageId,
-    );
-    request.onsuccess = () => {
-      const parent = request.result as
-        | StoredPendingSend
-        | undefined;
-      if (!parent) {
-        failure =
-          new PendingOperatorInvocationGoneError();
-        tx.abort();
-        return;
-      }
-      if (
-        !parent.operatorIntent ||
-        !parent.committedMessageId ||
-        !parent.committedCreatedAt
-      ) {
-        failure = new Error(
-          "Pending operator invocation is not committed",
-        );
-        tx.abort();
-        return;
-      }
-      const existing = parent.operatorIntent.delivery;
-      if (existing && existing.runId !== input.runId) {
-        failure = new Error(
-          "Pending operator delivery run does not match",
-        );
-        tx.abort();
-        return;
-      }
-      if (
-        existing &&
-        (isOlderOperatorDelivery(
-          input.runUpdatedAt,
-          existing.runUpdatedAt,
-        ) ||
-          (input.runUpdatedAt ===
-            existing.runUpdatedAt &&
-            isTerminalOperatorStatus(
-              existing.runStatus,
-            ) &&
-            !isTerminalOperatorStatus(
-              input.runStatus,
-            )))
-      ) {
-        result = parent.operatorIntent;
-        return;
-      }
-
-      const outputs = [...(existing?.outputs ?? [])];
-      for (const draft of input.outputs) {
-        if (
-          outputs.some(
-            (output) => output.id === draft.id,
-          )
-        ) {
-          continue;
-        }
-        outputs.push({
-          id: draft.id,
-          clientMessageId: crypto.randomUUID(),
-          kind: draft.kind,
-          plaintext: draft.plaintext,
-          delivered: false,
-        });
-      }
-
-      const delivery: StoredOperatorDelivery = {
-        runId: input.runId,
-        runStatus: input.runStatus,
-        runUpdatedAt: input.runUpdatedAt,
-        outputs,
-      };
-      result = {
-        ...parent.operatorIntent,
-        delivery,
-      };
-      store.put(
-        {
-          ...parent,
-          operatorIntent: result,
-        } satisfies StoredPendingSend,
+  const persisted = await new Promise<StoredOperatorIntent>(
+    (resolve, reject) => {
+      let failure: Error | null = null;
+      let result: StoredOperatorIntent | null = null;
+      const tx = db.transaction(
+        "pendingSends",
+        "readwrite",
+      );
+      const store = tx.objectStore("pendingSends");
+      const request = store.get(
         input.parentClientMessageId,
       );
-    };
-    request.onerror = () => {
-      failure =
-        request.error ??
-        new Error(
-          "Pending operator invocation read failed",
+      request.onsuccess = () => {
+        const parent = request.result as
+          | StoredPendingSend
+          | undefined;
+        if (!parent) {
+          failure =
+            new PendingOperatorInvocationGoneError();
+          tx.abort();
+          return;
+        }
+        if (
+          !parent.operatorIntent ||
+          !parent.committedMessageId ||
+          !parent.committedCreatedAt
+        ) {
+          failure = new Error(
+            "Pending operator invocation is not committed",
+          );
+          tx.abort();
+          return;
+        }
+        const existing =
+          parent.operatorIntent.delivery;
+        if (existing && existing.runId !== input.runId) {
+          failure = new Error(
+            "Pending operator delivery run does not match",
+          );
+          tx.abort();
+          return;
+        }
+        if (
+          existing &&
+          (isOlderOperatorDelivery(
+            input.runUpdatedAt,
+            existing.runUpdatedAt,
+          ) ||
+            (input.runUpdatedAt ===
+              existing.runUpdatedAt &&
+              isTerminalOperatorStatus(
+                existing.runStatus,
+              ) &&
+              !isTerminalOperatorStatus(
+                input.runStatus,
+              )))
+        ) {
+          result = parent.operatorIntent;
+          return;
+        }
+
+        const outputs = [
+          ...(existing?.outputs ?? []),
+        ];
+        for (const draft of protectedDrafts) {
+          if (
+            outputs.some(
+              (output) => output.id === draft.id,
+            )
+          ) {
+            continue;
+          }
+          outputs.push({
+            id: draft.id,
+            clientMessageId: crypto.randomUUID(),
+            kind: draft.kind,
+            plaintext: draft.plaintext,
+            delivered: false,
+          });
+        }
+
+        const delivery: StoredOperatorDelivery = {
+          runId: input.runId,
+          runStatus: input.runStatus,
+          runUpdatedAt: input.runUpdatedAt,
+          outputs,
+        };
+        result = {
+          ...parent.operatorIntent,
+          delivery,
+        };
+        store.put(
+          {
+            ...parent,
+            operatorIntent: result,
+          } satisfies StoredPendingSend,
+          input.parentClientMessageId,
         );
-      tx.abort();
-    };
-    tx.oncomplete = () => {
-      db.close();
-      if (!result) {
-        reject(
+      };
+      request.onerror = () => {
+        failure =
+          request.error ??
           new Error(
-            "Pending operator delivery was not staged",
-          ),
+            "Pending operator invocation read failed",
+          );
+        tx.abort();
+      };
+      tx.oncomplete = () => {
+        db.close();
+        if (!result) {
+          reject(
+            new Error(
+              "Pending operator delivery was not staged",
+            ),
+          );
+          return;
+        }
+        resolve(result);
+      };
+      tx.onabort = () => {
+        db.close();
+        reject(
+          failure ??
+            tx.error ??
+            new Error(
+              "Pending operator delivery staging aborted",
+            ),
         );
-        return;
-      }
-      resolve(result);
-    };
-    tx.onabort = () => {
-      db.close();
-      reject(
-        failure ??
+      };
+      tx.onerror = () => {
+        failure ??=
           tx.error ??
           new Error(
-            "Pending operator delivery staging aborted",
-          ),
-      );
-    };
-    tx.onerror = () => {
-      failure ??=
-        tx.error ??
-        new Error(
-          "Pending operator delivery staging failed",
-        );
-    };
-  });
+            "Pending operator delivery staging failed",
+          );
+      };
+    },
+  );
+  return unprotectOperatorIntent(
+    input.parentClientMessageId,
+    persisted,
+  );
 }
 
 export async function completePendingOperatorIntent(
@@ -813,38 +1634,161 @@ export async function completePendingOperatorIntent(
   });
 }
 
+async function migrateLegacyRatchet(input: {
+  conversationId: string;
+  localDeviceId: string;
+  peerDeviceId: string;
+  sourceKey: string;
+  snapshot: RatchetSnapshot;
+}): Promise<void> {
+  const protectedRecord = await protectRatchetRecord({
+    conversationId: input.conversationId,
+    localDeviceId: input.localDeviceId,
+    peerDeviceId: input.peerDeviceId,
+    stateVersion: input.snapshot.stateVersion,
+    state: input.snapshot.state,
+    pendingX3dhInit: input.snapshot.pendingX3dhInit,
+  });
+  const targetKey = ratchetStorageKey(
+    input.conversationId,
+    input.localDeviceId,
+    input.peerDeviceId,
+  );
+  const db = await openDb();
+  await new Promise<void>((resolve, reject) => {
+    let failure: Error | null = null;
+    const tx = db.transaction(
+      "ratchets",
+      "readwrite",
+    );
+    const store = tx.objectStore("ratchets");
+    const request = store.get(input.sourceKey);
+    request.onsuccess = () => {
+      const current = request.result;
+      if (
+        current === undefined ||
+        isProtectedRatchetRecord(current)
+      ) {
+        return;
+      }
+      try {
+        const currentSnapshot = decodeStoredRatchet(
+          current,
+          input.localDeviceId,
+        );
+        if (
+          !currentSnapshot ||
+          currentSnapshot.stateVersion !==
+            input.snapshot.stateVersion
+        ) {
+          return;
+        }
+        store.put(protectedRecord, targetKey);
+        if (input.sourceKey !== targetKey) {
+          store.delete(input.sourceKey);
+        }
+      } catch (error: unknown) {
+        failure =
+          error instanceof Error
+            ? error
+            : new RatchetStateCorruptError();
+        tx.abort();
+      }
+    };
+    request.onerror = () => {
+      failure =
+        request.error ??
+        new Error(
+          "Legacy ratchet migration read failed",
+        );
+      tx.abort();
+    };
+    tx.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    tx.onabort = () => {
+      db.close();
+      reject(
+        failure ??
+          tx.error ??
+          new Error(
+            "Legacy ratchet migration aborted",
+          ),
+      );
+    };
+  });
+}
+
 export async function loadRatchet(
   conversationId: string,
   localDeviceId: string,
   peerDeviceId: string,
 ): Promise<RatchetSnapshot | null> {
+  const scopedKey = ratchetStorageKey(
+    conversationId,
+    localDeviceId,
+    peerDeviceId,
+  );
   const scoped = await withStore<unknown>(
     "ratchets",
     "readonly",
-    (store) =>
-      store.get(
-        ratchetStorageKey(
-          conversationId,
-          localDeviceId,
-          peerDeviceId,
-        ),
-      ),
+    (store) => store.get(scopedKey),
   );
   if (scoped !== undefined) {
-    return decodeStoredRatchet(scoped, localDeviceId);
+    const snapshot = await decodePersistedRatchet(
+      scoped,
+      {
+        conversationId,
+        localDeviceId,
+        peerDeviceId,
+      },
+    );
+    if (
+      snapshot &&
+      !isProtectedRatchetRecord(scoped)
+    ) {
+      await migrateLegacyRatchet({
+        conversationId,
+        localDeviceId,
+        peerDeviceId,
+        sourceKey: scopedKey,
+        snapshot,
+      });
+    }
+    return snapshot;
   }
+  const legacyKey = legacyRatchetStorageKey(
+    conversationId,
+    peerDeviceId,
+  );
   const legacy = await withStore<unknown>(
     "ratchets",
     "readonly",
-    (store) =>
-      store.get(
-        legacyRatchetStorageKey(
-          conversationId,
-          peerDeviceId,
-        ),
-      ),
+    (store) => store.get(legacyKey),
   );
-  return decodeStoredRatchet(legacy, localDeviceId);
+  const snapshot = await decodePersistedRatchet(
+    legacy,
+    {
+      conversationId,
+      localDeviceId,
+      peerDeviceId,
+    },
+  );
+  if (
+    snapshot &&
+    legacy !== undefined &&
+    !isProtectedRatchetRecord(legacy)
+  ) {
+    await migrateLegacyRatchet({
+      conversationId,
+      localDeviceId,
+      peerDeviceId,
+      sourceKey: legacyKey,
+      snapshot,
+    });
+  }
+  return snapshot;
 }
 
 export async function commitDecryptedRatchet(input: {
@@ -866,6 +1810,8 @@ export async function commitOutboundRatchets(input: {
   pendingSend: StoredPendingSend;
   expectedPendingRevision: number | null;
 }): Promise<void> {
+  const protectedPendingSend =
+    await protectPendingSend(input.pendingSend);
   if (input.updates.length === 0) {
     throw new Error("Outbound ratchet update set is empty");
   }
@@ -880,6 +1826,24 @@ export async function commitOutboundRatchets(input: {
       "Outbound ratchet update set contains duplicates",
     );
   }
+
+  const protectedRatchets = new Map(
+    await Promise.all(
+      input.updates.map(async (update) => [
+        update.peerDeviceId,
+        await protectRatchetRecord({
+          conversationId: input.conversationId,
+          localDeviceId: input.localDeviceId,
+          peerDeviceId: update.peerDeviceId,
+          stateVersion:
+            update.expectedVersion + 1,
+          state: update.state,
+          pendingX3dhInit:
+            update.pendingX3dhInit,
+        }),
+      ] as const),
+    ),
+  );
 
   const db = await openDb();
   await new Promise<void>((resolve, reject) => {
@@ -985,24 +1949,20 @@ export async function commitOutboundRatchets(input: {
           const raw = useLegacy
             ? read.legacy.result
             : read.current.result;
-          const current = decodeStoredRatchet(
+          assertPersistedRatchetVersion(
             raw,
             input.localDeviceId,
-          );
-          assertRatchetVersion(
-            current,
             read.update.expectedVersion,
           );
+          const protectedRecord =
+            protectedRatchets.get(
+              read.update.peerDeviceId,
+            );
+          if (!protectedRecord) {
+            throw new RatchetStateCorruptError();
+          }
           ratchets.put(
-            storedRatchetRecord({
-              localDeviceId:
-                input.localDeviceId,
-              stateVersion:
-                read.update.expectedVersion + 1,
-              state: read.update.state,
-              pendingX3dhInit:
-                read.update.pendingX3dhInit,
-            }),
+            protectedRecord,
             read.key,
           );
           if (useLegacy) {
@@ -1011,7 +1971,7 @@ export async function commitOutboundRatchets(input: {
         }
 
         pendingSends.put(
-          input.pendingSend,
+          protectedPendingSend,
           input.pendingSend.clientMessageId,
         );
       } catch (error: unknown) {
@@ -1210,6 +2170,62 @@ export async function withPendingOperatorIntentLock<T>(
   );
 }
 
+async function migratePlaintext(
+  legacy: StoredPlaintext,
+): Promise<void> {
+  assertLegacyValueIsRaw(
+    legacy.text,
+    "plaintext cache",
+  );
+  const protectedRow = await protectPlaintext(legacy);
+  const db = await openDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(
+      "plaintexts",
+      "readwrite",
+    );
+    const store = tx.objectStore("plaintexts");
+    const request = store.get(legacy.messageId);
+    request.onsuccess = () => {
+      const current = request.result as
+        | StoredPlaintext
+        | undefined;
+      if (
+        current &&
+        localProtectionVersion(
+          current,
+          "plaintext",
+        ) === LEGACY_LOCAL_PROTECTION_VERSION &&
+        current.text === legacy.text &&
+        current.conversationId ===
+          legacy.conversationId
+      ) {
+        store.put(protectedRow, legacy.messageId);
+      }
+    };
+    request.onerror = () =>
+      reject(
+        request.error ??
+          new Error(
+            "Legacy plaintext migration read failed",
+          ),
+      );
+    tx.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    tx.onabort = () => {
+      db.close();
+      reject(
+        tx.error ??
+          new Error(
+            "Legacy plaintext migration aborted",
+          ),
+      );
+    };
+  });
+}
+
 export async function loadPlaintext(
   messageId: string,
 ): Promise<StoredPlaintext | null> {
@@ -1218,7 +2234,16 @@ export async function loadPlaintext(
     "readonly",
     (store) => store.get(messageId),
   );
-  return value ?? null;
+  if (!value) {
+    return null;
+  }
+  if (
+    localProtectionVersion(value, "plaintext") ===
+    LEGACY_LOCAL_PROTECTION_VERSION
+  ) {
+    await migratePlaintext(value);
+  }
+  return unprotectPlaintext(value);
 }
 
 export async function loadConversationPlaintexts(
@@ -1230,41 +2255,73 @@ export async function loadConversationPlaintexts(
     Math.min(512, Math.trunc(limit)),
   );
   const db = await openDb();
-  return new Promise((resolve, reject) => {
-    const rows: StoredPlaintext[] = [];
-    const tx = db.transaction("plaintexts", "readonly");
-    const store = tx.objectStore("plaintexts");
-    const index = store.index(
-      PLAINTEXT_CONVERSATION_TIME_INDEX,
-    );
-    const range = IDBKeyRange.bound(
-      [conversationId, ""],
-      [conversationId, "\uffff"],
-    );
-    const request = index.openCursor(range, "prev");
-    request.onsuccess = () => {
-      const cursor = request.result;
-      if (!cursor || rows.length >= boundedLimit) return;
-      rows.push(cursor.value as StoredPlaintext);
-      cursor.continue();
-    };
-    tx.oncomplete = () => {
-      db.close();
-      resolve(rows);
-    };
-    tx.onabort = () => {
-      db.close();
-      reject(
-        tx.error ?? new Error("IndexedDB transaction aborted"),
+  const rows = await new Promise<StoredPlaintext[]>(
+    (resolve, reject) => {
+      const result: StoredPlaintext[] = [];
+      const tx = db.transaction(
+        "plaintexts",
+        "readonly",
       );
-    };
-    tx.onerror = () => {
-      db.close();
-      reject(
-        tx.error ?? new Error("IndexedDB transaction failed"),
+      const store = tx.objectStore("plaintexts");
+      const index = store.index(
+        PLAINTEXT_CONVERSATION_TIME_INDEX,
       );
-    };
-  });
+      const range = IDBKeyRange.bound(
+        [conversationId, ""],
+        [conversationId, "\uffff"],
+      );
+      const request = index.openCursor(
+        range,
+        "prev",
+      );
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (
+          !cursor ||
+          result.length >= boundedLimit
+        ) {
+          return;
+        }
+        result.push(
+          cursor.value as StoredPlaintext,
+        );
+        cursor.continue();
+      };
+      tx.oncomplete = () => {
+        db.close();
+        resolve(result);
+      };
+      tx.onabort = () => {
+        db.close();
+        reject(
+          tx.error ??
+            new Error(
+              "IndexedDB transaction aborted",
+            ),
+        );
+      };
+      tx.onerror = () => {
+        db.close();
+        reject(
+          tx.error ??
+            new Error(
+              "IndexedDB transaction failed",
+            ),
+        );
+      };
+    },
+  );
+  for (const row of rows) {
+    if (
+      localProtectionVersion(row, "plaintext") ===
+      LEGACY_LOCAL_PROTECTION_VERSION
+    ) {
+      await migratePlaintext(row);
+    }
+  }
+  return Promise.all(
+    rows.map((row) => unprotectPlaintext(row)),
+  );
 }
 
 export function identityFromMaterial(
@@ -1306,6 +2363,18 @@ async function commitRatchet(input: {
   pendingX3dhInit: X3dhInitHeader | null;
   plaintext?: StoredPlaintext;
 }): Promise<RatchetSnapshot> {
+  const nextVersion = input.expectedVersion + 1;
+  const protectedRecord = await protectRatchetRecord({
+    conversationId: input.conversationId,
+    localDeviceId: input.localDeviceId,
+    peerDeviceId: input.peerDeviceId,
+    stateVersion: nextVersion,
+    state: input.state,
+    pendingX3dhInit: input.pendingX3dhInit,
+  });
+  const protectedPlaintext = input.plaintext
+    ? await protectPlaintext(input.plaintext)
+    : undefined;
   const db = await openDb();
   return new Promise((resolve, reject) => {
     let failure: Error | null = null;
@@ -1325,7 +2394,6 @@ async function commitRatchet(input: {
     );
     const currentRequest = ratchets.get(key);
     const legacyRequest = ratchets.get(legacyKey);
-    const nextVersion = input.expectedVersion + 1;
     let currentReady = false;
     let legacyReady = false;
 
@@ -1338,30 +2406,22 @@ async function commitRatchet(input: {
         const raw = useLegacy
           ? legacyRequest.result
           : currentRequest.result;
-        const current = decodeStoredRatchet(
+        assertPersistedRatchetVersion(
           raw,
           input.localDeviceId,
-        );
-        assertRatchetVersion(
-          current,
           input.expectedVersion,
         );
         ratchets.put(
-          storedRatchetRecord({
-            localDeviceId: input.localDeviceId,
-            stateVersion: nextVersion,
-            state: input.state,
-            pendingX3dhInit: input.pendingX3dhInit,
-          }),
+          protectedRecord,
           key,
         );
         if (useLegacy) {
           ratchets.delete(legacyKey);
         }
-        if (input.plaintext) {
+        if (protectedPlaintext) {
           tx.objectStore("plaintexts").put(
-            input.plaintext,
-            input.plaintext.messageId,
+            protectedPlaintext,
+            protectedPlaintext.messageId,
           );
         }
       } catch (error: unknown) {
@@ -1717,6 +2777,175 @@ function assertActiveCoordinationLease(
   ) {
     throw new RatchetLockLostError();
   }
+}
+
+function markLegacyLocalRecordsDuringUpgrade(
+  tx: IDBTransaction,
+): void {
+  for (const storeName of [
+    "device",
+    "plaintexts",
+  ] as const) {
+    if (!tx.db.objectStoreNames.contains(storeName)) {
+      continue;
+    }
+    const cursorRequest = tx
+      .objectStore(storeName)
+      .openCursor();
+    cursorRequest.onsuccess = () => {
+      const cursor = cursorRequest.result;
+      if (!cursor) {
+        return;
+      }
+      const value = cursor.value;
+      if (
+        value &&
+        typeof value === "object" &&
+        !Array.isArray(value)
+      ) {
+        const record = value as Record<string, unknown>;
+        if (record.protectionVersion === undefined) {
+          cursor.update({
+            ...record,
+            protectionVersion:
+              LEGACY_LOCAL_PROTECTION_VERSION,
+          });
+        }
+      }
+      cursor.continue();
+    };
+  }
+  markLegacyPendingSendsDuringUpgrade(tx);
+}
+
+function markLegacyPendingSendsDuringUpgrade(
+  tx: IDBTransaction,
+): void {
+  if (!tx.db.objectStoreNames.contains("pendingSends")) {
+    return;
+  }
+  const store = tx.objectStore("pendingSends");
+  const rows: Array<{
+    key: IDBValidKey;
+    value: StoredPendingSend;
+  }> = [];
+  const cursorRequest = store.openCursor();
+  cursorRequest.onsuccess = () => {
+    const cursor = cursorRequest.result;
+    if (cursor) {
+      const value = cursor.value;
+      if (
+        value &&
+        typeof value === "object" &&
+        !Array.isArray(value)
+      ) {
+        rows.push({
+          key: cursor.primaryKey,
+          value: value as StoredPendingSend,
+        });
+      }
+      cursor.continue();
+      return;
+    }
+
+    const outputIds = new Map<string, string>();
+    const linkKey = (
+      parentClientMessageId: string,
+      outputId: string,
+    ): string =>
+      JSON.stringify([
+        parentClientMessageId,
+        outputId,
+      ]);
+    const mappedOutputId = (
+      parentClientMessageId: string,
+      outputId: string,
+    ): string => {
+      const key = linkKey(
+        parentClientMessageId,
+        outputId,
+      );
+      const existing = outputIds.get(key);
+      if (existing) {
+        return existing;
+      }
+      const created =
+        `legacy-output:${crypto.randomUUID()}`;
+      outputIds.set(key, created);
+      return created;
+    };
+
+    for (const { value } of rows) {
+      const parentClientMessageId =
+        value.clientMessageId;
+      for (const output of
+        value.operatorIntent?.delivery?.outputs ??
+        []) {
+        mappedOutputId(
+          parentClientMessageId,
+          output.id,
+        );
+      }
+    }
+    for (const { value } of rows) {
+      if (value.operatorOutput) {
+        mappedOutputId(
+          value.operatorOutput
+            .parentClientMessageId,
+          value.operatorOutput.outputId,
+        );
+      }
+    }
+
+    for (const { key, value } of rows) {
+      const parentClientMessageId =
+        value.clientMessageId;
+      const operatorIntent =
+        value.operatorIntent?.delivery
+          ? {
+              ...value.operatorIntent,
+              delivery: {
+                ...value.operatorIntent.delivery,
+                outputs:
+                  value.operatorIntent.delivery.outputs.map(
+                    (output) => ({
+                      ...output,
+                      id: mappedOutputId(
+                        parentClientMessageId,
+                        output.id,
+                      ),
+                    }),
+                  ),
+              },
+            }
+          : value.operatorIntent;
+      const operatorOutput =
+        value.operatorOutput
+          ? {
+              ...value.operatorOutput,
+              outputId: mappedOutputId(
+                value.operatorOutput
+                  .parentClientMessageId,
+                value.operatorOutput.outputId,
+              ),
+            }
+          : undefined;
+      store.put(
+        {
+          ...value,
+          protectionVersion:
+            LEGACY_LOCAL_PROTECTION_VERSION,
+          ...(operatorIntent
+            ? { operatorIntent }
+            : {}),
+          ...(operatorOutput
+            ? { operatorOutput }
+            : {}),
+        } satisfies StoredPendingSend,
+        key,
+      );
+    }
+  };
 }
 
 function markLegacyRatchetsDuringUpgrade(

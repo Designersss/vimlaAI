@@ -527,13 +527,13 @@ test.describe("Secure Direct Chats", () => {
     const legacyComposer = legacyPage.getByPlaceholder(
       /сообщение этому человеку|message this person/i,
     );
-    await legacyComposer.fill("real indexeddb v2 to v5 migration");
+    await legacyComposer.fill("real indexeddb v2 to v6 migration");
     await legacyPage.getByTestId("chat-composer-send").click();
     await expect(
       legacyPage
         .getByTestId("direct-message-human")
         .filter({
-          hasText: "real indexeddb v2 to v5 migration",
+          hasText: "real indexeddb v2 to v6 migration",
         }),
     ).toBeVisible({ timeout: 20_000 });
     const migratedRatchet = await readRatchetRecordVersion(
@@ -544,7 +544,7 @@ test.describe("Secure Direct Chats", () => {
         peerDeviceId,
       },
     );
-    expect(migratedRatchet.schemaVersion).toBe(1);
+    expect(migratedRatchet.schemaVersion).toBe(2);
     expect(migratedRatchet.stateVersion).toBeGreaterThanOrEqual(1);
     await legacyContext.close();
 
@@ -897,6 +897,22 @@ test.describe("Secure Direct Chats", () => {
     await expect.poll(
       () => readPendingOperatorIntentCount(alicePage),
     ).toBe(1);
+    const protectedIntent =
+      await readPendingOperatorProtection(alicePage);
+    expect(
+      protectedIntent.protectionVersions,
+    ).toEqual([1]);
+    expect(protectedIntent.contents).toHaveLength(1);
+    expect(
+      protectedIntent.contents.every((value) =>
+        value.startsWith("vimla-protected:v1:"),
+      ),
+    ).toBe(true);
+    expect(
+      protectedIntent.contextTexts.every((value) =>
+        value.startsWith("vimla-protected:v1:"),
+      ),
+    ).toBe(true);
 
     const nikitaSecondContext =
       await browser.newContext({
@@ -1017,6 +1033,12 @@ test.describe("Secure Direct Chats", () => {
     ).toBe(1);
 
     let abortFirstOperatorOutputBeforeServer = true;
+    let releaseBlockedOperatorOutput: (() => void) | null =
+      null;
+    const blockedOperatorOutputRelease =
+      new Promise<void>((resolve) => {
+        releaseBlockedOperatorOutput = resolve;
+      });
     await aliceContext.route(
       "**/v1/direct-chats/*/messages",
       async (route) => {
@@ -1031,6 +1053,7 @@ test.describe("Secure Direct Chats", () => {
           body?.kind === "OPERATOR_RESPONSE"
         ) {
           abortFirstOperatorOutputBeforeServer = false;
+          await blockedOperatorOutputRelease;
           await route.abort("failed");
           return;
         }
@@ -1040,10 +1063,41 @@ test.describe("Secure Direct Chats", () => {
 
     const aliceRecoveryPage =
       await aliceContext.newPage();
-    await Promise.all([
-      alicePage.reload(),
-      aliceRecoveryPage.goto(recoveryDirectUrl),
-    ]);
+    const firstRecoveryNavigation =
+      aliceRecoveryPage.goto(recoveryDirectUrl);
+    await expect.poll(
+      () => abortFirstOperatorOutputBeforeServer,
+    ).toBe(false);
+    const protectedOutputs =
+      await readPendingOperatorOutputProtection(
+        alicePage,
+      );
+    expect(
+      protectedOutputs.plaintexts.length,
+    ).toBeGreaterThan(0);
+    expect(
+      protectedOutputs.plaintexts.every((value) =>
+        value.startsWith("vimla-protected:v1:"),
+      ),
+    ).toBe(true);
+    expect(
+      protectedOutputs.ids.length,
+    ).toBeGreaterThan(0);
+    expect(
+      protectedOutputs.ids.every(
+        (value) =>
+          value.startsWith("response:") ||
+          value.startsWith("action:"),
+      ),
+    ).toBe(true);
+    expect(
+      protectedOutputs.ids.some((value) =>
+        value.startsWith("["),
+      ),
+    ).toBe(false);
+    releaseBlockedOperatorOutput?.();
+    await firstRecoveryNavigation;
+    await alicePage.reload();
     for (const page of [
       alicePage,
       aliceRecoveryPage,
@@ -1951,6 +2005,183 @@ async function readPendingOperatorIntentCount(
   });
 }
 
+async function readPendingOperatorProtection(
+  page: Page,
+): Promise<{
+  protectionVersions: number[];
+  contents: string[];
+  contextTexts: string[];
+}> {
+  return page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>(
+      (resolve, reject) => {
+        const request = indexedDB.open(
+          "vimla-direct-e2ee",
+        );
+        request.onsuccess = () =>
+          resolve(request.result);
+        request.onerror = () =>
+          reject(
+            request.error ??
+              new Error(
+                "Pending operator protection database read failed",
+              ),
+          );
+      },
+    );
+    try {
+      return await new Promise(
+        (resolve, reject) => {
+          const tx = db.transaction(
+            "pendingSends",
+            "readonly",
+          );
+          const request = tx
+            .objectStore("pendingSends")
+            .getAll();
+          request.onsuccess = () => {
+            const rows = request.result as Array<{
+              protectionVersion?: number;
+              operatorIntent?: {
+                content?: string;
+                contextBundle?: {
+                  messages?: Array<{
+                    text?: string;
+                  }>;
+                };
+              };
+            }>;
+            const operatorRows = rows.filter(
+              (row) =>
+                row.operatorIntent !== undefined,
+            );
+            resolve({
+              protectionVersions: operatorRows
+                .map(
+                  (row) => row.protectionVersion,
+                )
+                .filter(
+                  (value): value is number =>
+                    typeof value === "number",
+                ),
+              contents: operatorRows
+                .map(
+                  (row) =>
+                    row.operatorIntent?.content,
+                )
+                .filter(
+                  (value): value is string =>
+                    typeof value === "string",
+                ),
+              contextTexts: operatorRows.flatMap(
+                (row) =>
+                  (
+                    row.operatorIntent
+                      ?.contextBundle?.messages ??
+                    []
+                  )
+                    .map((message) => message.text)
+                    .filter(
+                      (value): value is string =>
+                        typeof value === "string",
+                    ),
+              ),
+            });
+          };
+          request.onerror = () =>
+            reject(
+              request.error ??
+                new Error(
+                  "Pending operator protection read failed",
+                ),
+            );
+        },
+      );
+    } finally {
+      db.close();
+    }
+  });
+}
+
+async function readPendingOperatorOutputProtection(
+  page: Page,
+): Promise<{
+  ids: string[];
+  plaintexts: string[];
+}> {
+  return page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>(
+      (resolve, reject) => {
+        const request = indexedDB.open(
+          "vimla-direct-e2ee",
+        );
+        request.onsuccess = () =>
+          resolve(request.result);
+        request.onerror = () =>
+          reject(
+            request.error ??
+              new Error(
+                "Pending operator output protection database read failed",
+              ),
+          );
+      },
+    );
+    try {
+      return await new Promise(
+        (resolve, reject) => {
+          const tx = db.transaction(
+            "pendingSends",
+            "readonly",
+          );
+          const request = tx
+            .objectStore("pendingSends")
+            .getAll();
+          request.onsuccess = () => {
+            const rows = request.result as Array<{
+              operatorIntent?: {
+                delivery?: {
+                  outputs?: Array<{
+                    id?: string;
+                    plaintext?: string;
+                  }>;
+                };
+              };
+            }>;
+            const outputs = rows.flatMap(
+              (row) =>
+                row.operatorIntent?.delivery
+                  ?.outputs ?? [],
+            );
+            resolve({
+              ids: outputs
+                .map((output) => output.id)
+                .filter(
+                  (value): value is string =>
+                    typeof value === "string",
+                ),
+              plaintexts: outputs
+                .map((output) => output.plaintext)
+                .filter(
+                  (value): value is string =>
+                    typeof value === "string",
+                ),
+            });
+          };
+          request.onerror = () =>
+            reject(
+              request.error ??
+                new Error(
+                  "Pending operator output protection read failed",
+                ),
+            );
+        },
+      );
+    } finally {
+      db.close();
+    }
+  });
+}
+
 async function readPendingOperatorOutputCount(
   page: Page,
 ): Promise<number> {
@@ -2282,7 +2513,7 @@ async function writeDeviceFenceMarker(
 ): Promise<void> {
   await page.evaluate(async (value) => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open("vimla-direct-e2ee", 5);
+      const request = indexedDB.open("vimla-direct-e2ee");
       request.onsuccess = () => resolve(request.result);
       request.onerror = () =>
         reject(
@@ -2335,7 +2566,7 @@ async function readDeviceFenceMarker(
 ): Promise<string | null> {
   return page.evaluate(async () => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open("vimla-direct-e2ee", 5);
+      const request = indexedDB.open("vimla-direct-e2ee");
       request.onsuccess = () => resolve(request.result);
       request.onerror = () =>
         reject(
@@ -2372,7 +2603,7 @@ async function readDeviceFenceMarker(
 async function readLocalDeviceId(page: Page): Promise<string> {
   return page.evaluate(async () => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open("vimla-direct-e2ee", 5);
+      const request = indexedDB.open("vimla-direct-e2ee");
       request.onsuccess = () => resolve(request.result);
       request.onerror = () =>
         reject(request.error ?? new Error("E2EE IndexedDB open failed"));
@@ -2412,45 +2643,268 @@ async function readLegacyV2Fixture(
   conversationId: string,
 ): Promise<LegacyV2Fixture> {
   return page.evaluate(async (targetConversationId) => {
-    const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open("vimla-direct-e2ee", 5);
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () =>
-        reject(
-          request.error ??
-            new Error("E2EE IndexedDB open failed"),
-        );
-    });
-    try {
-      const device = await new Promise<Record<string, unknown>>(
+    const protectedPrefix = "vimla-protected:v1:";
+    const decoder = new TextDecoder();
+    const encoder = new TextEncoder();
+
+    function base64ToBytes(value: string): Uint8Array<ArrayBuffer> {
+      const binary = atob(value);
+      const bytes = new Uint8Array(binary.length);
+      for (
+        let index = 0;
+        index < binary.length;
+        index += 1
+      ) {
+        bytes[index] = binary.charCodeAt(index);
+      }
+      return bytes;
+    }
+
+    async function readWrappingKey(): Promise<CryptoKey> {
+      const keyring = await new Promise<IDBDatabase>(
         (resolve, reject) => {
-          const tx = db.transaction("device", "readonly");
-          const request = tx.objectStore("device").get("local");
-          request.onsuccess = () => {
-            const value = request.result;
-            if (
-              !value ||
-              typeof value !== "object" ||
-              Array.isArray(value)
-            ) {
-              reject(
-                new Error("Legacy device fixture is missing"),
-              );
-              return;
-            }
-            resolve(value as Record<string, unknown>);
-          };
+          const request = indexedDB.open(
+            "vimla-e2ee-keyring",
+          );
+          request.onsuccess = () =>
+            resolve(request.result);
           request.onerror = () =>
             reject(
               request.error ??
-                new Error("Legacy device fixture read failed"),
+                new Error(
+                  "E2EE keyring open failed",
+                ),
             );
         },
       );
-      if (typeof device.deviceId !== "string") {
-        throw new Error("Legacy device fixture is missing");
+      try {
+        return await new Promise<CryptoKey>(
+          (resolve, reject) => {
+            const tx = keyring.transaction(
+              "keys",
+              "readonly",
+            );
+            const request = tx
+              .objectStore("keys")
+              .get("local-wrap-v1");
+            request.onsuccess = () => {
+              const key = request.result;
+              if (!(key instanceof CryptoKey)) {
+                reject(
+                  new Error(
+                    "E2EE wrapping key is missing",
+                  ),
+                );
+                return;
+              }
+              resolve(key);
+            };
+            request.onerror = () =>
+              reject(
+                request.error ??
+                  new Error(
+                    "E2EE wrapping key read failed",
+                  ),
+              );
+          },
+        );
+      } finally {
+        keyring.close();
       }
-      const deviceId = device.deviceId;
+    }
+
+    async function unprotect(
+      value: string,
+      aad: string,
+      key: CryptoKey,
+    ): Promise<string> {
+      if (!value.startsWith(protectedPrefix)) {
+        return value;
+      }
+      const encoded = value.slice(
+        protectedPrefix.length,
+      );
+      const payload = JSON.parse(
+        decoder.decode(base64ToBytes(encoded)),
+      ) as {
+        v?: unknown;
+        iv?: unknown;
+        ciphertext?: unknown;
+      };
+      if (
+        payload.v !== 1 ||
+        typeof payload.iv !== "string" ||
+        typeof payload.ciphertext !== "string"
+      ) {
+        throw new Error(
+          "Protected E2EE fixture is invalid",
+        );
+      }
+      const plaintext = await crypto.subtle.decrypt(
+        {
+          name: "AES-GCM",
+          iv: base64ToBytes(payload.iv),
+          additionalData: encoder.encode(aad),
+          tagLength: 128,
+        },
+        key,
+        base64ToBytes(payload.ciphertext),
+      );
+      return decoder.decode(plaintext);
+    }
+
+    const wrappingKey = await readWrappingKey();
+    const db = await new Promise<IDBDatabase>(
+      (resolve, reject) => {
+        const request = indexedDB.open(
+          "vimla-direct-e2ee",
+        );
+        request.onsuccess = () =>
+          resolve(request.result);
+        request.onerror = () =>
+          reject(
+            request.error ??
+              new Error(
+                "E2EE IndexedDB open failed",
+              ),
+          );
+      },
+    );
+    try {
+      const storedDevice =
+        await new Promise<Record<string, unknown>>(
+          (resolve, reject) => {
+            const tx = db.transaction(
+              "device",
+              "readonly",
+            );
+            const request = tx
+              .objectStore("device")
+              .get("local");
+            request.onsuccess = () => {
+              const value = request.result;
+              if (
+                !value ||
+                typeof value !== "object" ||
+                Array.isArray(value)
+              ) {
+                reject(
+                  new Error(
+                    "Legacy device fixture is missing",
+                  ),
+                );
+                return;
+              }
+              resolve(
+                value as Record<string, unknown>,
+              );
+            };
+            request.onerror = () =>
+              reject(
+                request.error ??
+                  new Error(
+                    "Legacy device fixture read failed",
+                  ),
+              );
+          },
+        );
+      if (
+        typeof storedDevice.deviceId !== "string"
+      ) {
+        throw new Error(
+          "Legacy device fixture is missing",
+        );
+      }
+      const deviceId = storedDevice.deviceId;
+      const device = structuredClone(
+        storedDevice,
+      ) as Record<string, unknown>;
+      delete device.protectionVersion;
+      const identity = device.identity as
+        | Record<string, unknown>
+        | undefined;
+      if (
+        !identity ||
+        typeof identity.ed25519Secret !== "string" ||
+        typeof identity.x25519Secret !== "string"
+      ) {
+        throw new Error(
+          "Legacy device identity fixture is invalid",
+        );
+      }
+      identity.ed25519Secret = await unprotect(
+        identity.ed25519Secret,
+        `vimla:e2ee:device:${deviceId}:identity:ed25519`,
+        wrappingKey,
+      );
+      identity.x25519Secret = await unprotect(
+        identity.x25519Secret,
+        `vimla:e2ee:device:${deviceId}:identity:x25519`,
+        wrappingKey,
+      );
+
+      for (const [keyId, candidate] of Object.entries(
+        (device.signedPrekeys ?? {}) as Record<
+          string,
+          unknown
+        >,
+      )) {
+        if (
+          !candidate ||
+          typeof candidate !== "object" ||
+          Array.isArray(candidate)
+        ) {
+          throw new Error(
+            "Legacy signed prekey fixture is invalid",
+          );
+        }
+        const prekey = candidate as Record<
+          string,
+          unknown
+        >;
+        if (typeof prekey.secret !== "string") {
+          throw new Error(
+            "Legacy signed prekey fixture is invalid",
+          );
+        }
+        prekey.secret = await unprotect(
+          prekey.secret,
+          `vimla:e2ee:device:${deviceId}:signed-prekey:${keyId}`,
+          wrappingKey,
+        );
+      }
+
+      for (const [keyId, candidate] of Object.entries(
+        (device.oneTimePrekeys ?? {}) as Record<
+          string,
+          unknown
+        >,
+      )) {
+        if (
+          !candidate ||
+          typeof candidate !== "object" ||
+          Array.isArray(candidate)
+        ) {
+          throw new Error(
+            "Legacy one-time prekey fixture is invalid",
+          );
+        }
+        const prekey = candidate as Record<
+          string,
+          unknown
+        >;
+        if (typeof prekey.secret !== "string") {
+          throw new Error(
+            "Legacy one-time prekey fixture is invalid",
+          );
+        }
+        prekey.secret = await unprotect(
+          prekey.secret,
+          `vimla:e2ee:device:${deviceId}:one-time-prekey:${keyId}`,
+          wrappingKey,
+        );
+      }
+
       const prefix =
         `${targetConversationId}:${deviceId}:`;
       const ratchets = await new Promise<
@@ -2460,42 +2914,79 @@ async function readLegacyV2Fixture(
           key: string;
           state: unknown;
         }> = [];
-        const tx = db.transaction("ratchets", "readonly");
+        const pending: Promise<void>[] = [];
+        const tx = db.transaction(
+          "ratchets",
+          "readonly",
+        );
         const request = tx
           .objectStore("ratchets")
           .openCursor();
         request.onsuccess = () => {
           const cursor = request.result;
           if (!cursor) {
-            resolve(rows);
+            void Promise.all(pending).then(
+              () => resolve(rows),
+              reject,
+            );
             return;
           }
           const key = String(cursor.key);
           const value = cursor.value as
-            | { state?: unknown }
+            | Record<string, unknown>
             | undefined;
-          if (
-            key.startsWith(prefix) &&
-            value?.state !== undefined
-          ) {
-            rows.push({
-              key:
-                `${targetConversationId}:${key.slice(
-                  prefix.length,
-                )}`,
-              state: value.state,
-            });
+          if (key.startsWith(prefix) && value) {
+            const peerDeviceId = key.slice(
+              prefix.length,
+            );
+            if (value.state !== undefined) {
+              rows.push({
+                key:
+                  `${targetConversationId}:${peerDeviceId}`,
+                state: value.state,
+              });
+            } else if (
+              value.schemaVersion === 2 &&
+              typeof value.stateVersion === "number" &&
+              typeof value.protectedState === "string"
+            ) {
+              pending.push(
+                unprotect(
+                  value.protectedState,
+                  [
+                    "vimla:e2ee:ratchet",
+                    targetConversationId,
+                    deviceId,
+                    peerDeviceId,
+                    String(value.stateVersion),
+                  ].join(":"),
+                  wrappingKey,
+                ).then((plaintext) => {
+                  rows.push({
+                    key:
+                      `${targetConversationId}:${peerDeviceId}`,
+                    state: JSON.parse(
+                      plaintext,
+                    ) as unknown,
+                  });
+                }),
+              );
+            }
           }
           cursor.continue();
         };
         request.onerror = () =>
           reject(
             request.error ??
-              new Error("Legacy ratchet fixture read failed"),
+              new Error(
+                "Legacy ratchet fixture read failed",
+              ),
           );
       });
       if (ratchets.length === 0) {
-        throw new Error("Legacy ratchet fixture is empty");
+        throw new Error(
+          "Legacy ratchet fixture is empty",
+        );
       }
       return {
         deviceId,
@@ -2507,7 +2998,6 @@ async function readLegacyV2Fixture(
     }
   }, conversationId);
 }
-
 async function seedLegacyV2Database(
   page: Page,
   fixture: LegacyV2Fixture,
@@ -2588,7 +3078,7 @@ async function readRatchetRecordVersion(
 ): Promise<{ schemaVersion: number; stateVersion: number }> {
   return page.evaluate(async (value) => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open("vimla-direct-e2ee", 5);
+      const request = indexedDB.open("vimla-direct-e2ee");
       request.onsuccess = () => resolve(request.result);
       request.onerror = () =>
         reject(request.error ?? new Error("E2EE IndexedDB open failed"));
@@ -2641,7 +3131,7 @@ async function seedExpiredRatchetLease(
 ): Promise<void> {
   await page.evaluate(async (value) => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open("vimla-direct-e2ee", 5);
+      const request = indexedDB.open("vimla-direct-e2ee");
       request.onsuccess = () => resolve(request.result);
       request.onerror = () =>
         reject(request.error ?? new Error("E2EE IndexedDB open failed"));

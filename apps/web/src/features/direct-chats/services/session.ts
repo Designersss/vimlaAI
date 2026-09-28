@@ -69,14 +69,38 @@ import {
   RatchetStateConflictError,
 } from "./ratchet-coordination";
 import { decodeDirectPlaintext, encodeDirectPlaintext, type DirectPlaintextPayload } from "./payload";
+import { clearLocalDataAfterDeviceRevocation } from "./local-data";
+import { isLocalDeviceRevoked } from "./revocation-state";
+
+function assertLocalDeviceNotRevoked(): void {
+  if (isLocalDeviceRevoked()) {
+    throw new DirectChatsApiError(
+      "direct_chat_device_revoked",
+    );
+  }
+}
 
 export async function ensureLocalDevice(): Promise<StoredDeviceMaterial> {
+  assertLocalDeviceNotRevoked();
   return withLocalDeviceBootstrapLock(async (lease) => {
+    assertLocalDeviceNotRevoked();
     const existing = await loadDeviceMaterial();
+    assertLocalDeviceNotRevoked();
     if (existing) {
       if (existing.registrationState === "PENDING") {
         await assertLocalDeviceBootstrapLease(lease);
-        await registerStoredDevice(existing);
+        assertLocalDeviceNotRevoked();
+        try {
+          await registerStoredDevice(existing);
+        } catch (error: unknown) {
+          if (
+            error instanceof DirectChatsApiError &&
+            error.code === "direct_chat_device_revoked"
+          ) {
+            await clearLocalDataAfterDeviceRevocation();
+          }
+          throw error;
+        }
         const registered = {
           ...existing,
           registrationState: "REGISTERED" as const,
@@ -87,6 +111,7 @@ export async function ensureLocalDevice(): Promise<StoredDeviceMaterial> {
       return existing;
     }
 
+    assertLocalDeviceNotRevoked();
     const identity = generateIdentity();
     const signed = generateSignedPreKey(identity, 1);
     const oneTime = Array.from(
@@ -115,8 +140,20 @@ export async function ensureLocalDevice(): Promise<StoredDeviceMaterial> {
       ),
     };
     await saveDeviceMaterial(material, lease);
+    assertLocalDeviceNotRevoked();
     await assertLocalDeviceBootstrapLease(lease);
-    await registerStoredDevice(material);
+    assertLocalDeviceNotRevoked();
+    try {
+      await registerStoredDevice(material);
+    } catch (error: unknown) {
+      if (
+        error instanceof DirectChatsApiError &&
+        error.code === "direct_chat_device_revoked"
+      ) {
+        await clearLocalDataAfterDeviceRevocation();
+      }
+      throw error;
+    }
     const registered = {
       ...material,
       registrationState: "REGISTERED" as const,
@@ -363,7 +400,7 @@ export async function recoverPendingSends(input: {
   | "LOCAL_DEVICE_INACTIVE"
   | "RECIPIENT_DEVICE_MISSING"
 > {
-  return withPendingSendRecoveryLock(
+  const result = await withPendingSendRecoveryLock(
     {
       conversationId: input.conversationId,
       localDeviceId: input.localDevice.deviceId,
@@ -515,6 +552,10 @@ export async function recoverPendingSends(input: {
       return blocked ?? "RESOLVED";
     },
   );
+  if (result === "LOCAL_DEVICE_INACTIVE") {
+    await clearLocalDataAfterDeviceRevocation();
+  }
+  return result;
 }
 
 export interface PendingOperatorInvocation {

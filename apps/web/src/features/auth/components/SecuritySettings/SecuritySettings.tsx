@@ -301,6 +301,7 @@ export function SecuritySettings(): ReactElement {
         </Button>
       </Card>
 
+
       {error ? <Alert variant="error">{error}</Alert> : null}
       {message ? <Alert variant="success">{message}</Alert> : null}
     </div>

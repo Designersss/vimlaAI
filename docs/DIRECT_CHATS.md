@@ -5,7 +5,7 @@
 Direct Chat is a separate conversation type from AI `Conversation` (`CHAT`) and the dedicated `@Vimla` operator thread (`OPERATOR`).
 
 ```text
-Browser (IndexedDB private keys + local plaintext cache)
+Browser (protected IndexedDB E2EE state + local plaintext cache)
   -> POST/GET /v1/direct-chats*
   -> DirectChatsFacade -> @vimla/direct-chats
   -> PostgreSQL: ciphertext envelopes, public device material, membership, unread cursors
@@ -55,7 +55,7 @@ Each browser device generates:
 - signed prekey + signature
 - one-time prekeys
 
-Private material never leaves IndexedDB. The API stores public keys only. Devices can be rotated (new signed prekey + OTKs) and revoked (`revokedAt`). Revoked devices cannot send or receive new envelopes.
+Private material never leaves the browser-local E2EE storage boundary. The API stores public keys only. Devices can be rotated (new signed prekey + OTKs) and revoked (`revokedAt`). Revoked devices cannot send or receive new envelopes.
 
 Multi-device evolution is laid out: fan-out to every active device, per-device ratchets, OTK consumption. A **new** device cannot decrypt prior history (no server-side history key). That is an explicit Phase 9 limitation, not AES wrapping of old ciphertext.
 
@@ -79,6 +79,24 @@ Browser ratchet mutation is serialized per `conversationId + localDeviceId + pee
 - CAS conflicts and lost leases discard the derived result and retry from the current persisted state; conflicting ciphertext is never returned to the caller.
 
 This hardening addresses same-origin concurrent tabs/processes, stale writers relative to the current live IndexedDB state, partial local transactions and ambiguous send responses. It does not claim protection against a fully compromised browser origin or arbitrary rollback of the entire browser profile/storage snapshot. Whole-profile rollback detection requires a monotonic anchor outside that rollback domain and is tracked in #75. One-time-prekey replenishment/rotation remains a separate E2EE-H04 concern in #54. Server-verifiable origin binding for peer-visible `OPERATOR_RESPONSE` / `OPERATOR_ACTION` content is tracked separately in security issue #74 because solving it correctly requires an output attestation/protocol design rather than trusting sender-controlled message kind.
+
+### Browser-origin and local-storage hardening (E2EE-H02)
+
+H02 adds defense-in-depth around the browser origin without changing the Direct Chat wire protocol:
+
+- The web app serves a fresh request nonce and origin-wide Content Security Policy. Production `script-src` is nonce-based, uses `strict-dynamic`, and does not allow `unsafe-eval` or `unsafe-inline`; inline event handlers are explicitly denied. Nonced `<style>` elements remain restricted while `style-src-attr` permits React's generated element style attributes without weakening script execution policy. The policy also denies framing and plugins, constrains base/form targets, and limits network connections to the Vimla web/API realtime origins. Development keeps only the `unsafe-eval` exception required by React/Next debugging.
+- HTML responses add `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`, a restrictive `Permissions-Policy`, and HSTS outside development. CI rejects newly introduced direct HTML/code-execution sinks such as `dangerouslySetInnerHTML`, raw `innerHTML`, `insertAdjacentHTML`, `document.write`, `eval`, and `new Function` in web source.
+- IndexedDB schema v6 protects long-lived E2EE secrets/plaintext with AES-256-GCM. A browser-generated non-extractable WebCrypto `CryptoKey` is stored in the dedicated `vimla-e2ee-keyring` IndexedDB database; sensitive values remain in `vimla-direct-e2ee` only as authenticated ciphertext. AAD is domain-separated by record type and stable record identity.
+- Protected fields include Ed25519/X25519 private identity material, signed/one-time-prekey secrets, Double Ratchet secret state, the local decrypted message cache, durable pending-send plaintext, frozen Direct Chat Operator context, and pending Operator response/action plaintext. IndexedDB keys/index fields, device ids, ratchet `stateVersion`, delivery ids/status and ciphertext-envelope metadata remain clear where H01 atomic CAS/outbox coordination requires them.
+- During a pre-v6 IndexedDB upgrade, raw device/plaintext/pending rows are explicitly marked as legacy records before normal app reads. Legacy Operator delivery ids from H01 are also rotated to opaque local ids, with child pending-output links updated in the same upgrade transaction, because the old deterministic ids embedded response/action text. New protected records carry an explicit local protection version, so user plaintext is never classified as ciphertext merely because it begins with the protected-envelope prefix. Legacy rows are lazily rewritten to the protected v6 representation on their normal read/write path. Ratchet migration keeps the same scoped key and `stateVersion`; a concurrent H01 writer wins rather than being overwritten by a migration.
+- Plaintext cache is intentionally retained because the initiator cannot decrypt its own old outbound ratchet envelopes and historical Double Ratchet keys are not a server-side recovery mechanism. H02 therefore does **not** impose a time TTL that would silently destroy history. Retention ends when the security lifecycle performs an authoritative local wipe, such as logout or authoritative local-device revocation. This is not exposed as a normal user-facing storage/cache maintenance action.
+- Logout attempts to revoke the current crypto device while the authenticated API session still exists, then removes both the Direct Chat database and local wrapping-key database. Local deletion is the security requirement; remote revoke is best-effort because durable offline device lifecycle/recovery belongs to H05. Per #78, the wipe primitive remains internal to security/device lifecycle; normal Settings must not expose **Clear local Direct Chat data**, manual resync, or reset-E2EE maintenance controls.
+- If a Direct Chat message fetch or pending-send recovery authoritatively reports the browser's current crypto device as revoked, local E2EE state is deleted and the failing recovery attempt does not silently register a replacement identity. A non-secret revocation latch is shared through origin `localStorage` so sibling tabs fail closed instead of silently re-enrolling after another tab wipes the IndexedDB state.
+- No E2EE private key/plaintext is stored in `localStorage`, `sessionStorage`, or cookies; the shared revocation latch contains only revocation state and no key material, message content, or device secret.
+
+The wrapping key is defense-in-depth against cleartext-at-rest exposure, accidental app-storage inspection and ordinary raw-record leakage; it is **not** a separate trust boundary from arbitrary JavaScript already executing in the Vimla origin. Same-origin malicious code can ask WebCrypto to use a non-extractable key even though it cannot export that key. A full browser-profile backup/rollback can also contain both encrypted data and the keyring, so H02 does not claim protection against whole-profile compromise or rollback; #75 remains the rollback/monotonic-anchor task. Native desktop/mobile clients should use OS secure storage when introduced.
+
+Trusted Types enforcement is intentionally not enabled in H02 while Next.js 16's default Turbopack runtime lacks a compatible policy for dynamic chunk loading under `require-trusted-types-for 'script'`. Enabling it today would break normal route/chunk loading rather than add a reliable boundary. The source-sink guard plus strict CSP are enforced now; Trusted Types should be re-evaluated when Turbopack provides a supported runtime policy.
 
 ## 4. @Vimla context handoff
 

@@ -20,12 +20,27 @@ import {
 } from "@vimla/contracts";
 import { publicWebConfig } from "../../../shared/config/public-env";
 import { AuthRequiredError } from "../../auth/services/current-user";
+import { clearLocalE2eeData } from "./crypto-store";
+import { markLocalDeviceRevoked } from "./revocation-state";
 
 export class DirectChatsApiError extends Error {
   constructor(readonly code: string) {
     super(code);
     this.name = "DirectChatsApiError";
   }
+}
+
+async function wipeAfterCurrentDeviceRevocation(
+  error: unknown,
+): Promise<never> {
+  if (
+    error instanceof DirectChatsApiError &&
+    error.code === "direct_chat_device_revoked"
+  ) {
+    markLocalDeviceRevoked();
+    await clearLocalE2eeData();
+  }
+  throw error;
 }
 
 const DIRECT_CHAT_REQUEST_TIMEOUT_MS = 20_000;
@@ -111,25 +126,41 @@ export async function fetchDirectMessages(
   if (cursor) {
     params.set("cursor", cursor);
   }
-  return request(
-    `/v1/direct-chats/${id}/messages?${params.toString()}`,
-    {},
-    (payload) => directMessagesResponseSchema.parse(payload),
-    fetchImpl,
-  );
+  try {
+    return await request(
+      `/v1/direct-chats/${id}/messages?${params.toString()}`,
+      {},
+      (payload) => directMessagesResponseSchema.parse(payload),
+      fetchImpl,
+    );
+  } catch (error: unknown) {
+    // This request identifies the recipient by the browser's own deviceId,
+    // so DEVICE_REVOKED authoritatively applies to the local crypto state.
+    return wipeAfterCurrentDeviceRevocation(error);
+  }
 }
-
 export async function sendDirectMessage(
   id: string,
   input: SendDirectMessage,
   fetchImpl: typeof fetch = fetch,
 ): Promise<DirectMessageView> {
-  return request(
-    `/v1/direct-chats/${id}/messages`,
-    { method: "POST", headers: jsonHeaders(), body: JSON.stringify(input) },
-    (payload) => directMessageViewSchema.parse(payload),
-    fetchImpl,
-  );
+  try {
+    return await request(
+      `/v1/direct-chats/${id}/messages`,
+      {
+        method: "POST",
+        headers: jsonHeaders(),
+        body: JSON.stringify(input),
+      },
+      (payload) => directMessageViewSchema.parse(payload),
+      fetchImpl,
+    );
+  } catch (error: unknown) {
+    // senderDeviceId is this browser's local sender device. A revoked
+    // response is therefore authoritative even if revocation raced the
+    // preflight/recovery checks immediately before this POST.
+    return wipeAfterCurrentDeviceRevocation(error);
+  }
 }
 
 export async function registerCryptoDevice(
@@ -139,6 +170,18 @@ export async function registerCryptoDevice(
   return request(
     "/v1/direct-chats/devices",
     { method: "POST", headers: jsonHeaders(), body: JSON.stringify(input) },
+    (payload) => cryptoDeviceViewSchema.parse(payload),
+    fetchImpl,
+  );
+}
+
+export async function revokeCryptoDevice(
+  deviceId: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<CryptoDeviceView> {
+  return request(
+    `/v1/direct-chats/devices/${encodeURIComponent(deviceId)}/revoke`,
+    { method: "POST" },
     (payload) => cryptoDeviceViewSchema.parse(payload),
     fetchImpl,
   );
