@@ -17,8 +17,18 @@ describe("web security policy", () => {
     expect(policy).toContain(
       "script-src 'self' 'nonce-nonce-value' 'strict-dynamic'",
     );
-    expect(policy).not.toContain("'unsafe-eval'");
-    expect(policy).not.toContain("'unsafe-inline'");
+    const scriptPolicy = policy
+      .split("; ")
+      .find((directive) =>
+        directive.startsWith("script-src "),
+      );
+    expect(scriptPolicy).toBeTruthy();
+    expect(scriptPolicy).not.toContain("'unsafe-eval'");
+    expect(scriptPolicy).not.toContain("'unsafe-inline'");
+    expect(policy).toContain("script-src-attr 'none'");
+    expect(policy).toContain(
+      "style-src-attr 'unsafe-inline'",
+    );
     expect(policy).toContain("frame-ancestors 'none'");
     expect(policy).toContain("object-src 'none'");
     expect(policy).toContain(
