@@ -70,13 +70,26 @@ import {
 } from "./ratchet-coordination";
 import { decodeDirectPlaintext, encodeDirectPlaintext, type DirectPlaintextPayload } from "./payload";
 import { clearLocalDataAfterDeviceRevocation } from "./local-data";
+import { isLocalDeviceRevoked } from "./revocation-state";
+
+function assertLocalDeviceNotRevoked(): void {
+  if (isLocalDeviceRevoked()) {
+    throw new DirectChatsApiError(
+      "direct_chat_device_revoked",
+    );
+  }
+}
 
 export async function ensureLocalDevice(): Promise<StoredDeviceMaterial> {
+  assertLocalDeviceNotRevoked();
   return withLocalDeviceBootstrapLock(async (lease) => {
+    assertLocalDeviceNotRevoked();
     const existing = await loadDeviceMaterial();
+    assertLocalDeviceNotRevoked();
     if (existing) {
       if (existing.registrationState === "PENDING") {
         await assertLocalDeviceBootstrapLease(lease);
+        assertLocalDeviceNotRevoked();
         try {
           await registerStoredDevice(existing);
         } catch (error: unknown) {
@@ -98,6 +111,7 @@ export async function ensureLocalDevice(): Promise<StoredDeviceMaterial> {
       return existing;
     }
 
+    assertLocalDeviceNotRevoked();
     const identity = generateIdentity();
     const signed = generateSignedPreKey(identity, 1);
     const oneTime = Array.from(
@@ -126,7 +140,9 @@ export async function ensureLocalDevice(): Promise<StoredDeviceMaterial> {
       ),
     };
     await saveDeviceMaterial(material, lease);
+    assertLocalDeviceNotRevoked();
     await assertLocalDeviceBootstrapLease(lease);
+    assertLocalDeviceNotRevoked();
     try {
       await registerStoredDevice(material);
     } catch (error: unknown) {
