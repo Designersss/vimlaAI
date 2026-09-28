@@ -250,19 +250,39 @@ export async function deleteIndexedDb(
   name: string,
 ): Promise<void> {
   await new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const timeout = globalThis.setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        reject(
+          new Error(
+            "IndexedDB deletion remained blocked",
+          ),
+        );
+      }
+    }, 5_000);
+    const finish = (
+      result: () => void,
+    ): void => {
+      if (settled) return;
+      settled = true;
+      globalThis.clearTimeout(timeout);
+      result();
+    };
     const request = indexedDB.deleteDatabase(name);
-    request.onsuccess = () => resolve();
+    request.onsuccess = () =>
+      finish(resolve);
     request.onerror = () =>
-      reject(
-        request.error ??
-          new Error("IndexedDB deletion failed"),
-      );
-    request.onblocked = () =>
-      reject(
-        new Error(
-          "IndexedDB deletion is blocked by another browser context",
+      finish(() =>
+        reject(
+          request.error ??
+            new Error("IndexedDB deletion failed"),
         ),
       );
+    request.onblocked = () => {
+      // Existing Direct Chat transactions are short-lived and close their
+      // connection. Keep waiting for the browser to finish deletion.
+    };
   });
 }
 
