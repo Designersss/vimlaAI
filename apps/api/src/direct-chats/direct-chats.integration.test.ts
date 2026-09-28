@@ -1620,6 +1620,97 @@ describe("direct chats API", () => {
       "MUST NOT EXECUTE AFTER SELF REVOKE",
     );
 
+    await app.inject({
+      method: "PATCH",
+      url: `/v1/direct-chats/${chat.id}/privacy`,
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: { shareOwnHistoryWithVimla: true },
+    });
+    const partialRecovery = await runDirect(
+      "@Vimla partial revoke transition",
+      {
+        messages: [
+          {
+            messageId: maliciousHistory.id,
+            senderUserId: alice.id,
+            sentAt: maliciousHistory.createdAt,
+            text: "authorized self history",
+          },
+        ],
+      },
+    );
+    await db.$transaction(async (tx) => {
+      await tx.operatorRun.update({
+        where: { id: partialRecovery.response.json().id },
+        data: { status: "EXECUTING", errorCode: null },
+      });
+      await tx.operatorRunStep.deleteMany({
+        where: { runId: partialRecovery.response.json().id },
+      });
+      await tx.operatorRunStep.createMany({
+        data: [
+          {
+            runId: partialRecovery.response.json().id,
+            sequence: 0,
+            toolName: "tasks.create",
+            status: "EXECUTED",
+            inputJson: { title: "already committed" },
+            publicKind: "task",
+            publicTitle: "already committed",
+            publicDetail: null,
+            publicHrefPath: "/work/tasks",
+            idempotencyKey: "revoke-after-commit-0",
+            executedAt: new Date(),
+          },
+          {
+            runId: partialRecovery.response.json().id,
+            sequence: 1,
+            toolName: "tasks.create",
+            status: "PENDING",
+            inputJson: { title: "must not execute after revoke" },
+            publicKind: "task",
+            publicTitle: "must not execute after revoke",
+            publicDetail: null,
+            publicHrefPath: "/work/tasks",
+            idempotencyKey: "revoke-after-commit-1",
+          },
+        ],
+      });
+    });
+    await app.inject({
+      method: "PATCH",
+      url: `/v1/direct-chats/${chat.id}/privacy`,
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: { shareOwnHistoryWithVimla: false },
+    });
+    const partialReplay = await app.inject({
+      method: "POST",
+      url: "/v1/operator/runs",
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: partialRecovery.payload,
+    });
+    expect(partialReplay.statusCode).toBe(201);
+    expect(partialReplay.json().status).toBe("PARTIAL");
+    const partialSteps = await db.operatorRunStep.findMany({
+      where: { runId: partialRecovery.response.json().id },
+      orderBy: { sequence: "asc" },
+    });
+    expect(partialSteps[0]?.status).toBe("EXECUTED");
+    expect(partialSteps[1]?.status).toBe("FAILED");
+    expect(partialSteps[1]?.errorCode).toBe(
+      "direct_chat_context_revoked",
+    );
+    await app.inject({
+      method: "PATCH",
+      url: `/v1/direct-chats/${chat.id}/privacy`,
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: { shareOwnHistoryWithVimla: true },
+    });
+
     await db.operatorRun.update({
       where: { id: noWorkspaceLeak.response.json().id },
       data: {
