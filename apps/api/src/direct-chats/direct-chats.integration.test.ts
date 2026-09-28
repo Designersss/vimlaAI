@@ -112,6 +112,105 @@ describe("direct chats API", () => {
     }
   });
 
+  it("keeps repeated crypto-device registration identity-bound", async () => {
+    const user = await readyUser(
+      app,
+      "dc-device-idempotent",
+      "Device Owner",
+    );
+    const deviceId = randomUUID();
+    const firstIdentity = generateIdentity();
+    const firstSigned = generateSignedPreKey(
+      firstIdentity,
+      1,
+    );
+    const firstOtk = generateOneTimePreKey(1);
+    const firstPayload = {
+      deviceId,
+      identityEd25519Public: bytesToB64(
+        firstIdentity.ed25519Public,
+      ),
+      identityX25519Public: bytesToB64(
+        firstIdentity.x25519Public,
+      ),
+      signedPrekeyId: firstSigned.keyId,
+      signedPrekeyPublic: bytesToB64(
+        firstSigned.publicKey,
+      ),
+      signedPrekeySignature: bytesToB64(
+        firstSigned.signature,
+      ),
+      oneTimePrekeys: [
+        {
+          keyId: firstOtk.keyId,
+          publicKey: bytesToB64(firstOtk.publicKey),
+        },
+      ],
+      label: "browser",
+    };
+
+    const first = await app.inject({
+      method: "POST",
+      url: "/v1/direct-chats/devices",
+      headers: jsonHeaders(),
+      cookies: user.cookies,
+      payload: firstPayload,
+    });
+    expect(first.statusCode).toBe(201);
+
+    const exactRetry = await app.inject({
+      method: "POST",
+      url: "/v1/direct-chats/devices",
+      headers: jsonHeaders(),
+      cookies: user.cookies,
+      payload: firstPayload,
+    });
+    expect(exactRetry.statusCode).toBe(201);
+
+    const replacementIdentity = generateIdentity();
+    const replacementSigned = generateSignedPreKey(
+      replacementIdentity,
+      1,
+    );
+    const mismatched = await app.inject({
+      method: "POST",
+      url: "/v1/direct-chats/devices",
+      headers: jsonHeaders(),
+      cookies: user.cookies,
+      payload: {
+        ...firstPayload,
+        identityEd25519Public: bytesToB64(
+          replacementIdentity.ed25519Public,
+        ),
+        identityX25519Public: bytesToB64(
+          replacementIdentity.x25519Public,
+        ),
+        signedPrekeyPublic: bytesToB64(
+          replacementSigned.publicKey,
+        ),
+        signedPrekeySignature: bytesToB64(
+          replacementSigned.signature,
+        ),
+      },
+    });
+    expect(mismatched.statusCode).toBe(400);
+
+    const stored = await app
+      .get(PrismaService)
+      .client.userCryptoDevice.findUniqueOrThrow({
+        where: { id: deviceId },
+      });
+    expect(stored.identityEd25519Public).toBe(
+      firstPayload.identityEd25519Public,
+    );
+    expect(stored.identityX25519Public).toBe(
+      firstPayload.identityX25519Public,
+    );
+    expect(stored.signedPrekeyPublic).toBe(
+      firstPayload.signedPrekeyPublic,
+    );
+  });
+
   it("covers lifecycle, ciphertext storage, IDOR, spoof, tamper, unread and pagination", async () => {
     const alice = await readyUser(app, "dc-alice", "Alice");
     const nikita = await readyUser(app, "dc-nikita", "Nikita");
