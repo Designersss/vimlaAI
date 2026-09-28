@@ -736,6 +736,9 @@ function openDb(): Promise<IDBDatabase> {
         event.oldVersion < DB_VERSION &&
         request.transaction
       ) {
+        markLegacyLocalRecordsDuringUpgrade(
+          request.transaction,
+        );
         markLegacyRatchetsDuringUpgrade(
           request.transaction,
         );
@@ -2089,7 +2092,10 @@ async function migratePlaintext(
         | undefined;
       if (
         current &&
-        !isProtectedLocalString(current.text) &&
+        localProtectionVersion(
+          current,
+          "plaintext",
+        ) === LEGACY_LOCAL_PROTECTION_VERSION &&
         current.text === legacy.text &&
         current.conversationId ===
           legacy.conversationId
@@ -2131,7 +2137,10 @@ export async function loadPlaintext(
   if (!value) {
     return null;
   }
-  if (!isProtectedLocalString(value.text)) {
+  if (
+    localProtectionVersion(value, "plaintext") ===
+    LEGACY_LOCAL_PROTECTION_VERSION
+  ) {
     await migratePlaintext(value);
   }
   return unprotectPlaintext(value);
@@ -2203,7 +2212,10 @@ export async function loadConversationPlaintexts(
     },
   );
   for (const row of rows) {
-    if (!isProtectedLocalString(row.text)) {
+    if (
+      localProtectionVersion(row, "plaintext") ===
+      LEGACY_LOCAL_PROTECTION_VERSION
+    ) {
       await migratePlaintext(row);
     }
   }
@@ -2664,6 +2676,45 @@ function assertActiveCoordinationLease(
       value.hardExpiresAt <= now)
   ) {
     throw new RatchetLockLostError();
+  }
+}
+
+function markLegacyLocalRecordsDuringUpgrade(
+  tx: IDBTransaction,
+): void {
+  for (const storeName of [
+    "device",
+    "pendingSends",
+    "plaintexts",
+  ] as const) {
+    if (!tx.db.objectStoreNames.contains(storeName)) {
+      continue;
+    }
+    const cursorRequest = tx
+      .objectStore(storeName)
+      .openCursor();
+    cursorRequest.onsuccess = () => {
+      const cursor = cursorRequest.result;
+      if (!cursor) {
+        return;
+      }
+      const value = cursor.value;
+      if (
+        value &&
+        typeof value === "object" &&
+        !Array.isArray(value)
+      ) {
+        const record = value as Record<string, unknown>;
+        if (record.protectionVersion === undefined) {
+          cursor.update({
+            ...record,
+            protectionVersion:
+              LEGACY_LOCAL_PROTECTION_VERSION,
+          });
+        }
+      }
+      cursor.continue();
+    };
   }
 }
 
