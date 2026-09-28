@@ -2784,7 +2784,6 @@ function markLegacyLocalRecordsDuringUpgrade(
 ): void {
   for (const storeName of [
     "device",
-    "pendingSends",
     "plaintexts",
   ] as const) {
     if (!tx.db.objectStoreNames.contains(storeName)) {
@@ -2816,6 +2815,137 @@ function markLegacyLocalRecordsDuringUpgrade(
       cursor.continue();
     };
   }
+  markLegacyPendingSendsDuringUpgrade(tx);
+}
+
+function markLegacyPendingSendsDuringUpgrade(
+  tx: IDBTransaction,
+): void {
+  if (!tx.db.objectStoreNames.contains("pendingSends")) {
+    return;
+  }
+  const store = tx.objectStore("pendingSends");
+  const rows: Array<{
+    key: IDBValidKey;
+    value: StoredPendingSend;
+  }> = [];
+  const cursorRequest = store.openCursor();
+  cursorRequest.onsuccess = () => {
+    const cursor = cursorRequest.result;
+    if (cursor) {
+      const value = cursor.value;
+      if (
+        value &&
+        typeof value === "object" &&
+        !Array.isArray(value)
+      ) {
+        rows.push({
+          key: cursor.primaryKey,
+          value: value as StoredPendingSend,
+        });
+      }
+      cursor.continue();
+      return;
+    }
+
+    const outputIds = new Map<string, string>();
+    const linkKey = (
+      parentClientMessageId: string,
+      outputId: string,
+    ): string =>
+      JSON.stringify([
+        parentClientMessageId,
+        outputId,
+      ]);
+    const mappedOutputId = (
+      parentClientMessageId: string,
+      outputId: string,
+    ): string => {
+      const key = linkKey(
+        parentClientMessageId,
+        outputId,
+      );
+      const existing = outputIds.get(key);
+      if (existing) {
+        return existing;
+      }
+      const created =
+        `legacy-output:${crypto.randomUUID()}`;
+      outputIds.set(key, created);
+      return created;
+    };
+
+    for (const { value } of rows) {
+      const parentClientMessageId =
+        value.clientMessageId;
+      for (const output of
+        value.operatorIntent?.delivery?.outputs ??
+        []) {
+        mappedOutputId(
+          parentClientMessageId,
+          output.id,
+        );
+      }
+    }
+    for (const { value } of rows) {
+      if (value.operatorOutput) {
+        mappedOutputId(
+          value.operatorOutput
+            .parentClientMessageId,
+          value.operatorOutput.outputId,
+        );
+      }
+    }
+
+    for (const { key, value } of rows) {
+      const parentClientMessageId =
+        value.clientMessageId;
+      const operatorIntent =
+        value.operatorIntent?.delivery
+          ? {
+              ...value.operatorIntent,
+              delivery: {
+                ...value.operatorIntent.delivery,
+                outputs:
+                  value.operatorIntent.delivery.outputs.map(
+                    (output) => ({
+                      ...output,
+                      id: mappedOutputId(
+                        parentClientMessageId,
+                        output.id,
+                      ),
+                    }),
+                  ),
+              },
+            }
+          : value.operatorIntent;
+      const operatorOutput =
+        value.operatorOutput
+          ? {
+              ...value.operatorOutput,
+              outputId: mappedOutputId(
+                value.operatorOutput
+                  .parentClientMessageId,
+                value.operatorOutput.outputId,
+              ),
+            }
+          : undefined;
+      store.put(
+        {
+          ...value,
+          protectionVersion:
+            LEGACY_LOCAL_PROTECTION_VERSION,
+          ...(operatorIntent
+            ? { operatorIntent }
+            : {}),
+          ...(operatorOutput
+            ? { operatorOutput }
+            : {}),
+        } satisfies StoredPendingSend,
+        key,
+      );
+    }
+  };
 }
 
 function markLegacyRatchetsDuringUpgrade(
