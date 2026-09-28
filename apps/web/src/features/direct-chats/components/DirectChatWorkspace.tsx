@@ -1276,11 +1276,7 @@ function operatorDeliveryOutputs(
   const outputs: StoredOperatorOutputDraft[] = [];
   if (run.publicMessage || run.clarificationQuestion) {
     outputs.push({
-      id: JSON.stringify([
-        "response",
-        run.publicMessage,
-        run.clarificationQuestion,
-      ]),
+      id: `response:${run.id}`,
       kind: "OPERATOR_RESPONSE",
       plaintext: encodeDirectPlaintext({
         type: "response",
@@ -1293,15 +1289,7 @@ function operatorDeliveryOutputs(
   }
   run.actions.forEach((action, index) => {
     outputs.push({
-      id: JSON.stringify([
-        "action",
-        index,
-        action.kind,
-        action.operation,
-        action.title,
-        action.detail,
-        action.status,
-      ]),
+      id: `action:${run.id}:${index}`,
       kind: "OPERATOR_ACTION",
       plaintext: encodeDirectPlaintext({
         type: "action",
