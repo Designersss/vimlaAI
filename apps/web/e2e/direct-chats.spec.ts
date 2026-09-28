@@ -2588,6 +2588,7 @@ async function readLegacyV2Fixture(
       const device = structuredClone(
         storedDevice,
       ) as Record<string, unknown>;
+      delete device.protectionVersion;
       const identity = device.identity as
         | Record<string, unknown>
         | undefined;
