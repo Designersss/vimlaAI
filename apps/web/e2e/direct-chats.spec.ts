@@ -835,14 +835,32 @@ test.describe("Secure Direct Chats", () => {
       await restoreIndexedDbPut(alicePage);
     }
 
-    await composer.fill("works after idb abort");
+    const beforeOpenFailurePosts = messagePosts;
+    await failNextIndexedDbOpen(alicePage);
+    try {
+      await composer.fill(
+        "must not reach server after idb open failure",
+      );
+      await alicePage
+        .getByTestId("chat-composer-send")
+        .click();
+      await expect(
+        alicePage.getByTestId("chat-composer-send"),
+      ).toBeEnabled({ timeout: 20_000 });
+      await alicePage.waitForTimeout(300);
+      expect(messagePosts).toBe(beforeOpenFailurePosts);
+    } finally {
+      await restoreIndexedDbOpen(alicePage);
+    }
+
+    await composer.fill("works after idb storage failures");
     await alicePage
       .getByTestId("chat-composer-send")
       .click();
     await expect(
       nikitaPage
         .getByTestId("direct-message-human")
-        .filter({ hasText: "works after idb abort" }),
+        .filter({ hasText: "works after idb storage failures" }),
     ).toBeVisible({ timeout: 20_000 });
 
     let blockInvokeBeforeServer = true;
@@ -1751,6 +1769,51 @@ async function releaseLateDirectInvokeResponse(
     delete state.__vimlaLateInvokeOriginalFetch;
     delete state.__vimlaLateInvokeCommitted;
     delete state.__vimlaReleaseLateInvoke;
+  });
+}
+
+async function failNextIndexedDbOpen(
+  page: Page,
+): Promise<void> {
+  await page.evaluate(() => {
+    const state = globalThis as typeof globalThis & {
+      __vimlaRestoreIndexedDbOpen?: () => void;
+    };
+    const prototype = IDBFactory.prototype;
+    const originalOpen = prototype.open;
+    let armed = true;
+    prototype.open = function (
+      name: string,
+      version?: number,
+    ): IDBOpenDBRequest {
+      if (armed && name === "vimla-direct-e2ee") {
+        armed = false;
+        throw new DOMException(
+          "Synthetic IndexedDB open failure",
+          "UnknownError",
+        );
+      }
+      return Reflect.apply(
+        originalOpen,
+        this,
+        version === undefined ? [name] : [name, version],
+      ) as IDBOpenDBRequest;
+    };
+    state.__vimlaRestoreIndexedDbOpen = () => {
+      prototype.open = originalOpen;
+      delete state.__vimlaRestoreIndexedDbOpen;
+    };
+  });
+}
+
+async function restoreIndexedDbOpen(
+  page: Page,
+): Promise<void> {
+  await page.evaluate(() => {
+    const state = globalThis as typeof globalThis & {
+      __vimlaRestoreIndexedDbOpen?: () => void;
+    };
+    state.__vimlaRestoreIndexedDbOpen?.();
   });
 }
 
