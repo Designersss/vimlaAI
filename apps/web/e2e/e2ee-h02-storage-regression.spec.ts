@@ -252,6 +252,134 @@ test.describe("E2EE H02 storage regressions", () => {
         ),
       ).toBe(false);
 
+      const downgradeTarget = stored[0];
+      expect(downgradeTarget).toBeDefined();
+      await alicePage.evaluate(
+        async (messageId) => {
+          const db =
+            await new Promise<IDBDatabase>(
+              (resolve, reject) => {
+                const request = indexedDB.open(
+                  "vimla-direct-e2ee",
+                );
+                request.onsuccess = () =>
+                  resolve(request.result);
+                request.onerror = () =>
+                  reject(request.error);
+              },
+            );
+          try {
+            await new Promise<void>(
+              (resolve, reject) => {
+                const tx = db.transaction(
+                  "plaintexts",
+                  "readwrite",
+                );
+                const store =
+                  tx.objectStore("plaintexts");
+                const request = store.get(messageId);
+                request.onsuccess = () => {
+                  const row = request.result;
+                  if (!row) {
+                    tx.abort();
+                    return;
+                  }
+                  store.put(
+                    {
+                      ...row,
+                      protectionVersion: 0,
+                    },
+                    messageId,
+                  );
+                };
+                request.onerror = () =>
+                  reject(request.error);
+                tx.oncomplete = () => resolve();
+                tx.onabort = () =>
+                  reject(
+                    tx.error ??
+                      new Error(
+                        "Protection downgrade transaction aborted",
+                      ),
+                  );
+              },
+            );
+          } finally {
+            db.close();
+          }
+        },
+        downgradeTarget!.messageId,
+      );
+      await alicePage.goto(directUrl);
+      await expect(
+        alicePage.getByRole("region", {
+          name: /разговор|conversation/i,
+        }).getByRole("button", {
+          name: /повторить|retry/i,
+        }),
+      ).toBeVisible({ timeout: 20_000 });
+
+      await alicePage.evaluate(
+        async (messageId) => {
+          const db =
+            await new Promise<IDBDatabase>(
+              (resolve, reject) => {
+                const request = indexedDB.open(
+                  "vimla-direct-e2ee",
+                );
+                request.onsuccess = () =>
+                  resolve(request.result);
+                request.onerror = () =>
+                  reject(request.error);
+              },
+            );
+          try {
+            await new Promise<void>(
+              (resolve, reject) => {
+                const tx = db.transaction(
+                  "plaintexts",
+                  "readwrite",
+                );
+                const store =
+                  tx.objectStore("plaintexts");
+                const request = store.get(messageId);
+                request.onsuccess = () => {
+                  const row = request.result;
+                  if (!row) {
+                    tx.abort();
+                    return;
+                  }
+                  store.put(
+                    {
+                      ...row,
+                      protectionVersion: 1,
+                    },
+                    messageId,
+                  );
+                };
+                request.onerror = () =>
+                  reject(request.error);
+                tx.oncomplete = () => resolve();
+                tx.onabort = () =>
+                  reject(
+                    tx.error ??
+                      new Error(
+                        "Protection downgrade restore aborted",
+                      ),
+                  );
+              },
+            );
+          } finally {
+            db.close();
+          }
+        },
+        downgradeTarget!.messageId,
+      );
+      await alicePage.goto(directUrl);
+      await expect(
+        alicePage.getByTestId("direct-chat-shell"),
+      ).toBeVisible({ timeout: 20_000 });
+
       await alicePage.evaluate(async () => {
         const db =
           await new Promise<IDBDatabase>(
