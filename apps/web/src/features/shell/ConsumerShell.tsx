@@ -23,6 +23,7 @@ import { authClient } from "../auth/services/auth-client";
 import { LanguageSwitcher } from "../../shared/i18n/LanguageSwitcher";
 import { CanonicalNav } from "./CanonicalNav";
 import { NotificationBell } from "../notifications/components/NotificationBell";
+import { clearLocalDirectChatData } from "../direct-chats/services/local-data";
 import { readLocaleCookie, syncAuthenticatedLocale } from "../../shared/i18n/persist-locale";
 import styles from "./ConsumerShell.module.scss";
 
@@ -76,6 +77,14 @@ export function ConsumerShell({ children }: { children: ReactNode }): ReactEleme
   }, [locale, router]);
 
   async function signOut(): Promise<void> {
+    try {
+      await clearLocalDirectChatData({
+        revokeCurrentDevice: true,
+      });
+    } catch {
+      setBoot("failed");
+      return;
+    }
     await authClient.signOut();
     router.replace("/sign-in");
     router.refresh();
