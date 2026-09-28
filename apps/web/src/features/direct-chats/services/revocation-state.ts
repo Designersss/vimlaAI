@@ -12,16 +12,18 @@ function browserSharedStorage(): Storage | null {
 }
 
 export function markLocalDeviceRevoked(): void {
+  // Keep an in-memory fail-closed latch even when shared storage succeeds.
+  // If localStorage later becomes unavailable in this tab, revocation must
+  // not silently downgrade back to "active".
+  fallbackRevoked = true;
   const storage = browserSharedStorage();
   if (!storage) {
-    fallbackRevoked = true;
     return;
   }
   try {
     storage.setItem(REVOCATION_LATCH_KEY, "1");
-    fallbackRevoked = false;
   } catch {
-    fallbackRevoked = true;
+    // The in-memory latch remains authoritative in this runtime.
   }
 }
 
