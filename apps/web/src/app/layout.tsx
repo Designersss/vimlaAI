@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { NextIntlClientProvider } from "next-intl";
 import { getLocale, getMessages } from "next-intl/server";
 import {
@@ -29,13 +29,20 @@ export default async function RootLayout({
 }: Readonly<{ children: ReactNode }>): Promise<ReactNode> {
   const locale = await getLocale();
   const messages = await getMessages();
-  const cookieStore = await cookies();
-  const appearance = parseAppearance(cookieStore.get("vimla_appearance")?.value);
+  const [cookieStore, requestHeaders] = await Promise.all([
+    cookies(),
+    headers(),
+  ]);
+  const appearance = parseAppearance(
+    cookieStore.get("vimla_appearance")?.value,
+  );
+  const nonce =
+    requestHeaders.get("x-nonce") ?? undefined;
 
   return (
     <html lang={locale} data-appearance={appearance} data-density="comfortable" suppressHydrationWarning>
       <head>
-        <ThemeScript />
+        <ThemeScript nonce={nonce} />
       </head>
       <body className={styles.body}>
         <AppearanceProvider initialAppearance={appearance} density="comfortable">
