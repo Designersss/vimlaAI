@@ -687,7 +687,16 @@ test.describe("E2EE H02 storage regressions", () => {
       );
       expect(revoke.ok()).toBe(true);
 
-      await alicePage.reload();
+      const composer =
+        alicePage.getByPlaceholder(
+          /сообщение этому человеку|message this person/i,
+        );
+      await composer.fill(
+        "revoked device send must wipe local state",
+      );
+      await alicePage
+        .getByTestId("chat-composer-send")
+        .click();
       await expect
         .poll(async () => {
           const names =
