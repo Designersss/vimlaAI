@@ -37,6 +37,7 @@ import {
   unprotectLocalJson,
   unprotectLocalString,
 } from "./local-protection";
+import { isLocalDeviceRevoked } from "./revocation-state";
 
 const DB_NAME = "vimla-direct-e2ee";
 const DB_VERSION = 6;
@@ -685,6 +686,13 @@ function assertPersistedRatchetVersion(
 }
 
 function openDb(): Promise<IDBDatabase> {
+  if (isLocalDeviceRevoked()) {
+    return Promise.reject(
+      new LocalE2eeProtectionError(
+        "Local E2EE device is revoked",
+      ),
+    );
+  }
   return new Promise((resolve, reject) => {
     let blocked = false;
     const request = indexedDB.open(DB_NAME, DB_VERSION);
@@ -756,6 +764,15 @@ function openDb(): Promise<IDBDatabase> {
       const db = request.result;
       if (blocked) {
         db.close();
+        return;
+      }
+      if (isLocalDeviceRevoked()) {
+        db.close();
+        reject(
+          new LocalE2eeProtectionError(
+            "Local E2EE device is revoked",
+          ),
+        );
         return;
       }
       db.onversionchange = () => db.close();
