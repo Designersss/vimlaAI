@@ -71,8 +71,20 @@ describe("web security policy", () => {
     ).toContain("max-age=63072000");
   });
 
-  it("does not contain unreviewed executable HTML sinks in web source", async () => {
-    const sourceRoot = resolve(process.cwd(), "src");
+  it("does not contain unreviewed executable HTML sinks in browser source", async () => {
+    const roots = [
+      {
+        path: resolve(process.cwd(), "src"),
+        label: "apps/web/src",
+      },
+      {
+        path: resolve(
+          process.cwd(),
+          "../../packages/ui/src",
+        ),
+        label: "packages/ui/src",
+      },
+    ];
     const forbidden = [
       /dangerouslySetInnerHTML/,
       /\.innerHTML\s*=/,
@@ -83,12 +95,16 @@ describe("web security policy", () => {
     ];
     const violations: string[] = [];
 
-    async function scan(directory: string): Promise<void> {
+    async function scan(
+      directory: string,
+      root: string,
+      label: string,
+    ): Promise<void> {
       for (const entry of await readdir(directory)) {
         const path = resolve(directory, entry);
         const info = await stat(path);
         if (info.isDirectory()) {
-          await scan(path);
+          await scan(path, root, label);
           continue;
         }
         if (!/\.(?:ts|tsx|js|jsx|mjs)$/.test(entry)) {
@@ -101,14 +117,16 @@ describe("web security policy", () => {
         for (const pattern of forbidden) {
           if (pattern.test(source)) {
             violations.push(
-              `${path.slice(sourceRoot.length + 1)}: ${pattern.source}`,
+              `${label}/${path.slice(root.length + 1)}: ${pattern.source}`,
             );
           }
         }
       }
     }
 
-    await scan(sourceRoot);
+    for (const root of roots) {
+      await scan(root.path, root.path, root.label);
+    }
     expect(violations).toEqual([]);
   });
 });
