@@ -1,50 +1,51 @@
 const REVOCATION_LATCH_KEY =
   "vimla:e2ee:current-device-revoked";
 
-let revokedInMemory = false;
+let fallbackRevoked = false;
 
-function browserSessionStorage(): Storage | null {
+function browserSharedStorage(): Storage | null {
   try {
-    return globalThis.sessionStorage ?? null;
+    return globalThis.localStorage ?? null;
   } catch {
     return null;
   }
 }
 
 export function markLocalDeviceRevoked(): void {
-  revokedInMemory = true;
+  const storage = browserSharedStorage();
+  if (!storage) {
+    fallbackRevoked = true;
+    return;
+  }
   try {
-    browserSessionStorage()?.setItem(
-      REVOCATION_LATCH_KEY,
-      "1",
-    );
+    storage.setItem(REVOCATION_LATCH_KEY, "1");
+    fallbackRevoked = false;
   } catch {
-    // The in-memory latch still prevents re-enrollment in this runtime.
+    fallbackRevoked = true;
   }
 }
 
 export function clearLocalDeviceRevocationLatch(): void {
-  revokedInMemory = false;
+  fallbackRevoked = false;
   try {
-    browserSessionStorage()?.removeItem(
+    browserSharedStorage()?.removeItem(
       REVOCATION_LATCH_KEY,
     );
   } catch {
-    // Session storage is best-effort metadata, never key material.
+    // Intentional local clear still resets this runtime's fallback latch.
   }
 }
 
 export function isLocalDeviceRevoked(): boolean {
-  if (revokedInMemory) {
-    return true;
+  const storage = browserSharedStorage();
+  if (!storage) {
+    return fallbackRevoked;
   }
   try {
     return (
-      browserSessionStorage()?.getItem(
-        REVOCATION_LATCH_KEY,
-      ) === "1"
+      storage.getItem(REVOCATION_LATCH_KEY) === "1"
     );
   } catch {
-    return false;
+    return fallbackRevoked;
   }
 }
