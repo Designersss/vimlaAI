@@ -372,14 +372,33 @@ export class OperatorService {
 
   async cancelRun(userId: string, runId: string): Promise<OperatorRunView> {
     this.assertEnabled();
-    const run = await this.loadOwnedRun(userId, runId);
-    if (run.status === "SUCCEEDED" || run.status === "PARTIAL") {
-      return this.toView(run, null);
-    }
     const updated = await this.prisma.$transaction(async (tx) => {
+      const locked = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT "id" FROM "operator_run"
+        WHERE "id" = ${runId} AND "userId" = ${userId}
+        FOR UPDATE
+      `;
+      if (locked.length === 0) {
+        throw new NotFoundException("Operator run was not found");
+      }
+
+      const current = await tx.operatorRun.findUniqueOrThrow({
+        where: { id: runId },
+        include: { steps: { orderBy: { sequence: "asc" } } },
+      });
+
+      // Cancellation is only actionable while the run is waiting for
+      // explicit user confirmation. Once execution has started (or the run
+      // is terminal), rewriting it as CANCELED can contradict a committed
+      // tool side effect. The row lock serializes this decision with
+      // acceptConfirmation(), which uses the same operator_run lock.
+      if (current.status !== "AWAITING_CONFIRMATION") {
+        return current;
+      }
+
       await tx.operatorRunStep.updateMany({
         where: {
-          runId: run.id,
+          runId: current.id,
           status: {
             in: [
               "PENDING",
@@ -391,7 +410,7 @@ export class OperatorService {
         data: { status: "SKIPPED" },
       });
       return tx.operatorRun.update({
-        where: { id: run.id },
+        where: { id: current.id },
         data: {
           status: "CANCELED",
           confirmationTokenHash: null,
