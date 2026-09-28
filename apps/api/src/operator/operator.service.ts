@@ -910,12 +910,46 @@ export class OperatorService {
   }
 
   private async succeedWithoutTools(runId: string, message: string): Promise<OperatorRunView> {
-    const updated = await this.prisma.operatorRun.update({
-      where: { id: runId },
-      data: { status: "SUCCEEDED", publicMessage: sanitizePublicText(message, 2_000) },
-      include: { steps: { orderBy: { sequence: "asc" } } },
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const locked = await tx.$queryRaw<
+        Array<{ id: string; status: string }>
+      >`
+        SELECT "id", "status" FROM "operator_run"
+        WHERE "id" = ${runId}
+        FOR UPDATE
+      `;
+      if (locked.length === 0) {
+        throw new NotFoundException("Operator run was not found");
+      }
+      const current = await tx.operatorRun.findUniqueOrThrow({
+        where: { id: runId },
+        include: { steps: { orderBy: { sequence: "asc" } } },
+      });
+      if (
+        isTerminalOperatorRunStatus(current.status) ||
+        (current.status !== "PLANNING" &&
+          current.status !== "CREATED")
+      ) {
+        return current;
+      }
+      return tx.operatorRun.update({
+        where: { id: runId },
+        data: {
+          status: "SUCCEEDED",
+          publicMessage: sanitizePublicText(message, 2_000),
+          errorCode: null,
+          confirmationTokenHash: null,
+          confirmationExpiresAt: null,
+        },
+        include: { steps: { orderBy: { sequence: "asc" } } },
+      });
     });
-    await this.persistAssistant(updated, updated.publicMessage ?? message);
+    if (updated.status === "SUCCEEDED") {
+      await this.persistAssistant(
+        updated,
+        updated.publicMessage ?? message,
+      );
+    }
     return this.toView(updated, null);
   }
 
@@ -952,23 +986,52 @@ export class OperatorService {
         include: { steps: { orderBy: { sequence: "asc" } } },
       });
     });
-    await this.persistAssistant(updated, `${updated.publicMessage ?? message}\n${updated.clarificationQuestion ?? question}`);
+    if (updated.status === "AWAITING_CLARIFICATION") {
+      await this.persistAssistant(
+        updated,
+        `${updated.publicMessage ?? message}\n${updated.clarificationQuestion ?? question}`,
+      );
+    }
     return this.toView(updated, null);
   }
 
   private async failRun(runId: string, errorCode: string, message: string): Promise<OperatorRunView> {
-    const updated = await this.prisma.operatorRun.update({
-      where: { id: runId },
-      data: {
-        status: "FAILED",
-        errorCode,
-        publicMessage: sanitizePublicText(message, 2_000),
-        confirmationTokenHash: null,
-        confirmationExpiresAt: null,
-      },
-      include: { steps: { orderBy: { sequence: "asc" } } },
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const locked = await tx.$queryRaw<
+        Array<{ id: string; status: string }>
+      >`
+        SELECT "id", "status" FROM "operator_run"
+        WHERE "id" = ${runId}
+        FOR UPDATE
+      `;
+      if (locked.length === 0) {
+        throw new NotFoundException("Operator run was not found");
+      }
+      const current = await tx.operatorRun.findUniqueOrThrow({
+        where: { id: runId },
+        include: { steps: { orderBy: { sequence: "asc" } } },
+      });
+      if (isTerminalOperatorRunStatus(current.status)) {
+        return current;
+      }
+      return tx.operatorRun.update({
+        where: { id: runId },
+        data: {
+          status: "FAILED",
+          errorCode,
+          publicMessage: sanitizePublicText(message, 2_000),
+          confirmationTokenHash: null,
+          confirmationExpiresAt: null,
+        },
+        include: { steps: { orderBy: { sequence: "asc" } } },
+      });
     });
-    await this.persistAssistant(updated, updated.publicMessage ?? message);
+    if (updated.status === "FAILED") {
+      await this.persistAssistant(
+        updated,
+        updated.publicMessage ?? message,
+      );
+    }
     return this.toView(updated, null);
   }
 
