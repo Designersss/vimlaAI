@@ -1065,6 +1065,21 @@ export async function completePendingSend(input: {
   messageId: string;
   serverCreatedAt: string;
 }): Promise<void> {
+  const plaintextRecord = await protectPlaintext({
+    conversationId: input.pending.conversationId,
+    messageId: input.messageId,
+    text: input.pending.plaintext,
+    kind: input.pending.kind,
+    senderUserId: input.pending.senderUserId,
+    createdAt: input.serverCreatedAt,
+  });
+  const protectedPending =
+    await protectPendingSend(input.pending);
+  if (input.pending.operatorOutput) {
+    await loadPendingSend(
+      input.pending.operatorOutput.parentClientMessageId,
+    );
+  }
   const db = await openDb();
   await new Promise<void>((resolve, reject) => {
     let failure: Error | null = null;
@@ -1073,14 +1088,7 @@ export async function completePendingSend(input: {
       "readwrite",
     );
     tx.objectStore("plaintexts").put(
-      {
-        conversationId: input.pending.conversationId,
-        messageId: input.messageId,
-        text: input.pending.plaintext,
-        kind: input.pending.kind,
-        senderUserId: input.pending.senderUserId,
-        createdAt: input.serverCreatedAt,
-      } satisfies StoredPlaintext,
+      plaintextRecord,
       input.messageId,
     );
     const pendingStore = tx.objectStore("pendingSends");
@@ -1110,7 +1118,7 @@ export async function completePendingSend(input: {
         const operatorIntent =
           current.operatorIntent.delivery
             ? current.operatorIntent
-            : input.pending.operatorIntent!;
+            : protectedPending.operatorIntent!;
         pendingStore.put(
           {
             // Preserve the newest durable row. A sibling recovery may have
