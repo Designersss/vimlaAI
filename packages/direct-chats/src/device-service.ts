@@ -19,10 +19,14 @@ export class DeviceService {
       // not exist yet. Use a transaction-scoped advisory lock keyed by the
       // stable client-generated device id so two first registrations for
       // the same id cannot race through the identity check.
-      await tx.$queryRaw<Array<{ locked: unknown }>>`
-        SELECT pg_advisory_xact_lock(
-          hashtextextended(${input.deviceId}, 0)
-        ) AS "locked"
+      await tx.$queryRaw<Array<{ locked: number }>>`
+        WITH "device_registration_lock" AS (
+          SELECT pg_advisory_xact_lock(
+            hashtextextended(${input.deviceId}, 0)
+          )
+        )
+        SELECT 1::int AS "locked"
+        FROM "device_registration_lock"
       `;
 
       const existing =
