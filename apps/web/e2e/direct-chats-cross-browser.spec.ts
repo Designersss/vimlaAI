@@ -11,7 +11,7 @@ test.describe("Direct Chat cross-browser coordination", () => {
     browser,
     request,
   }) => {
-    test.setTimeout(120_000);
+    test.setTimeout(180_000);
     const password = "correct-horse-battery";
     const aliceEmail = uniqueEmail("e2e-direct-xbrowser-alice");
     const nikitaEmail = uniqueEmail("e2e-direct-xbrowser-nikita");
@@ -190,6 +190,156 @@ test.describe("Direct Chat cross-browser coordination", () => {
           .getByTestId("direct-message-human")
           .filter({ hasText: siblingRaceText }),
       ).toHaveCount(1, { timeout: 20_000 });
+
+      const nikitaSecondPage =
+        await nikitaContext.newPage();
+      await nikitaSecondPage.goto(nikitaPage.url());
+      await expect(
+        nikitaSecondPage.getByTestId(
+          "direct-chat-shell",
+        ),
+      ).toBeVisible({ timeout: 20_000 });
+
+      let releaseOlderReceive!: () => void;
+      let markOlderReceiveHeld!: () => void;
+      let markOlderHidden!: () => void;
+      const olderReceiveRelease = new Promise<void>(
+        (resolve) => {
+          releaseOlderReceive = resolve;
+        },
+      );
+      const olderReceiveHeld = new Promise<void>(
+        (resolve) => {
+          markOlderReceiveHeld = resolve;
+        },
+      );
+      const olderHidden = new Promise<void>(
+        (resolve) => {
+          markOlderHidden = resolve;
+        },
+      );
+      let holdPrimaryReceive = true;
+      let secondaryPhase:
+        | "hide-older"
+        | "newest-only"
+        | "passthrough" = "hide-older";
+
+      await nikitaPage.route(
+        "**/v1/direct-chats/*/messages?**",
+        async (route) => {
+          if (
+            holdPrimaryReceive &&
+            route.request().method() === "GET"
+          ) {
+            holdPrimaryReceive = false;
+            const response = await route.fetch();
+            markOlderReceiveHeld();
+            await olderReceiveRelease;
+            await route.fulfill({ response });
+            return;
+          }
+          await route.continue();
+        },
+      );
+      await nikitaSecondPage.route(
+        "**/v1/direct-chats/*/messages?**",
+        async (route) => {
+          if (route.request().method() !== "GET") {
+            await route.continue();
+            return;
+          }
+          if (secondaryPhase === "passthrough") {
+            await route.continue();
+            return;
+          }
+          const response = await route.fetch();
+          const payload = (await response.json()) as {
+            items?: unknown[];
+            nextCursor?: string | null;
+          };
+          const items = Array.isArray(payload.items)
+            ? payload.items
+            : [];
+          if (secondaryPhase === "hide-older") {
+            secondaryPhase = "newest-only";
+            markOlderHidden();
+            await route.fulfill({
+              response,
+              json: {
+                ...payload,
+                items: items.slice(1),
+              },
+            });
+            return;
+          }
+          await route.fulfill({
+            response,
+            json: {
+              ...payload,
+              items: items.slice(0, 1),
+            },
+          });
+        },
+      );
+
+      const delayedOlderText =
+        "receiver delayed older ratchet message";
+      const concurrentNewerText =
+        "receiver concurrent newer ratchet message";
+      await firstComposer.fill(delayedOlderText);
+      await alicePage
+        .getByTestId("chat-composer-send")
+        .click();
+      await Promise.all([
+        olderReceiveHeld,
+        olderHidden,
+      ]);
+
+      await firstComposer.fill(concurrentNewerText);
+      await alicePage
+        .getByTestId("chat-composer-send")
+        .click();
+      await expect(
+        nikitaSecondPage
+          .getByTestId("direct-message-human")
+          .filter({ hasText: concurrentNewerText }),
+      ).toHaveCount(1, { timeout: 20_000 });
+      await expect(
+        nikitaSecondPage
+          .getByTestId("direct-message-human")
+          .filter({ hasText: delayedOlderText }),
+      ).toHaveCount(0);
+
+      secondaryPhase = "passthrough";
+      releaseOlderReceive();
+      await expect(
+        nikitaPage
+          .getByTestId("direct-message-human")
+          .filter({ hasText: delayedOlderText }),
+      ).toHaveCount(1, { timeout: 20_000 });
+      await expect(
+        nikitaPage
+          .getByTestId("direct-message-human")
+          .filter({ hasText: concurrentNewerText }),
+      ).toHaveCount(1, { timeout: 20_000 });
+      await expect(
+        nikitaPage.getByTestId(
+          "direct-message-undecryptable",
+        ),
+      ).toHaveCount(0);
+      await expect(
+        nikitaSecondPage.getByTestId(
+          "direct-message-undecryptable",
+        ),
+      ).toHaveCount(0);
+      await nikitaPage.unroute(
+        "**/v1/direct-chats/*/messages?**",
+      );
+      await nikitaSecondPage.unroute(
+        "**/v1/direct-chats/*/messages?**",
+      );
+      await nikitaSecondPage.close();
+
       await aliceSecondPage.close();
     } finally {
       await aliceContext.close();
