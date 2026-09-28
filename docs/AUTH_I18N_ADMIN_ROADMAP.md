@@ -1,5 +1,8 @@
 # Vimla — Identity, Localization & Admin Roadmap Addendum
 
+> **Status note:** this is an implementation-history roadmap for Auth/i18n/Admin. Current product/platform sequencing is GitHub #78 and `docs/GITHUB_ROADMAP.md`. Existing security/auth invariants here remain valid; phase ordering here does not choose the next product work.
+
+
 This document adds mandatory requirements to the implementation roadmap. It does not require interrupting an in-progress phase unless that phase would make these requirements impossible.
 
 ## Phase 3.5 — Identity + Auth UX + Localization Hardening

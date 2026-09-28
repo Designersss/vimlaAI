@@ -3,6 +3,14 @@ description: Rate limiting, concurrency, anti-abuse and financial circuit-breake
 alwaysApply: false
 globs: "apps/api/**/*.ts, apps/worker/**/*.ts, packages/ai/**/*.ts, packages/auth/**/*.ts, packages/billing/**/*.ts"
 ---
+
+## Current roadmap / platform inheritance
+
+GitHub #78 and `docs/MESSENGER_PLATFORM_ARCHITECTURE.md` are current authority. Existing domain/security rules remain valid.
+
+Messenger surfaces require abuse controls for messaging, discovery, uploads, Channels/Groups and realtime connections. New social functionality must integrate #104 block/report semantics where applicable and bound WebSocket/concurrent connection/message/media costs.
+
+
 # Abuse-control rules
 
 Use layered controls. User allowance alone is not an abuse-control system.

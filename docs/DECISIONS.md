@@ -1,5 +1,20 @@
 # Vimla — Initial Decisions
 
+> **Current architecture note (2026-09-28):** Vimla is now messenger-first and multi-client by design. GitHub #78 and `docs/MESSENGER_PLATFORM_ARCHITECTURE.md` are the product/platform source of truth; `docs/CLIENT_ARCHITECTURE.md` and `docs/REALTIME_SYNC.md` define future-client and delivery boundaries. Existing implementation details in this document remain valid unless they conflict with those sources.
+
+
+## Accepted — messenger-first multi-client pivot (2026-09-28)
+
+- Product: full messenger first; AI/Work/Projects extend communication.
+- Platform: one authoritative backend for Web/Desktop/Mobile.
+- Delivery: Web implementation first → owner manual Web redesign → Design Freeze → Desktop → Mobile.
+- Realtime: target foreground WebSocket; durable PostgreSQL-backed sync is correctness/recovery; Redis is fan-out/coordination only.
+- Navigation: backend/domain emits semantic NavigationTarget, never Web route strings.
+- Client reuse: share contracts/API/core/sync/context/E2EE protocol logic; keep platform APIs behind adapters.
+- UI reuse: Web/Desktop may share finalized DOM product components; Mobile may use native presentation with shared tokens/logic.
+- Storage UX: Desktop/Mobile expose only Clear cache for reproducible cache; no normal resync/reset-E2EE maintenance controls.
+- Context: current audience authorization precedes semantic retrieval/disclosure.
+
 ## Accepted
 - Product name: Vimla.
 - Frontend: Next.js 16 + React 19 + TypeScript + MobX + SCSS Modules.

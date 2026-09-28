@@ -1,5 +1,8 @@
 # Vimla Responsive v2
 
+> **Historical presentation reference:** retained for migration/design history. It does not define final owner-approved Web design, native UI, or product sequencing. Current architecture is #78 and `docs/MESSENGER_PLATFORM_ARCHITECTURE.md`; final Web presentation is owner-driven after #122 and normalized by #123.
+
+
 Required representative checks: 320×568, 375×667, 390×844, 768×1024, 1024×768, 1280×800, 1440×900, 1920×1080.
 
 ## Desktop

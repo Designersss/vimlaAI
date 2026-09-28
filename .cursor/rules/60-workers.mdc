@@ -3,6 +3,14 @@ description: BullMQ/background worker reliability, idempotency and long-running 
 alwaysApply: false
 globs: "apps/worker/**/*.ts, packages/**/*queue*.ts, packages/**/*job*.ts"
 ---
+
+## Current roadmap / platform inheritance
+
+GitHub #78 and `docs/MESSENGER_PLATFORM_ARCHITECTURE.md` are current authority. Existing domain/security rules remain valid.
+
+#95 realtime outbox/sync publication must follow the same durable-job rule: PostgreSQL records intent/state, Redis/BullMQ coordinates execution. A worker or Redis restart cannot permanently lose a durable client-visible change.
+
+
 # Worker rules
 
 - Persistent job/domain status in PostgreSQL is authoritative; BullMQ/Redis is delivery/coordination.

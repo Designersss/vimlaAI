@@ -1,4 +1,7 @@
-# packages/database — Codex guidance
+# packages/database — Engineering guidance
+
+> **Current product/platform inheritance:** new CommunicationSurface/ClientInstallation/realtime-sync/channel/group/project models must be additive, constraint-backed and platform-neutral. Do not encode Next/Desktop/Mobile presentation in persistence. PostgreSQL remains durable truth for sync/outbox state. See #78/#79/#80.
+
 
 This file extends the root `AGENTS.md` for Prisma/PostgreSQL work.
 

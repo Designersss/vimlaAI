@@ -7,6 +7,14 @@ globs:
 alwaysApply: false
 ---
 
+## Current roadmap / platform inheritance
+
+GitHub #78 and `docs/MESSENGER_PLATFORM_ARCHITECTURE.md` are the current product/platform authority. Vimla is messenger-first with one backend for Web and future Desktop/Mobile. This rule's domain-specific constraints remain valid and must not be interpreted using the old workspace-first phase order.
+
+Current visual system is a functional baseline, not the final owner-approved design. Semantic tokens/accessibility rules remain valuable. After #122, owner design changes are allowed; #123 then freezes/normalizes Web/Desktop presentation. Mobile may reuse tokens/design language without reusing DOM components.
+
+
+
 # Vimla Design System
 
 These rules are mandatory for all Vimla frontend UI work.
@@ -617,7 +625,7 @@ Examples of appropriate motion:
 - toast slide/fade;
 - list item insertion;
 - AI streaming indicator;
-- Project Brain pulse.
+- @Vimla / execution progress state.
 
 Avoid:
 
@@ -946,7 +954,7 @@ ModelSelector
 ConversationItem
 ```
 
-Normal chat and future Project chat should reuse the same lower-level primitives where appropriate.
+AI Threads, Direct Chats, future Groups/Channels and Project Rooms should reuse lower-level communication primitives only where their permissions/encryption semantics genuinely match.
 
 ---
 

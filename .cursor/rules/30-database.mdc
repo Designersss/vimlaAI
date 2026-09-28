@@ -3,6 +3,14 @@ description: PostgreSQL/Prisma persistence, migrations and integrity rules
 alwaysApply: false
 globs: "packages/database/**/*, **/prisma/**/*"
 ---
+
+## Current roadmap / platform inheritance
+
+GitHub #78 and `docs/MESSENGER_PLATFORM_ARCHITECTURE.md` are current product/platform authority. Existing domain-specific safety rules in this file remain valid.
+
+Upcoming CommunicationSurface, ClientInstallation, realtime outbox/sync, Channels, Groups and PROJECT Workspace changes must use additive migrations and DB constraints. PostgreSQL is durable sync/outbox truth; do not make Redis or client cursors authoritative. Persistence must not encode Web/Desktop/Mobile presentation routes.
+
+
 # Database rules
 
 - PostgreSQL is authoritative for users, sessions, payments, subscriptions, usage, AI request accounting, admin permissions and audit-grade state.

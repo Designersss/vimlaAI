@@ -6,6 +6,14 @@ globs:
 alwaysApply: true
 ---
 
+## Current roadmap / platform inheritance
+
+GitHub #78 and `docs/MESSENGER_PLATFORM_ARCHITECTURE.md` are current product/platform authority. Existing domain-specific safety rules in this file remain valid.
+
+Brand assets may be reused across Web/Desktop/Mobile, but current Web placement is not final. Owner manual design after #122 is allowed to change layout without changing product authority.
+
+
+
 # Brand consistency
 
 Generated reference images contain small variations of the Vimla mark. Do not recreate those variations. Use one canonical repository logo/brand asset everywhere.

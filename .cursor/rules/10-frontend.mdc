@@ -3,6 +3,14 @@ description: Consumer/admin frontend architecture and React/Next conventions
 alwaysApply: false
 globs: "apps/web/**/*.{ts,tsx,scss}, apps/admin/**/*.{ts,tsx,scss}"
 ---
+
+## Current roadmap / platform inheritance
+
+GitHub #78 and `docs/MESSENGER_PLATFORM_ARCHITECTURE.md` are the current product/platform authority. Vimla is messenger-first with one backend for Web and future Desktop/Mobile. This rule's domain-specific constraints remain valid and must not be interpreted using the old workspace-first phase order.
+
+Web is implemented first, but reusable product/client logic must not be coupled to Next/router/DOM without need. The owner manually redesigns Web only after #122; keep logic separable from presentation so that pass does not require backend/sync/crypto rewrites. Desktop/Mobile are not implemented early merely to prove reuse.
+
+
 # Frontend rules
 
 - Next.js App Router + React functional components + strict TypeScript.

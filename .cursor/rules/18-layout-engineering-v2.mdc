@@ -6,6 +6,12 @@ globs:
 alwaysApply: true
 ---
 
+## Current roadmap / platform inheritance
+
+GitHub #78 and `docs/MESSENGER_PLATFORM_ARCHITECTURE.md` are current authority. Vimla is messenger-first with one backend for Web and future Desktop/Mobile.
+
+Keep Web layout state separate from domain/client state. The owner will rearrange Web presentation after #122; avoid coupling sync/crypto/API logic to panes, columns or current sidebar structure.
+
 # Layout engineering
 
 Reconstruct layout logic using normal flow, Flexbox, CSS Grid, gap, padding, min-width:0, minmax(), clamp(), intrinsic sizing, max-width and auto margins.

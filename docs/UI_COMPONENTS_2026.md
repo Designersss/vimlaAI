@@ -1,5 +1,8 @@
 # Vimla Shared UI Components 2026
 
+> **Design-stage note:** current shared components are the functional Web baseline. They may be rearranged/restyled by the owner after #122. #123 then freezes/normalizes the reusable Web/Desktop presentation contract. This document must not be used to block owner-approved design changes solely because the current component composition differs.
+
+
 This document records the implementation contract for the shared component layer that follows the canonical `docs/DESIGN_SYSTEM.md` foundation.
 
 ## Scope

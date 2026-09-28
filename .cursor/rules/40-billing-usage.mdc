@@ -3,6 +3,14 @@ description: Critical Vimla billing, subscriptions, top-ups, reservation and led
 alwaysApply: false
 globs: "packages/billing/**/*.ts, apps/api/src/**/*billing*.ts, apps/api/src/**/*usage*.ts, apps/api/src/**/*payment*.ts, apps/worker/src/**/*billing*.ts"
 ---
+
+## Current roadmap / platform inheritance
+
+GitHub #78 and `docs/MESSENGER_PLATFORM_ARCHITECTURE.md` are current product/platform authority. Existing domain-specific safety rules in this file remain valid.
+
+The same billing/usage ledger serves every client. Never create platform-specific balances/prices or trust native-app purchase/client fields as Vimla allowance authority without a separately reviewed payment integration.
+
+
 # Billing and Usage rules — CRITICAL
 
 Billing correctness and auditability have priority over convenience.

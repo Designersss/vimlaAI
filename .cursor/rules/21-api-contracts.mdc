@@ -3,6 +3,13 @@ description: API contracts, runtime validation, strict DTO and error-code conven
 alwaysApply: false
 globs: "packages/contracts/**/*.ts, apps/api/**/*.ts, apps/web/**/*.ts, apps/admin/**/*.ts"
 ---
+
+## Current roadmap / platform inheritance
+
+GitHub #78 and `docs/MESSENGER_PLATFORM_ARCHITECTURE.md` are current authority. Vimla is messenger-first with one backend for Web and future Desktop/Mobile.
+
+Contracts must be platform-neutral. Do not add Web `hrefPath`/route strings as domain semantics; use reviewed semantic `NavigationTarget` (#91). API evolution must anticipate native client version skew before Desktop/Mobile release: prefer additive compatible changes and explicit versioning for breaks.
+
 # API contracts rules
 
 - Shared external contracts live in `@vimla/contracts` when used across apps.

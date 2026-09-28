@@ -1,5 +1,8 @@
 # Admin security
 
+> **Platform note:** Admin remains a separate privileged control plane and is not part of the consumer Web/Desktop/Mobile shell reuse plan. Messenger-first changes do not weaken Admin authentication, MFA, permission or audit boundaries.
+
+
 Phase 5 adds a separate privileged control plane. A hidden URL is not a security mechanism.
 
 ## Topology

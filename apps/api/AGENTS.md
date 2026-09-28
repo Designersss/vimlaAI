@@ -1,4 +1,7 @@
-# apps/api — Codex guidance
+# apps/api — Engineering guidance
+
+> **Current product/platform inheritance:** this API is the single authoritative consumer backend for Web and future Desktop/Mobile. Do not introduce platform-specific business API forks or Web-route semantics in domain responses. Browser Origin/CSRF rules remain strict; future native session transport must be explicit and may not bypass authorization via client platform metadata. Realtime/sync architecture follows #80/#94–#97.
+
 
 This file extends the root `AGENTS.md` for the NestJS + Fastify API.
 

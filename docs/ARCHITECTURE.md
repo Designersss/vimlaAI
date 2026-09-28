@@ -1,5 +1,8 @@
 # Vimla — Architecture
 
+> **Current architecture note (2026-09-28):** Vimla is now messenger-first and multi-client by design. GitHub #78 and `docs/MESSENGER_PLATFORM_ARCHITECTURE.md` are the product/platform source of truth; `docs/CLIENT_ARCHITECTURE.md` and `docs/REALTIME_SYNC.md` define future-client and delivery boundaries. Existing implementation details in this document remain valid unless they conflict with those sources.
+
+
 ## Monorepo
 
 ```text
@@ -27,6 +30,12 @@ vimla/
   .cursor/rules/
   docs/
 ```
+
+## Messenger-first runtime direction
+
+The current runtime remains a modular monolith API + worker. Web is the only consumer shell implemented today; Desktop/Mobile come only after Web Functional Complete + owner design freeze.
+
+One backend serves every client. New server/domain contracts must not encode Next routes or assume a browser transport. Realtime evolves toward WebSocket + PostgreSQL-backed durable sync; Redis remains transport/coordination.
 
 ## Runtime components
 

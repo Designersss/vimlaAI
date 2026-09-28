@@ -3,6 +3,14 @@ description: AI Gateway, model catalog, provider-neutral request and cost-safety
 alwaysApply: false
 globs: "packages/ai/**/*.ts, apps/api/src/**/*ai*.ts, apps/api/src/**/*chat*.ts, apps/worker/src/**/*ai*.ts"
 ---
+
+## Current roadmap / platform inheritance
+
+GitHub #78 and `docs/MESSENGER_PLATFORM_ARCHITECTURE.md` are current product/platform authority. Existing domain-specific safety rules in this file remain valid.
+
+AI is a messenger capability, but provider calls remain behind the same server gateway/reservation model. Surface/context integration (#118) must not let client/platform/model content choose provider authority, price, permission or billing semantics.
+
+
 # AI Gateway rules
 
 - All provider access goes through `AiGateway -> AiProvider -> provider adapter`.

@@ -1,4 +1,7 @@
-# packages/direct-chats — Codex guidance
+# packages/direct-chats — Engineering guidance
+
+> **Current product/platform inheritance:** Direct Chat becomes one CommunicationSurface but keeps its own membership/E2EE authority. Common realtime/sync must not weaken H01/H02 recovery. Normal product UX must not expose “Clear local Direct Chat data” / resync / reset-E2EE controls; internal security lifecycle wipe remains separate. See #78/#80/#81 and #54.
+
 
 This file extends the root `AGENTS.md` for Direct Chat domain logic.
 

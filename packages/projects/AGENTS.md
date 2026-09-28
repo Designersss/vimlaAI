@@ -1,4 +1,7 @@
-# packages/projects — Codex guidance
+# packages/projects — Engineering guidance
+
+> **Current product/platform inheritance:** Projects will become communication-centered Project Rooms (#116) and gain true PROJECT-scoped Workspace objects only through #115. Current role/entitlement/PLAN_LOCKED rules remain authority; do not pre-empt those migrations with ad-hoc chat/work links.
+
 
 This file extends the root `AGENTS.md` for Projects, membership and entitlement logic.
 

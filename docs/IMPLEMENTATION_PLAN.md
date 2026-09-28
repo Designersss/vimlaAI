@@ -1,292 +1,154 @@
 # Vimla — Implementation Plan
 
-Do not implement every phase in one Cursor run. Complete, test and review each phase before moving on.
+Status: **canonical sequencing summary**.  
+Implementation details live in GitHub #78 and its child issues.  
+Architecture: `docs/MESSENGER_PLATFORM_ARCHITECTURE.md`.  
+Issue map: `docs/GITHUB_ROADMAP.md`.
 
-## Phase 0 — Repository foundation
-Goal: clean runnable monorepo, no real AI or payments.
+## 1. Completed foundation
 
-- [x] pnpm workspace + Turborepo.
-- [x] `apps/web`: Next.js 16 + React 19 + strict TypeScript + SCSS Modules + MobX foundation.
-- [x] `apps/api`: NestJS + Fastify + strict TypeScript.
-- [x] `apps/worker`: Node + BullMQ foundation.
-- [x] packages: contracts, database, config, ai, billing, shared.
-- [x] PostgreSQL + Prisma foundation.
-- [x] Redis foundation.
-- [x] Docker Compose for local PostgreSQL/Redis.
-- [x] centralized typed env validation.
-- [x] `.env.example`.
-- [x] structured logging/correlation ID foundation.
-- [x] `GET /health`.
-- [x] web can call configurable API health endpoint.
-- [x] worker can connect to Redis.
-- [x] root scripts: dev/build/lint/typecheck/test.
-- [x] basic CI.
-- [x] README with exact local setup.
+The repository already contains production-oriented foundations that are reused, not rebuilt:
 
-Exit criteria: fresh clone can be configured and all baseline commands pass.
+- pnpm/Turborepo modular monorepo;
+- Next.js Web, NestJS/Fastify API, BullMQ worker, separate Admin;
+- Better Auth identity/sessions + email verification/recovery;
+- billing/usage reservations/ledger and T-Bank integration;
+- AI gateway/provider abstraction and persistent AI Threads;
+- personal Workspace;
+- durable Notifications;
+- Projects/member/entitlement foundation;
+- secure @Vimla Operator;
+- semantic workflow/orchestration runtime;
+- ContextSnapshot/ContextBundle, Memory, semantic retrieval;
+- 1:1 Direct Chats and X3DH/Double Ratchet E2EE foundation;
+- shared @vimla/ui and responsive Web shell.
 
-## Phase 1 — Persistence + authentication
-Goal: real users and secure sessions, still no real billing/AI.
+Do not recreate these domains under new messenger names.
 
-- [x] finalise Prisma conventions/migrations.
-- [x] users/auth/session schema.
-- [x] authentication flow.
-- [x] server-side authorization/ownership helpers.
-- [x] protected app shell.
-- [x] user settings/profile minimum.
-- [x] tests for unauthorized/ownership paths.
+## 2. Current gate
 
-Exit criteria: user can register/login/logout and access only own protected resources.
+Finish current E2EE-H02 work (#76 / PR #77), including the #78 product correction: preserve the internal authoritative crypto wipe primitive but do not ship a normal user-facing “Clear local Direct Chat data” maintenance control.
 
-## Phase 2 — Billing/Usage domain with mock money
-Goal: prove financial correctness before integrating payments or AI.
+Parallel E2EE hardening remains tracked by #54/#74/#75/#130–#134.
 
-- [x] Plan + PlanVersion.
-- [x] Subscription.
-- [x] Payment + PaymentEvent.
-- [x] UsageBucket.
-- [x] UsageReservation.
-- [x] UsageLedgerEntry.
-- [x] integer microRUB money type/helpers.
-- [x] grant monthly subscription allowance.
-- [x] create arbitrary top-up bucket.
-- [x] subscription-first bucket allocation policy.
-- [x] `reserve()` transaction.
-- [x] `settle()` transaction.
-- [x] `release()`/failure path.
-- [x] expiration handling.
-- [x] MockPaymentProvider.
-- [x] mock subscription purchase.
-- [x] mock top-up purchase.
-- [x] derived percentage endpoint.
+## 3. Architecture foundation
 
-Required tests:
-- [x] concurrent requests cannot overspend;
-- [x] insufficient allowance prevents execution;
-- [x] duplicate payment event grants only once;
-- [x] failure releases reservation;
-- [x] partial settlement releases difference;
-- [x] subscription allowance is consumed before top-up;
-- [x] expired subscription allowance cannot be spent;
-- [x] ledger can explain balance.
+Epic #79:
+- #90 repository/documentation/rules pivot;
+- #91 semantic NavigationTarget;
+- #92 platform-neutral client API/core;
+- #93 ClientInstallation + setting scopes.
 
-Exit criteria: billing invariant suite passes against real PostgreSQL.
+No new large messenger surface should be built on top of known Web-only domain-contract leaks.
 
-## Phase 3 — AI Gateway + ProxyAPI text chat
-Goal: first real AI value with financially safe metering.
+## 4. Realtime + durable sync
 
-- [x] AiProvider interfaces.
-- [x] ProxyAPIProvider.
-- [x] validated ProxyAPI configuration.
-- [x] Vimla model catalog/mappings.
-- [x] model enable/disable controls.
-- [x] text generation/chat endpoint.
-- [x] SSE streaming.
-- [x] reservation before provider call.
-- [x] settle actual/derived provider cost.
-- [x] ai_request/provider-cost records.
-- [x] conversations/messages.
-- [x] frontend chat UI.
-- [x] manual model selector.
-- [x] usage meter.
-- [x] rate/concurrency limits.
-- [x] provider timeout/retry/error mapping.
+Epic #80:
+- #94 common authenticated WebSocket protocol;
+- #95 transactional event outbox;
+- #96 durable cursor sync;
+- #97 Web SyncEngine and safe Direct Chat SSE migration.
 
-Exit criteria: paid-cost text calls cannot occur without allowance and every completed request is auditable.
+Realtime is fast path. Sync/PostgreSQL are correctness.
 
-## Phase 3.5 — Identity, authentication UX and localization
-Goal: production-ready identity and RU/EN UX without real payments or admin.
+## 5. Communication core
 
-- [x] next-intl RU/EN dictionaries; no hard-coded user-facing chat/auth copy.
-- [x] locale cookie + `UserPreference` + Accept-Language fallback, default `ru`.
-- [x] Better Auth email OTP on signup; HMAC OTP storage; 6/300s/3/60s policy.
-- [x] `/verify-email` UI; unverified users blocked from AI send and mock purchases.
-- [x] Existing unverified users enter verification after login (not auto-verified).
-- [x] Link-based `/forgot-password` + `/reset-password`; generic enumeration-safe response; session revocation.
-- [x] `@vimla/notifications` EmailProvider + localized templates + local/test mocks.
-- [x] `/settings/security`: password change, sessions list/revoke, change email.
-- [x] Dedicated auth/OTP rate limits and resend cooldown; no OTP/password/reset token in logs.
-- [x] Stable API error codes mapped to translation keys.
-- [x] Prisma migration `20260908000000_add_identity_preferences` only (no rewrite of old migrations).
-- [x] Integration tests against PostgreSQL with mocked email.
+Epic #81:
+- CommunicationSurface / SurfaceAuthority;
+- Unified Inbox;
+- PublicProfile + handle discovery;
+- Direct Messaging maturity;
+- push-ready notifications;
+- trust/safety;
+- attachments/media.
 
-Exit criteria: a real user can register, verify email, reset password, manage sessions, and use chat in RU or EN without native browser bubbles or raw backend errors.
+## 6. Channels
 
-## Phase 3.6 — Production notification delivery + browser E2E
-Goal: identity is safe to expose to real users for email delivery wiring, and critical flows are proven in a real browser.
+Epic #82:
+- Channel domain/global handles;
+- feed/subscriptions;
+- semantic ChannelPost index;
+- Ask Channel;
+- discovery/moderation.
 
-- [x] Keep `NotificationService` → `EmailProvider`; no Better Auth vendor SDK coupling.
-- [x] Do not silently pick a commercial vendor; SMTP protocol adapter only.
-- [x] local/test = memory adapters; staging/production fail startup on memory/logging providers.
-- [x] Secrets via `@vimla/config`, not `NEXT_PUBLIC_*`, redacted in logs.
-- [x] Document SPF/DKIM/DMARC and sender-domain policy (DNS not automated).
-- [x] Reset URLs from trusted `WEB_ORIGIN` only; ignore client redirect/callback host.
-- [x] Never log OTP, reset token, full email, or message bodies.
-- [x] Bounded email retries, notificationId idempotency.
-- [x] Config-driven email abuse limits (IP, destination, global) plus 60s cooldown.
-- [x] Local/test inbox; HTTP inspector only for `APP_ENV=local|test`.
-- [x] Playwright E2E for registration, invalid password/OTP, reset, sessions, AI gate, RU/EN, errors.
-- [x] Change-email UI on `/settings/security` with Better Auth OTP (current then new).
-- [x] `@SensitiveArea` default-deny for AI/billing mutations.
-- [x] Stable `notification_temporarily_unavailable` / `rate_limited` codes; no raw vendor errors.
-- [x] Sanitized delivery metrics/logs for a future admin dashboard (no Admin UI).
-- [x] Default CI does not send real email/ProxyAPI/payments. No live smoke tests until a vendor is chosen.
+Channels are the preferred early public wedge because they provide value before a user's friends migrate.
 
-Exit criteria: identity works from first click to verified account in a browser, and production cannot start pretending to deliver mail.
+## 7. Groups
 
-## Phase 4 — Real payment provider
-Goal: real subscription/top-up money activates existing billing domain.
+Epic #83:
+- Group domain;
+- reviewed Group E2EE ADR;
+- encrypted implementation only after ADR approval;
+- permission-aware @Vimla.
 
-- [x] choose payment provider (T-Bank Internet Acquiring, hosted page).
-- [x] implement PaymentProvider adapter.
-- [x] checkout endpoints.
-- [x] verified webhook.
-- [x] subscription purchase/renewal.
-- [x] arbitrary top-up amount with server-side min/max rules.
-- [x] duplicate webhook protection.
-- [x] cancellation/refund domain paths.
-- [x] billing history UI.
+Never invent group cryptography by casually extending pairwise Double Ratchet.
 
-Exit criteria: browser redirects cannot grant value; verified idempotent webhook does.
+## 8. Shared Work / Projects
 
-## Phase 4.5 — Finance & tariff economics foundation
-Goal: truthful unit economics and versioned tariffs for a future Admin, without exposing finance to end users.
+Epic #84:
+- migrate PERSONAL-only Workspace to explicit PROJECT scope;
+- Project Rooms;
+- unified project context graph.
 
-- [x] TOPUP never expires (`expiresAt` NULL, CHECK-enforced).
-- [x] PlanVersion DRAFT / PUBLISHED / RETIRED lifecycle.
-- [x] FREE fallback entitlement (no fake Subscription).
-- [x] typed PlanEntitlement registry (unlimited without magic -1).
-- [x] TopupPolicyVersion as PostgreSQL truth (env bootstrap fallback).
-- [x] PaymentFeePolicyVersion / FiscalizationFeePolicyVersion / optional tax reserve.
-- [x] PaymentEconomics estimated vs actual; missing policy does not block grant.
-- [x] FinanceQueryService (revenue, fees, AI COGS, outstanding, contribution, quality).
-- [x] TariffEconomicsSimulator + worst-case guardrails.
-- [x] no public `/v1/finance`.
+## 9. Universal AI / Search
 
-Exit criteria: Admin can later show real contribution/obligation/quality; historical payments are not rewritten by new policies.
+Epic #85:
+- surface-aware InvocationContext;
+- typed messenger actions;
+- existing DAG/orchestration as invisible infrastructure;
+- global permission-aware search.
 
-## Phase 5 — Protected Admin / Finance & Tariff Control Plane
-Goal: owner-only control plane, separate from consumer web.
+## 10. Web Functional Complete
 
-- [x] `apps/admin` on `:3002` / production `admin.<domain>`.
-- [x] `/admin/v1/*` + `AdminGuard` + `@RequireAdminPermission` (default deny).
-- [x] `AdminPrincipal` / `AdminRole` / `AdminSession` / `AdminAuditLog`.
-- [x] CLI bootstrap / disable / revoke-sessions.
-- [x] Better Auth TOTP + passkey plugins; AdminSession distinct from user session.
-- [x] Finance Overview via `FinanceQueryService`; top-up outstanding highlighted; no net profit as fact.
-- [x] Tariff drafts, simulator, negative-margin confirmation; no top-up expiry UI.
-- [x] Canonical project entitlement keys (Projects not implemented).
-- [x] Admin E2E on ports `3202` / `3201` (user E2E remains `3100` / `3101`).
-- [ ] ProxyAPI balance sync/snapshots / provider runway (Phase 5.x).
-- [ ] Bounded CSV export (Phase 5.x).
-- [ ] Model price write editor (Phase 5.x; catalog is read-only).
-- [ ] Reconciliation compensating write actions (Phase 5.x; inspect-only now).
+Epic #86 / #122.
 
-Exit criteria: ordinary users cannot reach Admin API; quality gate includes Admin tests. See `docs/ADMIN_SECURITY.md` and `docs/FINANCE_ADMIN.md`.
+Before the owner's design pass, accepted Web product functionality/security must be complete and architecture must be free of known native-blocking Web assumptions.
 
-## Phase 5.5 — Shared design system and responsive product UI
-Goal: one `@vimla/ui` design system for Web and Admin; restyle existing flows; real data only.
+## 11. Owner manual Web redesign
 
-- [x] `packages/ui` tokens, light/dark/system, primitives, AppShell, Auth/Settings patterns.
-- [x] Consumer auth, chat, settings, billing restyle without rewriting domain logic.
-- [x] Admin reuses the same system with compact density.
-- [x] AUTO/PRO selector: AUTO disabled until Auto Router exists; PRO uses the real catalog.
-- [x] `/dev/ui` local/test catalog; absent in staging/production.
-- [x] Responsive Playwright smoke + WebKit/Firefox shell coverage + selective local visual snapshots.
-- [x] `docs/DESIGN_SYSTEM.md`.
+Epic #87.
 
-Exit criteria: quality gate includes responsive tests; no screenshot data in production; no fake Projects.
+The owner manually finalizes layout/components/presentation. Business/security behavior remains stable unless separately changed.
 
-## Phase 6 — Personal Workspace Core
-Goal: personal My Work (Today, Tasks, Reminders, Lists/Checklists, Notes) without AI. See `docs/PERSONAL_WORKSPACE.md`.
+Then #123 Design Freeze:
+- normalize semantic tokens;
+- remove duplicate visual code;
+- extract reusable Web/Desktop DOM product components from Next route wrappers;
+- validate responsive/accessibility behavior.
 
-- [x] `WorkspaceObject` + kind child tables, PERSONAL scope only, `UserPreference.timezone`.
-- [x] `@vimla/workspace` domain services reusable later by `@Vimla`.
-- [x] Thin Nest API with IDOR 404, OriginGuard, SensitiveArea, mutation rate limit.
-- [x] Web `/work/*`, canonical Chat / My Work / Settings nav, explicit note Save, reminder copy without delivery claims.
-- [x] Integration + Playwright coverage, including responsive My Work smoke.
+## 12. Desktop
 
-Exit criteria: users can manage personal work without AI; quality gate green; Phase 6.5 delivery not started.
+Epic #88:
+- #124 Tauri/React shell (expected direction, reviewed at implementation time);
+- #125 secure storage/local DB/content-addressed media cache;
+- #126 Desktop parity.
 
-## Phase 6.5 — Notification Platform
-- [x] PostgreSQL-backed in-app inbox + `NotificationDelivery` execution records.
-- [x] Reminder reconciliation (≈60s, config) and BullMQ channel workers for `IN_APP` / `EMAIL`.
-- [x] Redis loss recovery via DB reconciliation; occurrence+channel uniqueness; cancel/reschedule/stale-job safety.
-- [x] Consumer notification center + Settings → Notifications (`notificationsSettings: true`).
-- [ ] recurring reminders (explicitly out of scope for this delivery).
-- [ ] Web Push / SMS.
+Same backend and business logic. No Desktop backend.
 
-## Phase 7 — Secure @Vimla Operator
-- [x] `@Vimla` operator using existing workspace services + `TrustedSourceContext`.
-- [x] Command Segments / Tool Registry / ActionPolicyEngine (not in Phase 6).
-- [x] Planner separate from executor; confirmation for destructive tools; idempotent runs; audit for writes.
-- [x] Consumer `/vimla` + in-chat `◆ @Vimla` mention; `vimlaOperator` / `OPERATOR_ENABLED` off by default (explicit local/test enable); `directChats`/`autoRouter` still off.
+## 13. Mobile
 
-## Phase 7.5 — Vimla Home
+Epic #89:
+- #127 React Native/Expo shell (expected direction, reviewed at implementation time);
+- #128 foreground WebSocket + APNs/FCM + resume sync;
+- #129 native secure storage/local DB/cache/E2EE + parity.
 
-## Phase 8 — Projects & Collaboration
-- [x] projects (create/list/open/edit, members, invites, roles, server-side entitlements, PLAN_LOCKED).
-- [x] ownership/security (IDOR 404, owner plan is billing subject, no ownership transfer).
-- [ ] files/object metadata.
-- [ ] signed access/upload.
-- [ ] project context in chats.
-- [ ] PROJECT-scoped workspace objects (migrate from PERSONAL-only).
+Same backend and business logic. No Mobile backend.
 
-`PROJECTS_ENABLED` and `CONSUMER_FEATURES.projects` stay off unless explicitly enabled. Do not turn Projects on automatically for staging/production.
+## 14. Later expansion
 
-## Phase 8.5 — Project-scoped @Vimla
+Creator monetization, business surfaces, calls, bots/mini-apps and extra media/AI capability are intentionally later. Implement them only after core communication usage justifies them.
 
-## Phase 9 — Secure Direct Chats + Contextual @Vimla
-- [x] 1:1 Direct Chat list/history/send/read/unread/pagination; unique pair; separate type from AI/operator conversations.
-- [x] E2EE: X3DH + Double Ratchet (`@vimla/e2ee`), ciphertext-only server storage, device register/rotate/revoke.
-- [x] Phase 7 `@Vimla` invocation scope `DIRECT_CHAT`; client context bundle + server consent filter; no server-side history decrypt.
-- [x] Cross-user task assignment from chat membership only (`assigneeHint` is a name, never a userId).
-- [x] Feature flag `directChats` / `DIRECT_CHATS_ENABLED` default OFF, backend fail-closed.
-- [x] Unit/integration/e2e/security tests. See `docs/DIRECT_CHATS.md`.
+Old “Images → Video → Agents” sequencing is no longer the product roadmap.
 
-Do not implement Auto Router, Brain, or Project Chats in this phase.
+## 15. Universal gates
 
-## Phase 9.x — Personal Brain + Project Brain
-
-## Phase 9.y — Auto Router
-- [ ] task/capability classification.
-- [ ] configurable routing rules.
-- [ ] cost/quality/latency weighting.
-- [ ] fallback handling.
-- [ ] routing telemetry and evaluation.
-
-## Phase 10 — Images
-- [ ] image capability interface/provider mapping.
-- [ ] async/sync strategy by model.
-- [ ] reservation by selected parameters.
-- [ ] object storage.
-- [ ] generation history/UI.
-- [ ] settlement/failure rules.
-
-## Phase 11 — Video
-- [ ] video job API.
-- [ ] persistent job lifecycle.
-- [ ] BullMQ worker.
-- [ ] provider polling/status handling.
-- [ ] object storage.
-- [ ] progress UI.
-- [ ] strict reservation/cost caps.
-- [ ] ambiguous-provider-charge reconciliation path.
-
-## Phase 12 — Agents
-- [ ] agent-run domain.
-- [ ] run-level provider-cost budget.
-- [ ] tool/step ledger.
-- [ ] BullMQ execution.
-- [ ] max steps/time/cost.
-- [ ] interruption/recovery.
-- [ ] user-visible progress.
-
-## Deferred until justified
-- microservices;
-- Kubernetes;
-- Kafka;
-- direct OpenAI/Anthropic/Google providers;
-- marketplace;
-- mobile apps;
-- complex organization/team billing.
+Every implementation issue must preserve:
+- server-authoritative identity/permissions/billing;
+- PostgreSQL durable truth;
+- Redis/BullMQ as transport/coordination;
+- authorization before semantic retrieval/disclosure;
+- E2EE plaintext/private keys not centralized for AI convenience;
+- idempotency/concurrency/crash recovery;
+- strict API contracts and bounded hostile input;
+- full relevant tests and exact-head CI;
+- no automatic production enablement or merge.

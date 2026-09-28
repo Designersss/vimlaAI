@@ -3,6 +3,14 @@ description: Local/production infrastructure and environment separation rules
 alwaysApply: false
 globs: "Dockerfile*, docker-compose*.yml, docker-compose*.yaml, .github/workflows/**, **/*.config.*, packages/config/**/*"
 ---
+
+## Current roadmap / platform inheritance
+
+GitHub #78 and `docs/MESSENGER_PLATFORM_ARCHITECTURE.md` are current authority. Existing domain/security rules remain valid.
+
+Infrastructure must leave room for horizontally replicated WebSocket gateways/outbox dispatch/sync while keeping PostgreSQL truth and Redis coordination. Do not add Kafka/microservices/Kubernetes without measured need and a roadmap issue.
+
+
 # Infrastructure rules
 
 - Keep local, test, staging and production configuration/credentials separate.

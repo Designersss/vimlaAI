@@ -1,5 +1,8 @@
 # Vimla Auth UI v2
 
+> **Status note:** this is a Web auth-UI reference, not the final cross-platform presentation contract. The owner will manually redesign Web after #122; native auth shells come later and reuse the same backend identity model rather than this DOM layout.
+
+
 Reference `08-auth-layout-concept.png` is a composition reference only. Restyle it with Vimla v2 foundation.
 
 ## Existing flows to visually cover

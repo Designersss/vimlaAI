@@ -7,6 +7,14 @@ globs:
 alwaysApply: false
 ---
 
+## Current roadmap / platform inheritance
+
+GitHub #78 and `docs/MESSENGER_PLATFORM_ARCHITECTURE.md` are current product/platform authority. Existing domain-specific safety rules in this file remain valid.
+
+Current auth UI is Web presentation, not the future native renderer. Preserve one backend identity/session model and keep auth behavior separable from the final owner Web design (#122→#123).
+
+
+
 # Auth UI v2
 
 Use `08-auth-layout-concept.png` only for composition. Restyle with the v2 dark/light system.

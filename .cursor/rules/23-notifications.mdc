@@ -3,6 +3,14 @@ description: Security-sensitive email notification delivery and templates
 alwaysApply: false
 globs: "packages/**/*email*.ts, apps/api/src/**/*notification*.ts, apps/worker/src/**/*notification*.ts"
 ---
+
+## Current roadmap / platform inheritance
+
+GitHub #78 and `docs/MESSENGER_PLATFORM_ARCHITECTURE.md` are current product/platform authority. Existing domain-specific safety rules in this file remain valid.
+
+Current IN_APP/EMAIL delivery remains implemented. #103 adds installation-scoped push-ready destinations; future APNs/FCM arrive in #128. Push is never durable sync truth. Notification destinations use semantic NavigationTarget rather than Web href strings.
+
+
 # Email notification rules
 
 - Delivery providers sit behind replaceable adapters; auth/domain logic must not depend directly on a vendor SDK.

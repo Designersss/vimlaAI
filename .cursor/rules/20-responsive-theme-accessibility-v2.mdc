@@ -6,6 +6,12 @@ globs:
 alwaysApply: true
 ---
 
+## Current roadmap / platform inheritance
+
+GitHub #78 and `docs/MESSENGER_PLATFORM_ARCHITECTURE.md` are current authority. Vimla is messenger-first with one backend for Web and future Desktop/Mobile.
+
+Responsive Web remains required, but it is not a substitute for future native Mobile. Owner-approved Web design is frozen only at #123.
+
 # Responsive/theme/accessibility
 
 Dark is primary; light is an equivalent theme using the same geometry. Use semantic tokens only.

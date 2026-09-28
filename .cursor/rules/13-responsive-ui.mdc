@@ -9,6 +9,14 @@ globs:
 alwaysApply: false
 ---
 
+## Current roadmap / platform inheritance
+
+GitHub #78 and `docs/MESSENGER_PLATFORM_ARCHITECTURE.md` are the current product/platform authority. Vimla is messenger-first with one backend for Web and future Desktop/Mobile. This rule's domain-specific constraints remain valid and must not be interpreted using the old workspace-first phase order.
+
+Responsive Web behavior remains mandatory now. Do not mistake responsive Web layouts for the future native Mobile renderer; native Mobile is a separate #89 phase after Design Freeze/Desktop.
+
+
+
 # Vimla Responsive UI & Testing
 
 These rules are mandatory for all frontend UI work in Vimla.

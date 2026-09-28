@@ -2,6 +2,14 @@
 description: Global application security, privacy and hostile-traffic rules
 alwaysApply: true
 ---
+
+## Current roadmap / platform inheritance
+
+GitHub #78 and `docs/MESSENGER_PLATFORM_ARCHITECTURE.md` are current authority. Existing domain/security rules remain valid.
+
+Multi-client additions: ClientInstallation is not authority; browser Origin/CSRF protections are not disabled for native convenience; WebSocket/push/Redis are not durable truth; semantic NavigationTarget must not become open redirect; Clear cache never clears crypto/sync authority; context access does not imply audience disclosure permission. Future Group E2EE is blocked on #112 review.
+
+
 # Security rules — ALWAYS APPLY
 
 Assume every public input and authenticated user can be malicious.

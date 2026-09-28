@@ -1,4 +1,7 @@
-# packages/e2ee — Codex guidance
+# packages/e2ee — Engineering guidance
+
+> **Current product/platform inheritance:** cryptographic protocol logic should remain platform-neutral where practical; browser/native secure persistence belongs behind adapters. The Web H01/H02 storage design is not a requirement that Desktop/Mobile copy IndexedDB. “Clear cache” never clears crypto identity/ratchet state. Group encryption is blocked on reviewed #112 protocol design. See #54/#78.
+
 
 This file extends the root `AGENTS.md` for Direct Chat cryptography.
 

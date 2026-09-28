@@ -3,6 +3,12 @@ description: Vimla localization, user-facing validation and error UX
 alwaysApply: false
 globs: "apps/web/**/*.{ts,tsx}, apps/admin/**/*.{ts,tsx}, packages/contracts/**/*.ts, packages/auth/**/*.ts"
 ---
+
+## Current roadmap / platform inheritance
+
+GitHub #78 and `docs/MESSENGER_PLATFORM_ARCHITECTURE.md` are the current product/platform authority. Vimla is messenger-first with one backend for Web and future Desktop/Mobile. This rule's domain-specific constraints remain valid and must not be interpreted using the old workspace-first phase order.
+
+
 # Localization and UX rules
 
 Vimla supports at least Russian (`ru`) and English (`en`).

@@ -1,4 +1,7 @@
-# packages/notifications — Codex guidance
+# packages/notifications — Engineering guidance
+
+> **Current product/platform inheritance:** existing IN_APP/EMAIL delivery remains valid. #103 extends destinations toward installation-scoped Web Push and later APNs/FCM while preserving PostgreSQL delivery truth. Push is not durable sync truth and navigation payloads must become semantic rather than Web href paths.
+
 
 This file extends the root `AGENTS.md` for durable notifications.
 

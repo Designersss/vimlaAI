@@ -6,6 +6,12 @@ globs:
 alwaysApply: true
 ---
 
+## Current roadmap / platform inheritance
+
+GitHub #78 and `docs/MESSENGER_PLATFORM_ARCHITECTURE.md` are current authority. Vimla is messenger-first with one backend for Web and future Desktop/Mobile.
+
+Motion rules apply to current Web presentation and later owner-approved design; they do not define native Mobile motion APIs.
+
 # Motion
 
 All interactive components require deliberate hover, focus-visible, pressed, disabled and selected/loading/error states where applicable.

@@ -3,6 +3,13 @@ description: NestJS/Fastify modular-monolith backend conventions
 alwaysApply: false
 globs: "apps/api/**/*.ts"
 ---
+
+## Current roadmap / platform inheritance
+
+GitHub #78 and `docs/MESSENGER_PLATFORM_ARCHITECTURE.md` are current authority. Vimla is messenger-first with one backend for Web and future Desktop/Mobile.
+
+The API is the single consumer backend for all clients. Do not create platform-specific product route forks. Domain outputs must be semantic, not Next/Tauri/Expo navigation. Durable realtime/sync follows #80/#94–#97; PostgreSQL is truth and Redis/WebSocket are delivery/coordination.
+
 # Backend rules
 
 - Keep NestJS controllers thin: parse/validate/authorize/orchestrate only.

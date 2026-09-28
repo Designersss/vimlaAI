@@ -6,24 +6,39 @@ globs:
 alwaysApply: true
 ---
 
-# Navigation
+# Navigation architecture — current
 
-Desktop/tablet have exactly one global navigation layer. Canonical destinations: Messages, My Work, Projects, ◆ Vimla, Settings.
+## Current roadmap / platform inheritance
 
-Never put recent conversations, folders, tasks, notes, reminders, lists, favorites, archive or project lists in the global sidebar.
+GitHub #78 and `docs/MESSENGER_PLATFORM_ARCHITECTURE.md` are authoritative. This file supersedes the old fixed workspace-first IA rules.
 
-List/detail is drill-down:
-- Messages -> separate conversation page
-- Projects -> separate project page
-- Notes/Lists -> separate detail page
+## Authority
 
-Issue #15: Messages use a persistent local conversation-list pane alongside detail at ≥1024px and route-selected single panes below it. The list is not a second global navigation layer.
+- Backend/domain responses use semantic `NavigationTarget`; they never encode Next routes as product semantics.
+- Web URL/router state may select Web details, but it is presentation/platform state, not domain authority.
+- Reusable stores/controllers must not treat Next route strings as cross-platform identity.
+- Direct deep links must remain recoverable without depending on browser history.
 
-Issue #17: normal Projects routes use the same approved drill-down architecture: a persistent local project-list pane alongside project detail at ≥1024px, and route-selected list/detail panes below it. `/projects/join` remains a focused flow. The project list is never global navigation. See `docs/CONSUMER_LAYOUT.md`.
+## Current Web
 
-My Work local nav: Today / Tasks / Reminders / Lists / Notes.
-Project local nav: Overview / Chats / Work / Context / Members. It remains inside project detail content rather than becoming another global sidebar.
+Preserve working route behavior unless the assigned issue explicitly changes it. Existing Messages/Work/Projects/Vimla/Settings routes are implementation reality, not a permanent final IA.
 
-Mobile bottom nav has exactly Messages / My Work / Projects / Vimla. Settings/profile via account UI.
+New Channels/Groups/communication features may not be placed into old navigation solely because this file once prescribed a fixed sidebar.
 
-Do not create fake production routes for future features. Use real feature gates or dev-only presentation until the roadmap phase implements them.
+## Final Web navigation
+
+Final placement, hierarchy and responsive composition are owner-driven after #122 Web Functional Complete. #123 Design Freeze then normalizes the approved presentation.
+
+Until then:
+- implement required functionality with coherent temporary/current Web placement;
+- do not invent fake destinations for unimplemented features;
+- do not make backend contracts depend on temporary placement;
+- feature gates remain authoritative.
+
+## Desktop / Mobile
+
+Desktop begins only after #123 and may reuse finalized Web DOM presentation.
+
+Mobile is a separate native presentation phase after Desktop. It may have different navigation composition while using the same semantic NavigationTarget and client/domain state.
+
+Do not encode “mobile bottom nav must be exactly X/Y/Z” as a permanent domain rule before the owner design/native phase approves it.

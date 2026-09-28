@@ -3,6 +3,14 @@ description: Vimla testing, regression and production-safety quality gates
 alwaysApply: false
 globs: "**/*.test.ts, **/*.spec.ts, **/*.test.tsx, **/*.spec.tsx, **/test/**/*"
 ---
+
+## Current roadmap / platform inheritance
+
+GitHub #78 and `docs/MESSENGER_PLATFORM_ARCHITECTURE.md` are current authority. Existing domain/security rules remain valid.
+
+New realtime/sync/client-foundation issues require failure-mode coverage: duplicate/drop/out-of-order event, reconnect/offline, Redis loss, multi-installation, authorization changes and migration. Web remains E2E reference until Desktop/Mobile phases; do not add fake native tests before apps exist.
+
+
 # Testing rules
 
 - Financial/security bugs always receive regression tests.

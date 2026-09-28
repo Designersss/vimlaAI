@@ -1,4 +1,7 @@
-# apps/worker — Codex guidance
+# apps/worker — Engineering guidance
+
+> **Current product/platform inheritance:** background work supports one backend for all clients. Realtime publication/outbox/sync work must keep PostgreSQL as durable truth and Redis/BullMQ as transport/coordination. Push delivery is never sync/message truth. See #80 and docs/REALTIME_SYNC.md.
+
 
 This file extends the root `AGENTS.md` for BullMQ/background processing.
 

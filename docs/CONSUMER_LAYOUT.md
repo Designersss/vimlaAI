@@ -1,5 +1,8 @@
 # Persistent consumer feature layouts
 
+> **Current architecture note (2026-09-28):** Vimla is now messenger-first and multi-client by design. GitHub #78 and `docs/MESSENGER_PLATFORM_ARCHITECTURE.md` are the product/platform source of truth; `docs/CLIENT_ARCHITECTURE.md` and `docs/REALTIME_SYNC.md` define future-client and delivery boundaries. Existing implementation details in this document remain valid unless they conflict with those sources.
+
+
 Issue #15 introduced the persistent consumer shell and responsive chat master/detail architecture. Issue #17 extends the same route-layout principles to Projects, Settings and Work where the product has real collection/detail or stable local-navigation semantics. Public feature URLs remain deterministic and feature gates remain authoritative.
 
 ## Route and component ownership
@@ -108,6 +111,12 @@ Chat, Projects, Settings and Work opt into the application viewport mode so thei
 Project detail keeps the canonical project-local navigation inside the detail content. The master project list is a drill-down collection pane, not a second global navigation layer. `/projects/join` bypasses the project master pane. Settings navigation is likewise feature-local and visually subordinate to the one global Vimla navigation layer. Work keeps one persistent feature-local navigation row; only Notes and Lists add nested collection/detail composition because those routes have real entity-detail semantics.
 
 ## Platform boundaries
+
+The current layouts are Web behavior, not the final cross-platform renderer contract. Web is completed first. The owner then manually redesigns it; #123 freezes reusable presentation boundaries; only then are Desktop/Mobile shells created.
+
+Platform-neutral client/domain state must not acquire Next routing/browser APIs merely to preserve this layout. Conversely, do not create speculative native adapters before #92/#124/#127 require them.
+
+
 
 - **Shared today:** `@vimla/contracts` request/response types, validation, domain packages and `@vimla/e2ee` crypto. Client state is non-authoritative and does not decide permissions, billing or entitlements.
 - **Web adapters:** route files and feature route shells select IDs/sections; feature components bind services/actions; API services encapsulate cookie transport/config. Navigation remains a platform concern rather than domain/store state.
