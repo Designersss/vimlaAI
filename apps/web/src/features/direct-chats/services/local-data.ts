@@ -30,7 +30,10 @@ function isExpectedRevokeFailure(
 }
 
 export async function clearLocalDirectChatData(
-  options: { revokeCurrentDevice?: boolean } = {},
+  options: {
+    revokeCurrentDevice?: boolean;
+    preserveRevocationLatch?: boolean;
+  } = {},
 ): Promise<LocalDirectChatCleanupResult> {
   let remoteDeviceRevoked = false;
 
@@ -51,11 +54,18 @@ export async function clearLocalDirectChatData(
     }
   }
 
+  // Freeze every browser tab before deleting the shared origin stores.
+  // This prevents a stale recovery/bootstrap task from recreating storage
+  // while an intentional wipe is in progress.
+  markLocalDeviceRevoked();
+
   // Local privacy wins over a failed network revoke. H05 owns durable
   // device lifecycle/recovery; H02 must not leave keys/plaintext behind
   // merely because the server is unreachable during logout/local wipe.
   await clearLocalE2eeData();
-  clearLocalDeviceRevocationLatch();
+  if (!options.preserveRevocationLatch) {
+    clearLocalDeviceRevocationLatch();
+  }
 
   return { remoteDeviceRevoked };
 }
@@ -63,4 +73,8 @@ export async function clearLocalDirectChatData(
 export async function clearLocalDataAfterDeviceRevocation(): Promise<void> {
   markLocalDeviceRevoked();
   await clearLocalE2eeData();
+}
+
+export function releaseLocalDirectChatRevocationLatch(): void {
+  clearLocalDeviceRevocationLatch();
 }
