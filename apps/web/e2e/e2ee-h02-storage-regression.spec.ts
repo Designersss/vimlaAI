@@ -169,9 +169,20 @@ test.describe("E2EE H02 storage regressions", () => {
         "second AAD-bound local plaintext",
       ]) {
         await composer.fill(text);
+        const responsePromise =
+          alicePage.waitForResponse(
+            (response) =>
+              response.request().method() === "POST" &&
+              /\/v1\/direct-chats\/[^/]+\/messages$/.test(
+                new URL(response.url()).pathname,
+              ),
+            { timeout: 20_000 },
+          );
         await alicePage
           .getByTestId("chat-composer-send")
           .click();
+        const response = await responsePromise;
+        expect(response.ok()).toBe(true);
         await expect(
           alicePage
             .getByTestId("direct-message-human")
@@ -706,9 +717,13 @@ test.describe("E2EE H02 storage regressions", () => {
       });
       await secondPage.reload();
       await expect(
-        secondPage.getByRole("button", {
-          name: /повторить|retry/i,
-        }),
+        secondPage
+          .getByRole("region", {
+            name: /^(разговор|conversation)$/i,
+          })
+          .getByRole("button", {
+            name: /повторить|retry/i,
+          }),
       ).toBeVisible({ timeout: 20_000 });
       expect(
         await localDatabases(secondPage),
