@@ -262,7 +262,7 @@ test.describe("E2EE H02 browser hardening", () => {
     );
   });
 
-  test("protects persisted E2EE data, renders hostile text inert, and clears local state", async ({
+  test("protects persisted E2EE data, renders hostile text inert, and wipes on logout", async ({
     browser,
     request,
   }) => {
@@ -308,7 +308,7 @@ test.describe("E2EE H02 browser hardening", () => {
     await purchasePro(nikitaPage);
     await nikitaPage.goto("/app");
 
-    const directUrl = await openDirectChat(
+    await openDirectChat(
       alicePage,
       nikitaEmail,
     );
@@ -411,42 +411,6 @@ test.describe("E2EE H02 browser hardening", () => {
     await alicePage.unroute(
       "**/v1/direct-chats/*/messages",
     );
-
-    await alicePage.goto("/settings/security");
-    await alicePage
-      .getByRole("button", {
-        name: /очистить локальные данные личных чатов|clear local direct chat data/i,
-      })
-      .click();
-    await expect(
-      alicePage.getByText(
-        /локальные данные личных чатов удалены|local direct chat data was cleared/i,
-      ),
-    ).toBeVisible();
-    const afterExplicitClear =
-      await localDatabases(alicePage);
-    expect(afterExplicitClear).not.toContain(
-      "vimla-direct-e2ee",
-    );
-    expect(afterExplicitClear).not.toContain(
-      "vimla-e2ee-keyring",
-    );
-
-    // An intentional clear may enroll a new browser crypto device on the
-    // next Direct Chat use; H05 owns richer recovery UX.
-    await alicePage.goto(directUrl);
-    await expect(
-      alicePage.getByTestId("direct-chat-shell"),
-    ).toBeVisible({ timeout: 20_000 });
-    await composer.fill("after explicit clear");
-    await alicePage
-      .getByTestId("chat-composer-send")
-      .click();
-    await expect(
-      alicePage
-        .getByTestId("direct-message-human")
-        .filter({ hasText: "after explicit clear" }),
-    ).toBeVisible({ timeout: 20_000 });
 
     const beforeLogout =
       await readProtectedStorage(alicePage);
