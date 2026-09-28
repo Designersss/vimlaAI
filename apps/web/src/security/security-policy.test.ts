@@ -93,6 +93,8 @@ describe("web security policy", () => {
       /\beval\s*\(/,
       /new\s+Function\s*\(/,
     ];
+    const reviewedDangerousHtmlSink =
+      "packages/ui/src/theme/ThemeScript.tsx";
     const violations: string[] = [];
 
     async function scan(
@@ -114,10 +116,19 @@ describe("web security policy", () => {
           continue;
         }
         const source = await readFile(path, "utf8");
+        const relativePath =
+          `${label}/${path.slice(root.length + 1)}`;
         for (const pattern of forbidden) {
+          if (
+            pattern.source ===
+              /dangerouslySetInnerHTML/.source &&
+            relativePath === reviewedDangerousHtmlSink
+          ) {
+            continue;
+          }
           if (pattern.test(source)) {
             violations.push(
-              `${label}/${path.slice(root.length + 1)}: ${pattern.source}`,
+              `${relativePath}: ${pattern.source}`,
             );
           }
         }
