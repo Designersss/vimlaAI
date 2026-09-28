@@ -916,6 +916,7 @@ export async function loadDeviceMaterial(): Promise<StoredDeviceMaterial | null>
 async function migrateDeviceMaterial(
   legacy: StoredDeviceMaterial,
 ): Promise<void> {
+  assertLegacyDeviceMaterialIsRaw(legacy);
   const protectedMaterial =
     await protectDeviceMaterial(legacy);
   const db = await openDb();
@@ -1083,6 +1084,7 @@ function pendingSendNeedsProtection(
 async function migratePendingSend(
   legacy: StoredPendingSend,
 ): Promise<void> {
+  assertLegacyPendingSendIsRaw(legacy);
   const protectedPending =
     await protectPendingSend(legacy);
   const db = await openDb();
@@ -2171,6 +2173,10 @@ export async function withPendingOperatorIntentLock<T>(
 async function migratePlaintext(
   legacy: StoredPlaintext,
 ): Promise<void> {
+  assertLegacyValueIsRaw(
+    legacy.text,
+    "plaintext cache",
+  );
   const protectedRow = await protectPlaintext(legacy);
   const db = await openDb();
   await new Promise<void>((resolve, reject) => {
