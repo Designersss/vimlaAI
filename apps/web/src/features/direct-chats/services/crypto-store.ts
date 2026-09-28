@@ -901,6 +901,79 @@ export async function assertLocalDeviceBootstrapLease(
   await assertCoordinationLease(lease);
 }
 
+function pendingSendNeedsProtection(
+  pending: StoredPendingSend,
+): boolean {
+  return (
+    !isProtectedLocalString(pending.plaintext) ||
+    (pending.operatorIntent !== undefined &&
+      (!isProtectedLocalString(
+        pending.operatorIntent.content,
+      ) ||
+        pending.operatorIntent.contextBundle.messages.some(
+          (message) =>
+            !isProtectedLocalString(message.text),
+        ) ||
+        (pending.operatorIntent.delivery?.outputs.some(
+          (output) =>
+            !isProtectedLocalString(output.plaintext),
+        ) ??
+          false)))
+  );
+}
+
+async function migratePendingSend(
+  legacy: StoredPendingSend,
+): Promise<void> {
+  const protectedPending =
+    await protectPendingSend(legacy);
+  const db = await openDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction(
+      "pendingSends",
+      "readwrite",
+    );
+    const store = tx.objectStore("pendingSends");
+    const request = store.get(legacy.clientMessageId);
+    request.onsuccess = () => {
+      const current = request.result as
+        | StoredPendingSend
+        | undefined;
+      if (
+        current &&
+        pendingSendNeedsProtection(current) &&
+        JSON.stringify(current) ===
+          JSON.stringify(legacy)
+      ) {
+        store.put(
+          protectedPending,
+          legacy.clientMessageId,
+        );
+      }
+    };
+    request.onerror = () =>
+      reject(
+        request.error ??
+          new Error(
+            "Legacy pending-send migration read failed",
+          ),
+      );
+    tx.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    tx.onabort = () => {
+      db.close();
+      reject(
+        tx.error ??
+          new Error(
+            "Legacy pending-send migration aborted",
+          ),
+      );
+    };
+  });
+}
+
 export async function loadPendingSends(
   conversationId: string,
   senderDeviceId: string,
