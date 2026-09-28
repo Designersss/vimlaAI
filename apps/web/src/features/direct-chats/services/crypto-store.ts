@@ -901,6 +901,32 @@ export async function assertLocalDeviceBootstrapLease(
   await assertCoordinationLease(lease);
 }
 
+export async function clearLocalE2eeData(): Promise<void> {
+  let failure: Error | null = null;
+  try {
+    await deleteIndexedDb(DB_NAME);
+  } catch (error: unknown) {
+    failure =
+      error instanceof Error
+        ? error
+        : new Error("Local E2EE data deletion failed");
+  }
+  try {
+    await clearLocalProtectionKey();
+  } catch (error: unknown) {
+    failure ??=
+      error instanceof Error
+        ? error
+        : new Error("Local E2EE key deletion failed");
+  }
+  if (failure) {
+    throw new Error(
+      "Local E2EE data could not be fully cleared",
+      { cause: failure },
+    );
+  }
+}
+
 function pendingSendNeedsProtection(
   pending: StoredPendingSend,
 ): boolean {
