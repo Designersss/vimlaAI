@@ -1033,6 +1033,12 @@ test.describe("Secure Direct Chats", () => {
     ).toBe(1);
 
     let abortFirstOperatorOutputBeforeServer = true;
+    let releaseBlockedOperatorOutput: (() => void) | null =
+      null;
+    const blockedOperatorOutputRelease =
+      new Promise<void>((resolve) => {
+        releaseBlockedOperatorOutput = resolve;
+      });
     await aliceContext.route(
       "**/v1/direct-chats/*/messages",
       async (route) => {
@@ -1047,6 +1053,7 @@ test.describe("Secure Direct Chats", () => {
           body?.kind === "OPERATOR_RESPONSE"
         ) {
           abortFirstOperatorOutputBeforeServer = false;
+          await blockedOperatorOutputRelease;
           await route.abort("failed");
           return;
         }
@@ -1056,10 +1063,41 @@ test.describe("Secure Direct Chats", () => {
 
     const aliceRecoveryPage =
       await aliceContext.newPage();
-    await Promise.all([
-      alicePage.reload(),
-      aliceRecoveryPage.goto(recoveryDirectUrl),
-    ]);
+    const firstRecoveryNavigation =
+      aliceRecoveryPage.goto(recoveryDirectUrl);
+    await expect.poll(
+      () => abortFirstOperatorOutputBeforeServer,
+    ).toBe(false);
+    const protectedOutputs =
+      await readPendingOperatorOutputProtection(
+        alicePage,
+      );
+    expect(
+      protectedOutputs.plaintexts.length,
+    ).toBeGreaterThan(0);
+    expect(
+      protectedOutputs.plaintexts.every((value) =>
+        value.startsWith("vimla-protected:v1:"),
+      ),
+    ).toBe(true);
+    expect(
+      protectedOutputs.ids.length,
+    ).toBeGreaterThan(0);
+    expect(
+      protectedOutputs.ids.every(
+        (value) =>
+          value.startsWith("response:") ||
+          value.startsWith("action:"),
+      ),
+    ).toBe(true);
+    expect(
+      protectedOutputs.ids.some((value) =>
+        value.startsWith("["),
+      ),
+    ).toBe(false);
+    releaseBlockedOperatorOutput?.();
+    await firstRecoveryNavigation;
+    await alicePage.reload();
     for (const page of [
       alicePage,
       aliceRecoveryPage,
@@ -2055,6 +2093,85 @@ async function readPendingOperatorProtection(
               request.error ??
                 new Error(
                   "Pending operator protection read failed",
+                ),
+            );
+        },
+      );
+    } finally {
+      db.close();
+    }
+  });
+}
+
+async function readPendingOperatorOutputProtection(
+  page: Page,
+): Promise<{
+  ids: string[];
+  plaintexts: string[];
+}> {
+  return page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>(
+      (resolve, reject) => {
+        const request = indexedDB.open(
+          "vimla-direct-e2ee",
+        );
+        request.onsuccess = () =>
+          resolve(request.result);
+        request.onerror = () =>
+          reject(
+            request.error ??
+              new Error(
+                "Pending operator output protection database read failed",
+              ),
+          );
+      },
+    );
+    try {
+      return await new Promise(
+        (resolve, reject) => {
+          const tx = db.transaction(
+            "pendingSends",
+            "readonly",
+          );
+          const request = tx
+            .objectStore("pendingSends")
+            .getAll();
+          request.onsuccess = () => {
+            const rows = request.result as Array<{
+              operatorIntent?: {
+                delivery?: {
+                  outputs?: Array<{
+                    id?: string;
+                    plaintext?: string;
+                  }>;
+                };
+              };
+            }>;
+            const outputs = rows.flatMap(
+              (row) =>
+                row.operatorIntent?.delivery
+                  ?.outputs ?? [],
+            );
+            resolve({
+              ids: outputs
+                .map((output) => output.id)
+                .filter(
+                  (value): value is string =>
+                    typeof value === "string",
+                ),
+              plaintexts: outputs
+                .map((output) => output.plaintext)
+                .filter(
+                  (value): value is string =>
+                    typeof value === "string",
+                ),
+            });
+          };
+          request.onerror = () =>
+            reject(
+              request.error ??
+                new Error(
+                  "Pending operator output protection read failed",
                 ),
             );
         },
