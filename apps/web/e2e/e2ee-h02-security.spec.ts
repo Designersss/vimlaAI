@@ -197,7 +197,17 @@ test.describe("E2EE H02 browser hardening", () => {
       "frame-ancestors 'none'",
     );
     expect(firstCsp).toContain("object-src 'none'");
-    expect(firstCsp).not.toContain("'unsafe-inline'");
+    const scriptPolicy = firstCsp
+      .split("; ")
+      .find((directive) =>
+        directive.startsWith("script-src "),
+      );
+    expect(scriptPolicy).toBeTruthy();
+    expect(scriptPolicy).not.toContain("'unsafe-inline'");
+    expect(scriptPolicy).not.toContain("'unsafe-eval'");
+    expect(firstCsp).toContain(
+      "style-src-attr 'unsafe-inline'",
+    );
     expect(
       firstHeaders["x-content-type-options"],
     ).toBe("nosniff");
@@ -224,6 +234,16 @@ test.describe("E2EE H02 browser hardening", () => {
     expect(firstNonce).toBeTruthy();
     expect(secondNonce).toBeTruthy();
     expect(secondNonce).not.toBe(firstNonce);
+
+    await page.goto("/dev/ui");
+    const progressFill = page
+      .getByRole("progressbar")
+      .first()
+      .locator("span");
+    await expect(progressFill).toHaveAttribute(
+      "style",
+      /width:\s*\d+%/,
+    );
   });
 
   test("protects persisted E2EE data, renders hostile text inert, and clears local state", async ({
