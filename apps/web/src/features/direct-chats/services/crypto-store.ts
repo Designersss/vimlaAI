@@ -1474,38 +1474,161 @@ export async function completePendingOperatorIntent(
   });
 }
 
+async function migrateLegacyRatchet(input: {
+  conversationId: string;
+  localDeviceId: string;
+  peerDeviceId: string;
+  sourceKey: string;
+  snapshot: RatchetSnapshot;
+}): Promise<void> {
+  const protectedRecord = await protectRatchetRecord({
+    conversationId: input.conversationId,
+    localDeviceId: input.localDeviceId,
+    peerDeviceId: input.peerDeviceId,
+    stateVersion: input.snapshot.stateVersion,
+    state: input.snapshot.state,
+    pendingX3dhInit: input.snapshot.pendingX3dhInit,
+  });
+  const targetKey = ratchetStorageKey(
+    input.conversationId,
+    input.localDeviceId,
+    input.peerDeviceId,
+  );
+  const db = await openDb();
+  await new Promise<void>((resolve, reject) => {
+    let failure: Error | null = null;
+    const tx = db.transaction(
+      "ratchets",
+      "readwrite",
+    );
+    const store = tx.objectStore("ratchets");
+    const request = store.get(input.sourceKey);
+    request.onsuccess = () => {
+      const current = request.result;
+      if (
+        current === undefined ||
+        isProtectedRatchetRecord(current)
+      ) {
+        return;
+      }
+      try {
+        const currentSnapshot = decodeStoredRatchet(
+          current,
+          input.localDeviceId,
+        );
+        if (
+          !currentSnapshot ||
+          currentSnapshot.stateVersion !==
+            input.snapshot.stateVersion
+        ) {
+          return;
+        }
+        store.put(protectedRecord, targetKey);
+        if (input.sourceKey !== targetKey) {
+          store.delete(input.sourceKey);
+        }
+      } catch (error: unknown) {
+        failure =
+          error instanceof Error
+            ? error
+            : new RatchetStateCorruptError();
+        tx.abort();
+      }
+    };
+    request.onerror = () => {
+      failure =
+        request.error ??
+        new Error(
+          "Legacy ratchet migration read failed",
+        );
+      tx.abort();
+    };
+    tx.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    tx.onabort = () => {
+      db.close();
+      reject(
+        failure ??
+          tx.error ??
+          new Error(
+            "Legacy ratchet migration aborted",
+          ),
+      );
+    };
+  });
+}
+
 export async function loadRatchet(
   conversationId: string,
   localDeviceId: string,
   peerDeviceId: string,
 ): Promise<RatchetSnapshot | null> {
+  const scopedKey = ratchetStorageKey(
+    conversationId,
+    localDeviceId,
+    peerDeviceId,
+  );
   const scoped = await withStore<unknown>(
     "ratchets",
     "readonly",
-    (store) =>
-      store.get(
-        ratchetStorageKey(
-          conversationId,
-          localDeviceId,
-          peerDeviceId,
-        ),
-      ),
+    (store) => store.get(scopedKey),
   );
   if (scoped !== undefined) {
-    return decodeStoredRatchet(scoped, localDeviceId);
+    const snapshot = await decodePersistedRatchet(
+      scoped,
+      {
+        conversationId,
+        localDeviceId,
+        peerDeviceId,
+      },
+    );
+    if (
+      snapshot &&
+      !isProtectedRatchetRecord(scoped)
+    ) {
+      await migrateLegacyRatchet({
+        conversationId,
+        localDeviceId,
+        peerDeviceId,
+        sourceKey: scopedKey,
+        snapshot,
+      });
+    }
+    return snapshot;
   }
+  const legacyKey = legacyRatchetStorageKey(
+    conversationId,
+    peerDeviceId,
+  );
   const legacy = await withStore<unknown>(
     "ratchets",
     "readonly",
-    (store) =>
-      store.get(
-        legacyRatchetStorageKey(
-          conversationId,
-          peerDeviceId,
-        ),
-      ),
+    (store) => store.get(legacyKey),
   );
-  return decodeStoredRatchet(legacy, localDeviceId);
+  const snapshot = await decodePersistedRatchet(
+    legacy,
+    {
+      conversationId,
+      localDeviceId,
+      peerDeviceId,
+    },
+  );
+  if (
+    snapshot &&
+    legacy !== undefined &&
+    !isProtectedRatchetRecord(legacy)
+  ) {
+    await migrateLegacyRatchet({
+      conversationId,
+      localDeviceId,
+      peerDeviceId,
+      sourceKey: legacyKey,
+      snapshot,
+    });
+  }
+  return snapshot;
 }
 
 export async function commitDecryptedRatchet(input: {
