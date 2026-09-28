@@ -219,6 +219,7 @@ test.describe("Direct Chat cross-browser coordination", () => {
         },
       );
       let holdPrimaryReceive = true;
+      let olderSendCommitted: Promise<void> | null = null;
       let secondaryPhase:
         | "hide-older"
         | "newest-only"
@@ -229,8 +230,10 @@ test.describe("Direct Chat cross-browser coordination", () => {
         async (route) => {
           if (
             holdPrimaryReceive &&
-            route.request().method() === "GET"
+            route.request().method() === "GET" &&
+            olderSendCommitted
           ) {
+            await olderSendCommitted;
             holdPrimaryReceive = false;
             const response = await route.fetch();
             markOlderReceiveHeld();
@@ -248,10 +251,14 @@ test.describe("Direct Chat cross-browser coordination", () => {
             await route.continue();
             return;
           }
-          if (secondaryPhase === "passthrough") {
+          if (
+            secondaryPhase === "passthrough" ||
+            !olderSendCommitted
+          ) {
             await route.continue();
             return;
           }
+          await olderSendCommitted;
           const response = await route.fetch();
           const payload = (await response.json()) as {
             items?: unknown[];
@@ -287,10 +294,21 @@ test.describe("Direct Chat cross-browser coordination", () => {
       const concurrentNewerText =
         "receiver concurrent newer ratchet message";
       await firstComposer.fill(delayedOlderText);
+      olderSendCommitted = alicePage
+        .waitForResponse(
+          (response) =>
+            response.request().method() === "POST" &&
+            /\/v1\/direct-chats\/[^/]+\/messages$/.test(
+              new URL(response.url()).pathname,
+            ) &&
+            response.ok(),
+        )
+        .then(() => undefined);
       await alicePage
         .getByTestId("chat-composer-send")
         .click();
       await Promise.all([
+        olderSendCommitted,
         olderReceiveHeld,
         olderHidden,
       ]);
