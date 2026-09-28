@@ -204,7 +204,11 @@ test.describe("E2EE H02 browser hardening", () => {
       );
     expect(scriptPolicy).toBeTruthy();
     expect(scriptPolicy).not.toContain("'unsafe-inline'");
-    expect(scriptPolicy).not.toContain("'unsafe-eval'");
+    // Playwright runs the web app with next dev, where the policy
+    // intentionally permits the evaluator required by Next/React.
+    // The production no-unsafe-eval invariant is covered by
+    // security-policy.test.ts against development: false.
+    expect(scriptPolicy).toContain("'unsafe-eval'");
     expect(firstCsp).toContain(
       "style-src-attr 'unsafe-inline'",
     );
