@@ -84,6 +84,13 @@ describe("web security policy", () => {
         ),
         label: "packages/ui/src",
       },
+      {
+        path: resolve(
+          process.cwd(),
+          "../../packages/e2ee/src",
+        ),
+        label: "packages/e2ee/src",
+      },
     ];
     const forbidden = [
       /dangerouslySetInnerHTML/,
