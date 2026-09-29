@@ -14,7 +14,7 @@ import {
 } from "@vimla/notifications";
 import { notificationDeliveryJobSchema } from "@vimla/contracts";
 import { isDuplicateJobError } from "./queue.js";
-import { navigationTargetToWebUrl } from "./navigation/web-navigation.js";
+import { navigationTargetToWebUrl } from "@vimla/web-navigation";
 
 export function createNotificationRuntime(
   prisma: PrismaClient,
