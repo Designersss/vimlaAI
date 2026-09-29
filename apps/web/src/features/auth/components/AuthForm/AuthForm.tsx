@@ -204,6 +204,11 @@ export function AuthForm({ mode }: AuthFormProps): ReactElement {
       router.refresh();
     } catch (error: unknown) {
       finishIdle();
+      setTestDebugError(
+        error instanceof Error
+          ? `${error.name}: ${error.message}`
+          : String(error),
+      );
       if (error instanceof HandleUnavailableError) {
         setFieldErrors((current) => ({
           ...current,
