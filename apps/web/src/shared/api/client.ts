@@ -13,7 +13,7 @@ export function createWebClientApi(
 ) {
   const transport = createClientTransport({
     baseUrl: publicWebConfig.apiBaseUrl,
-    fetchImpl,
+    fetchImpl: fetchImpl.bind(globalThis),
     defaultInit: {
       credentials: "include",
       cache: "no-store",
