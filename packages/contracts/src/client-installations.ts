@@ -86,9 +86,17 @@ export const clientInstallationViewSchema = z
   .object({
     id: z.string().uuid(),
     kind: clientInstallationKindSchema,
-    appVersion: z.string().nullable(),
-    protocolVersion: z.number().int().min(1),
-    capabilities: z.array(capabilitySchema),
+    appVersion: z
+      .string()
+      .min(1)
+      .max(CLIENT_INSTALLATION_LIMITS.appVersionMax)
+      .nullable(),
+    protocolVersion: z
+      .number()
+      .int()
+      .min(1)
+      .max(CLIENT_INSTALLATION_LIMITS.protocolVersionMax),
+    capabilities: clientInstallationCapabilitiesSchema,
     createdAt: z.string().datetime({ offset: true }),
     lastSeenAt: z.string().datetime({ offset: true }),
     revokedAt: z.string().datetime({ offset: true }).nullable(),
