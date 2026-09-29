@@ -81,16 +81,6 @@ export class ClientInstallationsService {
     }
   }
 
-  async list(userId: string): Promise<ClientInstallationView[]> {
-    const rows =
-      await this.prisma.client.clientInstallation.findMany({
-        where: { userId },
-        include: { preference: true },
-        orderBy: [{ lastSeenAt: "desc" }, { createdAt: "desc" }],
-      });
-    return rows.map((row) => this.view(row));
-  }
-
   async revoke(
     userId: string,
     installationId: string,
