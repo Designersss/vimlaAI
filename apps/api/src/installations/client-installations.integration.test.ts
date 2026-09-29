@@ -335,8 +335,12 @@ describe("client installations API", () => {
       process.env.CLIENT_INSTALLATIONS_MUTATION_LIMIT_PER_MINUTE;
     process.env.CLIENT_INSTALLATIONS_MUTATION_LIMIT_PER_MINUTE = "2";
     const config = loadApiConfig(process.env);
-    process.env.CLIENT_INSTALLATIONS_MUTATION_LIMIT_PER_MINUTE =
-      previous;
+    if (previous === undefined) {
+      delete process.env.CLIENT_INSTALLATIONS_MUTATION_LIMIT_PER_MINUTE;
+    } else {
+      process.env.CLIENT_INSTALLATIONS_MUTATION_LIMIT_PER_MINUTE =
+        previous;
+    }
 
     const isolated = await createVimlaApiApp(config, {
       quiet: true,
