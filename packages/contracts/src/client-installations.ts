@@ -108,12 +108,3 @@ export const clientInstallationViewSchema = z
 export type ClientInstallationView = z.infer<
   typeof clientInstallationViewSchema
 >;
-
-export const clientInstallationsResponseSchema = z
-  .object({
-    items: z.array(clientInstallationViewSchema),
-  })
-  .strict();
-export type ClientInstallationsResponse = z.infer<
-  typeof clientInstallationsResponseSchema
->;
