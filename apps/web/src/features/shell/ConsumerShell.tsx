@@ -23,6 +23,7 @@ import { authClient } from "../auth/services/auth-client";
 import { LanguageSwitcher } from "../../shared/i18n/LanguageSwitcher";
 import { CanonicalNav } from "./CanonicalNav";
 import { NotificationBell } from "../notifications/components/NotificationBell";
+import { ensureWebInstallation } from "../installations/services/installation";
 import {
   clearLocalDirectChatData,
   releaseLocalDirectChatRevocationLatch,
@@ -59,6 +60,7 @@ export function ConsumerShell({ children }: { children: ReactNode }): ReactEleme
           router.replace("/claim-handle");
           return;
         }
+        await ensureWebInstallation(currentUser.id);
         await syncAuthenticatedLocale(currentUser.locale);
         if (cancelled) return;
         const cookieLocale = readLocaleCookie();
