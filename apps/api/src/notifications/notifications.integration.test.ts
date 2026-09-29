@@ -310,7 +310,11 @@ describe("notification platform", () => {
         sourceId: reminder.id,
         occurrenceKey: `reminder:stranger:${Date.now()}`,
         title: "Stranger only",
-        hrefPath: "/work/reminders",
+        navigationTarget: {
+          version: 1,
+          kind: "REMINDER",
+          id: reminder.id,
+        },
       },
     });
     await app.inject({
