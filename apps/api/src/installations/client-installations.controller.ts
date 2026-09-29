@@ -2,7 +2,6 @@ import {
   BadRequestException,
   Body,
   Controller,
-  Get,
   HttpCode,
   Inject,
   Param,
@@ -14,11 +13,9 @@ import type { AuthenticatedUser } from "@vimla/auth";
 import {
   clientInstallationIdSchema,
   clientInstallationViewSchema,
-  clientInstallationsResponseSchema,
   registerClientInstallationSchema,
   updateClientInstallationPreferencesSchema,
   type ClientInstallationView,
-  type ClientInstallationsResponse,
 } from "@vimla/contracts";
 import { AuthGuard } from "../auth/auth.guard.js";
 import { AuthUser } from "../auth/current-user.decorator.js";
@@ -55,15 +52,6 @@ export class ClientInstallationsController {
     return clientInstallationViewSchema.parse(
       await this.installations.register(user.id, input.data),
     );
-  }
-
-  @Get()
-  async list(
-    @AuthUser() user: AuthenticatedUser,
-  ): Promise<ClientInstallationsResponse> {
-    return clientInstallationsResponseSchema.parse({
-      items: await this.installations.list(user.id),
-    });
   }
 
   @Post(":id/revoke")
