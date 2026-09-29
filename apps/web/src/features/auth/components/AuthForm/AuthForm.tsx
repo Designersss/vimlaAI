@@ -42,6 +42,7 @@ export function AuthForm({ mode }: AuthFormProps): ReactElement {
     password?: string;
   }>({});
   const [formError, setFormError] = useState<string | null>(null);
+  const [testDebugError, setTestDebugError] = useState<string | null>(null);
   const [state, setState] = useState<"idle" | "submitting">("idle");
   const [retryAfter, setRetryAfter] = useState(0);
 
@@ -87,6 +88,13 @@ export function AuthForm({ mode }: AuthFormProps): ReactElement {
       await claimHandle(handle);
     } catch (error: unknown) {
       finishIdle();
+      if (process.env.NODE_ENV === "test") {
+        setTestDebugError(
+          error instanceof Error
+            ? `${error.name}: ${error.message}`
+            : String(error),
+        );
+      }
       if (error instanceof HandleUnavailableError) {
         setFieldErrors((current) => ({
           ...current,
@@ -278,6 +286,11 @@ export function AuthForm({ mode }: AuthFormProps): ReactElement {
         />
       </FormField>
       {formError ? <Alert variant="error">{formError}</Alert> : null}
+      {testDebugError ? (
+        <span data-testid="auth-test-debug-error" hidden>
+          {testDebugError}
+        </span>
+      ) : null}
       <Button type="submit" disabled={submitDisabled} loading={state === "submitting"} block>
         {retryAfter > 0
           ? t("auth.errors.rateLimitedWait", { seconds: retryAfter })
