@@ -28,3 +28,4 @@ export {
   NotificationApiError,
   createNotificationsClient,
 } from "./notifications.js";
+export { createInstallationsClient } from "./installations.js";
