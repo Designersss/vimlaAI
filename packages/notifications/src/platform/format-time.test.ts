@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { formatReminderInstant } from "./format-time.js";
-import { sanitizeHrefPath } from "./destinations.js";
+import { reminderNavigationTarget } from "./destinations.js";
 import { sanitizeUserText } from "./text.js";
 import { renderEmailTemplate } from "../templates.js";
 
@@ -19,10 +19,14 @@ describe("safe presentation", () => {
     expect(sanitizeUserText("Call\nme\u0000now", 200)).toBe("Call me now");
   });
 
-  it("allows only known internal hrefs", () => {
-    expect(sanitizeHrefPath("/work/reminders")).toBe("/work/reminders");
-    expect(sanitizeHrefPath("https://evil.example")).toBeNull();
-    expect(sanitizeHrefPath("/app")).toBeNull();
+  it("builds a semantic reminder destination without a URL", () => {
+    expect(
+      reminderNavigationTarget("11111111-1111-4111-8111-111111111111"),
+    ).toEqual({
+      version: 1,
+      kind: "REMINDER",
+      id: "11111111-1111-4111-8111-111111111111",
+    });
   });
 
   it("renders reminder email as text without HTML", () => {
