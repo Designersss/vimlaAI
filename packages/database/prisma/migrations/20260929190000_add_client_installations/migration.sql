@@ -39,7 +39,7 @@ ALTER TABLE "client_installation"
 
 CREATE TABLE "client_installation_preference" (
     "installationId" TEXT NOT NULL,
-    "pushEnabled" BOOLEAN NOT NULL DEFAULT true,
+    "pushEnabled" BOOLEAN NOT NULL DEFAULT false,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 
