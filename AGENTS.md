@@ -40,6 +40,7 @@ Monorepo: pnpm + Turborepo, strict TypeScript.
 - `packages/direct-chats` — Direct Chat domain, consent and context rules.
 - `packages/e2ee` — Direct Chat cryptographic protocol implementation.
 - `packages/ui` — shared design system.
+- `packages/web-navigation` — the single Web-platform adapter from semantic `NavigationTarget` values to Web routes/absolute Web URLs; domain/backend code must not import it.
 - `packages/config`, `packages/shared` — validated configuration and shared utilities.
 
 ## Core architecture invariants
