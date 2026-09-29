@@ -8,14 +8,16 @@ globs: "packages/database/**/*, **/prisma/**/*"
 
 GitHub #78 and `docs/MESSENGER_PLATFORM_ARCHITECTURE.md` are current product/platform authority. Existing domain-specific safety rules in this file remain valid.
 
-Upcoming CommunicationSurface, ClientInstallation, realtime outbox/sync, Channels, Groups and PROJECT Workspace changes must use additive migrations and DB constraints. PostgreSQL is durable sync/outbox truth; do not make Redis or client cursors authoritative. Persistence must not encode Web/Desktop/Mobile presentation routes.
+Upcoming CommunicationSurface, ClientInstallation, realtime outbox/sync, Channels, Groups and PROJECT Workspace changes must converge on the clean target schema with DB constraints. Additive-only migration chains are not required before a real deployed-data boundary exists. PostgreSQL is durable sync/outbox truth; do not make Redis or client cursors authoritative. Persistence must not encode Web/Desktop/Mobile presentation routes.
 
 
 # Database rules
 
 - PostgreSQL is authoritative for users, sessions, payments, subscriptions, usage, AI request accounting, admin permissions and audit-grade state.
-- Use versioned Prisma migrations. Never replace production migration history with `db push`.
-- Do not edit already-applied historical migrations; add a new migration.
+- Pre-production development migrations may be rewritten/squashed when that removes obsolete schema/compatibility debt; reset dev/test DBs consistently.
+- Do not use legacy columns/backfills merely to preserve development history.
+- Once a migration has crossed a real deployed/shared-data boundary, do not edit it; use forward versioned migrations.
+- Never replace real production migration history with `db push`.
 - Financial values use PostgreSQL `BIGINT` and TypeScript `bigint`.
 - Add DB constraints/unique indexes/checks/partial indexes where they materially protect invariants.
 - For critical concurrency, use explicit transaction/locking/isolation patterns and integration tests.
