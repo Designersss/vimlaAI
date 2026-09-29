@@ -1,7 +1,6 @@
 import { z } from "zod";
 
 export const CLIENT_INSTALLATION_LIMITS = {
-  activePerUserMax: 20,
   appVersionMax: 64,
   capabilitiesMax: 32,
   capabilityNameMax: 64,
