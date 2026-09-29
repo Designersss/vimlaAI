@@ -14,6 +14,8 @@ export const preferenceScopeSchema = z.enum([
 ]);
 export type PreferenceScope = z.infer<typeof preferenceScopeSchema>;
 
+export const clientInstallationIdSchema = z.string().uuid();
+
 export const clientInstallationKindSchema = z.enum([
   "WEB",
   "DESKTOP",
@@ -40,7 +42,7 @@ export const clientInstallationCapabilitiesSchema = z
 
 export const registerClientInstallationSchema = z
   .object({
-    id: z.string().uuid(),
+    id: clientInstallationIdSchema,
     kind: clientInstallationKindSchema,
     appVersion: z
       .string()
@@ -84,7 +86,7 @@ export type UpdateClientInstallationPreferences = z.infer<
 
 export const clientInstallationViewSchema = z
   .object({
-    id: z.string().uuid(),
+    id: clientInstallationIdSchema,
     kind: clientInstallationKindSchema,
     appVersion: z
       .string()
