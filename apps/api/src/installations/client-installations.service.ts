@@ -227,21 +227,6 @@ export class ClientInstallationsService {
     }
   }
 
-  private async owned(
-    userId: string,
-    installationId: string,
-  ): Promise<InstallationRow> {
-    const row =
-      await this.prisma.client.clientInstallation.findFirst({
-        where: { id: installationId, userId },
-        include: { preference: true },
-      });
-    if (!row) {
-      throw notFound();
-    }
-    return row;
-  }
-
   private view(row: InstallationRow): ClientInstallationView {
     return clientInstallationViewSchema.parse({
       id: row.id,
