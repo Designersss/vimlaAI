@@ -63,7 +63,7 @@ describe("client installations API", () => {
       protocolVersion: 1,
       capabilities: ["realtime.v1", "sync.v1"],
       revokedAt: null,
-      preferences: { pushEnabled: true },
+      preferences: { pushEnabled: false },
     });
     expect("userId" in first.json()).toBe(false);
 
