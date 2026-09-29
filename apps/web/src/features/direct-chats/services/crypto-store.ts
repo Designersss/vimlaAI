@@ -26,7 +26,7 @@ import {
   markLegacyRatchetOwner,
   type RatchetLeaseRecord,
   type RatchetSnapshot,
-} from "./ratchet-coordination";
+} from "@vimla/client-core";
 import {
   clearLocalProtectionKey,
   deleteIndexedDb,
