@@ -6,6 +6,7 @@ import { useTranslations } from "next-intl";
 import { OperatorActionCard, StreamingIndicator, Text } from "@vimla/ui";
 import type { OperatorActionCard as OperatorAction, OperatorRunView } from "@vimla/contracts";
 
+import { navigationTargetToWebPath } from "../../../shared/navigation/navigation-target";
 import styles from "./OperatorRunPanel.module.scss";
 
 export function OperatorRunPanel({
@@ -44,8 +45,8 @@ export function OperatorRunPanel({
                   : t(`operator.ops.${action.operation}` as never)
           }
           tone={toneOf(action.status)}
-          hrefLabel={action.hrefPath ? t("operator.open") : undefined}
-          onOpen={action.hrefPath ? () => router.push(action.hrefPath ?? "/work") : undefined}
+          hrefLabel={t("operator.open")}
+          onOpen={() => router.push(navigationTargetToWebPath(action.navigationTarget))}
           confirmLabel={run.confirmationRequired && index === 0 ? t("operator.confirm") : undefined}
           cancelLabel={run.confirmationRequired && index === 0 ? t("common.cancel") : undefined}
           onConfirm={run.confirmationRequired && index === 0 ? onConfirm : undefined}
