@@ -117,6 +117,7 @@ export function loadApiConfig(
     paymentProvider: parsed.PAYMENT_PROVIDER ?? resolveDefaultPaymentProvider(parsed.APP_ENV),
     paymentCheckoutLimitPerMinute: parsed.PAYMENT_CHECKOUT_LIMIT_PER_MINUTE,
     workspaceMutationLimitPerMinute: parsed.WORKSPACE_MUTATION_LIMIT_PER_MINUTE,
+    clientInstallationsMutationLimitPerMinute: parsed.CLIENT_INSTALLATIONS_MUTATION_LIMIT_PER_MINUTE,
     operatorEnabled: parsed.OPERATOR_ENABLED === "true",
     operatorMaxToolsPerRun: parsed.OPERATOR_MAX_TOOLS_PER_RUN,
     operatorConfirmationTtlSeconds: parsed.OPERATOR_CONFIRMATION_TTL_SECONDS,
