@@ -57,6 +57,8 @@ Monorepo: pnpm + Turborepo, strict TypeScript.
 
 ## Messenger-first / multi-client invariants
 
+- **Greenfield correctness:** Vimla is still pre-production. Do not preserve an architecturally wrong earlier implementation solely for backward compatibility with our own development history. When no real deployed/data/external boundary exists, remove or rewrite obsolete contracts/schema/code and converge on the clean target design.
+
 - One authoritative Vimla backend/domain system serves current Web and future Desktop/Mobile clients. Do not create separate product backends or ordinary `/v1/web/*`, `/v1/mobile/*`, `/v1/desktop/*` API forks.
 - Web is implemented first, but new backend/contracts/client-domain logic must not rely on Next.js merely because native clients are deferred.
 - Desktop/Mobile application shells are not created until Web Functional Complete, the owner's manual Web redesign, and Design Freeze stages defined in #78.
