@@ -1,4 +1,9 @@
-import type { NavigationTarget, OperatorActionCard, OperatorActionKind } from "@vimla/contracts";
+import {
+  NAVIGATION_TARGET_VERSION,
+  type NavigationTarget,
+  type OperatorActionCard,
+  type OperatorActionKind,
+} from "@vimla/contracts";
 import { WorkspaceError } from "@vimla/workspace";
 import { NotificationPlatformError } from "@vimla/notifications";
 import { OperatorError } from "./errors.js";
@@ -29,32 +34,32 @@ function card(
 function targetFor(kind: OperatorActionKind, id?: unknown): NavigationTarget {
   if (kind === "task") {
     return typeof id === "string"
-      ? { version: 1, kind: "TASK", id }
-      : { version: 1, kind: "TASKS" };
+      ? { version: NAVIGATION_TARGET_VERSION, kind: "TASK", id }
+      : { version: NAVIGATION_TARGET_VERSION, kind: "TASKS" };
   }
   if (kind === "reminder") {
     return typeof id === "string"
-      ? { version: 1, kind: "REMINDER", id }
-      : { version: 1, kind: "REMINDERS" };
+      ? { version: NAVIGATION_TARGET_VERSION, kind: "REMINDER", id }
+      : { version: NAVIGATION_TARGET_VERSION, kind: "REMINDERS" };
   }
   if (kind === "note") {
     return typeof id === "string"
-      ? { version: 1, kind: "NOTE", id }
-      : { version: 1, kind: "NOTES" };
+      ? { version: NAVIGATION_TARGET_VERSION, kind: "NOTE", id }
+      : { version: NAVIGATION_TARGET_VERSION, kind: "NOTES" };
   }
   if (kind === "list") {
     return typeof id === "string"
-      ? { version: 1, kind: "LIST", id }
-      : { version: 1, kind: "LISTS" };
+      ? { version: NAVIGATION_TARGET_VERSION, kind: "LIST", id }
+      : { version: NAVIGATION_TARGET_VERSION, kind: "LISTS" };
   }
   if (kind === "notifications") {
-    return { version: 1, kind: "NOTIFICATION_SETTINGS" };
+    return { version: NAVIGATION_TARGET_VERSION, kind: "NOTIFICATION_SETTINGS" };
   }
   if (kind === "profile") {
-    return { version: 1, kind: "PROFILE" };
+    return { version: NAVIGATION_TARGET_VERSION, kind: "PROFILE" };
   }
   if (kind === "today") {
-    return { version: 1, kind: "TODAY" };
+    return { version: NAVIGATION_TARGET_VERSION, kind: "TODAY" };
   }
   const exhaustive: never = kind;
   throw new OperatorError("TOOL_DENIED", `Unhandled action kind ${String(exhaustive)}`);
