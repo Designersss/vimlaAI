@@ -1,5 +1,5 @@
-import type { NavigationTarget } from "@vimla/contracts";
+import { NAVIGATION_TARGET_VERSION, type NavigationTarget } from "@vimla/contracts";
 
 export function reminderNavigationTarget(reminderId: string): NavigationTarget {
-  return { version: 1, kind: "REMINDER", id: reminderId };
+  return { version: NAVIGATION_TARGET_VERSION, kind: "REMINDER", id: reminderId };
 }
