@@ -52,6 +52,38 @@ describe("client installation contracts", () => {
     ).toBe(false);
   });
 
+  it("applies registration metadata bounds to public views too", () => {
+    const base = {
+      id: "11111111-1111-4111-8111-111111111111",
+      kind: "WEB",
+      appVersion: "1.0.0",
+      protocolVersion: 1,
+      capabilities: ["realtime.v1"],
+      createdAt: "2026-09-29T12:00:00.000Z",
+      lastSeenAt: "2026-09-29T12:00:00.000Z",
+      revokedAt: null,
+      preferences: { pushEnabled: false },
+    };
+    expect(
+      clientInstallationViewSchema.safeParse({
+        ...base,
+        appVersion: "x".repeat(65),
+      }).success,
+    ).toBe(false);
+    expect(
+      clientInstallationViewSchema.safeParse({
+        ...base,
+        protocolVersion: 1_000_001,
+      }).success,
+    ).toBe(false);
+    expect(
+      clientInstallationViewSchema.safeParse({
+        ...base,
+        capabilities: ["sync.v1", "sync.v1"],
+      }).success,
+    ).toBe(false);
+  });
+
   it("does not expose user ownership in the public view", () => {
     const parsed = clientInstallationViewSchema.parse({
       id: "11111111-1111-4111-8111-111111111111",
