@@ -109,11 +109,14 @@ export class ClientInstallationsService {
           );
         return this.view(createdOrRaced);
       } catch (error: unknown) {
-        if (
-          isSerializationConflict(error) &&
-          attempt + 1 < REGISTER_TRANSACTION_ATTEMPTS
-        ) {
-          continue;
+        if (isSerializationConflict(error)) {
+          if (attempt + 1 < REGISTER_TRANSACTION_ATTEMPTS) {
+            continue;
+          }
+          throw new ConflictException({
+            code: "conflict",
+            message: "Client installation registration conflicted",
+          });
         }
         if (isUniqueConflict(error)) {
           const raced =
