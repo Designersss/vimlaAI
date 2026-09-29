@@ -1,33 +1,26 @@
-import {
-  apiErrorResponseSchema,
-  cryptoDeviceViewSchema,
-  cryptoDevicesResponseSchema,
-  directConversationViewSchema,
-  directConversationsResponseSchema,
-  directMessageViewSchema,
-  directMessagesResponseSchema,
-  prekeyBundlesResponseSchema,
-  type CreateDirectConversation,
-  type CryptoDeviceView,
-  type DirectConversationView,
-  type DirectConversationsResponse,
-  type DirectMessageView,
-  type DirectMessagesResponse,
-  type PrekeyBundlesResponse,
-  type RegisterCryptoDevice,
-  type SendDirectMessage,
-  type UpdateDirectChatPrivacy,
+import type {
+  CreateDirectConversation,
+  CryptoDeviceView,
+  DirectConversationView,
+  DirectConversationsResponse,
+  DirectMessageView,
+  DirectMessagesResponse,
+  PrekeyBundlesResponse,
+  RegisterCryptoDevice,
+  SendDirectMessage,
+  UpdateDirectChatPrivacy,
 } from "@vimla/contracts";
-import { publicWebConfig } from "../../../shared/config/public-env";
-import { AuthRequiredError } from "../../auth/services/current-user";
+import { DirectChatsApiError } from "@vimla/client-api";
+import { createWebClientApi } from "../../../shared/api/client";
 import { clearLocalE2eeData } from "./crypto-store";
 import { markLocalDeviceRevoked } from "./revocation-state";
 
-export class DirectChatsApiError extends Error {
-  constructor(readonly code: string) {
-    super(code);
-    this.name = "DirectChatsApiError";
-  }
+export { DirectChatsApiError };
+
+const DIRECT_CHAT_REQUEST_TIMEOUT_MS = 20_000;
+
+function timeoutSignal(): AbortSignal {
+  return AbortSignal.timeout(DIRECT_CHAT_REQUEST_TIMEOUT_MS);
 }
 
 async function wipeAfterCurrentDeviceRevocation(
@@ -43,54 +36,31 @@ async function wipeAfterCurrentDeviceRevocation(
   throw error;
 }
 
-const DIRECT_CHAT_REQUEST_TIMEOUT_MS = 20_000;
-
-function jsonHeaders(): HeadersInit {
-  return { "content-type": "application/json" };
-}
-
-async function request<T>(
-  path: string,
-  init: RequestInit,
-  parse: (payload: unknown) => T,
-  fetchImpl: typeof fetch,
-): Promise<T> {
-  const response = await fetchImpl(`${publicWebConfig.apiBaseUrl}${path}`, {
-    credentials: "include",
-    cache: "no-store",
-    ...init,
-    signal:
-      init.signal ??
-      AbortSignal.timeout(DIRECT_CHAT_REQUEST_TIMEOUT_MS),
+export async function fetchDirectConversations(
+  fetchImpl: typeof fetch = fetch,
+): Promise<DirectConversationsResponse> {
+  return createWebClientApi(fetchImpl).directChats.fetchDirectConversations({
+    signal: timeoutSignal(),
   });
-  if (response.status === 401) {
-    throw new AuthRequiredError();
-  }
-  const payload: unknown = await response.json().catch(() => null);
-  if (!response.ok) {
-    const parsed = apiErrorResponseSchema.safeParse(payload);
-    throw new DirectChatsApiError(parsed.success ? parsed.data.error.code : "internal_error");
-  }
-  return parse(payload);
 }
 
-export async function fetchDirectConversations(fetchImpl: typeof fetch = fetch): Promise<DirectConversationsResponse> {
-  return request("/v1/direct-chats", {}, (payload) => directConversationsResponseSchema.parse(payload), fetchImpl);
-}
-
-export async function fetchDirectConversation(id: string, fetchImpl: typeof fetch = fetch): Promise<DirectConversationView> {
-  return request(`/v1/direct-chats/${id}`, {}, (payload) => directConversationViewSchema.parse(payload), fetchImpl);
+export async function fetchDirectConversation(
+  id: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<DirectConversationView> {
+  return createWebClientApi(fetchImpl).directChats.fetchDirectConversation(
+    id,
+    { signal: timeoutSignal() },
+  );
 }
 
 export async function createDirectConversation(
   input: CreateDirectConversation,
   fetchImpl: typeof fetch = fetch,
 ): Promise<DirectConversationView> {
-  return request(
-    "/v1/direct-chats",
-    { method: "POST", headers: jsonHeaders(), body: JSON.stringify(input) },
-    (payload) => directConversationViewSchema.parse(payload),
-    fetchImpl,
+  return createWebClientApi(fetchImpl).directChats.createDirectConversation(
+    input,
+    { signal: timeoutSignal() },
   );
 }
 
@@ -99,20 +69,20 @@ export async function updateDirectChatPrivacy(
   input: UpdateDirectChatPrivacy,
   fetchImpl: typeof fetch = fetch,
 ): Promise<DirectConversationView> {
-  return request(
-    `/v1/direct-chats/${id}/privacy`,
-    { method: "PATCH", headers: jsonHeaders(), body: JSON.stringify(input) },
-    (payload) => directConversationViewSchema.parse(payload),
-    fetchImpl,
+  return createWebClientApi(fetchImpl).directChats.updateDirectChatPrivacy(
+    id,
+    input,
+    { signal: timeoutSignal() },
   );
 }
 
-export async function markDirectChatRead(id: string, fetchImpl: typeof fetch = fetch): Promise<DirectConversationView> {
-  return request(
-    `/v1/direct-chats/${id}/read`,
-    { method: "POST", headers: jsonHeaders(), body: "{}" },
-    (payload) => directConversationViewSchema.parse(payload),
-    fetchImpl,
+export async function markDirectChatRead(
+  id: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<DirectConversationView> {
+  return createWebClientApi(fetchImpl).directChats.markDirectChatRead(
+    id,
+    { signal: timeoutSignal() },
   );
 }
 
@@ -122,43 +92,30 @@ export async function fetchDirectMessages(
   cursor?: string,
   fetchImpl: typeof fetch = fetch,
 ): Promise<DirectMessagesResponse> {
-  const params = new URLSearchParams({ deviceId, limit: "30" });
-  if (cursor) {
-    params.set("cursor", cursor);
-  }
   try {
-    return await request(
-      `/v1/direct-chats/${id}/messages?${params.toString()}`,
-      {},
-      (payload) => directMessagesResponseSchema.parse(payload),
-      fetchImpl,
+    return await createWebClientApi(fetchImpl).directChats.fetchDirectMessages(
+      id,
+      deviceId,
+      cursor,
+      { signal: timeoutSignal() },
     );
   } catch (error: unknown) {
-    // This request identifies the recipient by the browser's own deviceId,
-    // so DEVICE_REVOKED authoritatively applies to the local crypto state.
     return wipeAfterCurrentDeviceRevocation(error);
   }
 }
+
 export async function sendDirectMessage(
   id: string,
   input: SendDirectMessage,
   fetchImpl: typeof fetch = fetch,
 ): Promise<DirectMessageView> {
   try {
-    return await request(
-      `/v1/direct-chats/${id}/messages`,
-      {
-        method: "POST",
-        headers: jsonHeaders(),
-        body: JSON.stringify(input),
-      },
-      (payload) => directMessageViewSchema.parse(payload),
-      fetchImpl,
+    return await createWebClientApi(fetchImpl).directChats.sendDirectMessage(
+      id,
+      input,
+      { signal: timeoutSignal() },
     );
   } catch (error: unknown) {
-    // senderDeviceId is this browser's local sender device. A revoked
-    // response is therefore authoritative even if revocation raced the
-    // preflight/recovery checks immediately before this POST.
     return wipeAfterCurrentDeviceRevocation(error);
   }
 }
@@ -167,11 +124,9 @@ export async function registerCryptoDevice(
   input: RegisterCryptoDevice,
   fetchImpl: typeof fetch = fetch,
 ): Promise<CryptoDeviceView> {
-  return request(
-    "/v1/direct-chats/devices",
-    { method: "POST", headers: jsonHeaders(), body: JSON.stringify(input) },
-    (payload) => cryptoDeviceViewSchema.parse(payload),
-    fetchImpl,
+  return createWebClientApi(fetchImpl).directChats.registerCryptoDevice(
+    input,
+    { signal: timeoutSignal() },
   );
 }
 
@@ -179,29 +134,26 @@ export async function revokeCryptoDevice(
   deviceId: string,
   fetchImpl: typeof fetch = fetch,
 ): Promise<CryptoDeviceView> {
-  return request(
-    `/v1/direct-chats/devices/${encodeURIComponent(deviceId)}/revoke`,
-    { method: "POST" },
-    (payload) => cryptoDeviceViewSchema.parse(payload),
-    fetchImpl,
+  return createWebClientApi(fetchImpl).directChats.revokeCryptoDevice(
+    deviceId,
+    { signal: timeoutSignal() },
   );
 }
 
-export async function fetchMyCryptoDevices(fetchImpl: typeof fetch = fetch): Promise<CryptoDeviceView[]> {
-  const page = await request(
-    "/v1/direct-chats/devices",
-    {},
-    (payload) => cryptoDevicesResponseSchema.parse(payload),
-    fetchImpl,
-  );
-  return page.items;
+export async function fetchMyCryptoDevices(
+  fetchImpl: typeof fetch = fetch,
+): Promise<CryptoDeviceView[]> {
+  return createWebClientApi(fetchImpl).directChats.fetchMyCryptoDevices({
+    signal: timeoutSignal(),
+  });
 }
 
-export async function fetchPrekeyBundles(userId: string, fetchImpl: typeof fetch = fetch): Promise<PrekeyBundlesResponse> {
-  return request(
-    `/v1/direct-chats/users/${userId}/prekeys`,
-    {},
-    (payload) => prekeyBundlesResponseSchema.parse(payload),
-    fetchImpl,
+export async function fetchPrekeyBundles(
+  userId: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<PrekeyBundlesResponse> {
+  return createWebClientApi(fetchImpl).directChats.fetchPrekeyBundles(
+    userId,
+    { signal: timeoutSignal() },
   );
 }
