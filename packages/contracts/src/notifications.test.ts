@@ -36,5 +36,11 @@ describe("notification public DTOs", () => {
       kind: "REMINDER",
       id: "22222222-2222-4222-8222-222222222222",
     });
+    expect(
+      userNotificationViewSchema.safeParse({
+        ...parsed,
+        hrefPath: "/work/reminders",
+      }).success,
+    ).toBe(false);
   });
 });
