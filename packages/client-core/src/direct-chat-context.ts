@@ -5,6 +5,7 @@ import {
   type OperatorContextBundle,
 } from "@vimla/contracts";
 export interface DirectChatPlaintextRecord {
+  conversationId?: string;
   messageId: string;
   senderUserId: string;
   kind: string;
