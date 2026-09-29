@@ -38,6 +38,17 @@ backend + complete Web logic
 
 Do not start Desktop/Mobile early, but do not introduce Web-only backend/domain assumptions that would require later rewrites.
 
+## 2A. Greenfield correctness over legacy compatibility
+
+Vimla is still pre-production. There is currently no production user-data or released-client compatibility boundary to preserve by default.
+
+- Do not keep an incorrect earlier implementation merely because a previous issue introduced it.
+- Prefer the clean target architecture when old code/contracts/schema conflict with the current approved design.
+- Remove obsolete fields, compatibility branches, duplicate DTOs and temporary abstractions instead of carrying them forward.
+- It is acceptable to rewrite development-only schema/API behavior and update tests/migrations when that produces the correct architecture.
+- Preserve compatibility only when there is a concrete deployed boundary: production data, released clients, external integrations, or another explicitly approved dependency.
+- Do not use "backward compatibility" as a reason to retain technical debt in a greenfield subsystem.
+
 ## 3. Multi-client boundary
 
 - no separate Web/Desktop/Mobile business backends;
