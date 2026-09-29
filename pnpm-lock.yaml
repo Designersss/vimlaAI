@@ -53,9 +53,6 @@ importers:
       '@vimla/shared':
         specifier: workspace:*
         version: link:../../packages/shared
-      '@vimla/web-navigation':
-        specifier: workspace:*
-        version: link:../../packages/web-navigation
       '@vimla/ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -168,9 +165,6 @@ importers:
       '@vimla/shared':
         specifier: workspace:*
         version: link:../../packages/shared
-      '@vimla/web-navigation':
-        specifier: workspace:*
-        version: link:../../packages/web-navigation
       '@vimla/workspace':
         specifier: workspace:*
         version: link:../../packages/workspace
