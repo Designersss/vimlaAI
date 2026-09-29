@@ -3,6 +3,7 @@ import {
   createChatClient,
   createClientTransport,
   createDirectChatsClient,
+  createInstallationsClient,
   createNotificationsClient,
   createOperatorClient,
 } from "@vimla/client-api";
@@ -24,6 +25,7 @@ export function createWebClientApi(
     account: createAccountClient(transport),
     chat: createChatClient(transport),
     directChats: createDirectChatsClient(transport),
+    installations: createInstallationsClient(transport),
     notifications: createNotificationsClient(transport),
     operator: createOperatorClient(transport),
   };
