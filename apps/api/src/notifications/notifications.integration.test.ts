@@ -459,7 +459,6 @@ function processorPolicy() {
     backoffCapMs: 10,
     leaseSeconds: 30,
     defaultLocale: "ru" as const,
-    webOrigin: origin,
   };
 }
 
@@ -482,7 +481,6 @@ function makeProcessor(prisma: PrismaClient): NotificationDeliveryProcessor {
         userId: input.userId,
         reminderTitle: input.reminderTitle,
         scheduledLabel: input.scheduledLabel,
-        openUrl: input.openUrl,
         consumeBudget: false,
       }),
     silentPlatformLogger,
