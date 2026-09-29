@@ -21,7 +21,6 @@ CREATE TABLE "user_notification" (
     CONSTRAINT "user_notification_pkey" PRIMARY KEY ("id"),
     CONSTRAINT "user_notification_type_chk" CHECK ("type" IN ('REMINDER_DUE')),
     CONSTRAINT "user_notification_source_type_chk" CHECK ("sourceType" IN ('WORKSPACE_REMINDER'))
-    )
 );
 
 CREATE UNIQUE INDEX "user_notification_userId_type_occurrenceKey_key" ON "user_notification"("userId", "type", "occurrenceKey");
