@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { NestFastifyApplication } from "@nestjs/platform-fastify";
 import { loadApiConfig } from "@vimla/config/server";
 import { createVimlaApiApp } from "../create-app.js";
@@ -228,6 +228,55 @@ describe("client installations API", () => {
     });
     expect(preference.statusCode).toBe(409);
     expect(errorCode(preference)).toBe("installation_revoked");
+  });
+
+  it("fails closed when registration metadata refresh races revocation", async () => {
+    const user = await registerVerifiedUser(
+      app,
+      "install-register-revoke-race",
+    );
+    const id = randomUUID();
+    expect(
+      (
+        await register(
+          app,
+          user.cookies,
+          installationPayload(id),
+        )
+      ).statusCode,
+    ).toBe(200);
+
+    const prisma = app.get(PrismaService).client;
+    const model = prisma.clientInstallation;
+    const originalUpdate = model.update.bind(model);
+    const updateSpy = vi
+      .spyOn(model, "update")
+      .mockImplementationOnce(async (args) => {
+        await prisma.$executeRaw`
+          UPDATE "client_installation"
+          SET "revokedAt" = CURRENT_TIMESTAMP
+          WHERE "id" = ${id}
+        `;
+        return originalUpdate(args);
+      });
+
+    try {
+      const raced = await register(app, user.cookies, {
+        ...installationPayload(id),
+        appVersion: "web-raced",
+      });
+      expect(raced.statusCode).toBe(409);
+      expect(errorCode(raced)).toBe("installation_revoked");
+    } finally {
+      updateSpy.mockRestore();
+    }
+
+    const persisted =
+      await prisma.clientInstallation.findUniqueOrThrow({
+        where: { id },
+      });
+    expect(persisted.revokedAt).not.toBeNull();
+    expect(persisted.appVersion).toBe("web-test");
   });
 
   it("requires a verified authenticated session and rejects authority or malformed metadata", async () => {
