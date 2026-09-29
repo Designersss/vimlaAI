@@ -6,6 +6,7 @@ import {
   signUp,
   uniqueEmail,
   verifyEmail,
+  waitForRegisteredDirectChatDevice,
 } from "./helpers";
 
 const PROTECTED_PREFIX = "vimla-protected:v1:";
@@ -307,6 +308,7 @@ test.describe("E2EE H02 browser hardening", () => {
     );
     await purchasePro(nikitaPage);
     await nikitaPage.goto("/app");
+    await waitForRegisteredDirectChatDevice(nikitaPage);
 
     await openDirectChat(
       alicePage,
@@ -485,6 +487,7 @@ test.describe("E2EE H02 browser hardening", () => {
     );
     await purchasePro(nikitaPage);
     await nikitaPage.goto("/app");
+    await waitForRegisteredDirectChatDevice(nikitaPage);
 
     await openDirectChat(
       alicePage,
