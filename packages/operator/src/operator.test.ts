@@ -167,6 +167,7 @@ describe("step preparation", () => {
     ]);
     expect(steps[0]?.args).not.toHaveProperty("userId");
     expect(steps[0]?.card.title).toBe("Buy tickets");
+    expect(steps[0]?.card.navigationTarget).toEqual({ version: 1, kind: "TASKS" });
     expect(steps[0]?.confirmationRequired).toBe(false);
   });
 
