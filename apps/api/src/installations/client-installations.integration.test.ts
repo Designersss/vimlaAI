@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { NestFastifyApplication } from "@nestjs/platform-fastify";
 import { loadApiConfig } from "@vimla/config/server";
-import { Prisma } from "@vimla/database";
+import type { Prisma } from "@vimla/database";
 import { createVimlaApiApp } from "../create-app.js";
 import { PrismaService } from "../persistence/prisma.service.js";
 import {
