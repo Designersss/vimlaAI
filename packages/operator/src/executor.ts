@@ -26,6 +26,40 @@ function card(
   return { kind, operation, title, detail, status, navigationTarget };
 }
 
+function targetFor(kind: OperatorActionKind, id?: unknown): NavigationTarget {
+  if (kind === "task") {
+    return typeof id === "string"
+      ? { version: 1, kind: "TASK", id }
+      : { version: 1, kind: "TASKS" };
+  }
+  if (kind === "reminder") {
+    return typeof id === "string"
+      ? { version: 1, kind: "REMINDER", id }
+      : { version: 1, kind: "REMINDERS" };
+  }
+  if (kind === "note") {
+    return typeof id === "string"
+      ? { version: 1, kind: "NOTE", id }
+      : { version: 1, kind: "NOTES" };
+  }
+  if (kind === "list") {
+    return typeof id === "string"
+      ? { version: 1, kind: "LIST", id }
+      : { version: 1, kind: "LISTS" };
+  }
+  if (kind === "notifications") {
+    return { version: 1, kind: "NOTIFICATION_SETTINGS" };
+  }
+  if (kind === "profile") {
+    return { version: 1, kind: "PROFILE" };
+  }
+  if (kind === "today") {
+    return { version: 1, kind: "TODAY" };
+  }
+  const exhaustive: never = kind;
+  throw new OperatorError("TOOL_DENIED", `Unhandled action kind ${String(exhaustive)}`);
+}
+
 export function prepareSteps(
   commands: readonly ParsedCommand[],
   invocationScope: "PERSONAL" | "DIRECT_CHAT" = "PERSONAL",
@@ -75,39 +109,6 @@ export async function executeStep(
 }
 
 function previewCard(tool: OperatorToolName, args: Record<string, unknown>): ToolHandlerResult {
-  const targetFor = (kind: OperatorActionKind, id?: unknown): NavigationTarget => {
-    if (kind === "task") {
-      return typeof id === "string"
-        ? { version: 1, kind: "TASK", id }
-        : { version: 1, kind: "TASKS" };
-    }
-    if (kind === "reminder") {
-      return typeof id === "string"
-        ? { version: 1, kind: "REMINDER", id }
-        : { version: 1, kind: "REMINDERS" };
-    }
-    if (kind === "note") {
-      return typeof id === "string"
-        ? { version: 1, kind: "NOTE", id }
-        : { version: 1, kind: "NOTES" };
-    }
-    if (kind === "list") {
-      return typeof id === "string"
-        ? { version: 1, kind: "LIST", id }
-        : { version: 1, kind: "LISTS" };
-    }
-    if (kind === "notifications") {
-      return { version: 1, kind: "NOTIFICATION_SETTINGS" };
-    }
-    if (kind === "profile") {
-      return { version: 1, kind: "PROFILE" };
-    }
-    if (kind === "today") {
-      return { version: 1, kind: "TODAY" };
-    }
-    const exhaustive: never = kind;
-    throw new OperatorError("TOOL_DENIED", `Unhandled action kind ${String(exhaustive)}`);
-  };
 
   switch (tool) {
     case "tasks.create":
