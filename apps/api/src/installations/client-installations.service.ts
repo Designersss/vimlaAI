@@ -95,17 +95,24 @@ export class ClientInstallationsService {
     userId: string,
     installationId: string,
   ): Promise<ClientInstallationView> {
-    const row = await this.owned(userId, installationId);
-    if (row.revokedAt) {
-      return this.view(row);
-    }
-    const updated =
-      await this.prisma.client.clientInstallation.update({
-        where: { id: installationId },
-        data: { revokedAt: new Date() },
+    const now = new Date();
+    await this.prisma.client.clientInstallation.updateMany({
+      where: {
+        id: installationId,
+        userId,
+        revokedAt: null,
+      },
+      data: { revokedAt: now },
+    });
+    const row =
+      await this.prisma.client.clientInstallation.findFirst({
+        where: { id: installationId, userId },
         include: { preference: true },
       });
-    return this.view(updated);
+    if (!row) {
+      throw notFound();
+    }
+    return this.view(row);
   }
 
   async updatePreferences(
@@ -113,31 +120,46 @@ export class ClientInstallationsService {
     installationId: string,
     input: UpdateClientInstallationPreferences,
   ): Promise<ClientInstallationView> {
-    const row = await this.owned(userId, installationId);
-    if (row.revokedAt) {
-      throw new ConflictException({
-        code: "installation_revoked",
-        message: "Client installation is revoked",
+    return this.prisma.client.$transaction(async (tx) => {
+      const locked = await tx.$queryRaw<
+        Array<{ id: string; revokedAt: Date | null }>
+      >(Prisma.sql`
+        SELECT "id", "revokedAt"
+        FROM "client_installation"
+        WHERE "id" = ${installationId}
+          AND "userId" = ${userId}
+        FOR UPDATE
+      `);
+      const row = locked[0];
+      if (!row) {
+        throw notFound();
+      }
+      if (row.revokedAt) {
+        throw new ConflictException({
+          code: "installation_revoked",
+          message: "Client installation is revoked",
+        });
+      }
+
+      await tx.clientInstallationPreference.upsert({
+        where: { installationId },
+        create: {
+          installationId,
+          pushEnabled: input.pushEnabled ?? false,
+        },
+        update: {
+          ...(input.pushEnabled !== undefined
+            ? { pushEnabled: input.pushEnabled }
+            : {}),
+        },
       });
-    }
-    await this.prisma.client.clientInstallationPreference.upsert({
-      where: { installationId },
-      create: {
-        installationId,
-        pushEnabled: input.pushEnabled ?? false,
-      },
-      update: {
-        ...(input.pushEnabled !== undefined
-          ? { pushEnabled: input.pushEnabled }
-          : {}),
-      },
+      const updated =
+        await tx.clientInstallation.findUniqueOrThrow({
+          where: { id: installationId },
+          include: { preference: true },
+        });
+      return this.view(updated);
     });
-    const updated =
-      await this.prisma.client.clientInstallation.findUniqueOrThrow({
-        where: { id: installationId },
-        include: { preference: true },
-      });
-    return this.view(updated);
   }
 
   private async refreshOwned(
