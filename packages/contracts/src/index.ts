@@ -1,6 +1,7 @@
 export {
   CLIENT_INSTALLATION_LIMITS,
   clientInstallationCapabilitiesSchema,
+  clientInstallationIdSchema,
   clientInstallationKindSchema,
   clientInstallationPreferencesSchema,
   clientInstallationViewSchema,
