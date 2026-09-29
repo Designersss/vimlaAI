@@ -2,6 +2,7 @@ import {
   clientInstallationIdSchema,
   type ClientInstallationView,
 } from "@vimla/contracts";
+import { ClientApiError } from "@vimla/client-api";
 import { createWebClientApi } from "../../../shared/api/client";
 
 const INSTALLATION_STORAGE_PREFIX = "vimla:client-installation:v1:";
@@ -30,15 +31,37 @@ export async function ensureWebInstallation(
   const id =
     stored && clientInstallationIdSchema.safeParse(stored).success
       ? stored
-      : randomUuid();
+      : nextInstallationId(randomUuid);
 
   if (id !== stored) {
     storage.setItem(key, id);
   }
 
-  return createWebClientApi(
+  const client = createWebClientApi(
     options.fetchImpl ?? fetch,
-  ).installations.register({
+  ).installations;
+
+  try {
+    return await registerWebInstallation(client, id);
+  } catch (error: unknown) {
+    if (!isUnusableInstallationId(error)) {
+      throw error;
+    }
+    const replacementId = nextInstallationId(randomUuid, id);
+    storage.setItem(key, replacementId);
+    return registerWebInstallation(client, replacementId);
+  }
+}
+
+export function installationStorageKey(userId: string): string {
+  return `${INSTALLATION_STORAGE_PREFIX}${userId}`;
+}
+
+function registerWebInstallation(
+  client: ReturnType<typeof createWebClientApi>["installations"],
+  id: string,
+): Promise<ClientInstallationView> {
+  return client.register({
     id,
     kind: "WEB",
     appVersion: null,
@@ -47,6 +70,20 @@ export async function ensureWebInstallation(
   });
 }
 
-export function installationStorageKey(userId: string): string {
-  return `${INSTALLATION_STORAGE_PREFIX}${userId}`;
+function isUnusableInstallationId(error: unknown): boolean {
+  return (
+    error instanceof ClientApiError &&
+    (error.code === "installation_revoked" || error.code === "not_found")
+  );
+}
+
+function nextInstallationId(
+  randomUuid: () => string,
+  previousId?: string,
+): string {
+  const id = clientInstallationIdSchema.parse(randomUuid());
+  if (id === previousId) {
+    throw new Error("Generated client installation id did not rotate");
+  }
+  return id;
 }
