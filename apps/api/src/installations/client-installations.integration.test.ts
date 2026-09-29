@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { NestFastifyApplication } from "@nestjs/platform-fastify";
 import { loadApiConfig } from "@vimla/config/server";
-import type { Prisma } from "@vimla/database";
+import { createPrismaClient, type Prisma } from "@vimla/database";
 import { createVimlaApiApp } from "../create-app.js";
 import { PrismaService } from "../persistence/prisma.service.js";
 import {
@@ -291,6 +291,95 @@ describe("client installations API", () => {
     expect(persisted.appVersion).toBe("web-test");
   });
 
+  it("serializes preference mutation behind revocation of the same installation", async () => {
+    const user = await registerVerifiedUser(
+      app,
+      "install-preference-revoke-race",
+    );
+    const id = randomUUID();
+    expect(
+      (
+        await register(
+          app,
+          user.cookies,
+          installationPayload(id),
+        )
+      ).statusCode,
+    ).toBe(200);
+
+    const blocker = createPrismaClient(testDatabaseUrl);
+    let releaseLock!: () => void;
+    const releaseLockPromise = new Promise<void>((resolve) => {
+      releaseLock = resolve;
+    });
+    let signalLocked!: () => void;
+    const locked = new Promise<void>((resolve) => {
+      signalLocked = resolve;
+    });
+
+    const holdLock = blocker.$transaction(async (tx) => {
+      await tx.$queryRaw`
+        SELECT "id"
+        FROM "client_installation"
+        WHERE "id" = ${id}
+        FOR UPDATE
+      `;
+      signalLocked();
+      await releaseLockPromise;
+    });
+
+    try {
+      await locked;
+
+      const revokePromise = app.inject({
+        method: "POST",
+        url: `/v1/client-installations/${id}/revoke`,
+        headers: jsonHeaders(),
+        cookies: user.cookies,
+        payload: {},
+      });
+      await sleep(25);
+
+      let preferenceSettled = false;
+      const preferencePromise = app
+        .inject({
+          method: "PATCH",
+          url: `/v1/client-installations/${id}/preferences`,
+          headers: jsonHeaders(),
+          cookies: user.cookies,
+          payload: { pushEnabled: true },
+        })
+        .then((response) => {
+          preferenceSettled = true;
+          return response;
+        });
+
+      await sleep(25);
+      expect(preferenceSettled).toBe(false);
+
+      releaseLock();
+      const [revoked, preference] = await Promise.all([
+        revokePromise,
+        preferencePromise,
+      ]);
+      expect(revoked.statusCode).toBe(200);
+      expect(preference.statusCode).toBe(409);
+      expect(errorCode(preference)).toBe("installation_revoked");
+
+      const persisted =
+        await app
+          .get(PrismaService)
+          .client.clientInstallationPreference.findUniqueOrThrow({
+            where: { installationId: id },
+          });
+      expect(persisted.pushEnabled).toBe(false);
+    } finally {
+      releaseLock();
+      await holdLock;
+      await blocker.$disconnect();
+    }
+  });
+
   it("requires a verified authenticated session and rejects authority or malformed metadata", async () => {
     const id = randomUUID();
     const anonymous = await app.inject({
@@ -484,4 +573,8 @@ function errorCode(response: { json: () => unknown }): string {
     error?: { code?: string };
   };
   return body.error?.code ?? "";
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
