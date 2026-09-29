@@ -109,8 +109,14 @@ export async function signUp(
   await fillInput(page, "#auth-email", input.email);
   await fillInput(page, "#auth-password", input.password);
   const authEvents: string[] = [];
+  const runtimeEvents: string[] = [];
   const isSignupRequest = (url: string): boolean =>
     /\/api\/auth\/sign-up\/email|\/v1\/handles\/(?:availability|claim)|\/v1\/me(?:\/preferences)?/.test(url);
+  const onRequest = (request: import("@playwright/test").Request): void => {
+    if (isSignupRequest(request.url())) {
+      authEvents.push(`REQUEST ${request.method()} ${new URL(request.url()).pathname}`);
+    }
+  };
   const onResponse = (response: import("@playwright/test").Response): void => {
     if (isSignupRequest(response.url())) {
       authEvents.push(`${response.status()} ${new URL(response.url()).pathname}`);
@@ -123,8 +129,19 @@ export async function signUp(
       );
     }
   };
+  const onPageError = (error: Error): void => {
+    runtimeEvents.push(`PAGEERROR ${error.name}: ${error.message}`);
+  };
+  const onConsole = (message: import("@playwright/test").ConsoleMessage): void => {
+    if (message.type() === "error") {
+      runtimeEvents.push(`CONSOLE ${message.text()}`);
+    }
+  };
+  page.on("request", onRequest);
   page.on("response", onResponse);
   page.on("requestfailed", onRequestFailed);
+  page.on("pageerror", onPageError);
+  page.on("console", onConsole);
 
   try {
     await page.getByRole("button", { name: /создать аккаунт|create account/i }).click();
@@ -141,17 +158,20 @@ export async function signUp(
     if (outcome === "alert") {
       const message = (await formAlert(page).textContent())?.trim() || "unknown auth error";
       throw new Error(
-        `Sign-up failed before verify-email navigation: ${message}; requests: ${authEvents.join(" | ") || "none"}`,
+        `Sign-up failed before verify-email navigation: ${message}; requests: ${authEvents.join(" | ") || "none"}; runtime: ${runtimeEvents.join(" | ") || "none"}`,
       );
     }
     if (outcome === "timeout") {
       throw new Error(
-        `Sign-up did not reach verify-email; requests: ${authEvents.join(" | ") || "none"}`,
+        `Sign-up did not reach verify-email; requests: ${authEvents.join(" | ") || "none"}; runtime: ${runtimeEvents.join(" | ") || "none"}`,
       );
     }
   } finally {
+    page.off("request", onRequest);
     page.off("response", onResponse);
     page.off("requestfailed", onRequestFailed);
+    page.off("pageerror", onPageError);
+    page.off("console", onConsole);
   }
 }
 
