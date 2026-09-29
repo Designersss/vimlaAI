@@ -919,9 +919,9 @@ model UserNotification {
   sourceId       String?
   occurrenceKey  String
   title          String
-  body           String?
+  body             String?
   navigationTarget Json
-  createdAt      DateTime  @default(now())
+  createdAt        DateTime  @default(now())
   readAt         DateTime?
   deliveries     NotificationDelivery[]
 
