@@ -27,7 +27,8 @@
     "@vimla/workspace": "workspace:*",
     "bullmq": "^5.58.5",
     "ioredis": "^5.7.0",
-    "pino": "^9.9.0"
+    "pino": "^9.9.0",
+    "@vimla/web-navigation": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^24.3.1",
