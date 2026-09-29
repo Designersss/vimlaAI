@@ -281,6 +281,74 @@ describe("client installations API", () => {
     }
   });
 
+  it("enforces the active installation limit under concurrent registration", async () => {
+    const user = await registerVerifiedUser(app, "install-limit");
+    const prisma = app.get(PrismaService).client;
+    await prisma.clientInstallation.createMany({
+      data: Array.from({ length: 19 }, () => ({
+        id: randomUUID(),
+        userId: user.id,
+        kind: "WEB",
+        appVersion: "seed",
+        protocolVersion: 1,
+        capabilities: [],
+      })),
+    });
+
+    const [left, right] = await Promise.all([
+      register(
+        app,
+        user.cookies,
+        installationPayload(randomUUID()),
+      ),
+      register(
+        app,
+        user.cookies,
+        installationPayload(randomUUID()),
+      ),
+    ]);
+    const statuses = [left.statusCode, right.statusCode].sort();
+    expect(statuses).toEqual([200, 409]);
+    expect(
+      await prisma.clientInstallation.count({
+        where: { userId: user.id, revokedAt: null },
+      }),
+    ).toBe(20);
+    const rejected = left.statusCode === 409 ? left : right;
+    expect(errorCode(rejected)).toBe(
+      "installation_limit_reached",
+    );
+  });
+
+  it("enforces installation metadata constraints in PostgreSQL", async () => {
+    const user = await registerVerifiedUser(app, "install-db-check");
+    const prisma = app.get(PrismaService).client;
+    await expect(
+      prisma.clientInstallation.create({
+        data: {
+          id: randomUUID(),
+          userId: user.id,
+          kind: "SERVER",
+          appVersion: "bad",
+          protocolVersion: 1,
+          capabilities: [],
+        },
+      }),
+    ).rejects.toThrow();
+    await expect(
+      prisma.clientInstallation.create({
+        data: {
+          id: randomUUID(),
+          userId: user.id,
+          kind: "WEB",
+          appVersion: "bad",
+          protocolVersion: 0,
+          capabilities: [],
+        },
+      }),
+    ).rejects.toThrow();
+  });
+
   it("updates installation-scoped preferences without changing account preferences", async () => {
     const user = await registerVerifiedUser(app, "install-pref");
     const id = randomUUID();
