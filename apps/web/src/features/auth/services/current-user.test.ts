@@ -30,6 +30,7 @@ describe("fetchCurrentUser", () => {
       "http://localhost:3001/v1/me",
       expect.objectContaining({ credentials: "include" }),
     );
+    expect(fetchImpl.mock.contexts[0]).toBe(globalThis);
   });
 
   it("treats 401 as an auth required error", async () => {
