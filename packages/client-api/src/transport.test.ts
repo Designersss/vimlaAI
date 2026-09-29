@@ -24,6 +24,8 @@ describe("client transport", () => {
         image: null,
         emailVerified: true,
         handle: "user",
+        handleStatus: "ACTIVE",
+        handleRequired: false,
         locale: "en",
         timezone: "UTC",
       }),
