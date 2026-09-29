@@ -1,10 +1,8 @@
 import {
   clientInstallationViewSchema,
-  clientInstallationsResponseSchema,
   registerClientInstallationSchema,
   updateClientInstallationPreferencesSchema,
   type ClientInstallationView,
-  type ClientInstallationsResponse,
   type RegisterClientInstallation,
   type UpdateClientInstallationPreferences,
 } from "@vimla/contracts";
@@ -25,13 +23,6 @@ export function createInstallationsClient(
         init: jsonRequestInit("POST", body),
         parse: (payload) =>
           clientInstallationViewSchema.parse(payload),
-      });
-    },
-
-    list(): Promise<ClientInstallationsResponse> {
-      return transport.request("/v1/client-installations", {
-        parse: (payload) =>
-          clientInstallationsResponseSchema.parse(payload),
       });
     },
 
