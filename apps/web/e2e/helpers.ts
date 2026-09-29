@@ -157,8 +157,11 @@ export async function signUp(
     ]);
     if (outcome === "alert") {
       const message = (await formAlert(page).textContent())?.trim() || "unknown auth error";
+      const caught =
+        (await page.getByTestId("auth-test-debug-error").textContent().catch(() => null))?.trim() ??
+        "none";
       throw new Error(
-        `Sign-up failed before verify-email navigation: ${message}; requests: ${authEvents.join(" | ") || "none"}; runtime: ${runtimeEvents.join(" | ") || "none"}`,
+        `Sign-up failed before verify-email navigation: ${message}; caught: ${caught}; requests: ${authEvents.join(" | ") || "none"}; runtime: ${runtimeEvents.join(" | ") || "none"}`,
       );
     }
     if (outcome === "timeout") {
