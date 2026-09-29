@@ -188,7 +188,7 @@ export class ClientInstallationsService {
       where: { installationId },
       create: {
         installationId,
-        pushEnabled: input.pushEnabled ?? true,
+        pushEnabled: input.pushEnabled ?? false,
       },
       update: {
         ...(input.pushEnabled !== undefined
@@ -279,7 +279,7 @@ export class ClientInstallationsService {
       lastSeenAt: row.lastSeenAt.toISOString(),
       revokedAt: row.revokedAt?.toISOString() ?? null,
       preferences: {
-        pushEnabled: row.preference?.pushEnabled ?? true,
+        pushEnabled: row.preference?.pushEnabled ?? false,
       },
     });
   }
