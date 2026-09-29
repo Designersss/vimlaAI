@@ -1,12 +1,12 @@
 import type { Prisma, PrismaClient } from "@vimla/database";
 import {
+  navigationTargetSchema,
   userNotificationViewSchema,
   type NotificationsResponse,
   type UnreadCountResponse,
   type UserNotificationView,
 } from "@vimla/contracts";
 import { decodeNotificationCursor, encodeNotificationCursor } from "./cursor.js";
-import { sanitizeHrefPath } from "./destinations.js";
 import { NotificationPlatformError } from "./errors.js";
 
 function iso(value: Date | null | undefined): string | null {
@@ -111,7 +111,7 @@ function toView(
     sourceId: string | null;
     title: string;
     body: string | null;
-    hrefPath: string | null;
+    navigationTarget: unknown;
     createdAt: Date;
     readAt: Date | null;
   },
@@ -124,7 +124,7 @@ function toView(
     sourceId: row.sourceId,
     title: row.title,
     body: row.body,
-    hrefPath: sanitizeHrefPath(row.hrefPath),
+    navigationTarget: navigationTargetSchema.parse(row.navigationTarget),
     createdAt: row.createdAt.toISOString(),
     readAt: iso(row.readAt),
     sourceAvailable,

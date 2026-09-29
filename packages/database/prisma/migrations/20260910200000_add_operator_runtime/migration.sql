@@ -74,7 +74,7 @@ CREATE TABLE "operator_run_step" (
     "publicKind" TEXT NOT NULL,
     "publicTitle" TEXT NOT NULL,
     "publicDetail" TEXT,
-    "publicHrefPath" TEXT,
+    "publicNavigationTarget" JSONB NOT NULL,
     "objectId" TEXT,
     "errorCode" TEXT,
     "idempotencyKey" TEXT NOT NULL,

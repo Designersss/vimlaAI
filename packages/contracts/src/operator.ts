@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { operatorContextBundleSchema } from "./direct-chats.js";
+import { navigationTargetSchema } from "./navigation.js";
 
 export const OPERATOR_LIMITS = {
   contentMin: 1,
@@ -52,14 +53,16 @@ export const operatorActionStatusSchema = z.enum([
 ]);
 export type OperatorActionStatus = z.infer<typeof operatorActionStatusSchema>;
 
-export const operatorActionCardSchema = z.object({
-  kind: operatorActionKindSchema,
-  operation: operatorActionOperationSchema,
-  title: z.string().min(1).max(200),
-  detail: z.string().max(400).nullable(),
-  status: operatorActionStatusSchema,
-  hrefPath: z.string().max(300).nullable(),
-});
+export const operatorActionCardSchema = z
+  .object({
+    kind: operatorActionKindSchema,
+    operation: operatorActionOperationSchema,
+    title: z.string().min(1).max(200),
+    detail: z.string().max(400).nullable(),
+    status: operatorActionStatusSchema,
+    navigationTarget: navigationTargetSchema,
+  })
+  .strict();
 export type OperatorActionCard = z.infer<typeof operatorActionCardSchema>;
 
 export const operatorInvocationScopeSchema = z.enum(["PERSONAL", "DIRECT_CHAT"]);

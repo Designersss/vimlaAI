@@ -168,6 +168,12 @@ export {
   type WorkspaceTodayResponse,
 } from "./workspace.js";
 export {
+  NAVIGATION_TARGET_VERSION,
+  navigationTargetSchema,
+  type NavigationTarget,
+} from "./navigation.js";
+
+export {
   NOTIFICATION_LIMITS,
   listNotificationsQuerySchema,
   notificationChannelSchema,

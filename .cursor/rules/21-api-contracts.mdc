@@ -8,7 +8,7 @@ globs: "packages/contracts/**/*.ts, apps/api/**/*.ts, apps/web/**/*.ts, apps/adm
 
 GitHub #78 and `docs/MESSENGER_PLATFORM_ARCHITECTURE.md` are current authority. Vimla is messenger-first with one backend for Web and future Desktop/Mobile.
 
-Contracts must be platform-neutral. Do not add Web `hrefPath`/route strings as domain semantics; use reviewed semantic `NavigationTarget` (#91). API evolution must anticipate native client version skew before Desktop/Mobile release: prefer additive compatible changes and explicit versioning for breaks.
+Contracts must be platform-neutral. Do not add Web `hrefPath`/route strings as domain semantics; use reviewed semantic `NavigationTarget` (#91). API design must be suitable for future native clients, but unreleased/pre-production clients are not a compatibility boundary. Replace obsolete contracts cleanly now; additive compatibility/versioning becomes mandatory only for actually released clients/external consumers.
 
 # API contracts rules
 
@@ -19,4 +19,4 @@ Contracts must be platform-neutral. Do not add Web `hrefPath`/route strings as d
 - Use stable machine error codes; user-facing localization happens in clients.
 - Do not serialize native `bigint` directly. Financial integers cross JSON boundaries as validated decimal strings/money DTOs.
 - Treat all IDs from client as untrusted references; authorize ownership server-side.
-- Contract changes should be backward-compatible where practical or explicitly versioned/migrated.
+- Before release, remove/replace obsolete contracts instead of emitting dual old/new DTOs. After a real released/external boundary exists, changes must be backward-compatible or explicitly versioned/migrated.

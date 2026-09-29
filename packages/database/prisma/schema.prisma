@@ -919,9 +919,9 @@ model UserNotification {
   sourceId       String?
   occurrenceKey  String
   title          String
-  body           String?
-  hrefPath       String?
-  createdAt      DateTime  @default(now())
+  body             String?
+  navigationTarget Json
+  createdAt        DateTime  @default(now())
   readAt         DateTime?
   deliveries     NotificationDelivery[]
 
@@ -1020,7 +1020,7 @@ model OperatorRunStep {
   publicKind     String
   publicTitle    String
   publicDetail   String?
-  publicHrefPath String?
+  publicNavigationTarget Json
   objectId       String?
   errorCode      String?
   idempotencyKey String

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createOperatorRunSchema, confirmOperatorRunSchema } from "./operator.js";
+import { createOperatorRunSchema, confirmOperatorRunSchema, operatorActionCardSchema } from "./operator.js";
 
 describe("operator contracts", () => {
   it("rejects owner and permission injection on run create", () => {
@@ -16,6 +16,24 @@ describe("operator contracts", () => {
       confirmOperatorRunSchema.safeParse({
         confirmationToken: "token-token-token-token",
         userId: "other",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("accepts semantic navigation and rejects Web href fields on action cards", () => {
+    const base = {
+      kind: "task" as const,
+      operation: "created" as const,
+      title: "Task",
+      detail: null,
+      status: "success" as const,
+      navigationTarget: { version: 1 as const, kind: "TASKS" as const },
+    };
+    expect(operatorActionCardSchema.safeParse(base).success).toBe(true);
+    expect(
+      operatorActionCardSchema.safeParse({
+        ...base,
+        hrefPath: "/work/tasks",
       }).success,
     ).toBe(false);
   });

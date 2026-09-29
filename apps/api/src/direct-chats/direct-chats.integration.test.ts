@@ -1478,7 +1478,7 @@ describe("direct chats API", () => {
         publicKind: "note",
         publicTitle: "Persisted unsafe note delete",
         publicDetail: null,
-        publicHrefPath: "/work/notes",
+        publicNavigationTarget: { version: 1, kind: "NOTES" },
         idempotencyKey: "persisted-direct-chat-unsafe-tool",
       },
     });
@@ -1590,7 +1590,7 @@ describe("direct chats API", () => {
         publicKind: "task",
         publicTitle: "MUST NOT EXECUTE AFTER REVOKE",
         publicDetail: null,
-        publicHrefPath: "/work/tasks",
+        publicNavigationTarget: { version: 1, kind: "TASKS" },
         idempotencyKey: "recovery-revoked-context",
       },
     });
@@ -1660,7 +1660,7 @@ describe("direct chats API", () => {
         publicKind: "task",
         publicTitle: "MUST NOT EXECUTE AFTER ACTOR PEER REVOKE",
         publicDetail: null,
-        publicHrefPath: "/work/tasks",
+        publicNavigationTarget: { version: 1, kind: "TASKS" },
         idempotencyKey: "actor-peer-revoked-context",
       },
     });
@@ -1720,7 +1720,7 @@ describe("direct chats API", () => {
         publicKind: "task",
         publicTitle: "MUST NOT EXECUTE AFTER SELF REVOKE",
         publicDetail: null,
-        publicHrefPath: "/work/tasks",
+        publicNavigationTarget: { version: 1, kind: "TASKS" },
         idempotencyKey: "self-revoked-context",
       },
     });
@@ -1794,7 +1794,7 @@ describe("direct chats API", () => {
             publicKind: "task",
             publicTitle: "already committed",
             publicDetail: null,
-            publicHrefPath: "/work/tasks",
+            publicNavigationTarget: { version: 1, kind: "TASKS" },
             idempotencyKey: "revoke-after-commit-0",
             executedAt: new Date(),
           },
@@ -1807,7 +1807,7 @@ describe("direct chats API", () => {
             publicKind: "task",
             publicTitle: "must not execute after revoke",
             publicDetail: null,
-            publicHrefPath: "/work/tasks",
+            publicNavigationTarget: { version: 1, kind: "TASKS" },
             idempotencyKey: "revoke-after-commit-1",
           },
         ],

@@ -87,9 +87,25 @@ describe("operator API", () => {
       payload: { clientRequestId, content: "@Vimla создай задачу купить билеты завтра" },
     });
     expect(first.statusCode).toBe(201);
-    const body = first.json() as { status: string; actions: Array<{ title: string; status: string }>; id: string };
+    const body = first.json() as {
+      status: string;
+      actions: Array<{
+        title: string;
+        status: string;
+        navigationTarget: { version: number; kind: string; id?: string };
+      }>;
+      id: string;
+    };
     expect(body.status).toBe("SUCCEEDED");
     expect(body.actions[0]?.title.toLowerCase()).toContain("билет");
+    expect(body.actions[0]?.navigationTarget).toEqual(
+      expect.objectContaining({
+        version: 1,
+        kind: "TASK",
+        id: expect.any(String),
+      }),
+    );
+    expect(body.actions[0]).not.toHaveProperty("hrefPath");
     expect(JSON.stringify(body)).not.toMatch(/inputJson|plannerOutput|userId/);
     expect(JSON.stringify(body)).not.toMatch(/VIMLA_OPERATOR_PLANNER/);
 

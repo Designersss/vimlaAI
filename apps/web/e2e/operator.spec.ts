@@ -27,8 +27,13 @@ test.describe("@Vimla operator", () => {
     const created = page.getByTestId("operator-action-card").filter({ hasText: /билет|ticket/i });
     await expect(created).toBeVisible({ timeout: 20_000 });
     await expect(page.getByText(/VIMLA_OPERATOR_PLANNER|"commands"|inputJson/)).toHaveCount(0);
+    await created.getByRole("button", { name: /открыть|open/i }).click();
+    await expect(page).toHaveURL(/\/work\/tasks/);
 
-    await composer.fill("@Vimla удали задачу");
+    await page.goto("/vimla");
+    const resumedComposer = page.getByPlaceholder(/попросите @vimla|ask @vimla/i);
+    await expect(resumedComposer).toBeVisible();
+    await resumedComposer.fill("@Vimla удали задачу");
     await page.getByRole("button", { name: /отправить|send/i }).click();
     const pending = page.getByTestId("operator-action-card").filter({ hasText: /подтвержден|confirm/i });
     await expect(pending).toBeVisible({ timeout: 20_000 });

@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
-import type { PrismaClient } from "@vimla/database";
+import type { Prisma, PrismaClient } from "@vimla/database";
+import type { NavigationTarget } from "@vimla/contracts";
 import { parseVimlaLocale, type VimlaLocale } from "@vimla/shared";
 import { evaluateReminderDelivery, type ReminderSourceState } from "./eligibility.js";
-import { reminderHrefPath, reminderOpenUrl } from "./destinations.js";
+import { reminderNavigationTarget } from "./destinations.js";
 import { formatReminderInstant } from "./format-time.js";
 import type { PlatformLogger } from "./logger.js";
 import { resolveReminderPreferences } from "./preferences.js";
@@ -17,7 +18,7 @@ export interface ReminderEmailSendInput {
   userId: string;
   reminderTitle: string;
   scheduledLabel: string;
-  openUrl?: string;
+  navigationTarget: NavigationTarget;
 }
 
 export interface DeliveryProcessorPolicy {
@@ -27,7 +28,6 @@ export interface DeliveryProcessorPolicy {
   backoffCapMs: number;
   leaseSeconds: number;
   defaultLocale: VimlaLocale;
-  webOrigin: string;
 }
 
 export class NotificationDeliveryProcessor {
@@ -147,7 +147,7 @@ export class NotificationDeliveryProcessor {
           timeZone: reminder.timezone,
           locale,
         }),
-        openUrl: reminderOpenUrl(this.policy.webOrigin),
+        navigationTarget: reminderNavigationTarget(reminder.reminderId),
       });
       await this.markDelivered(delivery.id, now, {
         providerMessageId: result.providerMessageId ?? (result.duplicate ? "duplicate" : null),
@@ -288,7 +288,7 @@ export class NotificationDeliveryProcessor {
           occurrenceKey,
           title,
           body: body.length > 0 ? body : null,
-          hrefPath: reminderHrefPath(),
+          navigationTarget: reminderNavigationTarget(reminder.reminderId) as Prisma.InputJsonValue,
         },
       });
       return created.id;

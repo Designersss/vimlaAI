@@ -24,7 +24,8 @@
     "next": "^16.0.0",
     "next-intl": "^4.3.4",
     "react": "^19.1.1",
-    "react-dom": "^19.1.1"
+    "react-dom": "^19.1.1",
+    "@vimla/web-navigation": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^24.3.1",

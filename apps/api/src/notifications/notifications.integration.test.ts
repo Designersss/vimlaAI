@@ -266,9 +266,23 @@ describe("notification platform", () => {
       cookies: owner.cookies,
     });
     expect(list.statusCode).toBe(200);
-    const firstPage = list.json() as { items: Array<{ id: string; title: string }>; nextCursor: string | null };
+    const firstPage = list.json() as {
+      items: Array<{
+        id: string;
+        title: string;
+        sourceId: string | null;
+        navigationTarget: { version: number; kind: string; id?: string };
+      }>;
+      nextCursor: string | null;
+    };
     expect(firstPage.items).toHaveLength(1);
     expect(firstPage.nextCursor).toBeTruthy();
+    expect(firstPage.items[0]?.navigationTarget).toEqual({
+      version: 1,
+      kind: "REMINDER",
+      id: firstPage.items[0]?.sourceId,
+    });
+    expect(firstPage.items[0]).not.toHaveProperty("hrefPath");
     const notificationId = firstPage.items[0]?.id as string;
 
     const stolen = await app.inject({
@@ -310,7 +324,11 @@ describe("notification platform", () => {
         sourceId: reminder.id,
         occurrenceKey: `reminder:stranger:${Date.now()}`,
         title: "Stranger only",
-        hrefPath: "/work/reminders",
+        navigationTarget: {
+          version: 1,
+          kind: "REMINDER",
+          id: reminder.id,
+        },
       },
     });
     await app.inject({
@@ -455,7 +473,6 @@ function processorPolicy() {
     backoffCapMs: 10,
     leaseSeconds: 30,
     defaultLocale: "ru" as const,
-    webOrigin: origin,
   };
 }
 
@@ -478,7 +495,6 @@ function makeProcessor(prisma: PrismaClient): NotificationDeliveryProcessor {
         userId: input.userId,
         reminderTitle: input.reminderTitle,
         scheduledLabel: input.scheduledLabel,
-        openUrl: input.openUrl,
         consumeBudget: false,
       }),
     silentPlatformLogger,

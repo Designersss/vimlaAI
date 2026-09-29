@@ -183,13 +183,21 @@ No domain/backend Web `hrefPath`.
 
 ## 12. API version skew
 
-Web may update with the backend immediately; native apps may lag.
+### Before any native/external client is released
 
-Before native release:
+There is no compatibility obligation to obsolete development-only client/API shapes.
+
+- replace unreleased contracts cleanly instead of emitting old+new DTOs;
+- remove obsolete adapters/endpoints/fields/tests in the owning issue;
+- keep the API structurally suitable for future native clients without preserving hypothetical old versions.
+
+### After a real released-client/external boundary exists
+
+Web may update with the backend immediately while native clients may lag. At that point:
 
 - prefer additive compatible contract evolution;
 - define deprecation windows;
-- never assume all clients update with one deploy;
+- never assume all released clients update with one deploy;
 - use explicit protocol/capability bootstrap where useful;
 - use versioned breaking APIs only with reviewed migration.
 

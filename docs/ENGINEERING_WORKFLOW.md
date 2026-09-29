@@ -38,6 +38,17 @@ backend + complete Web logic
 
 Do not start Desktop/Mobile early, but do not introduce Web-only backend/domain assumptions that would require later rewrites.
 
+## 2A. Greenfield correctness over legacy compatibility
+
+Vimla is still pre-production. There is currently no production user-data or released-client compatibility boundary to preserve by default.
+
+- Do not keep an incorrect earlier implementation merely because a previous issue introduced it.
+- Prefer the clean target architecture when old code/contracts/schema conflict with the current approved design.
+- Remove obsolete fields, compatibility branches, duplicate DTOs and temporary abstractions instead of carrying them forward.
+- It is acceptable to rewrite development-only schema/API behavior and update tests/migrations when that produces the correct architecture.
+- Preserve compatibility only when there is a concrete deployed boundary: production data, released clients, external integrations, or another explicitly approved dependency.
+- Do not use "backward compatibility" as a reason to retain technical debt in a greenfield subsystem.
+
 ## 3. Multi-client boundary
 
 - no separate Web/Desktop/Mobile business backends;
@@ -97,9 +108,9 @@ Before editing:
 1. identify the actual root cause;
 2. identify affected correctness/security invariants;
 3. inspect dependent and neighboring flows;
-4. consider migration/backward compatibility;
+4. consider schema/data transition; require backward compatibility only for a real deployed/external boundary;
 5. consider retries/idempotency/concurrency/crash recovery;
-6. consider future Desktop/Mobile compatibility;
+6. keep the architecture suitable for future Desktop/Mobile without preserving unreleased legacy client formats;
 7. implement the smallest coherent production-grade scope.
 
 Do not make CI green by weakening assertions, increasing timeouts, disabling checks, or bypassing security if production behavior is wrong.
@@ -124,18 +135,18 @@ Do not introduce:
 
 Reuse existing domain services and packages where correct.
 
-## 9. Database and migration discipline
+## 9. Database and schema-transition discipline
 
 For persistence changes:
 
-- inspect current Prisma schema and migrations;
-- use deploy-safe versioned migrations;
-- preserve historical migrations;
-- consider existing data/backfill;
-- make backfill idempotent;
+- inspect current Prisma schema and migration history;
+- because Vimla is pre-production, historical development migrations are not sacred compatibility artifacts: they may be rewritten/squashed/replaced when the clean architecture requires it, provided repository test/dev databases are reset consistently;
+- do not create additive legacy columns/backfills solely to preserve development data or an obsolete schema shape;
+- prefer a clean final schema over a chain of compatibility migrations when no real deployed database must survive;
+- once a migration has crossed a real shared/deployed boundary (production, protected staging with retained data, external release dependency), treat it as immutable and use forward migrations with explicit recovery/rollback planning;
 - use DB constraints/indexes when they materially protect invariants;
-- consider concurrent deploy/version skew;
-- avoid destructive migration without explicit recovery/rollback design.
+- backfills are required only when real data must survive, and must then be idempotent/recoverable;
+- consider concurrent deploy/version skew only when such a deployed boundary actually exists.
 
 ## 10. Security review
 
@@ -202,7 +213,7 @@ Before merge, audit the exact diff and affected neighboring code for:
 - races/concurrency;
 - retries/idempotency/crash recovery;
 - migrations/constraints;
-- contracts/backward compatibility;
+- contracts and compatibility only where a real deployed/external boundary exists;
 - multi-client/platform leaks;
 - duplicate/dead code;
 - mocks/test-only leaks;

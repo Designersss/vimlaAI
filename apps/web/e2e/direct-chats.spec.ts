@@ -1464,7 +1464,7 @@ test.describe("Secure Direct Chats", () => {
                 title: syntheticActionTitle,
                 detail: "Synthetic error state",
                 status: "error",
-                hrefPath: null,
+                navigationTarget: { version: 1, kind: "TASKS" },
               },
             ],
           },

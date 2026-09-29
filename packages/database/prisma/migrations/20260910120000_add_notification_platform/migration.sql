@@ -14,20 +14,13 @@ CREATE TABLE "user_notification" (
     "occurrenceKey" TEXT NOT NULL,
     "title" TEXT NOT NULL,
     "body" TEXT,
-    "hrefPath" TEXT,
+    "navigationTarget" JSONB NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "readAt" TIMESTAMP(3),
 
     CONSTRAINT "user_notification_pkey" PRIMARY KEY ("id"),
     CONSTRAINT "user_notification_type_chk" CHECK ("type" IN ('REMINDER_DUE')),
-    CONSTRAINT "user_notification_source_type_chk" CHECK ("sourceType" IN ('WORKSPACE_REMINDER')),
-    CONSTRAINT "user_notification_href_chk" CHECK (
-        "hrefPath" IS NULL OR (
-            "hrefPath" LIKE '/work/%'
-            AND POSITION('://' IN "hrefPath") = 0
-            AND POSITION('//' IN "hrefPath") = 0
-        )
-    )
+    CONSTRAINT "user_notification_source_type_chk" CHECK ("sourceType" IN ('WORKSPACE_REMINDER'))
 );
 
 CREATE UNIQUE INDEX "user_notification_userId_type_occurrenceKey_key" ON "user_notification"("userId", "type", "occurrenceKey");

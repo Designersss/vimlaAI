@@ -13,9 +13,9 @@ Apply repository guidance in this order, after platform/system instructions: the
 
 ## What Vimla is
 
-Vimla is a public production SaaS and a **messenger-first communication platform with AI as a native system capability**. Ordinary human messaging must stand on its own; AI Threads, `@Vimla`, Projects/Work and automation extend communication rather than replace it.
+Vimla is a **pre-production** SaaS being built to production standards and a **messenger-first communication platform with AI as a native system capability**. Ordinary human messaging must stand on its own; AI Threads, `@Vimla`, Projects/Work and automation extend communication rather than replace it.
 
-Treat the repository as production software handling real users, money, sensitive data, hostile traffic, and expensive external providers. Correctness, authorization, financial integrity, crash recovery, idempotency and observability are part of feature correctness.
+Treat the repository with production-grade engineering rigor for future real users, money, sensitive data, hostile traffic, and expensive external providers. Correctness, authorization, financial integrity, crash recovery, idempotency and observability are part of feature correctness.
 
 Do not trust stale phase summaries. The product/platform roadmap source of truth is GitHub #78 and `docs/GITHUB_ROADMAP.md`; the canonical architecture is `docs/MESSENGER_PLATFORM_ARCHITECTURE.md`. Before architectural work, inspect the current tree, relevant docs and the nearest `AGENTS.md` files.
 
@@ -40,6 +40,7 @@ Monorepo: pnpm + Turborepo, strict TypeScript.
 - `packages/direct-chats` — Direct Chat domain, consent and context rules.
 - `packages/e2ee` — Direct Chat cryptographic protocol implementation.
 - `packages/ui` — shared design system.
+- `packages/web-navigation` — the single Web-platform adapter from semantic `NavigationTarget` values to Web routes/absolute Web URLs; domain/backend code must not import it.
 - `packages/config`, `packages/shared` — validated configuration and shared utilities.
 
 ## Core architecture invariants
@@ -56,6 +57,8 @@ Monorepo: pnpm + Turborepo, strict TypeScript.
 - For owner-scoped/private resources, preserve enumeration-safe `404` behavior where the API contract uses it.
 
 ## Messenger-first / multi-client invariants
+
+- **Greenfield correctness:** Vimla is still pre-production. Do not preserve an architecturally wrong earlier implementation solely for backward compatibility with our own development history. When no real deployed/data/external boundary exists, remove or rewrite obsolete contracts/schema/code and converge on the clean target design.
 
 - One authoritative Vimla backend/domain system serves current Web and future Desktop/Mobile clients. Do not create separate product backends or ordinary `/v1/web/*`, `/v1/mobile/*`, `/v1/desktop/*` API forks.
 - Web is implemented first, but new backend/contracts/client-domain logic must not rely on Next.js merely because native clients are deferred.
@@ -216,10 +219,10 @@ Read `.cursor/rules/10-frontend.mdc` through `.cursor/rules/24-brand-asset-v2.md
 
 - Implement only the requested task/phase. Do not silently start future roadmap items.
 - Do not broad-refactor unrelated areas in a bugfix PR.
-- Preserve working behavior unless the task explicitly changes product semantics.
+- Preserve validated product/security behavior, not obsolete implementation structure. If the current task replaces an old architecture path, remove the old path and update its tests/docs.
 - If task instructions conflict with a security/financial invariant, stop and report the conflict instead of weakening the invariant.
 - If an architectural/security/product decision changes, update the relevant docs/ADR.
-- Preserve historical migrations; schema changes get new migrations only.
+- Preserve migration history only after a real deployed/shared data boundary exists. Before that, prefer the clean final schema and reset development/test data as needed.
 - Do not merge PRs unless explicitly instructed. Default is to prepare commits/PR and report results.
 - Do not push directly to `main` for development work.
 

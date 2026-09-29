@@ -14,6 +14,7 @@ import {
 } from "@vimla/notifications";
 import { notificationDeliveryJobSchema } from "@vimla/contracts";
 import { isDuplicateJobError } from "./queue.js";
+import { navigationTargetToWebUrl } from "@vimla/web-navigation";
 
 export function createNotificationRuntime(
   prisma: PrismaClient,
@@ -94,7 +95,6 @@ export function createNotificationRuntime(
       backoffCapMs: config.notifyDeliveryBackoffCapMs,
       leaseSeconds: config.notifyDeliveryLeaseSeconds,
       defaultLocale: config.authDefaultLocale,
-      webOrigin: config.webOrigin,
     },
     async (input: ReminderEmailSendInput) =>
       notifications.sendEmailOnce({
@@ -105,7 +105,7 @@ export function createNotificationRuntime(
         userId: input.userId,
         reminderTitle: input.reminderTitle,
         scheduledLabel: input.scheduledLabel,
-        openUrl: input.openUrl,
+        openUrl: navigationTargetToWebUrl(config.webOrigin, input.navigationTarget),
       }),
     logger,
   );

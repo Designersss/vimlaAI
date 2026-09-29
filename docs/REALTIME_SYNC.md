@@ -101,11 +101,11 @@ Channel/feed domains may maintain efficient channel/feed cursors while client Sy
 
 Do not choose one global event table design merely for conceptual uniformity if it makes public channels non-scalable.
 
-## 8. Direct Chat migration
+## 8. Direct Chat realtime replacement
 
-Current Direct Chat SSE/EventSource remains valid until #97 proves equivalent common sync/realtime behavior.
+Current Direct Chat SSE/EventSource is an obsolete pre-production transport. #97 must replace it with the common WebSocket + durable Sync architecture and remove the SSE/EventSource path before completion.
 
-Migration must preserve:
+The replacement must preserve these correctness/security invariants:
 
 - H01 ratchet concurrency/fencing;
 - pending-send response-loss recovery;
@@ -114,7 +114,7 @@ Migration must preserve:
 - device refresh/revocation semantics;
 - @Vimla intent recovery.
 
-SSE code is removed only after replacement parity is tested.
+After replacement behavior is proven by tests, SSE/EventSource and its dedicated support code are deleted in the same issue. No merged fallback/dual transport remains solely for development-history compatibility.
 
 ## 9. Mobile
 

@@ -144,6 +144,34 @@ export async function createDueReminder(
   expect(response.status()).toBe(201);
 }
 
+export async function waitForRegisteredDirectChatDevice(page: Page): Promise<void> {
+  await expect
+    .poll(
+      async () => {
+        const response = await page.request.get(
+          `${apiBase}/v1/direct-chats/devices`,
+          {
+            headers: { origin: webOrigin },
+          },
+        );
+        if (!response.ok()) {
+          return 0;
+        }
+        const body = (await response.json()) as {
+          items?: Array<{ revoked?: boolean }>;
+        };
+        return Array.isArray(body.items)
+          ? body.items.filter((item) => item.revoked !== true).length
+          : 0;
+      },
+      {
+        timeout: 20_000,
+        message: "waiting for Direct Chat crypto device registration",
+      },
+    )
+    .toBeGreaterThan(0);
+}
+
 export async function purchasePro(page: Page): Promise<void> {
   const response = await page.request.post(`${apiBase}/dev/mock-purchases/subscription`, {
     data: { planCode: "PRO" },
