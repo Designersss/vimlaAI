@@ -18,6 +18,16 @@ function storage(): WebInstallationStorage & {
   };
 }
 
+function errorResponse(code: string, status: number): Response {
+  return {
+    status,
+    ok: false,
+    json: async () => ({
+      error: { code, message: code },
+    }),
+  } as Response;
+}
+
 function response(id: string): Response {
   return {
     status: 200,
@@ -61,6 +71,71 @@ describe("Web installation bootstrap", () => {
       JSON.parse(String(call[1]?.body)) as { id: string },
     );
     expect(bodies.map((body) => body.id)).toEqual([id, id]);
+  });
+
+  it.each([
+    ["installation_revoked", 409],
+    ["not_found", 404],
+  ] as const)(
+    "rotates a permanently unusable stored installation id on %s",
+    async (code, status) => {
+      const local = storage();
+      const key = installationStorageKey("user-a");
+      const oldId = "11111111-1111-4111-8111-111111111111";
+      const replacementId = "22222222-2222-4222-8222-222222222222";
+      local.values.set(key, oldId);
+
+      const fetchImpl = vi.fn<typeof fetch>(async (_url, init) => {
+        const body = JSON.parse(String(init?.body)) as { id: string };
+        return body.id === oldId
+          ? errorResponse(code, status)
+          : response(body.id);
+      });
+
+      await expect(
+        ensureWebInstallation("user-a", {
+          storage: local,
+          randomUuid: () => replacementId,
+          fetchImpl,
+        }),
+      ).resolves.toMatchObject({ id: replacementId });
+
+      expect(local.values.get(key)).toBe(replacementId);
+      const bodies = fetchImpl.mock.calls.map((call) =>
+        JSON.parse(String(call[1]?.body)) as { id: string },
+      );
+      expect(bodies.map((body) => body.id)).toEqual([
+        oldId,
+        replacementId,
+      ]);
+    },
+  );
+
+  it("does not rotate installation identity on transient server failures", async () => {
+    const local = storage();
+    const key = installationStorageKey("user-a");
+    const id = "11111111-1111-4111-8111-111111111111";
+    local.values.set(key, id);
+    const randomUuid = vi.fn(() =>
+      "22222222-2222-4222-8222-222222222222",
+    );
+    const fetchImpl = vi.fn<typeof fetch>(async () =>
+      errorResponse("internal_error", 503),
+    );
+
+    await expect(
+      ensureWebInstallation("user-a", {
+        storage: local,
+        randomUuid,
+        fetchImpl,
+      }),
+    ).rejects.toMatchObject({
+      code: "internal_error",
+      status: 503,
+    });
+
+    expect(local.values.get(key)).toBe(id);
+    expect(randomUuid).not.toHaveBeenCalled();
   });
 
   it("uses account-scoped storage keys instead of rebinding one id across users", async () => {
