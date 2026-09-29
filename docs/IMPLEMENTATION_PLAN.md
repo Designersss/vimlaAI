@@ -27,7 +27,7 @@ Do not recreate these domains under new messenger names.
 
 ## 2. Current gate
 
-Finish current E2EE-H02 work (#76 / PR #77), including the #78 product correction: preserve the internal authoritative crypto wipe primitive but do not ship a normal user-facing “Clear local Direct Chat data” maintenance control.
+E2EE-H02 (#76 / PR #77) is merged. Continue the remaining security track (#54/#74/#75/#130–#134) in parallel with the architecture roadmap.
 
 Parallel E2EE hardening remains tracked by #54/#74/#75/#130–#134.
 
@@ -47,7 +47,7 @@ Epic #80:
 - #94 common authenticated WebSocket protocol;
 - #95 transactional event outbox;
 - #96 durable cursor sync;
-- #97 Web SyncEngine and safe Direct Chat SSE migration.
+- #97 Web SyncEngine and complete Direct Chat SSE/EventSource replacement/removal.
 
 Realtime is fast path. Sync/PostgreSQL are correctness.
 
@@ -86,7 +86,7 @@ Never invent group cryptography by casually extending pairwise Double Ratchet.
 ## 8. Shared Work / Projects
 
 Epic #84:
-- migrate PERSONAL-only Workspace to explicit PROJECT scope;
+- replace PERSONAL-only Workspace shape with the explicit PERSONAL/PROJECT scope model;
 - Project Rooms;
 - unified project context graph.
 
@@ -142,7 +142,7 @@ Old “Images → Video → Agents” sequencing is no longer the product roadma
 
 ## 15. Universal gates
 
-Every implementation issue must preserve:
+Every implementation issue must preserve validated invariants while removing obsolete pre-production implementation:
 - server-authoritative identity/permissions/billing;
 - PostgreSQL durable truth;
 - Redis/BullMQ as transport/coordination;
