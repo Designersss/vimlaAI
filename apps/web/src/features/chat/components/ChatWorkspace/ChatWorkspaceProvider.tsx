@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useRef, useState, type ReactElement, type ReactNode } from "react";
-import { ChatWorkspaceStore } from "../../stores/chat-workspace-store";
+import { ChatWorkspaceStore } from "@vimla/client-core";
 import { ensureLocalDevice } from "../../../direct-chats/services/session";
 
 const ChatWorkspaceContext = createContext<ChatWorkspaceStore | null>(null);
