@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { NestFastifyApplication } from "@nestjs/platform-fastify";
 import { loadApiConfig } from "@vimla/config/server";
+import { Prisma } from "@vimla/database";
 import { createVimlaApiApp } from "../create-app.js";
 import { PrismaService } from "../persistence/prisma.service.js";
 import {
@@ -247,10 +248,21 @@ describe("client installations API", () => {
     ).toBe(200);
 
     const prisma = app.get(PrismaService).client;
-    const model = prisma.clientInstallation;
-    const originalUpdate = model.update.bind(model);
+    type UpdateTarget = {
+      update(
+        args: Prisma.ClientInstallationUpdateArgs,
+      ): Promise<
+        Prisma.ClientInstallationGetPayload<{
+          include: { preference: true };
+        }>
+      >;
+    };
+    const updateTarget =
+      prisma.clientInstallation as unknown as UpdateTarget;
+    const originalUpdate =
+      updateTarget.update.bind(updateTarget);
     const updateSpy = vi
-      .spyOn(model, "update")
+      .spyOn(updateTarget, "update")
       .mockImplementationOnce(async (args) => {
         await prisma.$executeRaw`
           UPDATE "client_installation"
