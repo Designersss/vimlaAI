@@ -114,21 +114,21 @@ function previewCard(tool: OperatorToolName, args: Record<string, unknown>): Too
     case "tasks.create":
       return { card: card("task", "created", titleOf(args.title, "Task"), null, targetFor("task")), objectId: null };
     case "tasks.update":
-      return { card: card("task", "updated", titleOf(args.title, "Task"), null, targetFor("task")), objectId: String(args.id) };
+      return { card: card("task", "updated", titleOf(args.title, "Task"), null, targetFor("task", args.id)), objectId: String(args.id) };
     case "tasks.delete":
       return { card: card("task", "deleted", "Task", null, targetFor("task"), "pending_confirmation"), objectId: String(args.id) };
     case "tasks.get":
     case "tasks.list":
-      return { card: card("task", tool === "tasks.get" ? "read" : "listed", "Tasks", null, targetFor("task")), objectId: null };
+      return { card: card("task", tool === "tasks.get" ? "read" : "listed", "Tasks", null, tool === "tasks.get" ? targetFor("task", args.id) : targetFor("task")), objectId: null };
     case "reminders.create":
       return { card: card("reminder", "created", titleOf(args.title, "Reminder"), null, targetFor("reminder")), objectId: null };
     case "reminders.update":
-      return { card: card("reminder", "updated", titleOf(args.title, "Reminder"), null, targetFor("reminder")), objectId: String(args.id) };
+      return { card: card("reminder", "updated", titleOf(args.title, "Reminder"), null, targetFor("reminder", args.id)), objectId: String(args.id) };
     case "reminders.delete":
       return { card: card("reminder", "deleted", "Reminder", null, targetFor("reminder"), "pending_confirmation"), objectId: String(args.id) };
     case "reminders.get":
     case "reminders.list":
-      return { card: card("reminder", tool === "reminders.get" ? "read" : "listed", "Reminders", null, targetFor("reminder")), objectId: null };
+      return { card: card("reminder", tool === "reminders.get" ? "read" : "listed", "Reminders", null, tool === "reminders.get" ? targetFor("reminder", args.id) : targetFor("reminder")), objectId: null };
     case "notes.create":
       return { card: card("note", "created", titleOf(args.title, "Note"), null, targetFor("note")), objectId: null };
     case "notes.update":
