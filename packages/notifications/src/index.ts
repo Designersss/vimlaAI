@@ -44,7 +44,7 @@ export {
 export { evaluateReminderDelivery } from "./platform/eligibility.js";
 export { formatReminderInstant } from "./platform/format-time.js";
 export { sanitizeUserText } from "./platform/text.js";
-export { reminderHrefPath, reminderOpenUrl, sanitizeHrefPath } from "./platform/destinations.js";
+export { reminderNavigationTarget } from "./platform/destinations.js";
 export { NotificationInboxService } from "./platform/inbox-service.js";
 export { NotificationPreferenceService } from "./platform/preference-service.js";
 export { ReminderReconciler } from "./platform/reconciler.js";
