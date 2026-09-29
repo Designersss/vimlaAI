@@ -60,7 +60,7 @@ export function ConsumerShell({ children }: { children: ReactNode }): ReactEleme
           router.replace("/claim-handle");
           return;
         }
-        await ensureWebInstallation(currentUser.id);
+        void ensureWebInstallation(currentUser.id).catch(() => undefined);
         await syncAuthenticatedLocale(currentUser.locale);
         if (cancelled) return;
         const cookieLocale = readLocaleCookie();
