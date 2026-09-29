@@ -1,10 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { currentUserSchema } from "@vimla/contracts";
-import {
-  AuthRequiredError,
-  ClientApiError,
-  createClientTransport,
-} from "./transport.js";
+import { AuthRequiredError, createClientTransport } from "./transport.js";
+import type { ClientApiError } from "./transport.js";
 
 function response(
   status: number,
