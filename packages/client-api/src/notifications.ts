@@ -17,7 +17,7 @@ import {
 } from "./transport.js";
 
 export class NotificationApiError extends ClientApiError {
-  constructor(code: string, status: number) {
+  constructor(code: string, status = 0) {
     super(code, status);
     this.name = "NotificationApiError";
   }
