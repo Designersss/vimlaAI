@@ -6,7 +6,7 @@ import { useTranslations } from "next-intl";
 import { OperatorActionCard, StreamingIndicator, Text } from "@vimla/ui";
 import type { OperatorActionCard as OperatorAction, OperatorRunView } from "@vimla/contracts";
 
-import { navigationTargetToWebPath } from "../../../shared/navigation/navigation-target";
+import { navigationTargetToWebPath } from "@vimla/web-navigation";
 import styles from "./OperatorRunPanel.module.scss";
 
 export function OperatorRunPanel({
