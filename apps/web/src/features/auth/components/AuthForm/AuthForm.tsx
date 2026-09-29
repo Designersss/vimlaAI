@@ -87,6 +87,14 @@ export function AuthForm({ mode }: AuthFormProps): ReactElement {
       await claimHandle(handle);
     } catch (error: unknown) {
       finishIdle();
+      if (process.env.NODE_ENV !== "production") {
+        console.error(
+          "Unexpected auth submission error",
+          error instanceof Error
+            ? `${error.name}: ${error.message}\n${error.stack ?? ""}`
+            : String(error),
+        );
+      }
       if (error instanceof HandleUnavailableError) {
         setFieldErrors((current) => ({
           ...current,
