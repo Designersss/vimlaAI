@@ -28,7 +28,7 @@ Engineering execution/audit/CI/merge rules are defined in `docs/ENGINEERING_WORK
   - #94 RT-01 WebSocket protocol/gateway
   - #95 RT-02 transactional outbox
   - #96 SYNC-01 durable cursor sync
-  - #97 SYNC-02 Web SyncEngine/SSE migration
+  - #97 SYNC-02 Web SyncEngine + SSE/EventSource removal
 
 ## Messaging Core
 
