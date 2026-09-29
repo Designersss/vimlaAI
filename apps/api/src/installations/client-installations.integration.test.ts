@@ -286,6 +286,12 @@ describe("client installations API", () => {
     const id = randomUUID();
     await register(app, user.cookies, installationPayload(id));
 
+    const prisma = app.get(PrismaService).client;
+    const accountPreferenceBefore =
+      await prisma.userPreference.findUnique({
+        where: { userId: user.id },
+      });
+
     const changed = await app.inject({
       method: "PATCH",
       url: `/v1/client-installations/${id}/preferences`,
@@ -298,13 +304,11 @@ describe("client installations API", () => {
       pushEnabled: false,
     });
 
-    const prisma = app.get(PrismaService).client;
-    const accountPreference =
+    const accountPreferenceAfter =
       await prisma.userPreference.findUnique({
         where: { userId: user.id },
       });
-    expect(accountPreference?.reminderInAppEnabled).toBe(true);
-    expect(accountPreference?.reminderEmailEnabled).toBe(false);
+    expect(accountPreferenceAfter).toEqual(accountPreferenceBefore);
   });
 });
 
