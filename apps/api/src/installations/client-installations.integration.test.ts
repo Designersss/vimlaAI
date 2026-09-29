@@ -330,6 +330,48 @@ describe("client installations API", () => {
     }
   });
 
+  it("rate limits installation mutations per authenticated user", async () => {
+    const previous =
+      process.env.CLIENT_INSTALLATIONS_MUTATION_LIMIT_PER_MINUTE;
+    process.env.CLIENT_INSTALLATIONS_MUTATION_LIMIT_PER_MINUTE = "2";
+    const config = loadApiConfig(process.env);
+    process.env.CLIENT_INSTALLATIONS_MUTATION_LIMIT_PER_MINUTE =
+      previous;
+
+    const isolated = await createVimlaApiApp(config, {
+      quiet: true,
+    });
+    await isolated.init();
+    await isolated.getHttpAdapter().getInstance().ready();
+    try {
+      const user = await registerVerifiedUser(
+        isolated,
+        "install-rate-limit",
+      );
+      const first = await register(
+        isolated,
+        user.cookies,
+        installationPayload(randomUUID()),
+      );
+      const second = await register(
+        isolated,
+        user.cookies,
+        installationPayload(randomUUID()),
+      );
+      const blocked = await register(
+        isolated,
+        user.cookies,
+        installationPayload(randomUUID()),
+      );
+      expect(first.statusCode).toBe(200);
+      expect(second.statusCode).toBe(200);
+      expect(blocked.statusCode).toBe(429);
+      expect(errorCode(blocked)).toBe("rate_limited");
+    } finally {
+      await isolated.close();
+    }
+  });
+
   it("enforces installation metadata constraints in PostgreSQL", async () => {
     const user = await registerVerifiedUser(app, "install-db-check");
     const prisma = app.get(PrismaService).client;
