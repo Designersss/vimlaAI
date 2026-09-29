@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { navigationTargetSchema } from "./navigation.js";
 
 export const NOTIFICATION_LIMITS = {
   pageLimitDefault: 20,
@@ -26,18 +27,20 @@ export const notificationDeliveryStatusSchema = z.enum([
 ]);
 export type NotificationDeliveryStatus = z.infer<typeof notificationDeliveryStatusSchema>;
 
-export const userNotificationViewSchema = z.object({
-  id: z.string().uuid(),
-  type: userNotificationTypeSchema,
-  sourceType: notificationSourceTypeSchema,
-  sourceId: z.string().uuid().nullable(),
-  title: z.string(),
-  body: z.string().nullable(),
-  hrefPath: z.string().nullable(),
-  createdAt: z.string().datetime({ offset: true }),
-  readAt: z.string().datetime({ offset: true }).nullable(),
-  sourceAvailable: z.boolean(),
-});
+export const userNotificationViewSchema = z
+  .object({
+    id: z.string().uuid(),
+    type: userNotificationTypeSchema,
+    sourceType: notificationSourceTypeSchema,
+    sourceId: z.string().uuid().nullable(),
+    title: z.string(),
+    body: z.string().nullable(),
+    navigationTarget: navigationTargetSchema,
+    createdAt: z.string().datetime({ offset: true }),
+    readAt: z.string().datetime({ offset: true }).nullable(),
+    sourceAvailable: z.boolean(),
+  })
+  .strict();
 export type UserNotificationView = z.infer<typeof userNotificationViewSchema>;
 
 export const notificationsResponseSchema = z.object({
