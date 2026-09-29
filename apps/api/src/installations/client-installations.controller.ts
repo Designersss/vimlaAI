@@ -24,11 +24,17 @@ import { AuthUser } from "../auth/current-user.decorator.js";
 import { OriginGuard } from "../auth/origin.guard.js";
 import { SensitiveArea } from "../auth/sensitive-area.js";
 import { SensitiveAreaGuard } from "../auth/sensitive-area.guard.js";
+import { ClientInstallationsRateLimitGuard } from "./client-installations-rate-limit.guard.js";
 import { ClientInstallationsService } from "./client-installations.service.js";
 
 @Controller("v1/client-installations")
 @SensitiveArea()
-@UseGuards(AuthGuard, OriginGuard, SensitiveAreaGuard)
+@UseGuards(
+  AuthGuard,
+  OriginGuard,
+  SensitiveAreaGuard,
+  ClientInstallationsRateLimitGuard,
+)
 export class ClientInstallationsController {
   constructor(
     @Inject(ClientInstallationsService)
