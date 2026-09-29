@@ -109,7 +109,17 @@ export async function signUp(
   await fillInput(page, "#auth-email", input.email);
   await fillInput(page, "#auth-password", input.password);
   await page.getByRole("button", { name: /создать аккаунт|create account/i }).click();
-  await expect(page).toHaveURL(/verify-email/, { timeout: 30_000 });
+
+  const outcome = await Promise.race([
+    page.waitForURL(/verify-email/, { timeout: 30_000 }).then(() => "verify-email" as const),
+    formAlert(page)
+      .waitFor({ state: "visible", timeout: 30_000 })
+      .then(() => "alert" as const),
+  ]);
+  if (outcome === "alert") {
+    const message = (await formAlert(page).textContent())?.trim() || "unknown auth error";
+    throw new Error(`Sign-up failed before verify-email navigation: ${message}`);
+  }
 }
 
 export async function verifyEmail(page: Page, request: APIRequestContext, email: string): Promise<void> {
