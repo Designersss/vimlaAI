@@ -12,6 +12,7 @@ import {
 } from "@nestjs/common";
 import type { AuthenticatedUser } from "@vimla/auth";
 import {
+  clientInstallationIdSchema,
   clientInstallationViewSchema,
   clientInstallationsResponseSchema,
   registerClientInstallationSchema,
@@ -71,7 +72,7 @@ export class ClientInstallationsController {
     @AuthUser() user: AuthenticatedUser,
     @Param("id") id: string,
   ): Promise<ClientInstallationView> {
-    if (!isUuid(id)) {
+    if (!clientInstallationIdSchema.safeParse(id).success) {
       throw invalidPayload();
     }
     return clientInstallationViewSchema.parse(
@@ -85,7 +86,7 @@ export class ClientInstallationsController {
     @Param("id") id: string,
     @Body() body: unknown,
   ): Promise<ClientInstallationView> {
-    if (!isUuid(id)) {
+    if (!clientInstallationIdSchema.safeParse(id).success) {
       throw invalidPayload();
     }
     const input =
@@ -108,10 +109,4 @@ function invalidPayload(): BadRequestException {
     code: "validation_error",
     message: "Invalid client installation payload",
   });
-}
-
-function isUuid(value: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-    value,
-  );
 }
