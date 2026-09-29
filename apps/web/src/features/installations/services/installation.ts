@@ -1,4 +1,7 @@
-import type { ClientInstallationView } from "@vimla/contracts";
+import {
+  clientInstallationIdSchema,
+  type ClientInstallationView,
+} from "@vimla/contracts";
 import { createWebClientApi } from "../../../shared/api/client";
 
 const INSTALLATION_STORAGE_PREFIX = "vimla:client-installation:v1:";
@@ -24,7 +27,10 @@ export async function ensureWebInstallation(
     options.randomUuid ?? (() => crypto.randomUUID());
   const key = installationStorageKey(userId);
   const stored = storage.getItem(key);
-  const id = stored && isUuid(stored) ? stored : randomUuid();
+  const id =
+    stored && clientInstallationIdSchema.safeParse(stored).success
+      ? stored
+      : randomUuid();
 
   if (id !== stored) {
     storage.setItem(key, id);
@@ -43,10 +49,4 @@ export async function ensureWebInstallation(
 
 export function installationStorageKey(userId: string): string {
   return `${INSTALLATION_STORAGE_PREFIX}${userId}`;
-}
-
-function isUuid(value: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-    value,
-  );
 }
