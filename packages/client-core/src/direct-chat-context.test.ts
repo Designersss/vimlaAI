@@ -3,8 +3,8 @@ import type { DirectConversationPrivacy } from "@vimla/contracts";
 import {
   boundDirectChatContextBefore,
   prepareDirectChatContext,
-} from "./context";
-import type { StoredPlaintext } from "./crypto-store";
+} from "./direct-chat-context.js";
+import type { DirectChatPlaintextRecord } from "./direct-chat-context.js";
 
 const privacy: DirectConversationPrivacy = {
   shareOwnHistoryWithVimla: true,
@@ -16,7 +16,7 @@ function row(
   index: number,
   senderUserId: string,
   text: string,
-): StoredPlaintext {
+): DirectChatPlaintextRecord {
   return {
     conversationId: "11111111-1111-4111-8111-111111111111",
     messageId: `11111111-1111-4111-8111-${String(index).padStart(12, "0")}`,

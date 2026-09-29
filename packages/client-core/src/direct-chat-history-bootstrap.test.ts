@@ -3,7 +3,7 @@ import {
   DEEP_HISTORY_BOOTSTRAP_MAX_PAGES,
   pageUnlocksHistoryBootstrap,
   shouldContinueDeepHistoryBootstrap,
-} from "./history-bootstrap";
+} from "./direct-chat-history-bootstrap.js";
 
 describe("Direct Chat deep-history bootstrap bounds", () => {
   it("allows backfill before the page budget is exhausted", () => {

@@ -28,6 +28,8 @@ Monorepo: pnpm + Turborepo, strict TypeScript.
 - `apps/api` — NestJS + Fastify modular monolith.
 - `apps/worker` — BullMQ worker process.
 - `packages/contracts` — shared Zod/API contracts.
+- `packages/client-api` — platform-neutral typed consumer HTTP clients over an injected transport/base URL/session adapter; never imports Web/Next/server config.
+- `packages/client-core` — platform-neutral consumer state/controllers and pure client-side lifecycle algorithms; platform storage/router/runtime stays in app adapters.
 - `packages/database` — Prisma/PostgreSQL schema, migrations and DB helpers.
 - `packages/auth` — authentication infrastructure.
 - `packages/admin` — privileged Admin domain/security logic.
@@ -77,7 +79,7 @@ Dependencies point inward: applications and framework/provider adapters may depe
 
 | Layer | Packages / examples | Permitted dependencies and restrictions |
 | --- | --- | --- |
-| Browser-safe foundations | `@vimla/contracts`, `@vimla/shared`, `@vimla/ui`, and explicitly browser-exported `@vimla/e2ee` entry points | May be imported by browser code only through exports that contain no Node, Prisma, secrets or server configuration. `ui` may depend on browser-safe contracts/shared utilities, not server domains. |
+| Browser-safe foundations | `@vimla/contracts`, `@vimla/shared`, `@vimla/client-api`, `@vimla/client-core`, `@vimla/ui`, and explicitly browser-exported `@vimla/e2ee` entry points | `client-api` must receive base URL/fetch/session behavior through an injected transport and must not import app/server config. `client-core` may depend only on browser/native-safe foundations and must not import Next/DOM storage/Tauri/Expo/server infrastructure. `ui` may depend on browser-safe contracts/shared utilities, not server domains. |
 | Server infrastructure | `@vimla/database`, `@vimla/config`, `@vimla/auth` | Server-only unless an explicitly documented browser-safe subpath exists. Prisma client/raw SQL is confined to `@vimla/database` and server-side domain/application code through that package; never bundle it into browser code. |
 | Domain/application packages | `@vimla/workspace`, `@vimla/projects`, `@vimla/operator`, `@vimla/billing`, `@vimla/notifications`, `@vimla/ai`, `@vimla/direct-chats`, `@vimla/admin` | May depend on shared contracts/utilities, server infrastructure, and narrowly defined domain interfaces/services. They must not import from `apps/*` or depend on NestJS controllers/modules. Cross-domain dependencies must follow an explicit use case and avoid cycles. |
 | Framework/application adapters | `apps/api`, `apps/worker`, Next.js server code in `apps/web`/`apps/admin` | Compose inward-facing packages and translate HTTP, jobs or framework lifecycle concerns. NestJS/Fastify/BullMQ/Next.js dependencies stay here rather than leaking into domain packages. |

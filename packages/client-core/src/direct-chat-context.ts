@@ -4,7 +4,16 @@ import {
   type DirectConversationPrivacy,
   type OperatorContextBundle,
 } from "@vimla/contracts";
-import type { StoredPlaintext } from "./crypto-store";
+export interface DirectChatPlaintextRecord {
+  conversationId?: string;
+  messageId: string;
+  senderUserId: string;
+  kind: string;
+  text: string;
+  createdAt: string;
+}
+
+type StoredPlaintext = DirectChatPlaintextRecord;
 
 const RAW_TAIL_LIMIT = 8;
 const LOCAL_SCAN_LIMIT = 256;

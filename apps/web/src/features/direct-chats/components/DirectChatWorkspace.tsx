@@ -63,16 +63,14 @@ import {
   type StoredOperatorOutputLink,
 } from "../services/crypto-store";
 import {
+  RatchetLockLostError,
   boundDirectChatContextBefore,
-  prepareDirectChatContext,
-} from "../services/context";
-import {
   pageUnlocksHistoryBootstrap,
+  prepareDirectChatContext,
   shouldContinueDeepHistoryBootstrap,
-} from "../services/history-bootstrap";
+} from "@vimla/client-core";
 import { decodeDirectPlaintext, encodeDirectPlaintext, type DirectPlaintextPayload } from "../services/payload";
 import { subscribeDirectChatEvents } from "../services/realtime";
-import { RatchetLockLostError } from "../services/ratchet-coordination";
 import {
   decryptMessageWithStatus,
   encryptForDevices,

@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { ChatMessage, DirectConversationSummary } from "@vimla/contracts";
-import { ChatWorkspaceStore } from "./chat-workspace-store";
+import { ChatWorkspaceStore } from "./chat-workspace-store.js";
 
+const historyCreatedAt = "2026-09-14T00:00:00Z";
 const history: ChatMessage[] = [{
-  id: "saved", role: "USER", content: "Saved message", status: "COMPLETE", createdAt: "2026-09-14T00:00:00Z", mentions: [],
+  id: "saved", role: "USER", content: "Saved message", status: "COMPLETE", createdAt: historyCreatedAt, mentions: [],
 }];
 
 describe("persistent chat workspace", () => {
@@ -56,14 +57,14 @@ describe("persistent chat workspace", () => {
       projectId: null,
       title: "B",
       defaultTarget: null,
-      updatedAt: history[0]!.createdAt,
+      updatedAt: historyCreatedAt,
     });
     workspace.addConversation({
       id: "b",
       projectId: null,
       title: "Updated B",
       defaultTarget: null,
-      updatedAt: history[0]!.createdAt,
+      updatedAt: historyCreatedAt,
     });
     expect(workspace.conversations).toHaveLength(1);
     expect(workspace.conversation("a").messages).toEqual(history);
@@ -76,8 +77,8 @@ describe("persistent chat workspace", () => {
     const unread: DirectConversationSummary = {
       id: "a",
       peer: { userId: "peer", name: "Peer", email: "peer@example.com" },
-      lastMessageAt: history[0]!.createdAt,
-      createdAt: history[0]!.createdAt,
+      lastMessageAt: historyCreatedAt,
+      createdAt: historyCreatedAt,
       unreadCount: 1,
       lastKind: "HUMAN",
       lastSenderUserId: "peer",
