@@ -3,7 +3,7 @@
 -- kind/version/capabilities are metadata only and must never grant authority.
 
 CREATE TABLE "client_installation" (
-    "id" UUID NOT NULL,
+    "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "kind" TEXT NOT NULL,
     "appVersion" TEXT,
@@ -36,7 +36,7 @@ ALTER TABLE "client_installation"
   ON DELETE CASCADE ON UPDATE CASCADE;
 
 CREATE TABLE "client_installation_preference" (
-    "installationId" UUID NOT NULL,
+    "installationId" TEXT NOT NULL,
     "pushEnabled" BOOLEAN NOT NULL DEFAULT true,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
