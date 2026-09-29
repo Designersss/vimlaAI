@@ -22,11 +22,19 @@ describe("notification public DTOs", () => {
       sourceId: "22222222-2222-4222-8222-222222222222",
       title: "Call dentist",
       body: null,
-      hrefPath: "/work/reminders",
+      navigationTarget: {
+        version: 1,
+        kind: "REMINDER",
+        id: "22222222-2222-4222-8222-222222222222",
+      },
       createdAt: "2026-09-10T12:00:00.000Z",
       readAt: null,
       sourceAvailable: true,
     });
-    expect(parsed.hrefPath).toBe("/work/reminders");
+    expect(parsed.navigationTarget).toEqual({
+      version: 1,
+      kind: "REMINDER",
+      id: "22222222-2222-4222-8222-222222222222",
+    });
   });
 });
