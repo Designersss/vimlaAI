@@ -127,7 +127,10 @@ describe("ratchet coordination", () => {
       maxHoldMs: 60_000,
     });
     expect(acquired).not.toBeNull();
-    expect(acquired?.record).toEqual({
+    if (!acquired) {
+      throw new Error("expected lease acquisition");
+    }
+    expect(acquired.record).toEqual({
       owner: "tab-a",
       fence: 1,
       expiresAt: 6_000,
@@ -136,11 +139,11 @@ describe("ratchet coordination", () => {
 
     const renewed = renewRatchetLeaseRecord({
       current: {
-        ...acquired!.record,
+        ...acquired.record,
         expiresAt: 60_500,
       },
       owner: "tab-a",
-      fence: acquired!.fence,
+      fence: acquired.fence,
       now: 60_000,
       leaseMs: 5_000,
     });
@@ -150,7 +153,7 @@ describe("ratchet coordination", () => {
       renewRatchetLeaseRecord({
         current: renewed,
         owner: "tab-a",
-        fence: acquired!.fence,
+        fence: acquired.fence,
         now: 61_000,
         leaseMs: 5_000,
       }),
