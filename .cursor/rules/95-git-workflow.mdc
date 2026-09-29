@@ -14,8 +14,8 @@ GitHub structure is #78 master → #79–#89 EPICs → atomic child issues. Impl
 
 - Read `AGENTS.md` and applicable rules/docs before architectural changes.
 - Implement only the requested phase/scope; do not silently begin future roadmap items.
-- Preserve working code and historical migrations unless explicitly instructed otherwise.
-- For schema changes create new versioned migrations; do not rewrite applied migrations.
+- Preserve validated behavior/invariants, not obsolete implementation. Pre-production code and migration history may be replaced when the assigned issue defines a cleaner target architecture.
+- For schema changes, use clean pre-production schema history until a real deployed/shared-data boundary exists; after that boundary, use forward versioned migrations and do not rewrite applied history.
 - When a decision changes architecture/security/product behavior, update the relevant docs/ADR.
 - Before phase completion run lint, typecheck, tests/integration tests and build as applicable.
 - Report what was actually executed vs not executable in the environment.
