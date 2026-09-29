@@ -67,7 +67,7 @@ import {
 import {
   RatchetLockLostError,
   RatchetStateConflictError,
-} from "./ratchet-coordination";
+} from "@vimla/client-core";
 import { decodeDirectPlaintext, encodeDirectPlaintext, type DirectPlaintextPayload } from "./payload";
 import { clearLocalDataAfterDeviceRevocation } from "./local-data";
 import { isLocalDeviceRevoked } from "./revocation-state";
