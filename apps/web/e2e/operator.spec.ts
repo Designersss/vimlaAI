@@ -32,6 +32,7 @@ test.describe("@Vimla operator", () => {
 
     await page.goto("/vimla");
     const resumedComposer = page.getByPlaceholder(/попросите @vimla|ask @vimla/i);
+    await expect(resumedComposer).toBeVisible();
     await resumedComposer.fill("@Vimla удали задачу");
     await page.getByRole("button", { name: /отправить|send/i }).click();
     const pending = page.getByTestId("operator-action-card").filter({ hasText: /подтвержден|confirm/i });
