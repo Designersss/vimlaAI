@@ -13,9 +13,9 @@ Apply repository guidance in this order, after platform/system instructions: the
 
 ## What Vimla is
 
-Vimla is a public production SaaS and a **messenger-first communication platform with AI as a native system capability**. Ordinary human messaging must stand on its own; AI Threads, `@Vimla`, Projects/Work and automation extend communication rather than replace it.
+Vimla is a **pre-production** SaaS being built to production standards and a **messenger-first communication platform with AI as a native system capability**. Ordinary human messaging must stand on its own; AI Threads, `@Vimla`, Projects/Work and automation extend communication rather than replace it.
 
-Treat the repository as production software handling real users, money, sensitive data, hostile traffic, and expensive external providers. Correctness, authorization, financial integrity, crash recovery, idempotency and observability are part of feature correctness.
+Treat the repository with production-grade engineering rigor for future real users, money, sensitive data, hostile traffic, and expensive external providers. Correctness, authorization, financial integrity, crash recovery, idempotency and observability are part of feature correctness.
 
 Do not trust stale phase summaries. The product/platform roadmap source of truth is GitHub #78 and `docs/GITHUB_ROADMAP.md`; the canonical architecture is `docs/MESSENGER_PLATFORM_ARCHITECTURE.md`. Before architectural work, inspect the current tree, relevant docs and the nearest `AGENTS.md` files.
 
@@ -218,10 +218,10 @@ Read `.cursor/rules/10-frontend.mdc` through `.cursor/rules/24-brand-asset-v2.md
 
 - Implement only the requested task/phase. Do not silently start future roadmap items.
 - Do not broad-refactor unrelated areas in a bugfix PR.
-- Preserve working behavior unless the task explicitly changes product semantics.
+- Preserve validated product/security behavior, not obsolete implementation structure. If the current task replaces an old architecture path, remove the old path and update its tests/docs.
 - If task instructions conflict with a security/financial invariant, stop and report the conflict instead of weakening the invariant.
 - If an architectural/security/product decision changes, update the relevant docs/ADR.
-- Preserve historical migrations; schema changes get new migrations only.
+- Preserve migration history only after a real deployed/shared data boundary exists. Before that, prefer the clean final schema and reset development/test data as needed.
 - Do not merge PRs unless explicitly instructed. Default is to prepare commits/PR and report results.
 - Do not push directly to `main` for development work.
 
