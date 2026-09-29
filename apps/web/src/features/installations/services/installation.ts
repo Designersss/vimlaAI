@@ -73,7 +73,7 @@ function registerWebInstallation(
 function isUnusableInstallationId(error: unknown): boolean {
   return (
     error instanceof ClientApiError &&
-    (error.code === "installation_revoked" || error.code === "not_found")
+    error.code === "not_found"
   );
 }
 
