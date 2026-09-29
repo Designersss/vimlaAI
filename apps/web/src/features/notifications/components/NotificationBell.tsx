@@ -14,6 +14,7 @@ import {
   Text,
 } from "@vimla/ui";
 import { formatDateTime } from "../../workspace/services/datetime";
+import { navigationTargetToWebPath } from "../../../shared/navigation/navigation-target";
 import { useNotificationInbox } from "../hooks/useNotificationInbox";
 import styles from "./Notifications.module.scss";
 
@@ -24,12 +25,10 @@ export function NotificationBell(): ReactElement {
   const label =
     inbox.unread > 0 ? t("notifications.unreadCount", { count: inbox.unread }) : t("notifications.open");
 
-  async function onOpenItem(id: string, hrefPath: string | null): Promise<void> {
+  async function onOpenItem(id: string): Promise<void> {
     const updated = await inbox.markOne(id);
     inbox.setListOpen(false);
-    if (updated.hrefPath ?? hrefPath) {
-      router.push(updated.hrefPath ?? hrefPath ?? "/work/reminders");
-    }
+    router.push(navigationTargetToWebPath(updated.navigationTarget));
   }
 
   return (
@@ -84,7 +83,7 @@ export function NotificationBell(): ReactElement {
                   type="button"
                   className={`${styles.row} ${item.readAt ? "" : styles.unreadRow}`.trim()}
                   data-testid="notification-item"
-                  onClick={() => void onOpenItem(item.id, item.hrefPath)}
+                  onClick={() => void onOpenItem(item.id)}
                 >
                   <span className={styles.rowBody}>
                     <span className={styles.title}>{item.title}</span>
