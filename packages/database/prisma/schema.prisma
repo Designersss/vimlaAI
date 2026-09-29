@@ -98,7 +98,7 @@ model ClientInstallation {
 model ClientInstallationPreference {
   installationId String             @id
   installation   ClientInstallation @relation(fields: [installationId], references: [id], onDelete: Cascade)
-  pushEnabled    Boolean            @default(true)
+  pushEnabled    Boolean            @default(false)
   createdAt      DateTime           @default(now())
   updatedAt      DateTime           @updatedAt
 
