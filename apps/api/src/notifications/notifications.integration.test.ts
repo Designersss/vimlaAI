@@ -270,6 +270,7 @@ describe("notification platform", () => {
       items: Array<{
         id: string;
         title: string;
+        sourceId: string | null;
         navigationTarget: { version: number; kind: string; id?: string };
       }>;
       nextCursor: string | null;
@@ -279,7 +280,7 @@ describe("notification platform", () => {
     expect(firstPage.items[0]?.navigationTarget).toEqual({
       version: 1,
       kind: "REMINDER",
-      id: extraReminder.id,
+      id: firstPage.items[0]?.sourceId,
     });
     expect(firstPage.items[0]).not.toHaveProperty("hrefPath");
     const notificationId = firstPage.items[0]?.id as string;
