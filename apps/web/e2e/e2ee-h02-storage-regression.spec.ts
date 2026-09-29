@@ -155,7 +155,6 @@ test.describe("E2EE H02 storage regressions", () => {
       await purchasePro(nikitaPage);
       await nikitaPage.goto("/app");
       await waitForRegisteredDirectChatDevice(nikitaPage);
-    await waitForRegisteredDirectChatDevice(nikitaPage);
 
       const directUrl = await openDirectChat(
         alicePage,
@@ -767,7 +766,6 @@ test.describe("E2EE H02 storage regressions", () => {
       await purchasePro(nikitaPage);
       await nikitaPage.goto("/app");
       await waitForRegisteredDirectChatDevice(nikitaPage);
-    await waitForRegisteredDirectChatDevice(nikitaPage);
 
       await openDirectChat(alicePage, nikitaEmail);
       const composer =
@@ -1061,7 +1059,6 @@ test.describe("E2EE H02 storage regressions", () => {
       await purchasePro(nikitaPage);
       await nikitaPage.goto("/app");
       await waitForRegisteredDirectChatDevice(nikitaPage);
-    await waitForRegisteredDirectChatDevice(nikitaPage);
 
       const directUrl = await openDirectChat(
         alicePage,
