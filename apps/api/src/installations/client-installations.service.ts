@@ -168,24 +168,41 @@ export class ClientInstallationsService {
       return row;
     }
 
-    return this.prisma.client.clientInstallation.update({
-      where: { id: row.id },
-      data: {
-        ...(metadataChanged
-          ? {
-              kind: input.kind,
-              appVersion: input.appVersion,
-              protocolVersion: input.protocolVersion,
-              capabilities: input.capabilities,
-            }
-          : {}),
-        ...(refreshLastSeen ? { lastSeenAt: new Date() } : {}),
-        ...(!row.preference
-          ? { preference: { create: {} } }
-          : {}),
-      },
-      include: { preference: true },
-    });
+    try {
+      return await this.prisma.client.clientInstallation.update({
+        where: { id: row.id, userId, revokedAt: null },
+        data: {
+          ...(metadataChanged
+            ? {
+                kind: input.kind,
+                appVersion: input.appVersion,
+                protocolVersion: input.protocolVersion,
+                capabilities: input.capabilities,
+              }
+            : {}),
+          ...(refreshLastSeen ? { lastSeenAt: new Date() } : {}),
+          ...(!row.preference
+            ? { preference: { create: {} } }
+            : {}),
+        },
+        include: { preference: true },
+      });
+    } catch (error: unknown) {
+      if (!isRecordMissing(error)) {
+        throw error;
+      }
+      const current =
+        await this.prisma.client.clientInstallation.findUnique({
+          where: { id: row.id },
+        });
+      if (current?.userId === userId && current.revokedAt) {
+        throw new ConflictException({
+          code: "installation_revoked",
+          message: "Client installation is revoked",
+        });
+      }
+      throw notFound();
+    }
   }
 
   private async owned(
@@ -246,3 +263,12 @@ function isUniqueConflict(
   );
 }
 
+
+function isRecordMissing(
+  error: unknown,
+): error is Prisma.PrismaClientKnownRequestError {
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === "P2025"
+  );
+}
