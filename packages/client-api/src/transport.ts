@@ -108,7 +108,7 @@ export function queryString(
 }
 
 function headersRecord(
-  headers: HeadersInit | undefined,
+  headers: RequestInit["headers"],
 ): Record<string, string> {
   if (!headers) return {};
   if (Array.isArray(headers)) {
