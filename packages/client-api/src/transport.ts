@@ -110,12 +110,34 @@ export function queryString(
 function headersRecord(
   headers: RequestInit["headers"],
 ): Record<string, string> {
-  if (!headers) return {};
+  const result: Record<string, string> = {};
+  if (!headers) return result;
+
   if (Array.isArray(headers)) {
-    return Object.fromEntries(headers);
+    for (const entry of headers) {
+      if (Array.isArray(entry) && entry.length >= 2) {
+        result[String(entry[0])] = String(entry[1]);
+      }
+    }
+    return result;
   }
-  if (typeof Headers !== "undefined" && headers instanceof Headers) {
-    return Object.fromEntries(headers.entries());
+
+  const iterable = headers as {
+    entries?: () => IterableIterator<[string, string]>;
+  };
+  if (typeof iterable.entries === "function") {
+    for (const [key, value] of iterable.entries()) {
+      result[key] = value;
+    }
+    return result;
   }
-  return { ...headers };
+
+  for (const [key, value] of Object.entries(headers)) {
+    if (typeof value === "string") {
+      result[key] = value;
+    } else if (Array.isArray(value)) {
+      result[key] = value.join(", ");
+    }
+  }
+  return result;
 }
