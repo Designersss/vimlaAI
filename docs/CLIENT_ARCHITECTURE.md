@@ -37,6 +37,18 @@ Reuse is achieved by separating **logic from renderer/platform**, not by forcing
 
 Package names such as `@vimla/client-api` or `@vimla/client-core` are allowed only when extraction has a concrete reuse/testability purpose.
 
+## 2A. Current reusable client boundary
+
+ARCH-02 establishes concrete packages only for logic already proven reusable by the Web implementation:
+
+- `@vimla/client-api` owns typed consumer HTTP domain clients and the common error/response boundary. It receives `baseUrl`, `fetch` and default session/request init from the host; it does not import `apps/web`, Next.js or server configuration.
+- `@vimla/client-core` owns the existing `ChatWorkspaceStore` plus pure Direct Chat context selection, deep-history bootstrap bounds and ratchet coordination records/lease algorithms.
+- Web binds the shared API through `apps/web/src/shared/api/client.ts`, preserving cookie credentials and `no-store` behavior as a Web transport concern.
+- Browser-only E2EE storage/protection/revocation/realtime remain in `apps/web`; extracting pure coordination logic does not move IndexedDB/localStorage into core and does not rewrite the E2EE protocol.
+- Domain/client code extracted into these packages is removed from its previous Web-local location instead of maintaining duplicate implementations.
+
+This boundary is intentionally smaller than a hypothetical native SDK. New logic moves inward only when a current use case demonstrates reuse/testability value.
+
 ## 3. Core must not import platform runtime
 
 Platform-neutral client code must not directly depend on:
