@@ -1,4 +1,5 @@
 import {
+  navigationTargetSchema,
   operatorRunViewSchema,
   type OperatorActionCard,
   type OperatorRunView,
@@ -24,7 +25,7 @@ export interface OperatorRunViewSource {
     publicKind: string;
     publicTitle: string;
     publicDetail: string | null;
-    publicHrefPath: string | null;
+    publicNavigationTarget: unknown;
   }>;
 }
 
@@ -42,7 +43,7 @@ export function buildOperatorRunView(run: OperatorRunViewSource, confirmationTok
           : step.status === "NEEDS_CONFIRMATION"
             ? "pending_confirmation"
             : "skipped",
-    hrefPath: step.publicHrefPath,
+    navigationTarget: navigationTargetSchema.parse(step.publicNavigationTarget),
   }));
 
   return operatorRunViewSchema.parse({
