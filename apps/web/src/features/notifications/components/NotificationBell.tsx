@@ -14,7 +14,7 @@ import {
   Text,
 } from "@vimla/ui";
 import { formatDateTime } from "../../workspace/services/datetime";
-import { navigationTargetToWebPath } from "../../../shared/navigation/navigation-target";
+import { navigationTargetToWebPath } from "@vimla/web-navigation";
 import { useNotificationInbox } from "../hooks/useNotificationInbox";
 import styles from "./Notifications.module.scss";
 
