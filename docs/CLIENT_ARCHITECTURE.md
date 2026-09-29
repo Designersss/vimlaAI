@@ -179,7 +179,7 @@ Never treat `X-Platform: mobile`, installation kind or app version as permission
 
 Registration is idempotent for the same authenticated owner. A client-supplied id can never transfer ownership, and a revoked id is not silently resurrected. Platform kind/version/capabilities are negotiation/telemetry metadata only and never grant roles, permissions, billing access, or authorization.
 
-Web persists the non-secret installation id per account in localStorage through a Web adapter. This local id is not a session credential and must never be treated as authority. During ARCH-03 the shell refresh is best-effort because existing product access still depends only on authenticated server authority; RT/SYNC stages may require an active installation for their own transport without turning installation state into account authorization.
+Web persists the non-secret installation id per account in localStorage through a Web adapter. This local id is not a session credential and must never be treated as authority. A server-declared unusable id (revoked or ownership-safe not-found) is replaced once with a fresh UUID; transient transport/server failures do not rotate identity. During ARCH-03 the shell refresh is best-effort because existing product access still depends only on authenticated server authority; RT/SYNC stages may require an active installation for their own transport without turning installation state into account authorization.
 
 `UserCryptoDevice` remains a separate cryptographic identity/protocol lifecycle. ARCH-03 intentionally adds no foreign key or lifecycle cascade between the two concepts. Any future optional binding requires a security-reviewed issue.
 
