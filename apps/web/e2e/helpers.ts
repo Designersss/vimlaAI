@@ -108,17 +108,50 @@ export async function signUp(
   await fillInput(page, "#auth-handle", input.handle ?? uniqueHandle(input.name));
   await fillInput(page, "#auth-email", input.email);
   await fillInput(page, "#auth-password", input.password);
-  await page.getByRole("button", { name: /создать аккаунт|create account/i }).click();
+  const authEvents: string[] = [];
+  const isSignupRequest = (url: string): boolean =>
+    /\/api\/auth\/sign-up\/email|\/v1\/handles\/(?:availability|claim)|\/v1\/me(?:\/preferences)?/.test(url);
+  const onResponse = (response: import("@playwright/test").Response): void => {
+    if (isSignupRequest(response.url())) {
+      authEvents.push(`${response.status()} ${new URL(response.url()).pathname}`);
+    }
+  };
+  const onRequestFailed = (request: import("@playwright/test").Request): void => {
+    if (isSignupRequest(request.url())) {
+      authEvents.push(
+        `FAILED ${new URL(request.url()).pathname}: ${request.failure()?.errorText ?? "unknown"}`,
+      );
+    }
+  };
+  page.on("response", onResponse);
+  page.on("requestfailed", onRequestFailed);
 
-  const outcome = await Promise.race([
-    page.waitForURL(/verify-email/, { timeout: 30_000 }).then(() => "verify-email" as const),
-    formAlert(page)
-      .waitFor({ state: "visible", timeout: 30_000 })
-      .then(() => "alert" as const),
-  ]);
-  if (outcome === "alert") {
-    const message = (await formAlert(page).textContent())?.trim() || "unknown auth error";
-    throw new Error(`Sign-up failed before verify-email navigation: ${message}`);
+  try {
+    await page.getByRole("button", { name: /создать аккаунт|create account/i }).click();
+
+    const outcome = await Promise.race([
+      page.waitForURL(/verify-email/).then(() => "verify-email" as const),
+      formAlert(page)
+        .waitFor({ state: "visible" })
+        .then(() => "alert" as const),
+      new Promise<"timeout">((resolve) => {
+        setTimeout(() => resolve("timeout"), 12_000);
+      }),
+    ]);
+    if (outcome === "alert") {
+      const message = (await formAlert(page).textContent())?.trim() || "unknown auth error";
+      throw new Error(
+        `Sign-up failed before verify-email navigation: ${message}; requests: ${authEvents.join(" | ") || "none"}`,
+      );
+    }
+    if (outcome === "timeout") {
+      throw new Error(
+        `Sign-up did not reach verify-email; requests: ${authEvents.join(" | ") || "none"}`,
+      );
+    }
+  } finally {
+    page.off("response", onResponse);
+    page.off("requestfailed", onRequestFailed);
   }
 }
 
