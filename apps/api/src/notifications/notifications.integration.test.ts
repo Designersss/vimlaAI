@@ -266,9 +266,22 @@ describe("notification platform", () => {
       cookies: owner.cookies,
     });
     expect(list.statusCode).toBe(200);
-    const firstPage = list.json() as { items: Array<{ id: string; title: string }>; nextCursor: string | null };
+    const firstPage = list.json() as {
+      items: Array<{
+        id: string;
+        title: string;
+        navigationTarget: { version: number; kind: string; id?: string };
+      }>;
+      nextCursor: string | null;
+    };
     expect(firstPage.items).toHaveLength(1);
     expect(firstPage.nextCursor).toBeTruthy();
+    expect(firstPage.items[0]?.navigationTarget).toEqual({
+      version: 1,
+      kind: "REMINDER",
+      id: extraReminder.id,
+    });
+    expect(firstPage.items[0]).not.toHaveProperty("hrefPath");
     const notificationId = firstPage.items[0]?.id as string;
 
     const stolen = await app.inject({
