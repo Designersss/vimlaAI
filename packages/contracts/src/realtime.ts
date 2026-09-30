@@ -3,13 +3,6 @@ import { clientInstallationIdSchema } from "./client-installations.js";
 
 export const REALTIME_PROTOCOL_VERSION = 1 as const;
 
-export const REALTIME_LIMITS = {
-  frameBytesMax: 8_192,
-  heartbeatIntervalMs: 20_000,
-  heartbeatTimeoutMs: 60_000,
-  maxConnectionsPerInstallation: 8,
-} as const;
-
 export const realtimeDurabilitySchema = z.enum([
   "DURABLE_HINT",
   "EPHEMERAL",
