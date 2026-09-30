@@ -83,6 +83,35 @@ Ephemeral events are explicitly marked and are not placed into infinite durable 
 
 Clients cannot subscribe to arbitrary user-defined server topics; server derives eligible event delivery from authenticated user/installation and current authorization.
 
+## 5A. RT-01 concrete transport
+
+RT-01 implements the foreground WebSocket endpoint at `/v1/realtime`.
+
+Browser upgrade requirements:
+
+- exact configured Web Origin;
+- real Better Auth session;
+- verified account with active handle;
+- active `ClientInstallation` owned by the authenticated user;
+- supported protocol version supplied explicitly by the client.
+
+The client cannot submit subscription topics. The server derives the user fan-out channel from authenticated identity and domain authorization before publication.
+
+The initial strict frame set is:
+
+- `HELLO` — connection/install identity and heartbeat interval;
+- `HEARTBEAT` — server liveness challenge;
+- `PONG` — the only accepted client application frame in RT-01;
+- `EVENT` — strict versioned server event envelope.
+
+`DIRECT_MESSAGE_CREATED` is the first durable hint and contains only stable Direct Chat/message identifiers. It carries no ciphertext or plaintext message body. The event is an acceleration hint; the authoritative message remains in PostgreSQL.
+
+Connection count, incoming frame bytes, client-frame rate, heartbeat interval and heartbeat timeout are bounded server-side. Session and installation activity are revalidated during the heartbeat lifecycle so revocation closes a live connection.
+
+Redis Pub/Sub fans events between API instances on server-derived per-user channels. Publication failure is logged as transport failure and does not roll back an already committed domain mutation.
+
+Web includes a bounded exponential-reconnect transport and answers application heartbeats. Direct Chat temporarily consumes both the common WebSocket hint and its existing SSE signal only during the #94→#97 migration window; duplicate message identifiers are suppressed before refresh. #97 must remove SSE/EventSource after durable Sync proves correctness.
+
 ## 6. Sync cursor
 
 Cursor is opaque to clients.
