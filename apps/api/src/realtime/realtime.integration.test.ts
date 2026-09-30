@@ -8,7 +8,7 @@ import {
   type RealtimeEventEnvelope,
   type RealtimeServerFrame,
 } from "@vimla/contracts";
-import { WebSocket } from "ws";
+import { WebSocket, type RawData } from "ws";
 import { createVimlaApiApp } from "../create-app.js";
 import { RedisService } from "../persistence/redis.service.js";
 import {
@@ -153,7 +153,7 @@ describe("global realtime WebSocket gateway", () => {
     const firstEvent = waitForEvent(first.socket);
     const secondEvent = waitForEvent(second.socket);
     let foreignEvent = false;
-    const foreignListener = (data: WebSocket.RawData): void => {
+    const foreignListener = (data: RawData): void => {
       const frame = parseFrame(data);
       if (frame.frameType === "EVENT") {
         foreignEvent = true;
@@ -533,7 +533,7 @@ function waitForEvent(
       );
     }, 5_000);
 
-    const onMessage = (data: WebSocket.RawData): void => {
+    const onMessage = (data: RawData): void => {
       const frame = parseFrame(data);
       if (frame.frameType !== "EVENT") {
         return;
@@ -563,7 +563,7 @@ function waitForClose(
 }
 
 function parseFrame(
-  data: WebSocket.RawData,
+  data: RawData,
 ): RealtimeServerFrame {
   return realtimeServerFrameSchema.parse(
     JSON.parse(data.toString("utf8")) as unknown,
