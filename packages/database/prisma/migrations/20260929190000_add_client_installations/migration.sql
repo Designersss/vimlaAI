@@ -37,6 +37,7 @@ CREATE TABLE "client_installation" (
     CONSTRAINT "client_installation_capabilities_values_chk"
       CHECK (
         array_position("capabilities", NULL) IS NULL
+        AND array_position("capabilities", '') IS NULL
         AND array_to_string("capabilities", ',') ~
           '^(?:[a-z0-9][a-z0-9._-]{0,63})(?:,[a-z0-9][a-z0-9._-]{0,63})*$|^$'
       ),
