@@ -36,6 +36,9 @@ export type ClientInstallationKind = z.infer<
 const appVersionSchema = z
   .string()
   .min(1)
+  .refine(isWellFormedUnicode, {
+    message: "App version must contain valid Unicode scalar values",
+  })
   .refine(
     (value) =>
       Array.from(value).length <=
@@ -118,3 +121,17 @@ export const clientInstallationViewSchema = z
 export type ClientInstallationView = z.infer<
   typeof clientInstallationViewSchema
 >;
+
+function isWellFormedUnicode(value: string): boolean {
+  for (const character of value) {
+    const codePoint = character.codePointAt(0);
+    if (
+      codePoint !== undefined &&
+      codePoint >= 0xd800 &&
+      codePoint <= 0xdfff
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
