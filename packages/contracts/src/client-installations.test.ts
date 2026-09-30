@@ -29,6 +29,17 @@ describe("client installation contracts", () => {
     ).toBe(false);
   });
 
+  it("canonicalizes installation UUIDs", () => {
+    const parsed = registerClientInstallationSchema.parse({
+      id: "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA",
+      kind: "WEB",
+      appVersion: null,
+      protocolVersion: 1,
+      capabilities: [],
+    });
+    expect(parsed.id).toBe("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+  });
+
   it("rejects the nil UUID installation identity", () => {
     expect(
       registerClientInstallationSchema.safeParse({
@@ -81,6 +92,12 @@ describe("client installation contracts", () => {
       registerClientInstallationSchema.safeParse({
         ...base,
         appVersion: "\ud800",
+      }).success,
+    ).toBe(false);
+    expect(
+      registerClientInstallationSchema.safeParse({
+        ...base,
+        appVersion: "web\u0000test",
       }).success,
     ).toBe(false);
   });
