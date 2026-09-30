@@ -630,6 +630,10 @@ describe("direct chats API", () => {
         lastErrorCode: null,
       },
     });
+    expect(durableEvent?.payload).toEqual({
+      conversationId: chat.id,
+      messageId: sent.json().id,
+    });
     expect(
       durableEvent?.recipients
         .map((recipient) => recipient.userId)
