@@ -114,9 +114,7 @@ export class RealtimeService
     } catch (error: unknown) {
       this.logger.warn({
         msg: "realtime.publish_failed",
-        eventId: parsed.eventId,
-        eventType: parsed.eventType,
-        durability: parsed.durability,
+        ...realtimeEventTelemetry(parsed),
         recipientCount: new Set(userIds).size,
         error:
           error instanceof Error
@@ -162,4 +160,21 @@ export class RealtimeService
       await this.subscriber.quit();
     }
   }
+}
+
+
+export function realtimeEventTelemetry(
+  event: RealtimeEventEnvelope,
+): {
+  eventId: string;
+  eventType: RealtimeEventEnvelope["eventType"];
+  durability: RealtimeEventEnvelope["durability"];
+  scopeKind: RealtimeEventEnvelope["scope"]["kind"];
+} {
+  return {
+    eventId: event.eventId,
+    eventType: event.eventType,
+    durability: event.durability,
+    scopeKind: event.scope.kind,
+  };
 }
