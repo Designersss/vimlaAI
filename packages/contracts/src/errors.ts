@@ -46,6 +46,7 @@ export const apiErrorCodeSchema = z.enum([
   "sync_cursor_invalid",
   "sync_cursor_stale",
   "sync_protocol_unsupported",
+  "sync_temporarily_unavailable",
   "notification_temporarily_unavailable",
   "notification_not_found",
   "payment_temporarily_unavailable",
