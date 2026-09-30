@@ -46,6 +46,27 @@ describe("client installation contracts", () => {
     ).toBe(false);
   });
 
+  it("counts appVersion length by Unicode code points like PostgreSQL", () => {
+    const base = {
+      id: "11111111-1111-4111-8111-111111111111",
+      kind: "WEB",
+      protocolVersion: 1,
+      capabilities: [],
+    };
+    expect(
+      registerClientInstallationSchema.safeParse({
+        ...base,
+        appVersion: "😀".repeat(64),
+      }).success,
+    ).toBe(true);
+    expect(
+      registerClientInstallationSchema.safeParse({
+        ...base,
+        appVersion: "😀".repeat(65),
+      }).success,
+    ).toBe(false);
+  });
+
   it("rejects empty installation preference patches", () => {
     expect(
       updateClientInstallationPreferencesSchema.safeParse({}).success,
