@@ -689,6 +689,7 @@ async function seedEvent(
       protocolVersion: REALTIME_PROTOCOL_VERSION,
       eventType: "DIRECT_MESSAGE_CREATED",
       durability: "DURABLE_HINT",
+      changeKind: "UPSERT_REF",
       scopeKind: "DIRECT_CHAT",
       scopeId: conversationId,
       occurredAt,
