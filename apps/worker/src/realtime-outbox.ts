@@ -88,10 +88,11 @@ export class RealtimeOutboxDispatcher {
     private readonly publisher: DurableRealtimePublisher,
     private readonly policy: RealtimeOutboxPolicy,
     private readonly logger: RealtimeOutboxLogger,
+    private readonly clock: () => Date = () => new Date(),
   ) {}
 
   async runOnce(
-    now = new Date(),
+    now = this.clock(),
   ): Promise<RealtimeOutboxRunResult> {
     const claim = await this.claim(now);
     if (claim.eventIds.length === 0) {
@@ -163,7 +164,7 @@ export class RealtimeOutboxDispatcher {
           event,
         );
       } catch (error: unknown) {
-        const failedAt = new Date();
+        const failedAt = this.clock();
         const nextAttemptAt = new Date(
           failedAt.getTime() +
             retryBackoffMs(
@@ -210,7 +211,7 @@ export class RealtimeOutboxDispatcher {
         continue;
       }
 
-      const publishedAt = new Date();
+      const publishedAt = this.clock();
       const compactAfter = new Date(
         publishedAt.getTime() +
           this.policy.retentionMs,
@@ -255,7 +256,7 @@ export class RealtimeOutboxDispatcher {
       retryScheduled,
       leaseLost,
       compacted: await this.compactPublished(
-        new Date(),
+        this.clock(),
       ),
     };
   }
@@ -264,7 +265,7 @@ export class RealtimeOutboxDispatcher {
     eventId: string,
     token: string,
   ): Promise<boolean> {
-    const now = new Date();
+    const now = this.clock();
     const result =
       await this.db.realtimeOutbox.updateMany({
         where: {
