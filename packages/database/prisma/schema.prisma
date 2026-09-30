@@ -46,6 +46,7 @@ model User {
   operatorAuditEvents        OperatorAuditEvent[]
   cryptoDevices              UserCryptoDevice[]
   clientInstallations        ClientInstallation[]
+  durableEventRecipients     DurableEventRecipient[]
   directMemberships          DirectConversationMember[]
   directMessagesSent         DirectMessage[]            @relation("DirectMessageSender")
   assignedWorkspaceTasks     WorkspaceTask[]            @relation("TaskAssignedBy")
@@ -1188,6 +1189,59 @@ model DirectMessageEnvelope {
   @@unique([senderDeviceId, recipientDeviceId, dhPublicB64, messageNumber])
   @@index([recipientDeviceId, createdAt])
   @@map("direct_message_envelope")
+}
+
+
+// RT-02 durable event ledger. PostgreSQL is authoritative; Redis/WebSocket are accelerators.
+model DurableEvent {
+  sequence        BigInt                  @id @default(autoincrement())
+  id              String                  @unique @db.Uuid
+  protocolVersion Int
+  eventType       String
+  durability      String
+  scopeKind       String
+  scopeId         String
+  occurredAt      DateTime
+  payload         Json
+  createdAt       DateTime                @default(now())
+  recipients      DurableEventRecipient[]
+  outbox          RealtimeOutbox?
+
+  @@index([scopeKind, scopeId, sequence])
+  @@index([occurredAt, sequence])
+  @@map("durable_event")
+}
+
+model DurableEventRecipient {
+  eventId   String       @db.Uuid
+  event     DurableEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime     @default(now())
+
+  @@id([eventId, userId])
+  @@index([userId, eventId])
+  @@map("durable_event_recipient")
+}
+
+model RealtimeOutbox {
+  eventId          String       @id @db.Uuid
+  event            DurableEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  status           String       @default("PENDING")
+  attemptCount     Int          @default(0)
+  nextAttemptAt    DateTime?    @default(now())
+  processingToken  String?      @db.Uuid
+  processingUntil  DateTime?
+  publishedAt      DateTime?
+  compactAfter     DateTime?
+  lastErrorCode    String?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  @@index([status, nextAttemptAt, eventId])
+  @@index([status, processingUntil, eventId])
+  @@index([compactAfter])
+  @@map("realtime_outbox")
 }
 
 // Context-aware orchestration persistence. Additive: existing Operator/AiRequest/workspace
