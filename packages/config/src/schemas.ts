@@ -180,7 +180,7 @@ export const apiEnvSchema = z
     REALTIME_HEARTBEAT_INTERVAL_MS: z.coerce.number().int().min(50).max(60_000).default(20_000),
     REALTIME_HEARTBEAT_TIMEOUT_MS: z.coerce.number().int().min(100).max(300_000).default(60_000),
     REALTIME_MAX_CONNECTIONS_PER_INSTALLATION: z.coerce.number().int().min(1).max(32).default(8),
-    REALTIME_PREAUTH_HANDSHAKE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).max(100_000).default(600),
+    REALTIME_PREAUTH_HANDSHAKE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).max(100_000).default(6_000),
     REALTIME_HANDSHAKE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).max(10_000).default(120),
     REALTIME_CLIENT_FRAMES_PER_MINUTE: z.coerce.number().int().min(1).max(10_000).default(60),
     OPERATOR_ENABLED: z.enum(["true", "false"]).default("false"),
