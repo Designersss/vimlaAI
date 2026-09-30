@@ -193,6 +193,32 @@ describe("Web realtime transport", () => {
     stop();
   });
 
+  it.each([1002, 4002, 4003, 4004, 4005])(
+    "does not reconnect after terminal close code %s",
+    (code) => {
+      const socket = new FakeSocket();
+      const scheduled: Array<{
+        callback: () => void;
+        delay: number;
+      }> = [];
+      subscribeRealtime({
+        installationId: randomUUID(),
+        onEvent: () => undefined,
+        socketFactory: () => socket,
+        setTimeoutFn: (callback, delay) => {
+          scheduled.push({ callback, delay });
+          return scheduled.length as unknown as ReturnType<
+            typeof setTimeout
+          >;
+        },
+        clearTimeoutFn: () => undefined,
+      });
+
+      socket.emitClose(code);
+      expect(scheduled).toHaveLength(0);
+    },
+  );
+
   it("closes on malformed server frames", () => {
     const socket = new FakeSocket();
     subscribeRealtime({
