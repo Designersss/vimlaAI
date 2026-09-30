@@ -10,9 +10,11 @@ import { publicWebConfig } from "../config/public-env";
 const RECONNECT_BASE_MS = 500;
 const RECONNECT_MAX_MS = 10_000;
 const TERMINAL_CLOSE_CODES = new Set([
+  1002,
   4002,
   4003,
   4004,
+  4005,
 ]);
 
 interface RealtimeSocket {
