@@ -27,6 +27,10 @@ import {
   type ContextMessageClaim,
 } from "./consent.js";
 import { toDeviceView } from "./device-service.js";
+import {
+  PrismaDirectChatDurableEventWriter,
+  type DirectChatDurableEventWriter,
+} from "./durable-events.js";
 import { DirectChatError } from "./errors.js";
 import { directPairKey } from "./pair-key.js";
 import type { ActorContext, DbClient, DirectChatServiceOptions } from "./types.js";
@@ -42,6 +46,8 @@ export class DirectChatService {
   constructor(
     private readonly db: DbClient,
     options?: Partial<DirectChatServiceOptions>,
+    private readonly durableEvents: DirectChatDurableEventWriter =
+      new PrismaDirectChatDurableEventWriter(),
   ) {
     this.options = { ...DEFAULTS, ...options };
   }
@@ -325,6 +331,15 @@ export class DirectChatService {
           where: { id: conversationId },
           data: { lastMessageAt: message.createdAt },
         });
+        await this.durableEvents.directMessageCreated(
+          tx,
+          {
+            conversationId,
+            messageId: message.id,
+            occurredAt: message.createdAt,
+            recipientUserIds: memberIds,
+          },
+        );
         return message;
       });
       return {
