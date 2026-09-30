@@ -77,6 +77,12 @@ describe("client installation contracts", () => {
         appVersion: "😀".repeat(65),
       }).success,
     ).toBe(false);
+    expect(
+      registerClientInstallationSchema.safeParse({
+        ...base,
+        appVersion: "\ud800",
+      }).success,
+    ).toBe(false);
   });
 
   it("rejects empty installation preference patches", () => {
