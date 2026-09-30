@@ -38,8 +38,6 @@ const CLOSE_SESSION_INVALID = 4002;
 const CLOSE_INSTALLATION_INACTIVE = 4003;
 const CLOSE_INVALID_FRAME = 4004;
 const CLOSE_RATE_LIMITED = 4005;
-const CLIENT_FRAME_LIMIT_PER_MINUTE = 60;
-
 interface ConnectionState {
   readonly connectionId: string;
   readonly userId: string;
@@ -62,12 +60,7 @@ export class RealtimeGatewayService
   private readonly logger = new Logger(
     RealtimeGatewayService.name,
   );
-  private readonly wss = new WebSocketServer({
-    noServer: true,
-    clientTracking: false,
-    maxPayload: REALTIME_LIMITS.frameBytesMax,
-    perMessageDeflate: false,
-  });
+  private readonly wss: WebSocketServer;
   private readonly connections = new Map<
     string,
     ConnectionState
@@ -89,7 +82,22 @@ export class RealtimeGatewayService
     private readonly installations: ClientInstallationsService,
     @Inject(RealtimeService)
     private readonly realtime: RealtimeService,
-  ) {}
+  ) {
+    if (
+      config.realtimeHeartbeatTimeoutMs <=
+      config.realtimeHeartbeatIntervalMs
+    ) {
+      throw new Error(
+        "Realtime heartbeat timeout must exceed heartbeat interval",
+      );
+    }
+    this.wss = new WebSocketServer({
+      noServer: true,
+      clientTracking: false,
+      maxPayload: config.realtimeFrameBytesMax,
+      perMessageDeflate: false,
+    });
+  }
 
   attach(server: HttpServer): void {
     if (this.attachedServer === server) {
@@ -343,7 +351,7 @@ export class RealtimeGatewayService
       connectionId: state.connectionId,
       installationId: state.installationId,
       heartbeatIntervalMs:
-        REALTIME_LIMITS.heartbeatIntervalMs,
+        this.config.realtimeHeartbeatIntervalMs,
       serverTime: new Date().toISOString(),
     });
     this.sendFrame(state, hello);
@@ -385,7 +393,7 @@ export class RealtimeGatewayService
     const text = rawDataToUtf8(data);
     if (
       Buffer.byteLength(text, "utf8") >
-      REALTIME_LIMITS.frameBytesMax
+      this.config.realtimeFrameBytesMax
     ) {
       this.close(
         state,
@@ -440,7 +448,8 @@ export class RealtimeGatewayService
     }
     state.frameCount += 1;
     return (
-      state.frameCount <= CLIENT_FRAME_LIMIT_PER_MINUTE
+      state.frameCount <=
+      this.config.realtimeClientFramesPerMinute
     );
   }
 
@@ -449,7 +458,7 @@ export class RealtimeGatewayService
   ): void {
     state.heartbeatTimer = setTimeout(() => {
       void this.heartbeat(state);
-    }, REALTIME_LIMITS.heartbeatIntervalMs);
+    }, this.config.realtimeHeartbeatIntervalMs);
   }
 
   private async heartbeat(
@@ -464,7 +473,7 @@ export class RealtimeGatewayService
       state.expectedHeartbeatId &&
       state.heartbeatSentAt !== null &&
       now - state.heartbeatSentAt >=
-        REALTIME_LIMITS.heartbeatTimeoutMs
+        this.config.realtimeHeartbeatTimeoutMs
     ) {
       this.close(
         state,
@@ -632,7 +641,7 @@ export class RealtimeGatewayService
       ) ?? new Set<string>();
     if (
       current.size >=
-      REALTIME_LIMITS.maxConnectionsPerInstallation
+      this.config.realtimeMaxConnectionsPerInstallation
     ) {
       return false;
     }
