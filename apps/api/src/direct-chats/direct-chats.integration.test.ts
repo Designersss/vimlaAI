@@ -37,7 +37,6 @@ import { loadApiConfig } from "@vimla/config/server";
 import { createPrismaClient } from "@vimla/database";
 import { createVimlaApiApp } from "../create-app.js";
 import { PrismaService } from "../persistence/prisma.service.js";
-import { RealtimeService } from "../realtime/realtime.service.js";
 import { DirectChatRealtimeService } from "./direct-chat-realtime.service.js";
 import { DirectMentionRoutingService } from "./direct-mention-routing.service.js";
 import { registerVerifiedUser } from "../test/identity-helpers.js";
@@ -598,6 +597,49 @@ describe("direct chats API", () => {
     });
     expect(sent.statusCode).toBe(201);
 
+    const durableEvent =
+      await app
+        .get(PrismaService)
+        .client.durableEvent.findUnique({
+          where: { id: sent.json().id },
+          include: {
+            recipients: {
+              orderBy: { userId: "asc" },
+            },
+            outbox: true,
+          },
+        });
+    expect(durableEvent).toMatchObject({
+      id: sent.json().id,
+      protocolVersion: 1,
+      eventType: "DIRECT_MESSAGE_CREATED",
+      durability: "DURABLE_HINT",
+      scopeKind: "DIRECT_CHAT",
+      scopeId: chat.id,
+      payload: {
+        conversationId: chat.id,
+        messageId: sent.json().id,
+      },
+      outbox: {
+        status: "PENDING",
+        attemptCount: 0,
+        processingToken: null,
+        processingUntil: null,
+        publishedAt: null,
+        compactAfter: null,
+        lastErrorCode: null,
+      },
+    });
+    expect(durableEvent?.payload).toEqual({
+      conversationId: chat.id,
+      messageId: sent.json().id,
+    });
+    expect(
+      durableEvent?.recipients
+        .map((recipient) => recipient.userId)
+        .sort(),
+    ).toEqual([alice.id, nikita.id].sort());
+
     const raceClientMessageId = randomUUID();
     const raceEnvelopesA = [];
     const raceEnvelopesB = [];
@@ -663,12 +705,6 @@ describe("direct chats API", () => {
     );
     const publishSpy = vi.spyOn(realtime, "publish");
     publishSpy.mockClear();
-    const globalRealtime = app.get(RealtimeService);
-    const globalPublishSpy = vi.spyOn(
-      globalRealtime,
-      "publishDirectMessageCreated",
-    );
-    globalPublishSpy.mockClear();
     const replay = await app.inject({
       method: "POST",
       url: `/v1/direct-chats/${chat.id}/messages`,
@@ -686,18 +722,15 @@ describe("direct chats API", () => {
         messageId: sent.json().id,
       }),
     );
-    expect(
-      globalPublishSpy,
-    ).toHaveBeenCalledWith(
-      expect.arrayContaining([alice.id, nikita.id]),
-      {
-        conversationId: chat.id,
-        messageId: sent.json().id,
-        occurredAt: sent.json().createdAt,
-      },
-    );
     publishSpy.mockRestore();
-    globalPublishSpy.mockRestore();
+
+    expect(
+      await app
+        .get(PrismaService)
+        .client.durableEvent.count({
+          where: { id: sent.json().id },
+        }),
+    ).toBe(1);
 
     const mismatchedReplay = await app.inject({
       method: "POST",

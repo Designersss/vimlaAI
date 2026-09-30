@@ -5,3 +5,9 @@ export { directPairKey } from "./pair-key.js";
 export { resolveDirectChatAssignee, type AssigneeResolution, type DirectChatParticipant } from "./assignee.js";
 export { filterOperatorContextBundle, type DirectChatConsent, type ContextMessageClaim } from "./consent.js";
 export type { ActorContext, DirectChatServiceOptions } from "./types.js";
+
+export {
+  PrismaDirectChatDurableEventWriter,
+  type DirectChatDurableEventWriter,
+  type DirectMessageCreatedEventInput,
+} from "./durable-events.js";

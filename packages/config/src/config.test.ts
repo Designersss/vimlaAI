@@ -510,6 +510,31 @@ describe("loadWorkerConfig", () => {
     expect(config.aiTextProvider).toBe("mock");
     expect(config.proxyapiApiKey).toBeUndefined();
     expect(config.aiProviderTimeoutMs).toBe(120_000);
+    expect(config.realtimeOutboxPollMs).toBe(500);
+    expect(config.realtimeOutboxBatch).toBe(100);
+    expect(config.realtimeOutboxLeaseSeconds).toBe(30);
+    expect(config.realtimeOutboxBackoffBaseMs).toBe(500);
+    expect(config.realtimeOutboxBackoffCapMs).toBe(30_000);
+    expect(config.realtimeOutboxPublishTimeoutMs).toBe(5_000);
+    expect(config.realtimeOutboxRetentionHours).toBe(24);
+  });
+
+  it("validates realtime outbox lease and backoff relationships", () => {
+    expect(() =>
+      loadWorkerConfig({
+        ...validSharedEnv,
+        REALTIME_OUTBOX_BACKOFF_BASE_MS: "5000",
+        REALTIME_OUTBOX_BACKOFF_CAP_MS: "1000",
+      }),
+    ).toThrow(/backoff cap/i);
+
+    expect(() =>
+      loadWorkerConfig({
+        ...validSharedEnv,
+        REALTIME_OUTBOX_LEASE_SECONDS: "5",
+        REALTIME_OUTBOX_PUBLISH_TIMEOUT_MS: "5000",
+      }),
+    ).toThrow(/lease must exceed publish timeout/i);
   });
 
   it("keeps worker auto rollout gates off in production", () => {

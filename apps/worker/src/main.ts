@@ -62,6 +62,10 @@ import {
   ExternalAiInvocationExecutor,
 } from "./external-ai-invocation-executor.js";
 import {
+  RedisDurableRealtimePublisher,
+  RealtimeOutboxDispatcher,
+} from "./realtime-outbox.js";
+import {
   INVOCATION_EXECUTE_JOB_NAME,
   INVOCATION_EXECUTE_QUEUE_NAME,
   MAINTENANCE_QUEUE_NAME,
@@ -121,8 +125,19 @@ async function bootstrap(): Promise<void> {
   const storeConnection = new Redis(redisOptions.url, {
     maxRetriesPerRequest: redisOptions.maxRetriesPerRequest,
   });
+  const realtimeOutboxConnection = new Redis(
+    redisOptions.url,
+    {
+      maxRetriesPerRequest: 1,
+      enableOfflineQueue: false,
+      connectTimeout: 5_000,
+      lazyConnect: true,
+    },
+  );
 
   await storeConnection.ping();
+  await realtimeOutboxConnection.connect();
+  await realtimeOutboxConnection.ping();
   logger.info("connected to Redis");
 
   const prisma = createPrismaClient(config.databaseUrl);
@@ -176,6 +191,38 @@ async function bootstrap(): Promise<void> {
   const payments = createWorkerPaymentService(prisma, config, billingLogger, billingEngine);
   const aiReconciler = createAiReconciler(prisma, billingEngine, billingLogger);
   const aiArtifactRecovery = new AiArtifactRecovery(prisma, billingLogger);
+  const realtimeOutbox = new RealtimeOutboxDispatcher(
+    prisma,
+    new RedisDurableRealtimePublisher(
+      realtimeOutboxConnection,
+      config.realtimeOutboxPublishTimeoutMs,
+    ),
+    {
+      batchSize: config.realtimeOutboxBatch,
+      leaseMs:
+        config.realtimeOutboxLeaseSeconds * 1_000,
+      backoffBaseMs:
+        config.realtimeOutboxBackoffBaseMs,
+      backoffCapMs:
+        config.realtimeOutboxBackoffCapMs,
+      retentionMs:
+        config.realtimeOutboxRetentionHours *
+        60 *
+        60 *
+        1_000,
+    },
+    {
+      info: (fields, message) => {
+        logger.info(fields, message);
+      },
+      warn: (fields, message) => {
+        logger.warn(fields, message);
+      },
+      error: (fields, message) => {
+        logger.error(fields, message);
+      },
+    },
+  );
   const reconcileAfterMs = config.paymentReconcileAfterSeconds * 1000;
   const aiReconciliationIntervalMs = config.aiReconciliationIntervalSeconds * 1000;
   const aiReconciliationPreProviderStaleMs =
@@ -256,6 +303,50 @@ async function bootstrap(): Promise<void> {
   );
   const startupCounters = await notifications.reconciler.reconcile();
   logger.info(startupCounters, "reminder.reconcile.startup");
+
+  let realtimeOutboxRun:
+    | Promise<unknown>
+    | undefined;
+  const runRealtimeOutbox = (
+    reason: "startup" | "periodic" = "periodic",
+  ): void => {
+    if (realtimeOutboxRun) return;
+    realtimeOutboxRun = realtimeOutbox
+      .runOnce()
+      .then((counters) => {
+        if (
+          reason === "startup" ||
+          counters.claimed > 0 ||
+          counters.compacted > 0
+        ) {
+          logger.info(
+            { ...counters, reason },
+            "realtime.outbox.completed",
+          );
+        }
+      })
+      .catch((error: unknown) => {
+        logger.error(
+          {
+            reason,
+            errorName:
+              error instanceof Error
+                ? error.name
+                : "unknown",
+          },
+          "realtime.outbox.loop_failed",
+        );
+      })
+      .finally(() => {
+        realtimeOutboxRun = undefined;
+      });
+  };
+  const realtimeOutboxTimer = setInterval(
+    runRealtimeOutbox,
+    config.realtimeOutboxPollMs,
+  );
+  realtimeOutboxTimer.unref?.();
+  runRealtimeOutbox("startup");
 
   const orchestrationResources = config.orchestrationEnabled
     ? await startOrchestrationRuntime(
@@ -340,6 +431,8 @@ async function bootstrap(): Promise<void> {
       vimlaCoreCapabilities:
         orchestrationResources?.vimlaCoreProvider?.capabilityMatrix ?? null,
       workerHealthPort: config.workerHealthPort ?? null,
+      realtimeOutboxPollMs: config.realtimeOutboxPollMs,
+      realtimeOutboxBatch: config.realtimeOutboxBatch,
     },
     "worker ready",
   );
@@ -347,6 +440,8 @@ async function bootstrap(): Promise<void> {
   const shutdown = async (signal: string): Promise<void> => {
     logger.info({ signal }, "worker shutting down");
     clearInterval(paymentTimer);
+    clearInterval(realtimeOutboxTimer);
+    await realtimeOutboxRun;
     if (embeddingTimer) clearInterval(embeddingTimer);
     await embeddingRun;
     clearInterval(aiReconciliationTimer);
@@ -372,6 +467,7 @@ async function bootstrap(): Promise<void> {
     await maintenanceConnection.quit();
     await notificationConnection.quit();
     await storeConnection.quit();
+    await realtimeOutboxConnection.quit();
     await prisma.$disconnect();
   };
 

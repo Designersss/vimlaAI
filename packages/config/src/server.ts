@@ -308,6 +308,17 @@ export function loadWorkerConfig(
     notifyDeliveryBackoffBaseMs: parsed.NOTIFY_DELIVERY_BACKOFF_BASE_MS,
     notifyDeliveryBackoffCapMs: parsed.NOTIFY_DELIVERY_BACKOFF_CAP_MS,
     notifyDeliveryLeaseSeconds: parsed.NOTIFY_DELIVERY_LEASE_SECONDS,
+    realtimeOutboxPollMs: parsed.REALTIME_OUTBOX_POLL_MS,
+    realtimeOutboxBatch: parsed.REALTIME_OUTBOX_BATCH,
+    realtimeOutboxLeaseSeconds: parsed.REALTIME_OUTBOX_LEASE_SECONDS,
+    realtimeOutboxBackoffBaseMs:
+      parsed.REALTIME_OUTBOX_BACKOFF_BASE_MS,
+    realtimeOutboxBackoffCapMs:
+      parsed.REALTIME_OUTBOX_BACKOFF_CAP_MS,
+    realtimeOutboxPublishTimeoutMs:
+      parsed.REALTIME_OUTBOX_PUBLISH_TIMEOUT_MS,
+    realtimeOutboxRetentionHours:
+      parsed.REALTIME_OUTBOX_RETENTION_HOURS,
     workerHealthPort: parsed.WORKER_HEALTH_PORT,
     paymentProvider: parsed.PAYMENT_PROVIDER ?? resolveDefaultPaymentProvider(parsed.APP_ENV),
     paymentReconcileAfterSeconds: parsed.PAYMENT_RECONCILE_AFTER_SECONDS,

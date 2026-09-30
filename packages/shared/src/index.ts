@@ -30,3 +30,9 @@ export {
   type TelemetrySink,
   type TelemetryTargetKind,
 } from "./telemetry.js";
+
+export {
+  REALTIME_USER_CHANNEL_PREFIX,
+  realtimeUserChannel,
+  realtimeUserIdFromChannel,
+} from "./realtime.js";
