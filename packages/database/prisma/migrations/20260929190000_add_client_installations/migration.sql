@@ -39,7 +39,38 @@ CREATE TABLE "client_installation" (
         array_position("capabilities", NULL) IS NULL
         AND array_position("capabilities", '') IS NULL
         AND array_to_string("capabilities", ',') ~
-          '^(?:[a-z0-9][a-z0-9._-]{0,63})(?:,[a-z0-9][a-z0-9._-]{0,63})*$|^$'
+          '^[a-z0-9][a-z0-9._-]{0,63}(,[a-z0-9][a-z0-9._-]{0,63})*$|^
+      ),
+    CONSTRAINT "client_installation_capabilities_unique_chk"
+      CHECK ("vimla_text_array_unique"("capabilities"))
+);
+
+CREATE INDEX "client_installation_userId_revokedAt_idx"
+  ON "client_installation"("userId", "revokedAt");
+
+CREATE INDEX "client_installation_userId_lastSeenAt_idx"
+  ON "client_installation"("userId", "lastSeenAt");
+
+ALTER TABLE "client_installation"
+  ADD CONSTRAINT "client_installation_userId_fkey"
+  FOREIGN KEY ("userId") REFERENCES "user"("id")
+  ON DELETE CASCADE ON UPDATE CASCADE;
+
+CREATE TABLE "client_installation_preference" (
+    "installationId" TEXT NOT NULL,
+    "pushEnabled" BOOLEAN NOT NULL DEFAULT false,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "client_installation_preference_pkey"
+      PRIMARY KEY ("installationId")
+);
+
+ALTER TABLE "client_installation_preference"
+  ADD CONSTRAINT "client_installation_preference_installationId_fkey"
+  FOREIGN KEY ("installationId") REFERENCES "client_installation"("id")
+  ON DELETE CASCADE ON UPDATE CASCADE;
+
       ),
     CONSTRAINT "client_installation_capabilities_unique_chk"
       CHECK ("vimla_text_array_unique"("capabilities"))
