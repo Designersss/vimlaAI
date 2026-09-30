@@ -94,6 +94,35 @@ describe("client installations API", () => {
     ).toBe(0);
   });
 
+  it("canonicalizes equivalent UUID spellings to one durable installation", async () => {
+    const user = await registerVerifiedUser(app, "install-canonical-id");
+    const id = randomUUID();
+    const uppercaseId = id.toUpperCase();
+
+    const first = await register(
+      app,
+      user.cookies,
+      installationPayload(uppercaseId),
+    );
+    expect(first.statusCode).toBe(200);
+    expect(first.json().id).toBe(id);
+
+    const second = await register(
+      app,
+      user.cookies,
+      installationPayload(id),
+    );
+    expect(second.statusCode).toBe(200);
+    expect(second.json().id).toBe(id);
+
+    const prisma = app.get(PrismaService).client;
+    expect(
+      await prisma.clientInstallation.count({
+        where: { id, userId: user.id },
+      }),
+    ).toBe(1);
+  });
+
   it("refreshes lastSeenAt only after the refresh window while still accepting metadata changes", async () => {
     const user = await registerVerifiedUser(app, "install-seen");
     const id = randomUUID();
@@ -267,7 +296,7 @@ describe("client installations API", () => {
         await prisma.$executeRaw`
           UPDATE "client_installation"
           SET "revokedAt" = CURRENT_TIMESTAMP
-          WHERE "id" = ${id}
+          WHERE "id" = CAST(${id} AS UUID)
         `;
         return originalUpdate(args);
       });
@@ -321,7 +350,7 @@ describe("client installations API", () => {
       await tx.$queryRaw`
         SELECT "id"
         FROM "client_installation"
-        WHERE "id" = ${id}
+        WHERE "id" = CAST(${id} AS UUID)
         FOR UPDATE
       `;
       signalLocked();
@@ -424,6 +453,10 @@ describe("client installations API", () => {
         ...installationPayload(randomUUID()),
         capabilities: ["ADMIN ACCESS"],
       },
+      {
+        ...installationPayload(randomUUID()),
+        appVersion: "web\u0000test",
+      },
     ]) {
       const response = await register(app, user.cookies, payload);
       expect(response.statusCode).toBe(400);
@@ -521,6 +554,19 @@ describe("client installations API", () => {
     await expect(
       prisma.clientInstallation.create({
         data: {
+          id: "00000000-0000-0000-0000-000000000000",
+          userId: user.id,
+          kind: "WEB",
+          appVersion: "bad",
+          protocolVersion: 1,
+          capabilities: [],
+        },
+      }),
+    ).rejects.toThrow();
+
+    await expect(
+      prisma.clientInstallation.create({
+        data: {
           id: randomUUID(),
           userId: user.id,
           kind: "WEB",
@@ -551,6 +597,19 @@ describe("client installations API", () => {
           userId: user.id,
           kind: "WEB",
           appVersion: "😀".repeat(65),
+          protocolVersion: 1,
+          capabilities: [],
+        },
+      }),
+    ).rejects.toThrow();
+
+    await expect(
+      prisma.clientInstallation.create({
+        data: {
+          id: randomUUID(),
+          userId: user.id,
+          kind: "WEB",
+          appVersion: "web\u0000test",
           protocolVersion: 1,
           capabilities: [],
         },
