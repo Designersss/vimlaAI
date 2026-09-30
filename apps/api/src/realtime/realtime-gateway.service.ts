@@ -42,7 +42,7 @@ interface ConnectionState {
   readonly userId: string;
   readonly installationId: string;
   readonly socket: WebSocket;
-  readonly requestHeaders: IncomingMessage["headers"];
+  readonly sessionHeaders: IncomingMessage["headers"];
   unsubscribe: () => void;
   heartbeatTimer: NodeJS.Timeout | null;
   expectedHeartbeatId: string | null;
@@ -316,7 +316,17 @@ export class RealtimeGatewayService
       userId: authorized.userId,
       installationId: authorized.installationId,
       socket,
-      requestHeaders: { ...request.headers },
+      sessionHeaders: {
+        ...(request.headers.cookie
+          ? { cookie: request.headers.cookie }
+          : {}),
+        ...(request.headers.authorization
+          ? {
+              authorization:
+                request.headers.authorization,
+            }
+          : {}),
+      },
       unsubscribe: () => undefined,
       heartbeatTimer: null,
       expectedHeartbeatId: null,
@@ -341,7 +351,7 @@ export class RealtimeGatewayService
       this.cleanupConnection(state);
     });
     socket.once("error", () => {
-      this.cleanupConnection(state);
+      this.close(state, 1011, "socket_error");
     });
 
     const hello = realtimeHelloFrameSchema.parse({
@@ -525,7 +535,7 @@ export class RealtimeGatewayService
   }> {
     try {
       const session = await this.auth.auth.api.getSession({
-        headers: fromNodeHeaders(state.requestHeaders),
+        headers: fromNodeHeaders(state.sessionHeaders),
       });
       if (
         !session ||
@@ -583,7 +593,22 @@ export class RealtimeGatewayService
       return;
     }
     const parsed = realtimeServerFrameSchema.parse(frame);
-    state.socket.send(JSON.stringify(parsed));
+    try {
+      state.socket.send(
+        JSON.stringify(parsed),
+        (error) => {
+          if (error) {
+            this.close(
+              state,
+              1011,
+              "send_failed",
+            );
+          }
+        },
+      );
+    } catch {
+      this.close(state, 1011, "send_failed");
+    }
   }
 
   private close(
