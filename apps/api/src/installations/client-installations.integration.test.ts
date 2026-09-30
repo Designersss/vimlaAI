@@ -464,6 +464,75 @@ describe("client installations API", () => {
     }
   });
 
+  it("caps active installations atomically and frees capacity after revoke", async () => {
+    const previous =
+      process.env.CLIENT_INSTALLATIONS_ACTIVE_LIMIT_PER_USER;
+    process.env.CLIENT_INSTALLATIONS_ACTIVE_LIMIT_PER_USER = "1";
+    const config = loadApiConfig(process.env);
+    if (previous === undefined) {
+      delete process.env.CLIENT_INSTALLATIONS_ACTIVE_LIMIT_PER_USER;
+    } else {
+      process.env.CLIENT_INSTALLATIONS_ACTIVE_LIMIT_PER_USER =
+        previous;
+    }
+
+    const isolated = await createVimlaApiApp(config, {
+      quiet: true,
+    });
+    await isolated.init();
+    await isolated.getHttpAdapter().getInstance().ready();
+    try {
+      const user = await registerVerifiedUser(
+        isolated,
+        "install-active-limit",
+      );
+      const ids = [randomUUID(), randomUUID()];
+      const responses = await Promise.all(
+        ids.map((id) =>
+          register(
+            isolated,
+            user.cookies,
+            installationPayload(id),
+          ),
+        ),
+      );
+      expect(
+        responses.map((response) => response.statusCode).sort(),
+      ).toEqual([200, 409]);
+
+      const created = responses.find(
+        (response) => response.statusCode === 200,
+      );
+      const blocked = responses.find(
+        (response) => response.statusCode === 409,
+      );
+      expect(created).toBeDefined();
+      expect(blocked).toBeDefined();
+      expect(errorCode(blocked!)).toBe(
+        "installation_limit_reached",
+      );
+
+      const activeId = created!.json().id as string;
+      const revoked = await isolated.inject({
+        method: "POST",
+        url: `/v1/client-installations/${activeId}/revoke`,
+        headers: jsonHeaders(),
+        cookies: user.cookies,
+        payload: {},
+      });
+      expect(revoked.statusCode).toBe(200);
+
+      const replacement = await register(
+        isolated,
+        user.cookies,
+        installationPayload(randomUUID()),
+      );
+      expect(replacement.statusCode).toBe(200);
+    } finally {
+      await isolated.close();
+    }
+  });
+
   it("rate limits installation mutations per authenticated user", async () => {
     const previous =
       process.env.CLIENT_INSTALLATIONS_MUTATION_LIMIT_PER_MINUTE;
