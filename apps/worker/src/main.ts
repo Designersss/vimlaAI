@@ -304,26 +304,23 @@ async function bootstrap(): Promise<void> {
   const startupCounters = await notifications.reconciler.reconcile();
   logger.info(startupCounters, "reminder.reconcile.startup");
 
-  const startupOutboxCounters =
-    await realtimeOutbox.runOnce();
-  logger.info(
-    startupOutboxCounters,
-    "realtime.outbox.startup",
-  );
   let realtimeOutboxRun:
     | Promise<unknown>
     | undefined;
-  const runRealtimeOutbox = (): void => {
+  const runRealtimeOutbox = (
+    reason: "startup" | "periodic" = "periodic",
+  ): void => {
     if (realtimeOutboxRun) return;
     realtimeOutboxRun = realtimeOutbox
       .runOnce()
       .then((counters) => {
         if (
+          reason === "startup" ||
           counters.claimed > 0 ||
           counters.compacted > 0
         ) {
           logger.info(
-            counters,
+            { ...counters, reason },
             "realtime.outbox.completed",
           );
         }
@@ -331,6 +328,7 @@ async function bootstrap(): Promise<void> {
       .catch((error: unknown) => {
         logger.error(
           {
+            reason,
             errorName:
               error instanceof Error
                 ? error.name
@@ -348,6 +346,7 @@ async function bootstrap(): Promise<void> {
     config.realtimeOutboxPollMs,
   );
   realtimeOutboxTimer.unref?.();
+  runRealtimeOutbox("startup");
 
   const orchestrationResources = config.orchestrationEnabled
     ? await startOrchestrationRuntime(
