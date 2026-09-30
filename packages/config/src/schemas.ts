@@ -667,6 +667,18 @@ export const apiConfigSchema = z.object({
   tbankReceiptFfdVersion: z.enum(["1.05", "1.2"]).optional(),
   tbankReceiptItemName: z.string().min(1).optional(),
   tbankRecurringEnabled: z.boolean(),
+}).superRefine((value, ctx) => {
+  if (
+    value.realtimeHeartbeatTimeoutMs <=
+    value.realtimeHeartbeatIntervalMs
+  ) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["realtimeHeartbeatTimeoutMs"],
+      message:
+        "Realtime heartbeat timeout must exceed heartbeat interval",
+    });
+  }
 });
 export type ApiConfig = z.infer<typeof apiConfigSchema>;
 
