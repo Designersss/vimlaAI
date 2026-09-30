@@ -13,6 +13,7 @@ import {
   syncResponseSchema,
 } from "@vimla/contracts";
 import type { PrismaClient } from "@vimla/database";
+import { PrismaDirectChatDurableEventWriter } from "@vimla/direct-chats";
 import { createVimlaApiApp } from "../create-app.js";
 import { PrismaService } from "../persistence/prisma.service.js";
 import { registerVerifiedUser } from "../test/identity-helpers.js";
@@ -362,6 +363,69 @@ describe("durable cursor sync API", () => {
       expect(recovered.hasMore).toBe(false);
     } finally {
       await restarted.close();
+    }
+  });
+
+  it("serializes concurrent per-user positions without duplicates or gaps", async () => {
+    const owner = await registerVerifiedUser(
+      app,
+      "sync-order-owner",
+    );
+    const peer = await registerVerifiedUser(
+      app,
+      "sync-order-peer",
+    );
+    const conversationId = await createDirectConversation(
+      prisma,
+      owner.id,
+      peer.id,
+    );
+    const writer =
+      new PrismaDirectChatDurableEventWriter();
+
+    const messageIds = Array.from(
+      { length: 20 },
+      () => randomUUID(),
+    );
+    await Promise.all(
+      messageIds.map((messageId) =>
+        prisma.$transaction((tx) =>
+          writer.directMessageCreated(tx, {
+            conversationId,
+            messageId,
+            occurredAt: new Date(),
+            recipientUserIds: [
+              owner.id,
+              peer.id,
+            ],
+          }),
+        ),
+      ),
+    );
+
+    for (const userId of [owner.id, peer.id]) {
+      const rows =
+        await prisma.durableEventRecipient.findMany({
+          where: {
+            userId,
+            eventId: { in: messageIds },
+          },
+          orderBy: { position: "asc" },
+          select: { position: true },
+        });
+      expect(
+        rows.map((row) => row.position),
+      ).toEqual(
+        Array.from(
+          { length: 20 },
+          (_value, index) => BigInt(index + 1),
+        ),
+      );
+      const state =
+        await prisma.userSyncState.findUniqueOrThrow({
+          where: { userId },
+        });
+      expect(state.lastPosition).toBe(20n);
     }
   });
 
