@@ -137,7 +137,9 @@ Publication semantics are deliberately at-least-once:
 
 Multiple workers may claim concurrently without a global application lock. `SKIP LOCKED` prevents the same live claim from being owned twice, while expired leases make abandoned work recoverable.
 
-The global `DurableEvent.sequence` is server-internal ordering metadata. It is **not** a public client cursor and must not be exposed directly by SYNC-01. Concurrent workers/gateways can deliver realtime hints out of order even when rows are claimed in sequence; clients must treat WebSocket frames as hints and reconcile authoritative state.
+The global `DurableEvent.sequence` is server-internal ordering metadata. It is **not** a public client cursor and must not be exposed directly by SYNC-01. Concurrent workers/gateways can deliver realtime hints out of order even when rows are claimed in sequence; clients must treat WebSocket frames as hints and reconcile authoritative state. In particular, `DIRECT_MESSAGE_CREATED` has no WebSocket delivery-order guarantee: clients deduplicate by event/message id and resolve authoritative message ordering from persisted Direct Chat state / durable Sync.
+
+If an event has no remaining recipients at dispatch time (for example after recipient rows are removed by account lifecycle), the worker completes its publication state without calling Redis. This prevents an undeliverable empty-audience event from becoming an infinite retry backlog.
 
 Published `RealtimeOutbox` rows have bounded operational retention and may be compacted after the configured retention interval. Compaction deletes only publication state. The associated `DurableEvent` remains until SYNC-01 defines and proves a safe durable-event retention horizon.
 
