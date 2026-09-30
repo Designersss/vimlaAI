@@ -264,6 +264,18 @@ export class RealtimeGatewayService
       };
     }
 
+    if (
+      !(await this.hitPreAuthHandshakeRateLimit(
+        request,
+      ))
+    ) {
+      return {
+        ok: false,
+        status: 429,
+        reason: "Too Many Requests",
+      };
+    }
+
     const session = await this.auth.auth.api.getSession({
       headers: fromNodeHeaders(request.headers),
     });
@@ -325,6 +337,37 @@ export class RealtimeGatewayService
       installationId: parsedInstallation.data,
       connectionId: this.realtime.createConnectionId(),
     };
+  }
+
+  private async hitPreAuthHandshakeRateLimit(
+    request: IncomingMessage,
+  ): Promise<boolean> {
+    const peer =
+      request.socket.remoteAddress ?? "unknown";
+    const key =
+      `ratelimit:realtime:handshake:peer:${peer}`;
+    try {
+      return await redisFixedWindowHit(
+        this.redis.client,
+        key,
+        this.config
+          .realtimePreAuthHandshakeLimitPerMinute,
+      );
+    } catch {
+      if (
+        this.config.appEnv === "local" ||
+        this.config.appEnv === "test"
+      ) {
+        return memoryFixedWindowHit(
+          key,
+          this.config
+            .realtimePreAuthHandshakeLimitPerMinute,
+        );
+      }
+      throw new Error(
+        "Realtime pre-auth handshake rate limiter unavailable",
+      );
+    }
   }
 
   private async hitHandshakeRateLimit(
