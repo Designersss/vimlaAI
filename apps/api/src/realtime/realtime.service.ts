@@ -78,9 +78,9 @@ export class RealtimeService
             this.logger.warn({
               msg: "realtime.listener_failed",
               ...realtimeEventTelemetry(parsed),
-              error:
+              errorName:
                 error instanceof Error
-                  ? error.message
+                  ? error.name
                   : "unknown",
             });
           }
