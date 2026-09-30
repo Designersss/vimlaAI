@@ -506,13 +506,14 @@ describe("client installations API", () => {
       const blocked = responses.find(
         (response) => response.statusCode === 409,
       );
-      expect(created).toBeDefined();
-      expect(blocked).toBeDefined();
-      expect(errorCode(blocked!)).toBe(
+      if (!created || !blocked) {
+        throw new Error("Expected one created and one blocked installation");
+      }
+      expect(errorCode(blocked)).toBe(
         "installation_limit_reached",
       );
 
-      const activeId = created!.json().id as string;
+      const activeId = created.json().id as string;
       const revoked = await isolated.inject({
         method: "POST",
         url: `/v1/client-installations/${activeId}/revoke`,
