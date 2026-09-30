@@ -78,7 +78,7 @@ model UserPreference {
 }
 
 model ClientInstallation {
-  id              String                       @id
+  id              String                       @id @db.Uuid
   userId          String
   user            User                         @relation(fields: [userId], references: [id], onDelete: Cascade)
   kind            String
@@ -96,7 +96,7 @@ model ClientInstallation {
 }
 
 model ClientInstallationPreference {
-  installationId String             @id
+  installationId String             @id @db.Uuid
   installation   ClientInstallation @relation(fields: [installationId], references: [id], onDelete: Cascade)
   pushEnabled    Boolean            @default(false)
   createdAt      DateTime           @default(now())
