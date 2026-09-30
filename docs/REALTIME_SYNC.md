@@ -106,7 +106,7 @@ The initial strict frame set is:
 
 `DIRECT_MESSAGE_CREATED` is the first durable hint and contains only stable Direct Chat/message identifiers. It carries no ciphertext or plaintext message body. The event is an acceleration hint; the authoritative message remains in PostgreSQL.
 
-Connection count, incoming frame bytes, client-frame rate, heartbeat interval and heartbeat timeout are bounded server-side. Session and installation activity are revalidated during the heartbeat lifecycle so revocation closes a live connection.
+Connection count, authenticated handshake frequency, incoming frame bytes, client-frame rate, heartbeat interval and heartbeat timeout are bounded server-side. The configured client-frame budget is validated to remain above the server-driven heartbeat cadence. Session and installation activity are revalidated during the heartbeat lifecycle so revocation closes a live connection. Permanent protocol/authorization/abuse close codes are terminal on Web to avoid reconnect storms.
 
 Redis Pub/Sub fans events between API instances on server-derived per-user channels. Publication failure is logged as transport failure and does not roll back an already committed domain mutation.
 
