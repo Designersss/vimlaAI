@@ -151,7 +151,7 @@ SYNC-01 uses a per-user monotonic stream, not the global `DurableEvent.sequence`
 
 Each `DurableEventRecipient` has a user-local `position`. `UserSyncState.lastPosition` is incremented in the same PostgreSQL transaction that creates the event recipient. Writers acquire per-user counters in stable user-id order, so concurrent transactions affecting the same users serialize without duplicate positions or deadlock-prone lock ordering.
 
-The API is `GET /v1/sync?protocolVersion=1`. A response contains bounded identifier-only deltas, an opaque `nextCursor`, and `hasMore`.
+The API is `GET /v1/sync?protocolVersion=1`. A response contains bounded identifier-only deltas, an opaque `nextCursor`, and `hasMore`. Authenticated reads are additionally protected by a configurable per-user Redis fixed-window limit. The limiter fails closed outside local/test environments; local/test may use a bounded in-memory fallback.
 
 Cursor properties:
 
