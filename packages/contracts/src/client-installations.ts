@@ -19,7 +19,8 @@ const NIL_UUID = "00000000-0000-0000-0000-000000000000";
 export const clientInstallationIdSchema = z
   .string()
   .uuid()
-  .refine((value) => value.toLowerCase() !== NIL_UUID, {
+  .transform((value) => value.toLowerCase())
+  .refine((value) => value !== NIL_UUID, {
     message: "Client installation id must not be the nil UUID",
   });
 
@@ -36,6 +37,9 @@ export type ClientInstallationKind = z.infer<
 const appVersionSchema = z
   .string()
   .min(1)
+  .refine((value) => !value.includes("\u0000"), {
+    message: "App version must not contain NUL",
+  })
   .refine(isWellFormedUnicode, {
     message: "App version must contain valid Unicode scalar values",
   })
