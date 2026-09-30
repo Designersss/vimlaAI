@@ -180,7 +180,8 @@ export const apiEnvSchema = z
     REALTIME_HEARTBEAT_INTERVAL_MS: z.coerce.number().int().min(50).max(60_000).default(20_000),
     REALTIME_HEARTBEAT_TIMEOUT_MS: z.coerce.number().int().min(100).max(300_000).default(60_000),
     REALTIME_MAX_CONNECTIONS_PER_INSTALLATION: z.coerce.number().int().min(1).max(32).default(8),
-    REALTIME_CLIENT_FRAMES_PER_MINUTE: z.coerce.number().int().min(1).max(1_000).default(60),
+    REALTIME_HANDSHAKE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).max(10_000).default(120),
+    REALTIME_CLIENT_FRAMES_PER_MINUTE: z.coerce.number().int().min(1).max(10_000).default(60),
     OPERATOR_ENABLED: z.enum(["true", "false"]).default("false"),
     OPERATOR_MAX_TOOLS_PER_RUN: z.coerce.number().int().min(1).max(16).default(8),
     OPERATOR_CONFIRMATION_TTL_SECONDS: z.coerce.number().int().min(60).max(3_600).default(900),
@@ -626,7 +627,8 @@ export const apiConfigSchema = z.object({
   realtimeHeartbeatIntervalMs: z.number().int().min(50).max(60_000),
   realtimeHeartbeatTimeoutMs: z.number().int().min(100).max(300_000),
   realtimeMaxConnectionsPerInstallation: z.number().int().min(1).max(32),
-  realtimeClientFramesPerMinute: z.number().int().min(1).max(1_000),
+  realtimeHandshakeLimitPerMinute: z.number().int().min(1).max(10_000),
+  realtimeClientFramesPerMinute: z.number().int().min(1).max(10_000),
   operatorEnabled: z.boolean(),
   operatorMaxToolsPerRun: z.number().int().min(1).max(16),
   operatorConfirmationTtlSeconds: z.number().int().min(60).max(3_600),
@@ -677,6 +679,21 @@ export const apiConfigSchema = z.object({
       path: ["realtimeHeartbeatTimeoutMs"],
       message:
         "Realtime heartbeat timeout must exceed heartbeat interval",
+    });
+  }
+
+  const minimumHeartbeatFramesPerMinute = Math.ceil(
+    60_000 / value.realtimeHeartbeatIntervalMs,
+  );
+  if (
+    value.realtimeClientFramesPerMinute <
+    minimumHeartbeatFramesPerMinute
+  ) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["realtimeClientFramesPerMinute"],
+      message:
+        "Realtime client frame limit must allow every configured heartbeat PONG",
     });
   }
 });
