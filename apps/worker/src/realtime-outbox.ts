@@ -142,19 +142,38 @@ export class RealtimeOutboxDispatcher {
         continue;
       }
 
-      const event = realtimeEventEnvelopeSchema.parse({
-        protocolVersion: row.protocolVersion,
-        frameType: "EVENT",
-        eventId: row.id,
-        eventType: row.eventType,
-        durability: row.durability,
-        scope: {
-          kind: row.scopeKind,
-          id: row.scopeId,
-        },
-        occurredAt: row.occurredAt.toISOString(),
-        payload: row.payload,
-      });
+      let event: RealtimeEventEnvelope;
+      try {
+        event = realtimeEventEnvelopeSchema.parse({
+          protocolVersion: row.protocolVersion,
+          frameType: "EVENT",
+          eventId: row.id,
+          eventType: row.eventType,
+          durability: row.durability,
+          scope: {
+            kind: row.scopeKind,
+            id: row.scopeId,
+          },
+          occurredAt: row.occurredAt.toISOString(),
+          payload: row.payload,
+        });
+      } catch (error: unknown) {
+        const retried = await this.scheduleRetry({
+          eventId: row.id,
+          token: claim.token,
+          attemptCount: outbox.attemptCount,
+          errorCode: "event_decode_failed",
+          error,
+          eventType: row.eventType,
+          scopeKind: row.scopeKind,
+        });
+        if (retried) {
+          retryScheduled += 1;
+        } else {
+          leaseLost += 1;
+        }
+        continue;
+      }
 
       try {
         await this.publisher.publish(
@@ -164,47 +183,17 @@ export class RealtimeOutboxDispatcher {
           event,
         );
       } catch (error: unknown) {
-        const failedAt = this.clock();
-        const nextAttemptAt = new Date(
-          failedAt.getTime() +
-            retryBackoffMs(
-              outbox.attemptCount,
-              this.policy.backoffBaseMs,
-              this.policy.backoffCapMs,
-            ),
-        );
-        const retried =
-          await this.db.realtimeOutbox.updateMany({
-            where: {
-              eventId: row.id,
-              status: "PROCESSING",
-              processingToken: claim.token,
-            },
-            data: {
-              status: "PENDING",
-              processingToken: null,
-              processingUntil: null,
-              nextAttemptAt,
-              lastErrorCode: "redis_publish_failed",
-            },
-          });
-        if (retried.count === 1) {
+        const retried = await this.scheduleRetry({
+          eventId: row.id,
+          token: claim.token,
+          attemptCount: outbox.attemptCount,
+          errorCode: "redis_publish_failed",
+          error,
+          eventType: row.eventType,
+          scopeKind: row.scopeKind,
+        });
+        if (retried) {
           retryScheduled += 1;
-          this.logger.warn(
-            {
-              eventId: row.id,
-              eventType: row.eventType,
-              scopeKind: row.scopeKind,
-              attemptCount: outbox.attemptCount,
-              nextAttemptAt:
-                nextAttemptAt.toISOString(),
-              errorName:
-                error instanceof Error
-                  ? error.name
-                  : "unknown",
-            },
-            "realtime.outbox.retry_scheduled",
-          );
         } else {
           leaseLost += 1;
         }
@@ -261,6 +250,61 @@ export class RealtimeOutboxDispatcher {
     };
   }
 
+  private async scheduleRetry(input: {
+    eventId: string;
+    token: string;
+    attemptCount: number;
+    errorCode: string;
+    error: unknown;
+    eventType: string;
+    scopeKind: string;
+  }): Promise<boolean> {
+    const failedAt = this.clock();
+    const nextAttemptAt = new Date(
+      failedAt.getTime() +
+        retryBackoffMs(
+          input.attemptCount,
+          this.policy.backoffBaseMs,
+          this.policy.backoffCapMs,
+        ),
+    );
+    const retried =
+      await this.db.realtimeOutbox.updateMany({
+        where: {
+          eventId: input.eventId,
+          status: "PROCESSING",
+          processingToken: input.token,
+        },
+        data: {
+          status: "PENDING",
+          processingToken: null,
+          processingUntil: null,
+          nextAttemptAt,
+          lastErrorCode: input.errorCode,
+        },
+      });
+    if (retried.count !== 1) {
+      return false;
+    }
+
+    this.logger.warn(
+      {
+        eventId: input.eventId,
+        eventType: input.eventType,
+        scopeKind: input.scopeKind,
+        attemptCount: input.attemptCount,
+        nextAttemptAt: nextAttemptAt.toISOString(),
+        errorCode: input.errorCode,
+        errorName:
+          input.error instanceof Error
+            ? input.error.name
+            : "unknown",
+      },
+      "realtime.outbox.retry_scheduled",
+    );
+    return true;
+  }
+
   private async renewLease(
     eventId: string,
     token: string,
@@ -283,7 +327,7 @@ export class RealtimeOutboxDispatcher {
   }
 
   async compactPublished(
-    now = new Date(),
+    now = this.clock(),
   ): Promise<number> {
     const result =
       await this.db.realtimeOutbox.deleteMany({
