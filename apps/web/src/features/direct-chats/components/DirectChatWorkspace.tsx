@@ -301,6 +301,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         if (cancelled) return;
         unsubscribeRealtime = subscribeRealtime({
           installationId: installation.id,
+          onOpen: () => void syncLatest(),
           onEvent: (event) => {
             if (
               event.eventType ===
