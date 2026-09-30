@@ -657,7 +657,7 @@ function parseFrame(
 function realtimeUrl(
   baseUrl: string,
   installationId: string,
-  protocolVersion = REALTIME_PROTOCOL_VERSION,
+  protocolVersion: number = REALTIME_PROTOCOL_VERSION,
 ): string {
   const url = new URL(baseUrl);
   url.protocol =
