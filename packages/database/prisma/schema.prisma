@@ -1224,7 +1224,6 @@ model DurableEventRecipient {
 
   @@id([eventId, userId])
   @@unique([userId, position])
-  @@index([userId, position])
   @@map("durable_event_recipient")
 }
 
