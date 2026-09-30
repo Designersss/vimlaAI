@@ -542,8 +542,9 @@ export class RealtimeGatewayService
       return;
     }
 
-    const valid = await this.revalidateConnection(state);
-    if (!valid.session) {
+    const validation =
+      await this.revalidateConnection(state);
+    if (validation === "SESSION_INVALID") {
       this.close(
         state,
         CLOSE_SESSION_INVALID,
@@ -551,11 +552,19 @@ export class RealtimeGatewayService
       );
       return;
     }
-    if (!valid.installation) {
+    if (validation === "INSTALLATION_INACTIVE") {
       this.close(
         state,
         CLOSE_INSTALLATION_INACTIVE,
         "installation_inactive",
+      );
+      return;
+    }
+    if (validation === "UNAVAILABLE") {
+      this.close(
+        state,
+        1013,
+        "authorization_unavailable",
       );
       return;
     }
@@ -579,10 +588,12 @@ export class RealtimeGatewayService
 
   private async revalidateConnection(
     state: ConnectionState,
-  ): Promise<{
-    session: boolean;
-    installation: boolean;
-  }> {
+  ): Promise<
+    | "VALID"
+    | "SESSION_INVALID"
+    | "INSTALLATION_INACTIVE"
+    | "UNAVAILABLE"
+  > {
     try {
       const session = await this.auth.auth.api.getSession({
         headers: fromNodeHeaders(state.sessionHeaders),
@@ -592,30 +603,24 @@ export class RealtimeGatewayService
         session.user.id !== state.userId ||
         !session.user.emailVerified
       ) {
-        return {
-          session: false,
-          installation: false,
-        };
+        return "SESSION_INVALID";
       }
 
       const handle = await this.handles.readForUser(
         state.userId,
       );
       if (!handle || handle.status !== "ACTIVE") {
-        return {
-          session: false,
-          installation: false,
-        };
+        return "SESSION_INVALID";
       }
 
-      return {
-        session: true,
-        installation:
-          await this.installations.isActiveOwned(
-            state.userId,
-            state.installationId,
-          ),
-      };
+      const installationActive =
+        await this.installations.isActiveOwned(
+          state.userId,
+          state.installationId,
+        );
+      return installationActive
+        ? "VALID"
+        : "INSTALLATION_INACTIVE";
     } catch (error: unknown) {
       this.logger.warn({
         msg: "realtime.revalidation_failed",
@@ -625,10 +630,7 @@ export class RealtimeGatewayService
             ? error.message
             : "unknown",
       });
-      return {
-        session: false,
-        installation: false,
-      };
+      return "UNAVAILABLE";
     }
   }
 
