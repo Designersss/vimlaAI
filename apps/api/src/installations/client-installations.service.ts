@@ -116,7 +116,7 @@ export class ClientInstallationsService {
       >(Prisma.sql`
         SELECT "id", "revokedAt"
         FROM "client_installation"
-        WHERE "id" = ${installationId}
+        WHERE "id" = CAST(${installationId} AS UUID)
           AND "userId" = ${userId}
         FOR UPDATE
       `);
