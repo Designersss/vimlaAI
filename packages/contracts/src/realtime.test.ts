@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
   REALTIME_PROTOCOL_VERSION,
-  directMessageChangedRealtimeEventSchema,
+  directMessageCreatedRealtimeEventSchema,
   realtimeClientFrameSchema,
   realtimeServerFrameSchema,
 } from "./realtime.js";
@@ -14,7 +14,7 @@ describe("realtime contracts", () => {
       protocolVersion: REALTIME_PROTOCOL_VERSION,
       frameType: "EVENT",
       eventId: randomUUID(),
-      eventType: "DIRECT_MESSAGE_CHANGED",
+      eventType: "DIRECT_MESSAGE_CREATED",
       durability: "DURABLE_HINT",
       scope: {
         kind: "DIRECT_CHAT",
@@ -28,7 +28,7 @@ describe("realtime contracts", () => {
     } as const;
 
     expect(
-      directMessageChangedRealtimeEventSchema.parse(event),
+      directMessageCreatedRealtimeEventSchema.parse(event),
     ).toEqual(event);
     expect(realtimeServerFrameSchema.parse(event)).toEqual(
       event,
@@ -37,11 +37,11 @@ describe("realtime contracts", () => {
 
   it("rejects scope/payload mismatches", () => {
     expect(
-      directMessageChangedRealtimeEventSchema.safeParse({
+      directMessageCreatedRealtimeEventSchema.safeParse({
         protocolVersion: REALTIME_PROTOCOL_VERSION,
         frameType: "EVENT",
         eventId: randomUUID(),
-        eventType: "DIRECT_MESSAGE_CHANGED",
+        eventType: "DIRECT_MESSAGE_CREATED",
         durability: "DURABLE_HINT",
         scope: {
           kind: "DIRECT_CHAT",
@@ -63,7 +63,7 @@ describe("realtime contracts", () => {
         protocolVersion: 2,
         frameType: "EVENT",
         eventId: randomUUID(),
-        eventType: "DIRECT_MESSAGE_CHANGED",
+        eventType: "DIRECT_MESSAGE_CREATED",
         durability: "DURABLE_HINT",
         scope: {
           kind: "DIRECT_CHAT",
