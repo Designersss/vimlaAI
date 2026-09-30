@@ -26,6 +26,16 @@ export type ClientInstallationKind = z.infer<
   typeof clientInstallationKindSchema
 >;
 
+const appVersionSchema = z
+  .string()
+  .min(1)
+  .refine(
+    (value) =>
+      Array.from(value).length <=
+      CLIENT_INSTALLATION_LIMITS.appVersionMax,
+    { message: "App version is too long" },
+  );
+
 const capabilitySchema = z
   .string()
   .min(1)
@@ -44,10 +54,7 @@ export const registerClientInstallationSchema = z
   .object({
     id: clientInstallationIdSchema,
     kind: clientInstallationKindSchema,
-    appVersion: z
-      .string()
-      .min(1)
-      .max(CLIENT_INSTALLATION_LIMITS.appVersionMax)
+    appVersion: appVersionSchema
       .nullable()
       .optional()
       .default(null),
@@ -88,11 +95,7 @@ export const clientInstallationViewSchema = z
   .object({
     id: clientInstallationIdSchema,
     kind: clientInstallationKindSchema,
-    appVersion: z
-      .string()
-      .min(1)
-      .max(CLIENT_INSTALLATION_LIMITS.appVersionMax)
-      .nullable(),
+    appVersion: appVersionSchema.nullable(),
     protocolVersion: z
       .number()
       .int()
