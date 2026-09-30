@@ -42,6 +42,7 @@ export const apiErrorCodeSchema = z.enum([
   "reset_token_expired",
   "session_not_found",
   "installation_revoked",
+  "installation_limit_reached",
   "notification_temporarily_unavailable",
   "notification_not_found",
   "payment_temporarily_unavailable",
