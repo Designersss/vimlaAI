@@ -29,6 +29,8 @@ import {
   type ApiRuntimeConfig,
 } from "../config/api-config.js";
 import { ClientInstallationsService } from "../installations/client-installations.service.js";
+import { redisFixedWindowHit } from "../persistence/rate-limit.js";
+import { RedisService } from "../persistence/redis.service.js";
 import { RealtimeService } from "./realtime.service.js";
 
 const REALTIME_PATH = "/v1/realtime";
@@ -37,6 +39,12 @@ const CLOSE_SESSION_INVALID = 4002;
 const CLOSE_INSTALLATION_INACTIVE = 4003;
 const CLOSE_INVALID_FRAME = 4004;
 const CLOSE_RATE_LIMITED = 4005;
+
+const memoryHandshakeHits = new Map<
+  string,
+  { count: number; resetAt: number }
+>();
+
 interface ConnectionState {
   readonly connectionId: string;
   readonly userId: string;
@@ -79,6 +87,8 @@ export class RealtimeGatewayService
     private readonly handles: HandleService,
     @Inject(ClientInstallationsService)
     private readonly installations: ClientInstallationsService,
+    @Inject(RedisService)
+    private readonly redis: RedisService,
     @Inject(RealtimeService)
     private readonly realtime: RealtimeService,
   ) {
@@ -262,6 +272,19 @@ export class RealtimeGatewayService
         reason: "Unauthorized",
       };
     }
+
+    if (
+      !(await this.hitHandshakeRateLimit(
+        session.user.id,
+      ))
+    ) {
+      return {
+        ok: false,
+        status: 429,
+        reason: "Too Many Requests",
+      };
+    }
+
     if (!session.user.emailVerified) {
       return {
         ok: false,
@@ -300,6 +323,33 @@ export class RealtimeGatewayService
       installationId: parsedInstallation.data,
       connectionId: this.realtime.createConnectionId(),
     };
+  }
+
+  private async hitHandshakeRateLimit(
+    userId: string,
+  ): Promise<boolean> {
+    const key =
+      `ratelimit:realtime:handshake:user:${userId}`;
+    try {
+      return await redisFixedWindowHit(
+        this.redis.client,
+        key,
+        this.config.realtimeHandshakeLimitPerMinute,
+      );
+    } catch {
+      if (
+        this.config.appEnv === "local" ||
+        this.config.appEnv === "test"
+      ) {
+        return memoryFixedWindowHit(
+          key,
+          this.config.realtimeHandshakeLimitPerMinute,
+        );
+      }
+      throw new Error(
+        "Realtime handshake rate limiter unavailable",
+      );
+    }
   }
 
   private acceptConnection(
@@ -739,4 +789,22 @@ function rawDataToUtf8(data: RawData): string {
     return Buffer.concat(data).toString("utf8");
   }
   return data.toString("utf8");
+}
+
+
+function memoryFixedWindowHit(
+  key: string,
+  max: number,
+): boolean {
+  const now = Date.now();
+  const current = memoryHandshakeHits.get(key);
+  if (!current || current.resetAt <= now) {
+    memoryHandshakeHits.set(key, {
+      count: 1,
+      resetAt: now + 60_000,
+    });
+    return true;
+  }
+  current.count += 1;
+  return current.count <= max;
 }
