@@ -1,4 +1,5 @@
 import {
+  REALTIME_PROTOCOL_VERSION,
   clientInstallationIdSchema,
   type ClientInstallationView,
 } from "@vimla/contracts";
@@ -6,8 +7,6 @@ import { ClientApiError } from "@vimla/client-api";
 import { createWebClientApi } from "../../../shared/api/client";
 
 const INSTALLATION_STORAGE_PREFIX = "vimla:client-installation:v1:";
-const WEB_PROTOCOL_VERSION = 1;
-
 export interface WebInstallationStorage {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
@@ -68,7 +67,7 @@ function registerWebInstallation(
     id,
     kind: "WEB",
     appVersion: null,
-    protocolVersion: WEB_PROTOCOL_VERSION,
+    protocolVersion: REALTIME_PROTOCOL_VERSION,
     capabilities: ["realtime.v1"],
   });
 }
