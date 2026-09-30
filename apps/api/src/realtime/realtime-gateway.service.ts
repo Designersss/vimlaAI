@@ -19,9 +19,9 @@ import {
   type RealtimeServerFrame,
 } from "@vimla/contracts";
 import {
+  WebSocket,
   WebSocketServer,
   type RawData,
-  type WebSocket,
 } from "ws";
 import { AuthService } from "../auth/auth.service.js";
 import { HandleService } from "../auth/handle.service.js";
@@ -120,6 +120,7 @@ export class RealtimeGatewayService
       return;
     }
     if (url.pathname !== REALTIME_PATH) {
+      this.rejectUpgrade(socket, 404, "Not Found");
       return;
     }
 
@@ -569,7 +570,7 @@ export class RealtimeGatewayService
   ): void {
     if (
       state.closed ||
-      state.socket.readyState !== state.socket.OPEN
+      state.socket.readyState !== WebSocket.OPEN
     ) {
       return;
     }
