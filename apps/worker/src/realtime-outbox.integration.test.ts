@@ -297,6 +297,137 @@ describe("realtime outbox dispatcher", () => {
     ).toEqual([first.eventId, second.eventId]);
   });
 
+  it("recovers at-least-once after publication succeeds but lease ownership is lost before mark-complete", async () => {
+    const now = new Date("2001-05-15T00:00:00.000Z");
+    const seeded = await seedEvent(prisma, now);
+    eventIds.push(seeded.eventId);
+    userIds.push(...seeded.userIds);
+
+    let sabotage = true;
+    const publishedEventIds: string[] = [];
+    const publisher: DurableRealtimePublisher = {
+      async publish(_recipientUserIds, event) {
+        publishedEventIds.push(event.eventId);
+        if (sabotage) {
+          sabotage = false;
+          await prisma.realtimeOutbox.update({
+            where: { eventId: event.eventId },
+            data: {
+              processingToken: randomUUID(),
+              processingUntil: new Date(
+                now.getTime() + 1_000,
+              ),
+            },
+          });
+        }
+      },
+    };
+    let clockNow = now;
+    const dispatcher = new RealtimeOutboxDispatcher(
+      prisma,
+      publisher,
+      policy,
+      logger,
+      () => clockNow,
+    );
+
+    const first = await dispatcher.runOnce();
+    expect(first.published).toBe(0);
+    expect(first.leaseLost).toBe(1);
+    expect(publishedEventIds).toEqual([
+      seeded.eventId,
+    ]);
+    expect(
+      (
+        await prisma.realtimeOutbox.findUniqueOrThrow({
+          where: { eventId: seeded.eventId },
+        })
+      ).status,
+    ).toBe("PROCESSING");
+
+    clockNow = new Date(now.getTime() + 1_001);
+    const recovered = await dispatcher.runOnce();
+    expect(recovered.published).toBe(1);
+    expect(publishedEventIds).toEqual([
+      seeded.eventId,
+      seeded.eventId,
+    ]);
+    expect(
+      (
+        await prisma.realtimeOutbox.findUniqueOrThrow({
+          where: { eventId: seeded.eventId },
+        })
+      ).status,
+    ).toBe("PUBLISHED");
+  });
+
+  it("distributes a high-concurrency batch across dispatchers without duplicate claims", async () => {
+    const now = new Date("2001-05-20T00:00:00.000Z");
+    const seededIds: string[] = [];
+    for (let index = 0; index < 40; index += 1) {
+      const seeded = await seedEvent(
+        prisma,
+        new Date(now.getTime() + index),
+      );
+      eventIds.push(seeded.eventId);
+      userIds.push(...seeded.userIds);
+      seededIds.push(seeded.eventId);
+    }
+
+    const publisher = new RecordingPublisher();
+    const batchPolicy = {
+      ...policy,
+      batchSize: 10,
+    };
+    const dispatchers = Array.from(
+      { length: 4 },
+      () =>
+        new RealtimeOutboxDispatcher(
+          prisma,
+          publisher,
+          batchPolicy,
+          logger,
+          () => new Date(
+            now.getTime() + 1_000,
+          ),
+        ),
+    );
+
+    const results = await Promise.all(
+      dispatchers.map((dispatcher) =>
+        dispatcher.runOnce(),
+      ),
+    );
+    expect(
+      results.reduce(
+        (sum, result) => sum + result.claimed,
+        0,
+      ),
+    ).toBe(40);
+    expect(
+      new Set(
+        publisher.events.map(
+          ({ event }) => event.eventId,
+        ),
+      ).size,
+    ).toBe(40);
+    expect(
+      publisher.events.map(
+        ({ event }) => event.eventId,
+      ),
+    ).toEqual(
+      expect.arrayContaining(seededIds),
+    );
+    expect(
+      await prisma.realtimeOutbox.count({
+        where: {
+          eventId: { in: seededIds },
+          status: "PUBLISHED",
+        },
+      }),
+    ).toBe(40);
+  });
+
   it("compacts published delivery state without deleting the durable event ledger", async () => {
     const now = new Date("2001-06-01T00:00:10.000Z");
     const seeded = await seedEvent(
