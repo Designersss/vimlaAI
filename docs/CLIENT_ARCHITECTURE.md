@@ -177,7 +177,7 @@ Never treat `X-Platform: mobile`, installation kind or app version as permission
 - `createdAt`, throttled `lastSeenAt`, and `revokedAt`;
 - installation-scoped preferences.
 
-Registration is idempotent for the same authenticated owner. A client-supplied id can never transfer ownership, and a revoked id is not silently resurrected. Platform kind/version/capabilities are negotiation/telemetry metadata only and never grant roles, permissions, billing access, or authorization.
+Registration is idempotent for the same authenticated owner. A client-supplied id can never transfer ownership, and a revoked id is not silently resurrected. Platform kind/version/capabilities are negotiation/telemetry metadata only and never grant roles, permissions, billing access, or authorization. Creation of new active installations is bounded per account by a configurable limit and serialized per user so concurrent registrations cannot exceed it; revocation releases active capacity without resurrecting the revoked id.
 
 Web persists the non-secret installation id per account in localStorage through a Web adapter. This local id is not a session credential and must never be treated as authority. An ownership-safe not-found id may be replaced once with a fresh UUID, but a revoked installation remains terminal and is never silently bypassed by identity rotation. Transient transport/server failures also do not rotate identity. During ARCH-03 the shell refresh is best-effort because existing product access still depends only on authenticated server authority; RT/SYNC stages may require an active installation for their own transport without turning installation state into account authorization.
 
