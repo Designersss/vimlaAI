@@ -4,6 +4,7 @@ import type { NestFastifyApplication } from "@nestjs/platform-fastify";
 import { loadApiConfig } from "@vimla/config/server";
 import {
   REALTIME_PROTOCOL_VERSION,
+  realtimePongFrameSchema,
   realtimeServerFrameSchema,
   type RealtimeEventEnvelope,
   type RealtimeServerFrame,
@@ -266,7 +267,7 @@ describe("global realtime WebSocket gateway", () => {
     }
   });
 
-  it("refuses new connections after installation revoke", async () => {
+  it("closes an active connection after installation revoke and refuses reconnect", async () => {
     const user = await registerVerifiedUser(
       app,
       "rt-revoked",
@@ -277,6 +278,13 @@ describe("global realtime WebSocket gateway", () => {
       user.cookies,
       installationId,
     );
+    const connection = await openRealtime({
+      baseUrl,
+      installationId,
+      origin,
+      cookies: user.cookies,
+    });
+    const closed = waitForClose(connection.socket);
 
     const revoked = await app.inject({
       method: "POST",
@@ -286,6 +294,7 @@ describe("global realtime WebSocket gateway", () => {
       payload: {},
     });
     expect(revoked.statusCode).toBe(200);
+    await expect(closed).resolves.toBe(4003);
 
     await expect(
       rejectedUpgrade({
@@ -295,6 +304,29 @@ describe("global realtime WebSocket gateway", () => {
         cookies: user.cookies,
       }),
     ).resolves.toBe(404);
+  });
+
+  it("closes connections that do not answer application heartbeats", async () => {
+    const user = await registerVerifiedUser(
+      app,
+      "rt-heartbeat-timeout",
+    );
+    const installationId = randomUUID();
+    await registerInstallation(
+      app,
+      user.cookies,
+      installationId,
+    );
+    const connection = await openRealtime({
+      baseUrl,
+      installationId,
+      origin,
+      cookies: user.cookies,
+      answerHeartbeats: false,
+    });
+    await expect(
+      waitForClose(connection.socket),
+    ).resolves.toBe(4001);
   });
 
   it("fans out across API instances through Redis", async () => {
@@ -412,6 +444,7 @@ async function openRealtime(input: {
   installationId: string;
   origin: string;
   cookies: Record<string, string>;
+  answerHeartbeats?: boolean;
 }): Promise<OpenRealtime> {
   const socket = new WebSocket(
     realtimeUrl(
@@ -454,6 +487,22 @@ async function openRealtime(input: {
       );
       socket.on("message", (data) => {
         const frame = parseFrame(data);
+        if (
+          frame.frameType === "HEARTBEAT" &&
+          input.answerHeartbeats !== false
+        ) {
+          socket.send(
+            JSON.stringify(
+              realtimePongFrameSchema.parse({
+                protocolVersion:
+                  REALTIME_PROTOCOL_VERSION,
+                frameType: "PONG",
+                heartbeatId: frame.heartbeatId,
+              }),
+            ),
+          );
+          return;
+        }
         if (frame.frameType !== "HELLO") {
           return;
         }
@@ -620,6 +669,8 @@ function configureTestEnv(): void {
   process.env.BETTER_AUTH_URL =
     process.env.BETTER_AUTH_URL ??
     "http://localhost:3001";
+  process.env.REALTIME_HEARTBEAT_INTERVAL_MS = "50";
+  process.env.REALTIME_HEARTBEAT_TIMEOUT_MS = "150";
 }
 
 function sleep(ms: number): Promise<void> {
