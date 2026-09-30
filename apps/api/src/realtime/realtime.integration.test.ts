@@ -9,6 +9,7 @@ import {
   type RealtimeEventEnvelope,
   type RealtimeServerFrame,
 } from "@vimla/contracts";
+import { realtimeUserChannel } from "@vimla/shared";
 import { WebSocket, type RawData } from "ws";
 import { createVimlaApiApp } from "../create-app.js";
 import { ClientInstallationsService } from "../installations/client-installations.service.js";
@@ -16,7 +17,6 @@ import { RedisService } from "../persistence/redis.service.js";
 import {
   registerVerifiedUser,
 } from "../test/identity-helpers.js";
-import { RealtimeService } from "./realtime.service.js";
 
 const testDatabaseUrl = process.env.TEST_DATABASE_URL;
 if (!testDatabaseUrl) {
@@ -281,13 +281,15 @@ describe("global realtime WebSocket gateway", () => {
     };
     foreign.socket.on("message", foreignListener);
 
-    await app
-      .get(RealtimeService)
-      .publishDirectMessageCreated([user.id], {
+    await publishDirectMessageCreated(
+      app,
+      user.id,
+      {
         conversationId,
         messageId,
         occurredAt: new Date().toISOString(),
-      });
+      },
+    );
 
     const [left, sameInstallationTab, right] = await Promise.all([
       firstEvent,
@@ -544,13 +546,15 @@ describe("global realtime WebSocket gateway", () => {
       const conversationId = randomUUID();
       const messageId = randomUUID();
 
-      await app
-        .get(RealtimeService)
-        .publishDirectMessageCreated([user.id], {
+      await publishDirectMessageCreated(
+        app,
+        user.id,
+        {
           conversationId,
           messageId,
           occurredAt: new Date().toISOString(),
-        });
+        },
+      );
 
       await expect(eventPromise).resolves.toMatchObject({
         eventId: messageId,
@@ -565,31 +569,91 @@ describe("global realtime WebSocket gateway", () => {
     }
   });
 
-  it("treats Redis publication failure as delivery acceleration failure, not mutation failure", async () => {
-    const redis = app.get(RedisService).client;
-    const publish = vi
-      .spyOn(redis, "publish")
-      .mockRejectedValueOnce(
-        new Error("redis unavailable"),
-      );
+  it("ignores malformed Redis events and continues serving later valid realtime frames", async () => {
+    const user = await registerVerifiedUser(
+      app,
+      "rt-invalid-pubsub",
+    );
+    const installationId = randomUUID();
+    await registerInstallation(
+      app,
+      user.cookies,
+      installationId,
+    );
+    const connection = await openRealtime({
+      baseUrl,
+      installationId,
+      origin,
+      cookies: user.cookies,
+    });
     try {
-      await expect(
-        app
-          .get(RealtimeService)
-          .publishDirectMessageCreated(
-            [randomUUID()],
-            {
-              conversationId: randomUUID(),
-              messageId: randomUUID(),
-              occurredAt: new Date().toISOString(),
-            },
-          ),
-      ).resolves.toBeUndefined();
+      await app
+        .get(RedisService)
+        .client.publish(
+          realtimeUserChannel(user.id),
+          "{not-json",
+        );
+      await sleep(50);
+      expect(connection.socket.readyState).toBe(
+        WebSocket.OPEN,
+      );
+
+      const conversationId = randomUUID();
+      const messageId = randomUUID();
+      const eventPromise = waitForEvent(
+        connection.socket,
+      );
+      await publishDirectMessageCreated(
+        app,
+        user.id,
+        {
+          conversationId,
+          messageId,
+          occurredAt: new Date().toISOString(),
+        },
+      );
+      await expect(eventPromise).resolves.toMatchObject({
+        eventId: messageId,
+        eventType: "DIRECT_MESSAGE_CREATED",
+      });
     } finally {
-      publish.mockRestore();
+      connection.socket.close();
     }
   });
 });
+
+async function publishDirectMessageCreated(
+  targetApp: NestFastifyApplication,
+  userId: string,
+  input: {
+    conversationId: string;
+    messageId: string;
+    occurredAt: string;
+  },
+): Promise<void> {
+  const event: RealtimeEventEnvelope = {
+    protocolVersion: REALTIME_PROTOCOL_VERSION,
+    frameType: "EVENT",
+    eventId: input.messageId,
+    eventType: "DIRECT_MESSAGE_CREATED",
+    durability: "DURABLE_HINT",
+    scope: {
+      kind: "DIRECT_CHAT",
+      id: input.conversationId,
+    },
+    occurredAt: input.occurredAt,
+    payload: {
+      conversationId: input.conversationId,
+      messageId: input.messageId,
+    },
+  };
+  await targetApp
+    .get(RedisService)
+    .client.publish(
+      realtimeUserChannel(userId),
+      JSON.stringify(event),
+    );
+}
 
 interface OpenRealtime {
   socket: WebSocket;
