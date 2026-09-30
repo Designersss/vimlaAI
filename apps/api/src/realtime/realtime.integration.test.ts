@@ -120,6 +120,50 @@ describe("global realtime WebSocket gateway", () => {
     connection.socket.close();
   });
 
+  it("rate limits anonymous WebSocket handshakes before session lookup", async () => {
+    const limited = await createVimlaApiApp(
+      {
+        ...loadApiConfig(process.env),
+        realtimePreAuthHandshakeLimitPerMinute: 2,
+      },
+      { quiet: true },
+    );
+    await limited.listen(0, "127.0.0.1");
+    const peerKey =
+      "ratelimit:realtime:handshake:peer:127.0.0.1";
+    const redis = limited.get(RedisService).client;
+    await redis.del(peerKey);
+    try {
+      const limitedUrl = await limited.getUrl();
+      const installationId = randomUUID();
+
+      await expect(
+        rejectedUpgrade({
+          baseUrl: limitedUrl,
+          installationId,
+          origin,
+        }),
+      ).resolves.toBe(401);
+      await expect(
+        rejectedUpgrade({
+          baseUrl: limitedUrl,
+          installationId,
+          origin,
+        }),
+      ).resolves.toBe(401);
+      await expect(
+        rejectedUpgrade({
+          baseUrl: limitedUrl,
+          installationId,
+          origin,
+        }),
+      ).resolves.toBe(429);
+    } finally {
+      await redis.del(peerKey);
+      await limited.close();
+    }
+  });
+
   it("rate limits authenticated WebSocket handshakes before repeated authorization work", async () => {
     const limited = await createVimlaApiApp(
       {
