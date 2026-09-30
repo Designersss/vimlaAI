@@ -1,5 +1,6 @@
 import {
   REALTIME_PROTOCOL_VERSION,
+  clientInstallationIdSchema,
   realtimePongFrameSchema,
   realtimeServerFrameSchema,
   type RealtimeEventEnvelope,
@@ -79,6 +80,18 @@ export function subscribeRealtime(
       }
 
       if (parsed.data.frameType === "HELLO") {
+        if (
+          parsed.data.installationId !==
+          clientInstallationIdSchema.parse(
+            options.installationId,
+          )
+        ) {
+          current.close(
+            1002,
+            "installation_mismatch",
+          );
+          return;
+        }
         retryAttempt = 0;
         options.onOpen?.();
         return;
@@ -157,7 +170,9 @@ export function realtimeWebSocketUrl(
   );
   url.searchParams.set(
     "installationId",
-    installationId,
+    clientInstallationIdSchema.parse(
+      installationId,
+    ),
   );
   return url.toString();
 }
