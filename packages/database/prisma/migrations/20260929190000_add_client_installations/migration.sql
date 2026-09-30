@@ -40,6 +40,43 @@ CREATE TABLE "client_installation" (
     CONSTRAINT "client_installation_pkey" PRIMARY KEY ("id"),
     CONSTRAINT "client_installation_id_non_nil_chk"
       CHECK ("id" <> '00000000-0000-0000-0000-000000000000'::UUID),
+    CONSTRAINT "client_installation_id_rfc_chk"
+      CHECK ("id"::TEXT ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}
+      CHECK ("kind" IN ('WEB', 'DESKTOP', 'IOS', 'ANDROID')),
+    CONSTRAINT "client_installation_app_version_chk"
+      CHECK ("appVersion" IS NULL OR char_length("appVersion") BETWEEN 1 AND 64),
+    CONSTRAINT "client_installation_protocol_version_chk"
+      CHECK ("protocolVersion" BETWEEN 1 AND 1000000),
+    CONSTRAINT "client_installation_capabilities_chk"
+      CHECK ("vimla_client_installation_capabilities_valid"("capabilities"))
+);
+
+CREATE INDEX "client_installation_userId_revokedAt_idx"
+  ON "client_installation"("userId", "revokedAt");
+
+CREATE INDEX "client_installation_userId_lastSeenAt_idx"
+  ON "client_installation"("userId", "lastSeenAt");
+
+ALTER TABLE "client_installation"
+  ADD CONSTRAINT "client_installation_userId_fkey"
+  FOREIGN KEY ("userId") REFERENCES "user"("id")
+  ON DELETE CASCADE ON UPDATE CASCADE;
+
+CREATE TABLE "client_installation_preference" (
+    "installationId" UUID NOT NULL,
+    "pushEnabled" BOOLEAN NOT NULL DEFAULT false,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "client_installation_preference_pkey"
+      PRIMARY KEY ("installationId")
+);
+
+ALTER TABLE "client_installation_preference"
+  ADD CONSTRAINT "client_installation_preference_installationId_fkey"
+  FOREIGN KEY ("installationId") REFERENCES "client_installation"("id")
+  ON DELETE CASCADE ON UPDATE CASCADE;
+),
     CONSTRAINT "client_installation_kind_chk"
       CHECK ("kind" IN ('WEB', 'DESKTOP', 'IOS', 'ANDROID')),
     CONSTRAINT "client_installation_app_version_chk"
