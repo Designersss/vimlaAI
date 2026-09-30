@@ -27,7 +27,7 @@ AS $$
 $$;
 
 CREATE TABLE "client_installation" (
-    "id" TEXT NOT NULL,
+    "id" UUID NOT NULL,
     "userId" TEXT NOT NULL,
     "kind" TEXT NOT NULL,
     "appVersion" TEXT,
@@ -38,8 +38,8 @@ CREATE TABLE "client_installation" (
     "revokedAt" TIMESTAMP(3),
 
     CONSTRAINT "client_installation_pkey" PRIMARY KEY ("id"),
-    CONSTRAINT "client_installation_id_uuid_chk"
-      CHECK ("id" ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'),
+    CONSTRAINT "client_installation_id_non_nil_chk"
+      CHECK ("id" <> '00000000-0000-0000-0000-000000000000'::UUID),
     CONSTRAINT "client_installation_kind_chk"
       CHECK ("kind" IN ('WEB', 'DESKTOP', 'IOS', 'ANDROID')),
     CONSTRAINT "client_installation_app_version_chk"
@@ -62,7 +62,7 @@ ALTER TABLE "client_installation"
   ON DELETE CASCADE ON UPDATE CASCADE;
 
 CREATE TABLE "client_installation_preference" (
-    "installationId" TEXT NOT NULL,
+    "installationId" UUID NOT NULL,
     "pushEnabled" BOOLEAN NOT NULL DEFAULT false,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
