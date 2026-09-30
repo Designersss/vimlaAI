@@ -93,9 +93,8 @@ export const directMessageDeletedSyncDeltaSchema =
     .strict()
     .refine(
       (value) =>
-        value.scope.id === value.payload.conversationId &&
-        value.eventId === value.payload.messageId,
-      "Direct message tombstone identifiers must match",
+        value.scope.id === value.payload.conversationId,
+      "Direct message tombstone scope must match",
     );
 
 export const syncDeltaSchema = z.union([
