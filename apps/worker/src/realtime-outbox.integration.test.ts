@@ -156,14 +156,16 @@ describe("realtime outbox dispatcher", () => {
 
     const publisher = new RecordingPublisher();
     publisher.failuresRemaining = 1;
+    let clockNow = now;
     const dispatcher = new RealtimeOutboxDispatcher(
       prisma,
       publisher,
       policy,
       logger,
+      () => clockNow,
     );
 
-    const first = await dispatcher.runOnce(now);
+    const first = await dispatcher.runOnce();
     expect(first.retryScheduled).toBe(1);
     const retryState =
       await prisma.realtimeOutbox.findUniqueOrThrow({
@@ -180,7 +182,8 @@ describe("realtime outbox dispatcher", () => {
     if (!retryAt) {
       throw new Error("Retry timestamp missing");
     }
-    const second = await dispatcher.runOnce(retryAt);
+    clockNow = retryAt;
+    const second = await dispatcher.runOnce();
     expect(second.published).toBe(1);
     expect(publisher.events).toHaveLength(2);
 
