@@ -573,6 +573,27 @@ describe("client installations API", () => {
       }),
     ).rejects.toThrow();
 
+    await expect(
+      prisma.$executeRaw`
+        INSERT INTO "client_installation" (
+          "id",
+          "userId",
+          "kind",
+          "appVersion",
+          "protocolVersion",
+          "capabilities"
+        )
+        VALUES (
+          ${randomUUID()},
+          ${user.id},
+          'WEB',
+          'bad',
+          1,
+          ARRAY[['sync.v1'], ['realtime.v1']]::TEXT[]
+        )
+      `,
+    ).rejects.toThrow();
+
     for (const capabilities of [
       [""],
       ["ADMIN ACCESS"],
