@@ -505,6 +505,48 @@ describe("client installations API", () => {
       }),
     ).rejects.toThrow();
 
+    await expect(
+      prisma.clientInstallation.create({
+        data: {
+          id: "not-a-uuid",
+          userId: user.id,
+          kind: "WEB",
+          appVersion: "bad",
+          protocolVersion: 1,
+          capabilities: [],
+        },
+      }),
+    ).rejects.toThrow();
+
+    await expect(
+      prisma.clientInstallation.create({
+        data: {
+          id: randomUUID(),
+          userId: user.id,
+          kind: "WEB",
+          appVersion: "x".repeat(65),
+          protocolVersion: 1,
+          capabilities: [],
+        },
+      }),
+    ).rejects.toThrow();
+
+    await expect(
+      prisma.clientInstallation.create({
+        data: {
+          id: randomUUID(),
+          userId: user.id,
+          kind: "WEB",
+          appVersion: "bad",
+          protocolVersion: 1,
+          capabilities: Array.from(
+            { length: 33 },
+            (_, index) => `capability.${index}`,
+          ),
+        },
+      }),
+    ).rejects.toThrow();
+
     for (const capabilities of [
       [""],
       ["ADMIN ACCESS"],
