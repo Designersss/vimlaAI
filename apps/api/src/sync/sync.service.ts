@@ -43,17 +43,23 @@ export class SyncService {
           minRetainedPosition: true,
         },
       });
-    const head = state?.lastPosition ?? 0n;
+    const currentHead = state?.lastPosition ?? 0n;
     const minRetained =
       state?.minRetainedPosition ?? 0n;
 
     let position = 0n;
+    let snapshotHead = currentHead;
     if (input.cursor) {
       try {
-        position = this.cursors.decode(
+        const decoded = this.cursors.decode(
           userId,
           input.cursor,
         );
+        position = decoded.position;
+        snapshotHead =
+          decoded.position === decoded.snapshotHead
+            ? currentHead
+            : decoded.snapshotHead;
       } catch (error: unknown) {
         if (error instanceof SyncCursorDecodeError) {
           throw new BadRequestException({
@@ -67,7 +73,8 @@ export class SyncService {
 
     if (
       position < minRetained ||
-      position > head
+      position > currentHead ||
+      snapshotHead > currentHead
     ) {
       throw new ConflictException({
         code: "sync_cursor_stale",
@@ -85,7 +92,7 @@ export class SyncService {
           userId,
           position: {
             gt: position,
-            lte: head,
+            lte: snapshotHead,
           },
         },
         orderBy: { position: "asc" },
@@ -150,7 +157,7 @@ export class SyncService {
 
     if (
       candidates.length === 0 &&
-      nextPosition < head
+      nextPosition < snapshotHead
     ) {
       throw new InternalServerErrorException(
         "Sync stream is inconsistent",
@@ -162,9 +169,12 @@ export class SyncService {
       deltas,
       nextCursor: this.cursors.encode(
         userId,
-        nextPosition,
+        {
+          position: nextPosition,
+          snapshotHead,
+        },
       ),
-      hasMore: nextPosition < head,
+      hasMore: nextPosition < snapshotHead,
     });
   }
 }
