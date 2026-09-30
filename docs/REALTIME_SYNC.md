@@ -114,6 +114,35 @@ Redis Pub/Sub fans events between API instances on server-derived per-user chann
 
 Web includes a bounded exponential-reconnect transport and answers application heartbeats. Direct Chat temporarily consumes both the common WebSocket hint and its existing SSE signal only during the #94→#97 migration window; duplicate message identifiers are suppressed before refresh. #97 must remove SSE/EventSource after durable Sync proves correctness.
 
+## 5B. RT-02 transactional durable event outbox
+
+RT-02 separates two PostgreSQL concerns:
+
+- `DurableEvent` is the immutable state-change/event ledger that future SYNC-01 may consume;
+- `RealtimeOutbox` is operational publication state for getting a durable hint onto the RT-01 foreground transport.
+
+For Direct Chat message creation, the encrypted message rows, mention metadata, conversation timestamp, durable event, recipient set and initial outbox row are committed in the same PostgreSQL transaction. A successful message commit therefore cannot exist without its durable publication intent.
+
+The first durable event remains `DIRECT_MESSAGE_CREATED`. Its stable event id is the Direct Message id and its payload contains only `conversationId` and `messageId`; ciphertext, plaintext, private keys, prompts and envelope bodies are not copied into the event ledger.
+
+The worker claims due `PENDING` rows and expired `PROCESSING` leases with `FOR UPDATE ... SKIP LOCKED`. Claims are bounded by batch size and ordered by internal durable sequence. A per-event lease is renewed immediately before publication so a large sequential batch cannot accidentally let later claimed rows expire while earlier rows are being sent.
+
+Publication semantics are deliberately at-least-once:
+
+- Redis unavailable or publish timeout returns the outbox row to `PENDING` with capped exponential backoff;
+- there is no terminal transport-failure state that can permanently hide a committed event;
+- a worker crash or lease loss before publication is recovered from the expired lease;
+- a crash after Redis publication but before marking `PUBLISHED` may publish the same event again after lease recovery;
+- clients therefore deduplicate by stable event id and durable Sync remains the convergence mechanism.
+
+Multiple workers may claim concurrently without a global application lock. `SKIP LOCKED` prevents the same live claim from being owned twice, while expired leases make abandoned work recoverable.
+
+The global `DurableEvent.sequence` is server-internal ordering metadata. It is **not** a public client cursor and must not be exposed directly by SYNC-01. Concurrent workers/gateways can deliver realtime hints out of order even when rows are claimed in sequence; clients must treat WebSocket frames as hints and reconcile authoritative state.
+
+Published `RealtimeOutbox` rows have bounded operational retention and may be compacted after the configured retention interval. Compaction deletes only publication state. The associated `DurableEvent` remains until SYNC-01 defines and proves a safe durable-event retention horizon.
+
+Direct Chat's old SSE publication remains temporary only for the #94→#97 transition. Global WebSocket publication for durable Direct Chat events now comes from the transactional outbox path rather than the post-commit API controller.
+
 ## 6. Sync cursor
 
 Cursor is opaque to clients.
