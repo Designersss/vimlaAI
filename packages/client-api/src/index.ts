@@ -29,3 +29,8 @@ export {
   createNotificationsClient,
 } from "./notifications.js";
 export { createInstallationsClient } from "./installations.js";
+
+export {
+  createSyncClient,
+  type SyncRequestOptions,
+} from "./sync.js";
