@@ -72,7 +72,18 @@ export class RealtimeService
         }
 
         for (const callback of callbacks) {
-          callback(parsed);
+          try {
+            callback(parsed);
+          } catch (error: unknown) {
+            this.logger.warn({
+              msg: "realtime.listener_failed",
+              ...realtimeEventTelemetry(parsed),
+              error:
+                error instanceof Error
+                  ? error.message
+                  : "unknown",
+            });
+          }
         }
       },
     );
