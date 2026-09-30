@@ -69,7 +69,7 @@ function registerWebInstallation(
     kind: "WEB",
     appVersion: null,
     protocolVersion: WEB_PROTOCOL_VERSION,
-    capabilities: [],
+    capabilities: ["realtime.v1"],
   });
 }
 
