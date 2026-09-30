@@ -731,6 +731,13 @@ export const workerEnvSchema = z
     NOTIFY_DELIVERY_BACKOFF_BASE_MS: z.coerce.number().int().min(100).max(600_000).default(5_000),
     NOTIFY_DELIVERY_BACKOFF_CAP_MS: z.coerce.number().int().min(1_000).max(3_600_000).default(300_000),
     NOTIFY_DELIVERY_LEASE_SECONDS: z.coerce.number().int().min(15).max(900).default(120),
+    REALTIME_OUTBOX_POLL_MS: z.coerce.number().int().min(100).max(60_000).default(500),
+    REALTIME_OUTBOX_BATCH: z.coerce.number().int().min(1).max(500).default(100),
+    REALTIME_OUTBOX_LEASE_SECONDS: z.coerce.number().int().min(5).max(900).default(30),
+    REALTIME_OUTBOX_BACKOFF_BASE_MS: z.coerce.number().int().min(100).max(60_000).default(500),
+    REALTIME_OUTBOX_BACKOFF_CAP_MS: z.coerce.number().int().min(1_000).max(3_600_000).default(30_000),
+    REALTIME_OUTBOX_PUBLISH_TIMEOUT_MS: z.coerce.number().int().min(100).max(60_000).default(5_000),
+    REALTIME_OUTBOX_RETENTION_HOURS: z.coerce.number().int().min(1).max(720).default(24),
     WORKER_HEALTH_PORT: z.preprocess(emptyToUndefined, portSchema.optional()),
     PAYMENT_PROVIDER: z.enum(["mock", "tbank"]).optional(),
     PAYMENT_RECONCILE_AFTER_SECONDS: z.coerce.number().int().min(30).max(86_400).default(120),
@@ -1069,6 +1076,13 @@ export const workerConfigSchema = z.object({
   notifyDeliveryBackoffBaseMs: z.number().int().min(100).max(600_000),
   notifyDeliveryBackoffCapMs: z.number().int().min(1_000).max(3_600_000),
   notifyDeliveryLeaseSeconds: z.number().int().min(15).max(900),
+  realtimeOutboxPollMs: z.number().int().min(100).max(60_000),
+  realtimeOutboxBatch: z.number().int().min(1).max(500),
+  realtimeOutboxLeaseSeconds: z.number().int().min(5).max(900),
+  realtimeOutboxBackoffBaseMs: z.number().int().min(100).max(60_000),
+  realtimeOutboxBackoffCapMs: z.number().int().min(1_000).max(3_600_000),
+  realtimeOutboxPublishTimeoutMs: z.number().int().min(100).max(60_000),
+  realtimeOutboxRetentionHours: z.number().int().min(1).max(720),
   workerHealthPort: portSchema.optional(),
   paymentProvider: z.enum(["mock", "tbank"]),
   paymentReconcileAfterSeconds: z.number().int().min(30),
@@ -1130,5 +1144,28 @@ export const workerConfigSchema = z.object({
   tbankTerminalKey: z.string().min(1),
   tbankPassword: z.string().min(1),
   tbankApiBaseUrl: z.url(),
+}).superRefine((value, ctx) => {
+  if (
+    value.realtimeOutboxBackoffCapMs <
+    value.realtimeOutboxBackoffBaseMs
+  ) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["realtimeOutboxBackoffCapMs"],
+      message:
+        "Realtime outbox backoff cap must be at least its base",
+    });
+  }
+  if (
+    value.realtimeOutboxLeaseSeconds * 1_000 <=
+    value.realtimeOutboxPublishTimeoutMs
+  ) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["realtimeOutboxLeaseSeconds"],
+      message:
+        "Realtime outbox lease must exceed publish timeout",
+    });
+  }
 });
 export type WorkerConfig = z.infer<typeof workerConfigSchema>;
