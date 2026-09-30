@@ -428,6 +428,59 @@ describe("realtime outbox dispatcher", () => {
     ).toBe(40);
   });
 
+  it("isolates an unsupported durable event and continues publishing the rest of the batch", async () => {
+    const now = new Date("2001-05-25T00:00:00.000Z");
+    const invalid = await seedEvent(prisma, now);
+    const valid = await seedEvent(
+      prisma,
+      new Date(now.getTime() + 1),
+    );
+    eventIds.push(invalid.eventId, valid.eventId);
+    userIds.push(...invalid.userIds, ...valid.userIds);
+
+    await prisma.durableEvent.update({
+      where: { id: invalid.eventId },
+      data: {
+        eventType: "FUTURE_EVENT",
+        payload: {},
+      },
+    });
+
+    const publisher = new RecordingPublisher();
+    const dispatcher = new RealtimeOutboxDispatcher(
+      prisma,
+      publisher,
+      policy,
+      logger,
+      () => new Date(now.getTime() + 100),
+    );
+    const result = await dispatcher.runOnce();
+
+    expect(result.claimed).toBe(2);
+    expect(result.retryScheduled).toBe(1);
+    expect(result.published).toBe(1);
+    expect(
+      publisher.events.map(
+        ({ event }) => event.eventId,
+      ),
+    ).toEqual([valid.eventId]);
+
+    const [invalidOutbox, validOutbox] =
+      await Promise.all([
+        prisma.realtimeOutbox.findUniqueOrThrow({
+          where: { eventId: invalid.eventId },
+        }),
+        prisma.realtimeOutbox.findUniqueOrThrow({
+          where: { eventId: valid.eventId },
+        }),
+      ]);
+    expect(invalidOutbox.status).toBe("PENDING");
+    expect(invalidOutbox.lastErrorCode).toBe(
+      "event_decode_failed",
+    );
+    expect(validOutbox.status).toBe("PUBLISHED");
+  });
+
   it("compacts published delivery state without deleting the durable event ledger", async () => {
     const now = new Date("2001-06-01T00:00:10.000Z");
     const seeded = await seedEvent(
