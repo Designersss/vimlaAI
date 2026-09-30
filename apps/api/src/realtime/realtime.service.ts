@@ -13,11 +13,15 @@ import {
   realtimeEventEnvelopeSchema,
   type RealtimeEventEnvelope,
 } from "@vimla/contracts";
+import {
+  REALTIME_USER_CHANNEL_PREFIX,
+  realtimeUserChannel,
+  realtimeUserIdFromChannel,
+} from "@vimla/shared";
 import type { Redis } from "ioredis";
 import { RedisService } from "../persistence/redis.service.js";
 
-const CHANNEL_PREFIX = "realtime:user:";
-const PATTERN = `${CHANNEL_PREFIX}*`;
+const PATTERN = `${REALTIME_USER_CHANNEL_PREFIX}*`;
 
 export type RealtimeListener = (
   event: RealtimeEventEnvelope,
@@ -50,10 +54,10 @@ export class RealtimeService
     this.subscriber.on(
       "pmessage",
       (_pattern, channel, payload) => {
-        if (!channel.startsWith(CHANNEL_PREFIX)) {
+        const userId = realtimeUserIdFromChannel(channel);
+        if (!userId) {
           return;
         }
-        const userId = channel.slice(CHANNEL_PREFIX.length);
         const callbacks = this.listeners.get(userId);
         if (!callbacks || callbacks.size === 0) {
           return;
@@ -117,7 +121,7 @@ export class RealtimeService
       await Promise.all(
         [...new Set(userIds)].map((userId) =>
           this.redis.client.publish(
-            `${CHANNEL_PREFIX}${userId}`,
+            realtimeUserChannel(userId),
             payload,
           ),
         ),
