@@ -8,7 +8,7 @@ LANGUAGE SQL
 IMMUTABLE
 AS $$
   SELECT cardinality("values") = cardinality(
-    ARRAY(SELECT DISTINCT value FROM unnest("values") AS value)
+    ARRAY(SELECT DISTINCT value FROM unnest("values") AS item(value))
   )
 $$;
 
