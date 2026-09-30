@@ -21,6 +21,7 @@ import { DirectChatsModule } from "./direct-chats/direct-chats.module.js";
 import { MentionsModule } from "./mentions/mentions.module.js";
 import { MemoryModule } from "./memory/memory.module.js";
 import { InstallationsModule } from "./installations/installations.module.js";
+import { RealtimeModule } from "./realtime/realtime.module.js";
 import { createPinoHttpOptions } from "./observability/logger.js";
 import { ObservabilityModule } from "./observability/observability.module.js";
 
@@ -52,6 +53,7 @@ export class AppModule {
       MentionsModule,
       MemoryModule,
       InstallationsModule,
+      RealtimeModule,
     ];
 
     if (isDevBillingEnvironment(config.appEnv)) {
