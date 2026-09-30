@@ -37,7 +37,7 @@ export class RealtimeService
   >();
 
   constructor(
-    @Inject(RedisService) private readonly redis: RedisService,
+    @Inject(RedisService) redis: RedisService,
   ) {
     this.subscriber = redis.client.duplicate({
       maxRetriesPerRequest: 1,
