@@ -634,6 +634,24 @@ describe("client installations API", () => {
       }),
     ).rejects.toThrow();
 
+    for (const id of [
+      "11111111-1111-0111-8111-111111111111",
+      "11111111-1111-4111-0111-111111111111",
+    ]) {
+      await expect(
+        prisma.clientInstallation.create({
+          data: {
+            id,
+            userId: user.id,
+            kind: "WEB",
+            appVersion: "bad",
+            protocolVersion: 1,
+            capabilities: [],
+          },
+        }),
+      ).rejects.toThrow();
+    }
+
     await expect(
       prisma.clientInstallation.create({
         data: {
