@@ -537,6 +537,32 @@ describe("client installations API", () => {
           id: randomUUID(),
           userId: user.id,
           kind: "WEB",
+          appVersion: "😀".repeat(64),
+          protocolVersion: 1,
+          capabilities: [],
+        },
+      }),
+    ).resolves.toBeDefined();
+
+    await expect(
+      prisma.clientInstallation.create({
+        data: {
+          id: randomUUID(),
+          userId: user.id,
+          kind: "WEB",
+          appVersion: "😀".repeat(65),
+          protocolVersion: 1,
+          capabilities: [],
+        },
+      }),
+    ).rejects.toThrow();
+
+    await expect(
+      prisma.clientInstallation.create({
+        data: {
+          id: randomUUID(),
+          userId: user.id,
+          kind: "WEB",
           appVersion: "bad",
           protocolVersion: 1,
           capabilities: Array.from(
