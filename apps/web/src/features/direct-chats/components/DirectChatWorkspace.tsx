@@ -70,6 +70,8 @@ import {
   shouldContinueDeepHistoryBootstrap,
 } from "@vimla/client-core";
 import { decodeDirectPlaintext, encodeDirectPlaintext, type DirectPlaintextPayload } from "../services/payload";
+import { ensureWebInstallation } from "../../installations/services/installation";
+import { subscribeRealtime } from "../../../shared/realtime/realtime";
 import { subscribeDirectChatEvents } from "../services/realtime";
 import {
   decryptMessageWithStatus,
@@ -215,10 +217,12 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
   }, [attempt, conversationId, locale, prepareDevice, router, workspace]);
 
   useEffect(() => {
-    if (boot !== "ready") return;
+    if (boot !== "ready" || !userId) return;
     let cancelled = false;
     let syncing = false;
     let queued = false;
+    const recentMessageIds = new Set<string>();
+    const recentMessageOrder: string[] = [];
 
     const syncLatest = async (): Promise<void> => {
       if (syncing) {
@@ -262,17 +266,66 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
       syncing = false;
     };
 
-    const unsubscribe = subscribeDirectChatEvents({
+    const notifyMessage = (
+      eventConversationId: string,
+      messageId: string,
+    ): void => {
+      if (eventConversationId !== conversationId) {
+        return;
+      }
+      if (recentMessageIds.has(messageId)) {
+        return;
+      }
+      recentMessageIds.add(messageId);
+      recentMessageOrder.push(messageId);
+      if (recentMessageOrder.length > 128) {
+        const expired = recentMessageOrder.shift();
+        if (expired) recentMessageIds.delete(expired);
+      }
+      void syncLatest();
+    };
+
+    const unsubscribeLegacy = subscribeDirectChatEvents({
       onOpen: () => void syncLatest(),
       onMessage: (event) => {
-        if (event.conversationId === conversationId) void syncLatest();
+        notifyMessage(
+          event.conversationId,
+          event.messageId,
+        );
       },
     });
+
+    let unsubscribeRealtime = (): void => undefined;
+    void ensureWebInstallation(userId)
+      .then((installation) => {
+        if (cancelled) return;
+        unsubscribeRealtime = subscribeRealtime({
+          installationId: installation.id,
+          onEvent: (event) => {
+            if (
+              event.eventType ===
+              "DIRECT_MESSAGE_CREATED"
+            ) {
+              notifyMessage(
+                event.payload.conversationId,
+                event.payload.messageId,
+              );
+            }
+          },
+        });
+      })
+      .catch(() => {
+        // ARCH-03 bootstrap remains best-effort here.
+        // Legacy SSE stays active until #97 replaces it
+        // with durable Sync + WebSocket convergence.
+      });
+
     return () => {
       cancelled = true;
-      unsubscribe();
+      unsubscribeLegacy();
+      unsubscribeRealtime();
     };
-  }, [boot, conversationId, router, workspace]);
+  }, [boot, conversationId, router, userId, workspace]);
 
   useEffect(() => {
     if (!activeMention) return;
