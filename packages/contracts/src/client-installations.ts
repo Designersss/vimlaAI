@@ -14,7 +14,14 @@ export const preferenceScopeSchema = z.enum([
 ]);
 export type PreferenceScope = z.infer<typeof preferenceScopeSchema>;
 
-export const clientInstallationIdSchema = z.string().uuid();
+const NIL_UUID = "00000000-0000-0000-0000-000000000000";
+
+export const clientInstallationIdSchema = z
+  .string()
+  .uuid()
+  .refine((value) => value.toLowerCase() !== NIL_UUID, {
+    message: "Client installation id must not be the nil UUID",
+  });
 
 export const clientInstallationKindSchema = z.enum([
   "WEB",
