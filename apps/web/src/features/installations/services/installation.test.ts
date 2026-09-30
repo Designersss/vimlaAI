@@ -73,6 +73,35 @@ describe("Web installation bootstrap", () => {
     expect(bodies.map((body) => body.id)).toEqual([id, id]);
   });
 
+  it("normalizes an equivalent stored UUID without rotating identity", async () => {
+    const local = storage();
+    const key = installationStorageKey("user-a");
+    const canonicalId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    local.values.set(key, canonicalId.toUpperCase());
+    const randomUuid = vi.fn(() =>
+      "22222222-2222-4222-8222-222222222222",
+    );
+    const fetchImpl = vi.fn<typeof fetch>(async (_url, init) => {
+      const body = JSON.parse(String(init?.body)) as { id: string };
+      return response(body.id);
+    });
+
+    await expect(
+      ensureWebInstallation("user-a", {
+        storage: local,
+        randomUuid,
+        fetchImpl,
+      }),
+    ).resolves.toMatchObject({ id: canonicalId });
+
+    expect(local.values.get(key)).toBe(canonicalId);
+    expect(randomUuid).not.toHaveBeenCalled();
+    const body = JSON.parse(
+      String(fetchImpl.mock.calls[0]?.[1]?.body),
+    ) as { id: string };
+    expect(body.id).toBe(canonicalId);
+  });
+
   it("rotates a foreign or otherwise missing stored installation id", async () => {
     const local = storage();
     const key = installationStorageKey("user-a");
