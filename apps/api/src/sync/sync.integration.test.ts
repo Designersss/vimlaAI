@@ -175,7 +175,10 @@ describe("durable cursor sync API", () => {
     });
     const zeroCursor = app
       .get(SyncCursorCodec)
-      .encode(owner.id, 0n);
+      .encode(owner.id, {
+        position: 0n,
+        snapshotHead: 1n,
+      });
     const stale = await syncRequest(app, owner.cookies, {
       cursor: zeroCursor,
       limit: 1,
@@ -294,6 +297,93 @@ describe("durable cursor sync API", () => {
         },
       },
     ]);
+  });
+
+  it("keeps an in-progress pagination snapshot stable while concurrent writes append", async () => {
+    const owner = await registerVerifiedUser(
+      app,
+      "sync-snapshot-owner",
+    );
+    const peer = await registerVerifiedUser(
+      app,
+      "sync-snapshot-peer",
+    );
+    const conversationId = await createDirectConversation(
+      prisma,
+      owner.id,
+      peer.id,
+    );
+
+    const firstEvent = await seedDirectCreatedEvent(
+      prisma,
+      owner.id,
+      conversationId,
+      1n,
+    );
+    const secondEvent = await seedDirectCreatedEvent(
+      prisma,
+      owner.id,
+      conversationId,
+      2n,
+    );
+    const thirdEvent = await seedDirectCreatedEvent(
+      prisma,
+      owner.id,
+      conversationId,
+      3n,
+    );
+
+    const firstPage = syncResponseSchema.parse(
+      (
+        await syncRequest(app, owner.cookies, {
+          limit: 1,
+        })
+      ).json(),
+    );
+    expect(
+      firstPage.deltas.map(
+        (delta) => delta.eventId,
+      ),
+    ).toEqual([firstEvent]);
+    expect(firstPage.hasMore).toBe(true);
+
+    const appendedEvent =
+      await seedDirectCreatedEvent(
+        prisma,
+        owner.id,
+        conversationId,
+        4n,
+      );
+
+    const secondPage = syncResponseSchema.parse(
+      (
+        await syncRequest(app, owner.cookies, {
+          cursor: firstPage.nextCursor,
+          limit: 10,
+        })
+      ).json(),
+    );
+    expect(
+      secondPage.deltas.map(
+        (delta) => delta.eventId,
+      ),
+    ).toEqual([secondEvent, thirdEvent]);
+    expect(secondPage.hasMore).toBe(false);
+
+    const nextSnapshot = syncResponseSchema.parse(
+      (
+        await syncRequest(app, owner.cookies, {
+          cursor: secondPage.nextCursor,
+          limit: 10,
+        })
+      ).json(),
+    );
+    expect(
+      nextSnapshot.deltas.map(
+        (delta) => delta.eventId,
+      ),
+    ).toEqual([appendedEvent]);
+    expect(nextSnapshot.hasMore).toBe(false);
   });
 
   it("recovers writes appended after a completed page and survives API process restart", async () => {
