@@ -45,6 +45,7 @@ model User {
   operatorRuns               OperatorRun[]
   operatorAuditEvents        OperatorAuditEvent[]
   cryptoDevices              UserCryptoDevice[]
+  clientInstallations        ClientInstallation[]
   directMemberships          DirectConversationMember[]
   directMessagesSent         DirectMessage[]            @relation("DirectMessageSender")
   assignedWorkspaceTasks     WorkspaceTask[]            @relation("TaskAssignedBy")
@@ -74,6 +75,34 @@ model UserPreference {
   updatedAt              DateTime @updatedAt
 
   @@map("user_preference")
+}
+
+model ClientInstallation {
+  id              String                       @id @db.Uuid
+  userId          String
+  user            User                         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  kind            String
+  appVersion      String?
+  protocolVersion Int
+  capabilities    String[]                     @default([])
+  createdAt       DateTime                     @default(now())
+  lastSeenAt      DateTime                     @default(now())
+  revokedAt       DateTime?
+  preference      ClientInstallationPreference?
+
+  @@index([userId, revokedAt])
+  @@index([userId, lastSeenAt])
+  @@map("client_installation")
+}
+
+model ClientInstallationPreference {
+  installationId String             @id @db.Uuid
+  installation   ClientInstallation @relation(fields: [installationId], references: [id], onDelete: Cascade)
+  pushEnabled    Boolean            @default(false)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+
+  @@map("client_installation_preference")
 }
 
 model Session {

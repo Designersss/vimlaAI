@@ -1,4 +1,21 @@
 export {
+  CLIENT_INSTALLATION_LIMITS,
+  clientInstallationCapabilitiesSchema,
+  clientInstallationIdSchema,
+  clientInstallationKindSchema,
+  clientInstallationPreferencesSchema,
+  clientInstallationViewSchema,
+  preferenceScopeSchema,
+  registerClientInstallationSchema,
+  updateClientInstallationPreferencesSchema,
+  type ClientInstallationKind,
+  type ClientInstallationPreferences,
+  type ClientInstallationView,
+  type PreferenceScope,
+  type RegisterClientInstallation,
+  type UpdateClientInstallationPreferences,
+} from "./client-installations.js";
+export {
   apiErrorCodeSchema,
   apiErrorResponseSchema,
   type ApiErrorCode,

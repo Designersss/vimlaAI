@@ -167,21 +167,31 @@ Never treat `X-Platform: mobile`, installation kind or app version as permission
 
 ## 9. ClientInstallation vs crypto device
 
-`ClientInstallation` represents an app installation for sync/push/preferences/telemetry.
+`ClientInstallation` is the durable product identity of one signed-in app installation for sync/push/preferences/telemetry. ARCH-03 stores:
 
-`UserCryptoDevice` represents cryptographic identity/protocol state.
+- stable client-generated UUID;
+- authenticated owner `userId` bound only by the server;
+- non-authoritative `kind` (`WEB/DESKTOP/IOS/ANDROID`);
+- optional `appVersion`;
+- `protocolVersion` and bounded capability names;
+- `createdAt`, throttled `lastSeenAt`, and `revokedAt`;
+- installation-scoped preferences.
 
-They may be linked but are not identical concepts.
+Registration is idempotent for the same authenticated owner. A client-supplied id can never transfer ownership, and a revoked id is not silently resurrected. Platform kind/version/capabilities are negotiation/telemetry metadata only and never grant roles, permissions, billing access, or authorization. Creation of new active installations is bounded per account by a configurable limit and serialized per user so concurrent registrations cannot exceed it; revocation releases active capacity without resurrecting the revoked id.
 
-Revoking one must follow explicit lifecycle rules rather than accidental cascade assumptions.
+Web persists the non-secret installation id per account in localStorage through a Web adapter. This local id is not a session credential and must never be treated as authority. An ownership-safe not-found id may be replaced once with a fresh UUID, but a revoked installation remains terminal and is never silently bypassed by identity rotation. Transient transport/server failures also do not rotate identity. During ARCH-03 the shell refresh is best-effort because existing product access still depends only on authenticated server authority; RT/SYNC stages may require an active installation for their own transport without turning installation state into account authorization.
+
+`UserCryptoDevice` remains a separate cryptographic identity/protocol lifecycle. ARCH-03 intentionally adds no foreign key or lifecycle cascade between the two concepts. Any future optional binding requires a security-reviewed issue.
 
 ## 10. Settings scopes
 
-- ACCOUNT: roaming user preferences.
-- INSTALLATION: cache/autodownload/local notification behavior etc.
-- SURFACE: mute/pin/archive/surface notification/AI privacy.
+The scope is part of the ownership model, not merely a UI grouping:
 
-Only security/product requirements determine which setting belongs to which scope.
+- **ACCOUNT** — roaming user/account preferences. Current owners: `UserPreference` fields such as locale/timezone and account notification choices.
+- **INSTALLATION** — preferences for one app installation. Current owner: `ClientInstallationPreference`; ARCH-03 adds only `pushEnabled`, needed by near-term notification work.
+- **SURFACE** — preferences whose authority belongs to one communication surface/membership, such as mute/pin/archive/surface notification level or AI privacy. Do not create one speculative polymorphic settings table before the CommunicationSurface work. Existing Direct Chat membership privacy remains owned by the Direct Chat domain.
+
+A preference must live with the domain/entity that can authorize it. Client platform metadata never chooses or overrides scope.
 
 ## 11. Navigation
 

@@ -64,6 +64,7 @@ Monorepo: pnpm + Turborepo, strict TypeScript.
 
 - One authoritative Vimla backend/domain system serves current Web and future Desktop/Mobile clients. Do not create separate product backends or ordinary `/v1/web/*`, `/v1/mobile/*`, `/v1/desktop/*` API forks.
 - Web is implemented first, but new backend/contracts/client-domain logic must not rely on Next.js merely because native clients are deferred.
+- `ClientInstallation` is product/sync/push metadata, not authentication or authorization authority. It is server-bound to the authenticated user and remains lifecycle-independent from `UserCryptoDevice`; kind/version/capabilities never grant permissions.
 - Desktop/Mobile application shells are not created until Web Functional Complete, the owner's manual Web redesign, and Design Freeze stages defined in #78.
 - Backend/domain outputs use semantic product intent, not presentation routes. Do not introduce new server/domain `hrefPath`/Next-route coupling; migrate existing cases through #91.
 - Reusable client/domain code must not directly depend on Next router, `window`/`document`, IndexedDB, Tauri or Expo/native APIs. Keep platform capabilities behind focused adapters when reuse is justified.
