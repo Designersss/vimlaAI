@@ -1200,7 +1200,7 @@ model DurableEvent {
   protocolVersion Int
   eventType       String
   durability      String
-  changeKind      String                  @default("UPSERT_REF")
+  changeKind      String
   scopeKind       String
   scopeId         String
   occurredAt      DateTime
