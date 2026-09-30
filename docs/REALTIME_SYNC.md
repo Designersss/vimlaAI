@@ -147,13 +147,38 @@ Direct Chat's old SSE publication remains temporary only for the #94→#97 trans
 
 ## 6. Sync cursor
 
-Cursor is opaque to clients.
+SYNC-01 uses a per-user monotonic stream, not the global `DurableEvent.sequence`.
 
-Do not expose a globally meaningful database sequence that reveals unrelated system activity.
+Each `DurableEventRecipient` has a user-local `position`. `UserSyncState.lastPosition` is incremented in the same PostgreSQL transaction that creates the event recipient. Writers acquire per-user counters in stable user-id order, so concurrent transactions affecting the same users serialize without duplicate positions or deadlock-prone lock ordering.
 
-Sync responses are bounded/paginated and contain only currently authorized changes.
+The API is `GET /v1/sync?protocolVersion=1`. A response contains bounded identifier-only deltas, an opaque `nextCursor`, and `hasMore`.
 
-Membership/access loss must prevent subsequent sensitive deltas even if an older cursor once had access.
+Cursor properties:
+
+- the cursor represents a per-user position, never the raw global event sequence;
+- the token is HMAC-bound to the authenticated user, so a cursor copied from another account is invalid;
+- clients treat the token as opaque and persist only the last successfully applied cursor;
+- malformed/foreign cursors return `sync_cursor_invalid`;
+- positions older than `minRetainedPosition` or ahead of the user's current stream head return `sync_cursor_stale`;
+- no realtime ACK is required for correctness.
+
+Pagination snapshots the user's `lastPosition` at request start and reads only positions up to that head. Concurrent writes receive larger user-local positions and are recovered by the next request. Reusing the same cursor replays the same logical page safely because event ids are stable and client application is idempotent.
+
+Authorization is rechecked when deltas are read. For Direct Chat `UPSERT_REF` events, current conversation membership is required. Rows that are no longer authorized are skipped while the cursor still advances, preventing an infinite replay loop after membership loss. Identifier-only `TOMBSTONE` events remain deliverable to their explicitly recorded recipient so the client can delete stale local state after access/object removal without receiving protected content.
+
+Version 1 supports:
+
+- `DIRECT_MESSAGE_CREATED / UPSERT_REF` with only `conversationId` and `messageId`;
+- `DIRECT_MESSAGE_DELETED / TOMBSTONE` with a distinct event id plus the deleted `messageId`.
+
+Tombstone event identity is intentionally distinct from resource identity so multiple transitions for one resource never collide in `DurableEvent.id`.
+
+`UserSyncState.minRetainedPosition` reserves the future safe-retention boundary. SYNC-01 does not compact `DurableEvent` rows yet; RT-02 outbox compaction remains independent and cannot remove sync history.
+
+### Public Channels and large feeds
+
+The per-user recipient stream is for bounded/private state such as Direct Chats. Large public Channels/feeds must **not** write one `DurableEventRecipient` row per subscriber per post. Those domains will use domain-specific feed cursors/checkpoints and the future client SyncEngine will merge them into one coherent recovery model.
+
 
 ## 7. Channels and scale
 
