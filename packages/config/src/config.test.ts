@@ -103,6 +103,9 @@ describe("loadApiConfig", () => {
     expect(
       config.realtimeMaxConnectionsPerInstallation,
     ).toBe(8);
+    expect(
+      config.realtimePreAuthHandshakeLimitPerMinute,
+    ).toBe(600);
     expect(config.realtimeHandshakeLimitPerMinute).toBe(120);
     expect(config.realtimeClientFramesPerMinute).toBe(60);
   });
