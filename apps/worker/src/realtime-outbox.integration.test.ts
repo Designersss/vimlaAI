@@ -481,6 +481,55 @@ describe("realtime outbox dispatcher", () => {
     expect(validOutbox.status).toBe("PUBLISHED");
   });
 
+  it("enforces durable-event and outbox state invariants in PostgreSQL", async () => {
+    const now = new Date("2001-05-28T00:00:00.000Z");
+    const seeded = await seedEvent(prisma, now);
+    eventIds.push(seeded.eventId);
+    userIds.push(...seeded.userIds);
+
+    await expect(
+      prisma.durableEvent.update({
+        where: { id: seeded.eventId },
+        data: { eventType: "invalid_type" },
+      }),
+    ).rejects.toThrow();
+
+    await expect(
+      prisma.durableEvent.update({
+        where: { id: seeded.eventId },
+        data: { payload: [] },
+      }),
+    ).rejects.toThrow();
+
+    await expect(
+      prisma.realtimeOutbox.update({
+        where: { eventId: seeded.eventId },
+        data: {
+          status: "PUBLISHED",
+          nextAttemptAt: null,
+        },
+      }),
+    ).rejects.toThrow();
+
+    const [event, outbox] = await Promise.all([
+      prisma.durableEvent.findUniqueOrThrow({
+        where: { id: seeded.eventId },
+      }),
+      prisma.realtimeOutbox.findUniqueOrThrow({
+        where: { eventId: seeded.eventId },
+      }),
+    ]);
+    expect(event.eventType).toBe(
+      "DIRECT_MESSAGE_CREATED",
+    );
+    expect(event.payload).toEqual({
+      conversationId: seeded.conversationId,
+      messageId: seeded.eventId,
+    });
+    expect(outbox.status).toBe("PENDING");
+    expect(outbox.nextAttemptAt).not.toBeNull();
+  });
+
   it("compacts published delivery state without deleting the durable event ledger", async () => {
     const now = new Date("2001-06-01T00:00:10.000Z");
     const seeded = await seedEvent(
