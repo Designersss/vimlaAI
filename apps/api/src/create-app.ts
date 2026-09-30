@@ -16,6 +16,7 @@ import { isDevNotificationInboxEnabled } from "@vimla/notifications";
 import { AuthService } from "./auth/auth.service.js";
 import { handleBetterAuthRequest } from "./auth/better-auth.fastify.js";
 import { ApiExceptionFilter } from "./http/api-exception.filter.js";
+import { RealtimeGatewayService } from "./realtime/realtime-gateway.service.js";
 
 export async function createVimlaApiApp(
   config: ApiConfig,
@@ -51,6 +52,7 @@ export async function createVimlaApiApp(
   });
 
   const fastify = app.getHttpAdapter().getInstance();
+  app.get(RealtimeGatewayService).attach(fastify.server);
   fastify.setReplySerializer((payload) =>
     JSON.stringify(payload, (_key, value) => (typeof value === "bigint" ? value.toString() : value)),
   );

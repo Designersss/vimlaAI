@@ -7,7 +7,8 @@ import { createWebClientApi } from "../../../shared/api/client";
 
 const INSTALLATION_STORAGE_PREFIX = "vimla:client-installation:v1:";
 const WEB_PROTOCOL_VERSION = 1;
-
+// ClientInstallation negotiation metadata is independent from
+// the versioned realtime frame protocol.
 export interface WebInstallationStorage {
   getItem(key: string): string | null;
   setItem(key: string, value: string): void;
@@ -69,7 +70,7 @@ function registerWebInstallation(
     kind: "WEB",
     appVersion: null,
     protocolVersion: WEB_PROTOCOL_VERSION,
-    capabilities: [],
+    capabilities: ["realtime.v1"],
   });
 }
 

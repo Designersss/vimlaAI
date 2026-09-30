@@ -97,6 +97,38 @@ describe("loadApiConfig", () => {
     expect(config.reminderReconcileIntervalSeconds).toBe(60);
     expect(config.reminderMaxLatenessMinutes).toBe(1_440);
     expect(config.notifyDeliveryMaxAttempts).toBe(6);
+    expect(config.realtimeFrameBytesMax).toBe(8_192);
+    expect(config.realtimeHeartbeatIntervalMs).toBe(20_000);
+    expect(config.realtimeHeartbeatTimeoutMs).toBe(60_000);
+    expect(
+      config.realtimeMaxConnectionsPerInstallation,
+    ).toBe(8);
+    expect(
+      config.realtimePreAuthHandshakeLimitPerMinute,
+    ).toBe(6_000);
+    expect(config.realtimeHandshakeLimitPerMinute).toBe(120);
+    expect(config.realtimeClientFramesPerMinute).toBe(60);
+  });
+
+  it("requires realtime heartbeat timeout to exceed its interval", () => {
+    expect(() =>
+      loadApiConfig({
+        ...validSharedEnv,
+        REALTIME_HEARTBEAT_INTERVAL_MS: "1000",
+        REALTIME_HEARTBEAT_TIMEOUT_MS: "1000",
+      }),
+    ).toThrow(/heartbeat timeout/i);
+  });
+
+  it("rejects a realtime client-frame limit below the configured heartbeat cadence", () => {
+    expect(() =>
+      loadApiConfig({
+        ...validSharedEnv,
+        REALTIME_HEARTBEAT_INTERVAL_MS: "500",
+        REALTIME_HEARTBEAT_TIMEOUT_MS: "2000",
+        REALTIME_CLIENT_FRAMES_PER_MINUTE: "100",
+      }),
+    ).toThrow(/heartbeat PONG/i);
   });
 
   it("keeps PR-20 auto rollout gates off in production", () => {

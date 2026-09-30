@@ -176,6 +176,13 @@ export const apiEnvSchema = z
     WORKSPACE_MUTATION_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).default(60),
     CLIENT_INSTALLATIONS_MUTATION_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).default(60),
     CLIENT_INSTALLATIONS_ACTIVE_LIMIT_PER_USER: z.coerce.number().int().min(1).max(256).default(32),
+    REALTIME_FRAME_BYTES_MAX: z.coerce.number().int().min(1_024).max(65_536).default(8_192),
+    REALTIME_HEARTBEAT_INTERVAL_MS: z.coerce.number().int().min(50).max(60_000).default(20_000),
+    REALTIME_HEARTBEAT_TIMEOUT_MS: z.coerce.number().int().min(100).max(300_000).default(60_000),
+    REALTIME_MAX_CONNECTIONS_PER_INSTALLATION: z.coerce.number().int().min(1).max(32).default(8),
+    REALTIME_PREAUTH_HANDSHAKE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).max(100_000).default(6_000),
+    REALTIME_HANDSHAKE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).max(10_000).default(120),
+    REALTIME_CLIENT_FRAMES_PER_MINUTE: z.coerce.number().int().min(1).max(10_000).default(60),
     OPERATOR_ENABLED: z.enum(["true", "false"]).default("false"),
     OPERATOR_MAX_TOOLS_PER_RUN: z.coerce.number().int().min(1).max(16).default(8),
     OPERATOR_CONFIRMATION_TTL_SECONDS: z.coerce.number().int().min(60).max(3_600).default(900),
@@ -617,6 +624,13 @@ export const apiConfigSchema = z.object({
   workspaceMutationLimitPerMinute: z.number().int().min(1),
   clientInstallationsMutationLimitPerMinute: z.number().int().min(1),
   clientInstallationsActiveLimitPerUser: z.number().int().min(1).max(256),
+  realtimeFrameBytesMax: z.number().int().min(1_024).max(65_536),
+  realtimeHeartbeatIntervalMs: z.number().int().min(50).max(60_000),
+  realtimeHeartbeatTimeoutMs: z.number().int().min(100).max(300_000),
+  realtimeMaxConnectionsPerInstallation: z.number().int().min(1).max(32),
+  realtimePreAuthHandshakeLimitPerMinute: z.number().int().min(1).max(100_000),
+  realtimeHandshakeLimitPerMinute: z.number().int().min(1).max(10_000),
+  realtimeClientFramesPerMinute: z.number().int().min(1).max(10_000),
   operatorEnabled: z.boolean(),
   operatorMaxToolsPerRun: z.number().int().min(1).max(16),
   operatorConfirmationTtlSeconds: z.number().int().min(60).max(3_600),
@@ -657,6 +671,33 @@ export const apiConfigSchema = z.object({
   tbankReceiptFfdVersion: z.enum(["1.05", "1.2"]).optional(),
   tbankReceiptItemName: z.string().min(1).optional(),
   tbankRecurringEnabled: z.boolean(),
+}).superRefine((value, ctx) => {
+  if (
+    value.realtimeHeartbeatTimeoutMs <=
+    value.realtimeHeartbeatIntervalMs
+  ) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["realtimeHeartbeatTimeoutMs"],
+      message:
+        "Realtime heartbeat timeout must exceed heartbeat interval",
+    });
+  }
+
+  const minimumHeartbeatFramesPerMinute = Math.ceil(
+    60_000 / value.realtimeHeartbeatIntervalMs,
+  );
+  if (
+    value.realtimeClientFramesPerMinute <
+    minimumHeartbeatFramesPerMinute
+  ) {
+    ctx.addIssue({
+      code: "custom",
+      path: ["realtimeClientFramesPerMinute"],
+      message:
+        "Realtime client frame limit must allow every configured heartbeat PONG",
+    });
+  }
 });
 export type ApiConfig = z.infer<typeof apiConfigSchema>;
 

@@ -121,6 +121,22 @@ export class ClientInstallationsService {
     }
   }
 
+  async isActiveOwned(
+    userId: string,
+    installationId: string,
+  ): Promise<boolean> {
+    const row =
+      await this.prisma.client.clientInstallation.findFirst({
+        where: {
+          id: installationId,
+          userId,
+          revokedAt: null,
+        },
+        select: { id: true },
+      });
+    return row !== null;
+  }
+
   async revoke(
     userId: string,
     installationId: string,
