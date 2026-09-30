@@ -386,7 +386,7 @@ describe("durable cursor sync API", () => {
     expect(nextSnapshot.hasMore).toBe(false);
   });
 
-  it("recovers writes appended after a completed page and survives API process restart", async () => {
+  it("recovers writes appended after a completed page across database connection and API process restart", async () => {
     const owner = await registerVerifiedUser(
       app,
       "sync-restart-owner",
@@ -422,6 +422,9 @@ describe("durable cursor sync API", () => {
       conversationId,
       2n,
     );
+
+    await prisma.$disconnect();
+    await prisma.$connect();
 
     const restarted = await createVimlaApiApp(
       loadApiConfig(process.env),
