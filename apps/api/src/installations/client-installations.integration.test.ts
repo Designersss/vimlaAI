@@ -506,6 +506,7 @@ describe("client installations API", () => {
     ).rejects.toThrow();
 
     for (const capabilities of [
+      [""],
       ["ADMIN ACCESS"],
       ["x".repeat(65)],
       ["sync.v1", "sync.v1"],
