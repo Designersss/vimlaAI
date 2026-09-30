@@ -19,7 +19,7 @@ export type RealtimeDurability = z.infer<
 >;
 
 export const realtimeEventTypeSchema = z.enum([
-  "DIRECT_MESSAGE_CHANGED",
+  "DIRECT_MESSAGE_CREATED",
 ]);
 export type RealtimeEventType = z.infer<
   typeof realtimeEventTypeSchema
@@ -35,22 +35,22 @@ export const realtimeScopeSchema = z.discriminatedUnion("kind", [
 ]);
 export type RealtimeScope = z.infer<typeof realtimeScopeSchema>;
 
-export const directMessageChangedRealtimePayloadSchema = z
+export const directMessageCreatedRealtimePayloadSchema = z
   .object({
     conversationId: z.string().uuid(),
     messageId: z.string().uuid(),
   })
   .strict();
-export type DirectMessageChangedRealtimePayload = z.infer<
-  typeof directMessageChangedRealtimePayloadSchema
+export type DirectMessageCreatedRealtimePayload = z.infer<
+  typeof directMessageCreatedRealtimePayloadSchema
 >;
 
-export const directMessageChangedRealtimeEventSchema = z
+export const directMessageCreatedRealtimeEventSchema = z
   .object({
     protocolVersion: z.literal(REALTIME_PROTOCOL_VERSION),
     frameType: z.literal("EVENT"),
     eventId: z.string().uuid(),
-    eventType: z.literal("DIRECT_MESSAGE_CHANGED"),
+    eventType: z.literal("DIRECT_MESSAGE_CREATED"),
     durability: z.literal("DURABLE_HINT"),
     scope: z
       .object({
@@ -59,7 +59,7 @@ export const directMessageChangedRealtimeEventSchema = z
       })
       .strict(),
     occurredAt: z.string().datetime({ offset: true }),
-    payload: directMessageChangedRealtimePayloadSchema,
+    payload: directMessageCreatedRealtimePayloadSchema,
   })
   .strict()
   .superRefine((value, ctx) => {
@@ -74,7 +74,7 @@ export const directMessageChangedRealtimeEventSchema = z
   });
 
 export const realtimeEventEnvelopeSchema =
-  directMessageChangedRealtimeEventSchema;
+  directMessageCreatedRealtimeEventSchema;
 export type RealtimeEventEnvelope = z.infer<
   typeof realtimeEventEnvelopeSchema
 >;
