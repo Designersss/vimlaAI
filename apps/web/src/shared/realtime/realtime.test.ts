@@ -177,7 +177,7 @@ describe("Web realtime transport", () => {
       clearTimeoutFn: () => undefined,
     });
 
-    sockets[0]?.emitClose(1006);
+    sockets[0]?.emitClose(1013);
     expect(scheduled[0]?.delay).toBe(500);
     scheduled[0]?.callback();
     expect(socketFactory).toHaveBeenCalledTimes(2);
