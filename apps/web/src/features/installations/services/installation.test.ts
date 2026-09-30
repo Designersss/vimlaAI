@@ -37,7 +37,7 @@ function response(id: string): Response {
       kind: "WEB",
       appVersion: null,
       protocolVersion: 1,
-      capabilities: [],
+      capabilities: ["realtime.v1"],
       createdAt: "2026-09-29T12:00:00.000Z",
       lastSeenAt: "2026-09-29T12:00:00.000Z",
       revokedAt: null,
@@ -68,9 +68,18 @@ describe("Web installation bootstrap", () => {
     expect(local.values.get(installationStorageKey("user-a"))).toBe(id);
     expect(fetchImpl).toHaveBeenCalledTimes(2);
     const bodies = fetchImpl.mock.calls.map((call) =>
-      JSON.parse(String(call[1]?.body)) as { id: string },
+      JSON.parse(String(call[1]?.body)) as {
+        id: string;
+        capabilities: string[];
+      },
     );
     expect(bodies.map((body) => body.id)).toEqual([id, id]);
+    expect(
+      bodies.map((body) => body.capabilities),
+    ).toEqual([
+      ["realtime.v1"],
+      ["realtime.v1"],
+    ]);
   });
 
   it("normalizes an equivalent stored UUID without rotating identity", async () => {
