@@ -8,7 +8,9 @@ LANGUAGE SQL
 IMMUTABLE
 AS $$
   SELECT
-    cardinality("values") <= 32
+    COALESCE(array_ndims("values"), 1) = 1
+    AND COALESCE(array_lower("values", 1), 1) = 1
+    AND cardinality("values") <= 32
     AND NOT EXISTS (
       SELECT 1
       FROM unnest("values") AS item(value)
