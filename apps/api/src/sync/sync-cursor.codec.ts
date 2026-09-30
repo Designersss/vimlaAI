@@ -15,6 +15,11 @@ import {
 const MAX_BIGINT_64 = 9_223_372_036_854_775_807n;
 const CURSOR_DOMAIN = "vimla-sync-cursor-v1";
 
+export interface SyncCursorState {
+  position: bigint;
+  snapshotHead: bigint;
+}
+
 export class SyncCursorDecodeError extends Error {
   constructor() {
     super("Invalid sync cursor");
@@ -35,10 +40,11 @@ export class SyncCursorCodec {
 
   encode(
     userId: string,
-    position: bigint,
+    state: SyncCursorState,
   ): string {
-    assertPosition(position);
-    const payload = `${SYNC_PROTOCOL_VERSION}:${position.toString()}`;
+    assertCursorState(state);
+    const payload =
+      `${SYNC_PROTOCOL_VERSION}:${state.position.toString()}:${state.snapshotHead.toString()}`;
     const encodedPayload =
       Buffer.from(payload, "utf8").toString("base64url");
     const signature = this.sign(userId, payload);
@@ -50,7 +56,7 @@ export class SyncCursorCodec {
   decode(
     userId: string,
     cursor: string,
-  ): bigint {
+  ): SyncCursorState {
     if (!syncCursorSchema.safeParse(cursor).success) {
       throw new SyncCursorDecodeError();
     }
@@ -87,19 +93,27 @@ export class SyncCursorCodec {
       throw new SyncCursorDecodeError();
     }
 
-    const match = /^1:(0|[1-9]\d{0,18})$/.exec(
-      payload,
-    );
+    const match =
+      /^1:(0|[1-9]\d{0,18}):(0|[1-9]\d{0,18})$/.exec(
+        payload,
+      );
     if (!match) {
       throw new SyncCursorDecodeError();
     }
     const positionText = match[1];
-    if (positionText === undefined) {
+    const snapshotHeadText = match[2];
+    if (
+      positionText === undefined ||
+      snapshotHeadText === undefined
+    ) {
       throw new SyncCursorDecodeError();
     }
-    const position = BigInt(positionText);
-    assertPosition(position);
-    return position;
+    const state = {
+      position: BigInt(positionText),
+      snapshotHead: BigInt(snapshotHeadText),
+    };
+    assertCursorState(state);
+    return state;
   }
 
   private sign(
@@ -116,12 +130,15 @@ export class SyncCursorCodec {
   }
 }
 
-function assertPosition(
-  position: bigint,
+function assertCursorState(
+  state: SyncCursorState,
 ): void {
   if (
-    position < 0n ||
-    position > MAX_BIGINT_64
+    state.position < 0n ||
+    state.position > MAX_BIGINT_64 ||
+    state.snapshotHead < 0n ||
+    state.snapshotHead > MAX_BIGINT_64 ||
+    state.snapshotHead < state.position
   ) {
     throw new SyncCursorDecodeError();
   }
