@@ -17,6 +17,7 @@ export const syncCursorSchema = z
 
 export const syncQuerySchema = z
   .object({
+    protocolVersion: z.literal("1"),
     cursor: syncCursorSchema.optional(),
     limit: z.coerce
       .number()
