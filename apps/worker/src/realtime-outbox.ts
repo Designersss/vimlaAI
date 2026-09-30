@@ -142,6 +142,30 @@ export class RealtimeOutboxDispatcher {
         continue;
       }
 
+      if (row.recipients.length === 0) {
+        const completed =
+          await this.markPublished(
+            row.id,
+            claim.token,
+          );
+        if (completed) {
+          published += 1;
+          this.logger.info(
+            {
+              eventId: row.id,
+              eventType: row.eventType,
+              scopeKind: row.scopeKind,
+              sequence: row.sequence.toString(),
+              attemptCount: outbox.attemptCount,
+            },
+            "realtime.outbox.completed_without_recipients",
+          );
+        } else {
+          leaseLost += 1;
+        }
+        continue;
+      }
+
       let event: RealtimeEventEnvelope;
       try {
         event = realtimeEventEnvelopeSchema.parse({
@@ -200,29 +224,11 @@ export class RealtimeOutboxDispatcher {
         continue;
       }
 
-      const publishedAt = this.clock();
-      const compactAfter = new Date(
-        publishedAt.getTime() +
-          this.policy.retentionMs,
+      const marked = await this.markPublished(
+        row.id,
+        claim.token,
       );
-      const marked =
-        await this.db.realtimeOutbox.updateMany({
-          where: {
-            eventId: row.id,
-            status: "PROCESSING",
-            processingToken: claim.token,
-          },
-          data: {
-            status: "PUBLISHED",
-            processingToken: null,
-            processingUntil: null,
-            nextAttemptAt: null,
-            publishedAt,
-            compactAfter,
-            lastErrorCode: null,
-          },
-        });
-      if (marked.count === 1) {
+      if (marked) {
         published += 1;
         this.logger.info(
           {
@@ -248,6 +254,35 @@ export class RealtimeOutboxDispatcher {
         this.clock(),
       ),
     };
+  }
+
+  private async markPublished(
+    eventId: string,
+    token: string,
+  ): Promise<boolean> {
+    const publishedAt = this.clock();
+    const compactAfter = new Date(
+      publishedAt.getTime() +
+        this.policy.retentionMs,
+    );
+    const result =
+      await this.db.realtimeOutbox.updateMany({
+        where: {
+          eventId,
+          status: "PROCESSING",
+          processingToken: token,
+        },
+        data: {
+          status: "PUBLISHED",
+          processingToken: null,
+          processingUntil: null,
+          nextAttemptAt: null,
+          publishedAt,
+          compactAfter,
+          lastErrorCode: null,
+        },
+      });
+    return result.count === 1;
   }
 
   private async scheduleRetry(input: {
