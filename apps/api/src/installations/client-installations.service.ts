@@ -11,6 +11,7 @@ import {
   type UpdateClientInstallationPreferences,
 } from "@vimla/contracts";
 import { Prisma } from "@vimla/database";
+import { API_CONFIG, type ApiRuntimeConfig } from "../config/api-config.js";
 import { PrismaService } from "../persistence/prisma.service.js";
 
 const LAST_SEEN_REFRESH_MS = 5 * 60 * 1000;
@@ -23,6 +24,7 @@ type InstallationRow = Prisma.ClientInstallationGetPayload<{
 export class ClientInstallationsService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(API_CONFIG) private readonly config: ApiRuntimeConfig,
   ) {}
 
   async register(
@@ -45,20 +47,58 @@ export class ClientInstallationsService {
     }
 
     try {
-      const created =
-        await this.prisma.client.clientInstallation.create({
-          data: {
-            id: input.id,
-            userId,
-            kind: input.kind,
-            appVersion: input.appVersion,
-            protocolVersion: input.protocolVersion,
-            capabilities: input.capabilities,
-            preference: { create: {} },
-          },
-          include: { preference: true },
+      const registration =
+        await this.prisma.client.$transaction(async (tx) => {
+          await tx.$queryRaw(Prisma.sql`
+            SELECT "id"
+            FROM "user"
+            WHERE "id" = ${userId}
+            FOR UPDATE
+          `);
+
+          const raced = await tx.clientInstallation.findUnique({
+            where: { id: input.id },
+            include: { preference: true },
+          });
+          if (raced) {
+            return { created: false, row: raced } as const;
+          }
+
+          const activeCount = await tx.clientInstallation.count({
+            where: { userId, revokedAt: null },
+          });
+          if (
+            activeCount >=
+            this.config.clientInstallationsActiveLimitPerUser
+          ) {
+            throw installationLimitReached();
+          }
+
+          const created = await tx.clientInstallation.create({
+            data: {
+              id: input.id,
+              userId,
+              kind: input.kind,
+              appVersion: input.appVersion,
+              protocolVersion: input.protocolVersion,
+              capabilities: input.capabilities,
+              preference: { create: {} },
+            },
+            include: { preference: true },
+          });
+          return { created: true, row: created } as const;
         });
-      return this.view(created);
+
+      if (!registration.created) {
+        return this.view(
+          await this.refreshOwned(
+            userId,
+            registration.row,
+            input,
+          ),
+        );
+      }
+      return this.view(registration.row);
     } catch (error: unknown) {
       if (!isUniqueConflict(error)) {
         throw error;
@@ -238,6 +278,13 @@ function notFound(): NotFoundException {
   return new NotFoundException({
     code: "not_found",
     message: "Client installation not found",
+  });
+}
+
+function installationLimitReached(): ConflictException {
+  return new ConflictException({
+    code: "installation_limit_reached",
+    message: "Active client installation limit reached",
   });
 }
 
