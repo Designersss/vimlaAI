@@ -119,6 +119,13 @@ export function loadApiConfig(
     workspaceMutationLimitPerMinute: parsed.WORKSPACE_MUTATION_LIMIT_PER_MINUTE,
     clientInstallationsMutationLimitPerMinute: parsed.CLIENT_INSTALLATIONS_MUTATION_LIMIT_PER_MINUTE,
     clientInstallationsActiveLimitPerUser: parsed.CLIENT_INSTALLATIONS_ACTIVE_LIMIT_PER_USER,
+    realtimeFrameBytesMax: parsed.REALTIME_FRAME_BYTES_MAX,
+    realtimeHeartbeatIntervalMs: parsed.REALTIME_HEARTBEAT_INTERVAL_MS,
+    realtimeHeartbeatTimeoutMs: parsed.REALTIME_HEARTBEAT_TIMEOUT_MS,
+    realtimeMaxConnectionsPerInstallation:
+      parsed.REALTIME_MAX_CONNECTIONS_PER_INSTALLATION,
+    realtimeClientFramesPerMinute:
+      parsed.REALTIME_CLIENT_FRAMES_PER_MINUTE,
     operatorEnabled: parsed.OPERATOR_ENABLED === "true",
     operatorMaxToolsPerRun: parsed.OPERATOR_MAX_TOOLS_PER_RUN,
     operatorConfirmationTtlSeconds: parsed.OPERATOR_CONFIRMATION_TTL_SECONDS,
