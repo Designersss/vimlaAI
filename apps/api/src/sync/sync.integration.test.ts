@@ -366,6 +366,89 @@ describe("durable cursor sync API", () => {
     }
   });
 
+  it("fails closed on corrupted persisted sync data without advancing client state", async () => {
+    const owner = await registerVerifiedUser(
+      app,
+      "sync-corrupt-owner",
+    );
+    const peer = await registerVerifiedUser(
+      app,
+      "sync-corrupt-peer",
+    );
+    const conversationId = await createDirectConversation(
+      prisma,
+      owner.id,
+      peer.id,
+    );
+    const messageId = randomUUID();
+
+    await prisma.$transaction(async (tx) => {
+      await tx.userSyncState.create({
+        data: {
+          userId: owner.id,
+          lastPosition: 1n,
+          minRetainedPosition: 0n,
+        },
+      });
+      await tx.durableEvent.create({
+        data: {
+          id: messageId,
+          protocolVersion: 1,
+          eventType: "DIRECT_MESSAGE_CREATED",
+          durability: "DURABLE_HINT",
+          changeKind: "UPSERT_REF",
+          scopeKind: "DIRECT_CHAT",
+          scopeId: conversationId,
+          occurredAt: new Date(),
+          payload: {
+            conversationId,
+            messageId,
+            plaintext: "must-never-leak",
+          },
+          recipients: {
+            create: {
+              userId: owner.id,
+              position: 1n,
+            },
+          },
+        },
+      });
+    });
+
+    const response = await syncRequest(
+      app,
+      owner.cookies,
+      { limit: 10 },
+    );
+    expect(response.statusCode).toBe(500);
+    expect(response.json()).toMatchObject({
+      error: { code: "internal_error" },
+    });
+
+    const repaired = {
+      conversationId,
+      messageId,
+    };
+    await prisma.durableEvent.update({
+      where: { id: messageId },
+      data: { payload: repaired },
+    });
+    const afterRepair = syncResponseSchema.parse(
+      (
+        await syncRequest(
+          app,
+          owner.cookies,
+          { limit: 10 },
+        )
+      ).json(),
+    );
+    expect(
+      afterRepair.deltas.map(
+        (delta) => delta.eventId,
+      ),
+    ).toEqual([messageId]);
+  });
+
   it("serializes concurrent per-user positions without duplicates or gaps", async () => {
     const owner = await registerVerifiedUser(
       app,
