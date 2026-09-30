@@ -189,7 +189,7 @@ function toSyncDelta(event: {
     );
   }
 
-  return syncDeltaSchema.parse({
+  const parsed = syncDeltaSchema.safeParse({
     syncProtocolVersion: SYNC_PROTOCOL_VERSION,
     eventId: event.id,
     eventType: event.eventType,
@@ -201,4 +201,10 @@ function toSyncDelta(event: {
     occurredAt: event.occurredAt.toISOString(),
     payload: event.payload,
   });
+  if (!parsed.success) {
+    throw new InternalServerErrorException(
+      "Persisted sync event is invalid",
+    );
+  }
+  return parsed.data;
 }
