@@ -1,5 +1,4 @@
 export {
-  REALTIME_LIMITS,
   REALTIME_PROTOCOL_VERSION,
   directMessageCreatedRealtimeEventSchema,
   directMessageCreatedRealtimePayloadSchema,
