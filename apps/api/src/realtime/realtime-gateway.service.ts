@@ -414,6 +414,9 @@ export class RealtimeGatewayService
       serverTime: new Date().toISOString(),
     });
     this.sendFrame(state, hello);
+    if (state.closed) {
+      return;
+    }
     this.scheduleHeartbeat(state);
 
     this.logger.log({
@@ -544,6 +547,9 @@ export class RealtimeGatewayService
 
     const validation =
       await this.revalidateConnection(state);
+    if (state.closed) {
+      return;
+    }
     if (validation === "SESSION_INVALID") {
       this.close(
         state,
@@ -583,7 +589,9 @@ export class RealtimeGatewayService
       this.sendFrame(state, frame);
     }
 
-    this.scheduleHeartbeat(state);
+    if (!state.closed) {
+      this.scheduleHeartbeat(state);
+    }
   }
 
   private async revalidateConnection(
