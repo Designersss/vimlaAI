@@ -185,8 +185,14 @@ describe("global realtime WebSocket gateway", () => {
       otherId,
     );
 
-    const [first, second, foreign] =
+    const [first, firstSecondTab, second, foreign] =
       await Promise.all([
+        openRealtime({
+          baseUrl,
+          installationId: firstId,
+          origin,
+          cookies: user.cookies,
+        }),
         openRealtime({
           baseUrl,
           installationId: firstId,
@@ -210,6 +216,7 @@ describe("global realtime WebSocket gateway", () => {
     const conversationId = randomUUID();
     const messageId = randomUUID();
     const firstEvent = waitForEvent(first.socket);
+    const firstSecondTabEvent = waitForEvent(firstSecondTab.socket);
     const secondEvent = waitForEvent(second.socket);
     let foreignEvent = false;
     const foreignListener = (data: RawData): void => {
@@ -228,11 +235,12 @@ describe("global realtime WebSocket gateway", () => {
         occurredAt: new Date().toISOString(),
       });
 
-    const [left, right] = await Promise.all([
+    const [left, sameInstallationTab, right] = await Promise.all([
       firstEvent,
+      firstSecondTabEvent,
       secondEvent,
     ]);
-    for (const event of [left, right]) {
+    for (const event of [left, sameInstallationTab, right]) {
       expect(event.eventId).toBe(messageId);
       expect(event.eventType).toBe(
         "DIRECT_MESSAGE_CREATED",
@@ -248,6 +256,7 @@ describe("global realtime WebSocket gateway", () => {
 
     foreign.socket.off("message", foreignListener);
     first.socket.close();
+    firstSecondTab.socket.close();
     second.socket.close();
     foreign.socket.close();
   });
