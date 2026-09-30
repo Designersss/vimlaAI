@@ -162,7 +162,7 @@ Cursor properties:
 - positions older than `minRetainedPosition` or ahead of the user's current stream head return `sync_cursor_stale`;
 - no realtime ACK is required for correctness.
 
-Pagination snapshots the user's `lastPosition` at request start and reads only positions up to that head. Concurrent writes receive larger user-local positions and are recovered by the next request. Reusing the same cursor replays the same logical page safely because event ids are stable and client application is idempotent.
+Pagination snapshots the user's `lastPosition` at the start of a pagination run and encodes that snapshot head inside the opaque continuation cursor. While `hasMore=true`, later pages remain bounded by that same head even if concurrent writes append larger positions. When the client reaches a completed checkpoint (`position == snapshotHead`), the next request starts a fresh snapshot from the current stream head, so writes that arrived during the previous run are recovered then. Reusing an in-progress cursor therefore replays the same logical range (subject to current authorization), while stable event ids keep client application idempotent.
 
 Authorization is rechecked when deltas are read. For Direct Chat `UPSERT_REF` events, current conversation membership is required. Rows that are no longer authorized are skipped while the cursor still advances, preventing an infinite replay loop after membership loss. Identifier-only `TOMBSTONE` events remain deliverable to their explicitly recorded recipient so the client can delete stale local state after access/object removal without receiving protected content.
 
