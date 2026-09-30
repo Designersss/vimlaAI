@@ -93,7 +93,11 @@ export class SyncCursorCodec {
     if (!match) {
       throw new SyncCursorDecodeError();
     }
-    const position = BigInt(match[1]);
+    const positionText = match[1];
+    if (positionText === undefined) {
+      throw new SyncCursorDecodeError();
+    }
+    const position = BigInt(positionText);
     assertPosition(position);
     return position;
   }
