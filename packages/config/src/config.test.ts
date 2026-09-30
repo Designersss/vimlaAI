@@ -105,7 +105,7 @@ describe("loadApiConfig", () => {
     ).toBe(8);
     expect(
       config.realtimePreAuthHandshakeLimitPerMinute,
-    ).toBe(600);
+    ).toBe(6_000);
     expect(config.realtimeHandshakeLimitPerMinute).toBe(120);
     expect(config.realtimeClientFramesPerMinute).toBe(60);
   });
