@@ -69,6 +69,9 @@ ALTER TABLE "durable_event"
   ADD CONSTRAINT "durable_event_change_kind_check"
   CHECK ("changeKind" IN ('UPSERT_REF', 'TOMBSTONE'));
 
+ALTER TABLE "durable_event"
+  ALTER COLUMN "changeKind" DROP DEFAULT;
+
 CREATE UNIQUE INDEX
   "durable_event_recipient_userId_position_key"
   ON "durable_event_recipient"("userId", "position");
