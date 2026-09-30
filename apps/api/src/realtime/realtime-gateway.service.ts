@@ -597,6 +597,9 @@ export class RealtimeGatewayService
   private cleanupConnection(
     state: ConnectionState,
   ): void {
+    if (!this.connections.has(state.connectionId)) {
+      return;
+    }
     if (state.heartbeatTimer) {
       clearTimeout(state.heartbeatTimer);
       state.heartbeatTimer = null;
