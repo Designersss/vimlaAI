@@ -109,6 +109,53 @@ describe("global realtime WebSocket gateway", () => {
     connection.socket.close();
   });
 
+  it("rate limits authenticated WebSocket handshakes before repeated authorization work", async () => {
+    const limited = await createVimlaApiApp(
+      {
+        ...loadApiConfig(process.env),
+        realtimeHandshakeLimitPerMinute: 2,
+      },
+      { quiet: true },
+    );
+    await limited.listen(0, "127.0.0.1");
+    try {
+      const limitedUrl = await limited.getUrl();
+      const user = await registerVerifiedUser(
+        limited,
+        "rt-handshake-limit",
+      );
+      const installationId = randomUUID();
+      await registerInstallation(
+        limited,
+        user.cookies,
+        installationId,
+      );
+
+      for (let index = 0; index < 2; index += 1) {
+        const connection = await openRealtime({
+          baseUrl: limitedUrl,
+          installationId,
+          origin,
+          cookies: user.cookies,
+        });
+        const closed = waitForClose(connection.socket);
+        connection.socket.close();
+        await closed;
+      }
+
+      await expect(
+        rejectedUpgrade({
+          baseUrl: limitedUrl,
+          installationId,
+          origin,
+          cookies: user.cookies,
+        }),
+      ).resolves.toBe(429);
+    } finally {
+      await limited.close();
+    }
+  });
+
   it("delivers one user event to multiple installations without cross-user leakage", async () => {
     const user = await registerVerifiedUser(
       app,
@@ -707,6 +754,7 @@ function configureTestEnv(): void {
     "http://localhost:3001";
   process.env.REALTIME_HEARTBEAT_INTERVAL_MS = "50";
   process.env.REALTIME_HEARTBEAT_TIMEOUT_MS = "150";
+  process.env.REALTIME_CLIENT_FRAMES_PER_MINUTE = "2000";
 }
 
 function sleep(ms: number): Promise<void> {
