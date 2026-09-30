@@ -48,7 +48,7 @@ describe("Web realtime transport", () => {
     const installationId = randomUUID();
     const url = new URL(
       realtimeWebSocketUrl(
-        installationId,
+        installationId.toUpperCase(),
         "https://api.example.test/base/",
       ),
     );
@@ -68,8 +68,9 @@ describe("Web realtime transport", () => {
     const socket = new FakeSocket();
     const events: RealtimeEventEnvelope[] = [];
     const onOpen = vi.fn();
+    const installationId = randomUUID();
     const stop = subscribeRealtime({
-      installationId: randomUUID(),
+      installationId,
       onEvent: (event) => events.push(event),
       onOpen,
       socketFactory: () => socket,
@@ -79,7 +80,7 @@ describe("Web realtime transport", () => {
       protocolVersion: REALTIME_PROTOCOL_VERSION,
       frameType: "HELLO",
       connectionId: randomUUID(),
-      installationId: randomUUID(),
+      installationId,
       heartbeatIntervalMs: 20_000,
       serverTime: new Date().toISOString(),
     });
@@ -122,6 +123,33 @@ describe("Web realtime transport", () => {
     expect(socket.closes.at(-1)).toEqual({
       code: 1000,
       reason: "client_close",
+    });
+  });
+
+  it("rejects a HELLO bound to another installation", () => {
+    const socket = new FakeSocket();
+    const installationId = randomUUID();
+    const onOpen = vi.fn();
+    subscribeRealtime({
+      installationId,
+      onEvent: () => undefined,
+      onOpen,
+      socketFactory: () => socket,
+    });
+
+    socket.emitMessage({
+      protocolVersion: REALTIME_PROTOCOL_VERSION,
+      frameType: "HELLO",
+      connectionId: randomUUID(),
+      installationId: randomUUID(),
+      heartbeatIntervalMs: 20_000,
+      serverTime: new Date().toISOString(),
+    });
+
+    expect(onOpen).not.toHaveBeenCalled();
+    expect(socket.closes.at(-1)).toEqual({
+      code: 1002,
+      reason: "installation_mismatch",
     });
   });
 
