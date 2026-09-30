@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { AuthModule } from "../auth/auth.module.js";
 import { PersistenceModule } from "../persistence/persistence.module.js";
+import { RealtimeModule } from "../realtime/realtime.module.js";
 import {
   DirectChatDevicesController,
   DirectChatPrekeysController,
@@ -12,7 +13,7 @@ import { DirectChatsFacade } from "./direct-chats.facade.js";
 import { DirectChatsRateLimitGuard } from "./direct-chats-rate-limit.guard.js";
 
 @Module({
-  imports: [PersistenceModule, AuthModule],
+  imports: [PersistenceModule, AuthModule, RealtimeModule],
   controllers: [DirectChatDevicesController, DirectChatPrekeysController, DirectChatsController],
   providers: [DirectMentionRoutingService, DirectChatRealtimeService, DirectChatsFacade, DirectChatsRateLimitGuard],
   exports: [DirectChatsFacade],
