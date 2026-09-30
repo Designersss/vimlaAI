@@ -504,6 +504,25 @@ describe("client installations API", () => {
         },
       }),
     ).rejects.toThrow();
+
+    for (const capabilities of [
+      ["ADMIN ACCESS"],
+      ["x".repeat(65)],
+      ["sync.v1", "sync.v1"],
+    ]) {
+      await expect(
+        prisma.clientInstallation.create({
+          data: {
+            id: randomUUID(),
+            userId: user.id,
+            kind: "WEB",
+            appVersion: "bad",
+            protocolVersion: 1,
+            capabilities,
+          },
+        }),
+      ).rejects.toThrow();
+    }
   });
 
   it("updates installation-scoped preferences without changing account preferences", async () => {
