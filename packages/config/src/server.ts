@@ -124,6 +124,8 @@ export function loadApiConfig(
     realtimeHeartbeatTimeoutMs: parsed.REALTIME_HEARTBEAT_TIMEOUT_MS,
     realtimeMaxConnectionsPerInstallation:
       parsed.REALTIME_MAX_CONNECTIONS_PER_INSTALLATION,
+    realtimePreAuthHandshakeLimitPerMinute:
+      parsed.REALTIME_PREAUTH_HANDSHAKE_LIMIT_PER_MINUTE,
     realtimeHandshakeLimitPerMinute:
       parsed.REALTIME_HANDSHAKE_LIMIT_PER_MINUTE,
     realtimeClientFramesPerMinute:
