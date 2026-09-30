@@ -11,6 +11,7 @@ import {
 } from "@vimla/contracts";
 import { WebSocket, type RawData } from "ws";
 import { createVimlaApiApp } from "../create-app.js";
+import { ClientInstallationsService } from "../installations/client-installations.service.js";
 import { RedisService } from "../persistence/redis.service.js";
 import {
   registerVerifiedUser,
@@ -407,6 +408,47 @@ describe("global realtime WebSocket gateway", () => {
     await expect(
       waitForClose(connection.socket),
     ).resolves.toBe(4001);
+  });
+
+  it("treats transient heartbeat authorization infrastructure failures as retryable", async () => {
+    const user = await registerVerifiedUser(
+      app,
+      "rt-heartbeat-infra",
+    );
+    const installationId = randomUUID();
+    await registerInstallation(
+      app,
+      user.cookies,
+      installationId,
+    );
+    const connection = await openRealtime({
+      baseUrl,
+      installationId,
+      origin,
+      cookies: user.cookies,
+    });
+
+    const installations = app.get(
+      ClientInstallationsService,
+    );
+    const activeSpy = vi
+      .spyOn(installations, "isActiveOwned")
+      .mockRejectedValueOnce(
+        new Error("database temporarily unavailable"),
+      );
+    try {
+      await expect(
+        waitForClose(connection.socket),
+      ).resolves.toBe(1013);
+    } finally {
+      activeSpy.mockRestore();
+      if (
+        connection.socket.readyState ===
+        WebSocket.OPEN
+      ) {
+        connection.socket.close();
+      }
+    }
   });
 
   it("fans out across API instances through Redis", async () => {
