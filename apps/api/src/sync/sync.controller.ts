@@ -17,10 +17,11 @@ import {
 import { AuthGuard } from "../auth/auth.guard.js";
 import { AuthUser } from "../auth/current-user.decorator.js";
 import { OriginGuard } from "../auth/origin.guard.js";
+import { SyncRateLimitGuard } from "./sync-rate-limit.guard.js";
 import { SyncService } from "./sync.service.js";
 
 @Controller("v1/sync")
-@UseGuards(AuthGuard, OriginGuard)
+@UseGuards(AuthGuard, OriginGuard, SyncRateLimitGuard)
 export class SyncController {
   constructor(
     @Inject(SyncService)
