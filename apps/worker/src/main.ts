@@ -131,10 +131,12 @@ async function bootstrap(): Promise<void> {
       maxRetriesPerRequest: 1,
       enableOfflineQueue: false,
       connectTimeout: 5_000,
+      lazyConnect: true,
     },
   );
 
   await storeConnection.ping();
+  await realtimeOutboxConnection.connect();
   await realtimeOutboxConnection.ping();
   logger.info("connected to Redis");
 
@@ -203,8 +205,6 @@ async function bootstrap(): Promise<void> {
         config.realtimeOutboxBackoffBaseMs,
       backoffCapMs:
         config.realtimeOutboxBackoffCapMs,
-      publishTimeoutMs:
-        config.realtimeOutboxPublishTimeoutMs,
       retentionMs:
         config.realtimeOutboxRetentionHours *
         60 *
