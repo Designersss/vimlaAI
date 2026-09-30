@@ -239,10 +239,12 @@ export class RealtimeGatewayService
       };
     }
 
-    const protocolVersion = Number(
-      url.searchParams.get("protocolVersion"),
-    );
-    if (protocolVersion !== REALTIME_PROTOCOL_VERSION) {
+    const protocolVersion =
+      url.searchParams.get("protocolVersion");
+    if (
+      protocolVersion !==
+      String(REALTIME_PROTOCOL_VERSION)
+    ) {
       return {
         ok: false,
         status: 400,
