@@ -43,6 +43,7 @@ import { AuthUser } from "../auth/current-user.decorator.js";
 import { OriginGuard } from "../auth/origin.guard.js";
 import { SensitiveArea } from "../auth/sensitive-area.js";
 import { SensitiveAreaGuard } from "../auth/sensitive-area.guard.js";
+import { RealtimeService } from "../realtime/realtime.service.js";
 import { DirectMentionRoutingService } from "./direct-mention-routing.service.js";
 import { DirectChatRealtimeService } from "./direct-chat-realtime.service.js";
 import { DirectChatsFacade } from "./direct-chats.facade.js";
@@ -121,6 +122,7 @@ export class DirectChatsController {
     @Inject(DirectChatsFacade) private readonly directChats: DirectChatsFacade,
     @Inject(DirectMentionRoutingService) private readonly mentionRouting: DirectMentionRoutingService,
     @Inject(DirectChatRealtimeService) private readonly realtime: DirectChatRealtimeService,
+    @Inject(RealtimeService) private readonly globalRealtime: RealtimeService,
   ) {}
 
   @Post()
@@ -264,19 +266,27 @@ export class DirectChatsController {
           actorUserId,
           message.conversationId,
         );
-      await this.realtime.publish(
-        participants.map(
-          (participant) => participant.userId,
-        ),
-        {
+      const userIds = participants.map(
+        (participant) => participant.userId,
+      );
+      await Promise.all([
+        this.realtime.publish(userIds, {
           type: "direct_message",
           conversationId: message.conversationId,
           messageId: message.id,
           senderUserId: message.senderUserId,
           kind: message.kind,
           createdAt: message.createdAt,
-        },
-      );
+        }),
+        this.globalRealtime.publishDirectMessageCreated(
+          userIds,
+          {
+            conversationId: message.conversationId,
+            messageId: message.id,
+            occurredAt: message.createdAt,
+          },
+        ),
+      ]);
     } catch (error: unknown) {
       this.logger.warn({
         msg: "direct_chats.realtime_notify_failed_after_commit",
