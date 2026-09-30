@@ -72,6 +72,16 @@ describe("global realtime WebSocket gateway", () => {
       rejectedUpgrade({
         baseUrl,
         installationId,
+        origin,
+        cookies: owner.cookies,
+        protocolVersion: 2,
+      }),
+    ).resolves.toBe(400);
+
+    await expect(
+      rejectedUpgrade({
+        baseUrl,
+        installationId,
         origin: "https://evil.example",
         cookies: owner.cookies,
       }),
@@ -221,6 +231,29 @@ describe("global realtime WebSocket gateway", () => {
       }),
     );
     await expect(closed).resolves.toBe(4004);
+  });
+
+  it("enforces the configured incoming frame byte limit", async () => {
+    const user = await registerVerifiedUser(
+      app,
+      "rt-frame-limit",
+    );
+    const installationId = randomUUID();
+    await registerInstallation(
+      app,
+      user.cookies,
+      installationId,
+    );
+    const connection = await openRealtime({
+      baseUrl,
+      installationId,
+      origin,
+      cookies: user.cookies,
+    });
+
+    const closed = waitForClose(connection.socket);
+    connection.socket.send("x".repeat(8_193));
+    await expect(closed).resolves.toBe(1009);
   });
 
   it("bounds concurrent tabs for one installation", async () => {
@@ -522,6 +555,7 @@ async function rejectedUpgrade(input: {
   installationId: string;
   origin: string;
   cookies?: Record<string, string>;
+  protocolVersion?: number;
 }): Promise<number> {
   const headers: Record<string, string> = {
     origin: input.origin,
@@ -533,6 +567,7 @@ async function rejectedUpgrade(input: {
     realtimeUrl(
       input.baseUrl,
       input.installationId,
+      input.protocolVersion,
     ),
     { headers },
   );
@@ -622,6 +657,7 @@ function parseFrame(
 function realtimeUrl(
   baseUrl: string,
   installationId: string,
+  protocolVersion = REALTIME_PROTOCOL_VERSION,
 ): string {
   const url = new URL(baseUrl);
   url.protocol =
@@ -629,7 +665,7 @@ function realtimeUrl(
   url.pathname = "/v1/realtime";
   url.searchParams.set(
     "protocolVersion",
-    String(REALTIME_PROTOCOL_VERSION),
+    String(protocolVersion),
   );
   url.searchParams.set(
     "installationId",
