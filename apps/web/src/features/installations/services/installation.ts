@@ -28,9 +28,12 @@ export async function ensureWebInstallation(
     options.randomUuid ?? (() => crypto.randomUUID());
   const key = installationStorageKey(userId);
   const stored = storage.getItem(key);
+  const parsedStored = stored
+    ? clientInstallationIdSchema.safeParse(stored)
+    : null;
   const id =
-    stored && clientInstallationIdSchema.safeParse(stored).success
-      ? stored
+    parsedStored?.success === true
+      ? parsedStored.data
       : nextInstallationId(randomUuid);
 
   if (id !== stored) {
