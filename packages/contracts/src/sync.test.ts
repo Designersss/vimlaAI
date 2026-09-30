@@ -104,6 +104,30 @@ describe("sync contracts", () => {
     );
   });
 
+  it("does not route public channel events through the per-user private sync stream", () => {
+    expect(
+      directMessageCreatedSyncDeltaSchema.safeParse({
+        syncProtocolVersion: SYNC_PROTOCOL_VERSION,
+        eventId:
+          "22222222-2222-4222-8222-222222222222",
+        eventType: "DIRECT_MESSAGE_CREATED",
+        changeKind: "UPSERT_REF",
+        scope: {
+          kind: "CHANNEL",
+          id: "11111111-1111-4111-8111-111111111111",
+        },
+        occurredAt:
+          "2026-09-30T00:00:00.000Z",
+        payload: {
+          conversationId:
+            "11111111-1111-4111-8111-111111111111",
+          messageId:
+            "22222222-2222-4222-8222-222222222222",
+        },
+      }).success,
+    ).toBe(false);
+  });
+
   it("bounds response size at the contract layer", () => {
     const cursor = "YQ.Yg";
     expect(
