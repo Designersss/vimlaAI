@@ -95,6 +95,8 @@ Browser upgrade requirements:
 - active `ClientInstallation` owned by the authenticated user;
 - supported protocol version supplied explicitly by the client.
 
+The Web installation advertises `realtime.v1` in its non-authoritative capability metadata, but capability metadata never grants transport or domain authorization.
+
 The client cannot submit subscription topics. The server derives the user fan-out channel from authenticated identity and domain authorization before publication.
 
 The initial strict frame set is:
