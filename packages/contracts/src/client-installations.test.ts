@@ -29,6 +29,18 @@ describe("client installation contracts", () => {
     ).toBe(false);
   });
 
+  it("rejects the nil UUID installation identity", () => {
+    expect(
+      registerClientInstallationSchema.safeParse({
+        id: "00000000-0000-0000-0000-000000000000",
+        kind: "WEB",
+        appVersion: null,
+        protocolVersion: 1,
+        capabilities: [],
+      }).success,
+    ).toBe(false);
+  });
+
   it("normalizes capabilities and rejects duplicates", () => {
     const parsed = registerClientInstallationSchema.parse({
       id: "11111111-1111-4111-8111-111111111111",
