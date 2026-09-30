@@ -602,6 +602,69 @@ describe("durable cursor sync API", () => {
     }
   });
 
+  it("rate limits authenticated sync reads per user", async () => {
+    const limitedApp = await createVimlaApiApp(
+      loadApiConfig({
+        ...process.env,
+        NODE_ENV: "test",
+        APP_ENV: "test",
+        LOG_LEVEL: "error",
+        API_HOST: "127.0.0.1",
+        API_PORT: "3001",
+        WEB_ORIGIN: origin,
+        DATABASE_URL: testDatabaseUrl,
+        REDIS_URL:
+          process.env.REDIS_URL ??
+          "redis://localhost:6379",
+        BETTER_AUTH_SECRET:
+          process.env.BETTER_AUTH_SECRET ??
+          "local-dev-only-change-me-use-32-chars-min",
+        BETTER_AUTH_URL:
+          process.env.BETTER_AUTH_URL ??
+          "http://localhost:3001",
+        SYNC_READ_LIMIT_PER_MINUTE: "2",
+      }),
+      { quiet: true },
+    );
+    await limitedApp.init();
+    await limitedApp
+      .getHttpAdapter()
+      .getInstance()
+      .ready();
+
+    try {
+      const user = await registerVerifiedUser(
+        limitedApp,
+        "sync-rate-limit-user",
+      );
+
+      const first = await syncRequest(
+        limitedApp,
+        user.cookies,
+        { limit: 1 },
+      );
+      const second = await syncRequest(
+        limitedApp,
+        user.cookies,
+        { limit: 1 },
+      );
+      const third = await syncRequest(
+        limitedApp,
+        user.cookies,
+        { limit: 1 },
+      );
+
+      expect(first.statusCode).toBe(200);
+      expect(second.statusCode).toBe(200);
+      expect(third.statusCode).toBe(429);
+      expect(third.json()).toMatchObject({
+        error: { code: "rate_limited" },
+      });
+    } finally {
+      await limitedApp.close();
+    }
+  });
+
   it("requires authentication", async () => {
     const response = await app.inject({
       method: "GET",
