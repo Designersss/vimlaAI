@@ -47,6 +47,12 @@ WHERE
 ALTER TABLE "durable_event_recipient"
   ALTER COLUMN "position" SET NOT NULL;
 
+ALTER TABLE "durable_event_recipient"
+  ADD CONSTRAINT "durable_event_recipient_position_check"
+  CHECK ("position" > 0);
+
+DROP INDEX "durable_event_recipient_userId_eventId_idx";
+
 INSERT INTO "user_sync_state" (
   "userId",
   "lastPosition",
@@ -67,6 +73,3 @@ CREATE UNIQUE INDEX
   "durable_event_recipient_userId_position_key"
   ON "durable_event_recipient"("userId", "position");
 
-CREATE INDEX
-  "durable_event_recipient_userId_position_idx"
-  ON "durable_event_recipient"("userId", "position");
