@@ -15,7 +15,6 @@ export interface RealtimeOutboxPolicy {
   leaseMs: number;
   backoffBaseMs: number;
   backoffCapMs: number;
-  publishTimeoutMs: number;
   retentionMs: number;
 }
 
@@ -129,6 +128,15 @@ export class RealtimeOutboxDispatcher {
         outbox.status !== "PROCESSING" ||
         outbox.processingToken !== claim.token
       ) {
+        leaseLost += 1;
+        continue;
+      }
+
+      const renewed = await this.renewLease(
+        row.id,
+        claim.token,
+      );
+      if (!renewed) {
         leaseLost += 1;
         continue;
       }
@@ -250,6 +258,27 @@ export class RealtimeOutboxDispatcher {
         new Date(),
       ),
     };
+  }
+
+  private async renewLease(
+    eventId: string,
+    token: string,
+  ): Promise<boolean> {
+    const now = new Date();
+    const result =
+      await this.db.realtimeOutbox.updateMany({
+        where: {
+          eventId,
+          status: "PROCESSING",
+          processingToken: token,
+        },
+        data: {
+          processingUntil: new Date(
+            now.getTime() + this.policy.leaseMs,
+          ),
+        },
+      });
+    return result.count === 1;
   }
 
   async compactPublished(
