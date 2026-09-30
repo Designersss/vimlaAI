@@ -699,6 +699,7 @@ async function seedEvent(
       recipients: {
         create: userIds.map((userId) => ({
           userId,
+          position: 1n,
         })),
       },
       outbox: {
