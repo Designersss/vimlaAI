@@ -83,6 +83,16 @@ describe("global realtime WebSocket gateway", () => {
       rejectedUpgrade({
         baseUrl,
         installationId,
+        origin,
+        cookies: owner.cookies,
+        protocolVersion: "01",
+      }),
+    ).resolves.toBe(400);
+
+    await expect(
+      rejectedUpgrade({
+        baseUrl,
+        installationId,
         origin: "https://evil.example",
         cookies: owner.cookies,
       }),
@@ -653,7 +663,7 @@ async function rejectedUpgrade(input: {
   installationId: string;
   origin: string;
   cookies?: Record<string, string>;
-  protocolVersion?: number;
+  protocolVersion?: number | string;
 }): Promise<number> {
   const headers: Record<string, string> = {
     origin: input.origin,
@@ -755,7 +765,8 @@ function parseFrame(
 function realtimeUrl(
   baseUrl: string,
   installationId: string,
-  protocolVersion: number = REALTIME_PROTOCOL_VERSION,
+  protocolVersion: number | string =
+    REALTIME_PROTOCOL_VERSION,
 ): string {
   const url = new URL(baseUrl);
   url.protocol =
