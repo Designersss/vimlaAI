@@ -481,6 +481,45 @@ describe("realtime outbox dispatcher", () => {
     expect(validOutbox.status).toBe("PUBLISHED");
   });
 
+  it("finishes an event without Redis when every recipient account was deleted", async () => {
+    const now = new Date("2001-05-27T00:00:00.000Z");
+    const seeded = await seedEvent(prisma, now);
+    eventIds.push(seeded.eventId);
+    userIds.push(...seeded.userIds);
+
+    await prisma.user.deleteMany({
+      where: {
+        id: { in: seeded.userIds },
+      },
+    });
+    expect(
+      await prisma.durableEventRecipient.count({
+        where: { eventId: seeded.eventId },
+      }),
+    ).toBe(0);
+
+    const publisher = new RecordingPublisher();
+    const dispatcher = new RealtimeOutboxDispatcher(
+      prisma,
+      publisher,
+      policy,
+      logger,
+      () => now,
+    );
+    const result = await dispatcher.runOnce();
+
+    expect(result.published).toBe(1);
+    expect(result.retryScheduled).toBe(0);
+    expect(publisher.events).toHaveLength(0);
+    expect(
+      (
+        await prisma.realtimeOutbox.findUniqueOrThrow({
+          where: { eventId: seeded.eventId },
+        })
+      ).status,
+    ).toBe("PUBLISHED");
+  });
+
   it("enforces durable-event and outbox state invariants in PostgreSQL", async () => {
     const now = new Date("2001-05-28T00:00:00.000Z");
     const seeded = await seedEvent(prisma, now);
