@@ -327,6 +327,91 @@ describe("ContextBundleService", () => {
     ).toBe(false);
   });
 
+  it("revalidates frozen focused-project authority even when no project item was selected", async () => {
+    const ownerUserId = await createUser(
+      prisma,
+      "bundle-focused-project-owner",
+    );
+    const actorUserId = await createUser(
+      prisma,
+      "bundle-focused-project-actor",
+    );
+    const project = await prisma.project.create({
+      data: {
+        ownerUserId,
+        name: "Opaque Project",
+        members: {
+          create: {
+            userId: actorUserId,
+            role: "MEMBER",
+          },
+        },
+      },
+    });
+    const conversation = await prisma.conversation.create({
+      data: {
+        userId: actorUserId,
+        projectId: project.id,
+        title: "Focused authority chat",
+      },
+    });
+    const sourceMessage = await prisma.message.create({
+      data: {
+        conversationId: conversation.id,
+        role: "USER",
+        content: "Summarize my ordinary recent context.",
+        status: "COMPLETE",
+      },
+    });
+    const { planId, invocationIds } = await createPlan(
+      prisma,
+      actorUserId,
+      conversation.id,
+      sourceMessage.id,
+      1,
+    );
+    const invocationId = invocationIds[0];
+    if (!invocationId) {
+      throw new Error(
+        "Expected one focused-project authority invocation",
+      );
+    }
+
+    const snapshot = await snapshots.createForExecutionPlan({
+      actorUserId,
+      planId,
+    });
+    const audience = snapshot.items.find(
+      (item) => item.sourceType === "AUDIENCE",
+    );
+    expect(audience?.metadata).toMatchObject({
+      focusedProjectId: project.id,
+    });
+    expect(
+      snapshot.items.some(
+        (item) => item.sourceType === "PROJECT",
+      ),
+    ).toBe(false);
+
+    await prisma.projectMember.delete({
+      where: {
+        projectId_userId: {
+          projectId: project.id,
+          userId: actorUserId,
+        },
+      },
+    });
+
+    await expect(
+      bundles.resolveForInvocation({
+        actorUserId,
+        invocationId,
+      }),
+    ).rejects.toBeInstanceOf(
+      ContextAccessDeniedError,
+    );
+  });
+
   it("rejects a shared audience descriptor whose source does not match its surface id", async () => {
     const actorUserId = await createUser(prisma, "audience-source-actor");
     const peerUserId = await createUser(prisma, "audience-source-peer");
