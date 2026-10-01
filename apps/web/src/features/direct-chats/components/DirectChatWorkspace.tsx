@@ -70,7 +70,6 @@ import {
   shouldContinueDeepHistoryBootstrap,
 } from "@vimla/client-core";
 import { decodeDirectPlaintext, encodeDirectPlaintext, type DirectPlaintextPayload } from "../services/payload";
-import { subscribeWebSync } from "../../../shared/sync/web-sync";
 import {
   decryptMessageWithStatus,
   encryptForDevices,
@@ -83,7 +82,7 @@ import {
   withPendingOperatorInvocationLock,
   type PendingOperatorInvocation,
 } from "../services/session";
-import { useChatWorkspace, usePrepareChatDevice } from "../../chat/components/ChatWorkspace/ChatWorkspaceProvider";
+import { useChatSyncHub, useChatWorkspace, usePrepareChatDevice } from "../../chat/components/ChatWorkspace/ChatWorkspaceProvider";
 import { ChatConversationHeader } from "../../chat/components/ChatWorkspace/ChatConversationHeader";
 import { ChatDetailStatus } from "../../chat/components/ChatWorkspace/ChatDetailStatus";
 import styles from "./DirectChatWorkspace.module.scss";
@@ -141,6 +140,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
   const router = useRouter();
   const prepareDevice = usePrepareChatDevice();
   const workspace = useChatWorkspace();
+  const syncHub = useChatSyncHub();
   const [attempt, setAttempt] = useState(0);
   const [boot, setBoot] = useState<"loading" | "ready" | "failed">("loading");
   const [error, setError] = useState<string | null>(null);
@@ -228,7 +228,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
   }, [attempt, conversationId, locale, prepareDevice, router, updateRows, workspace]);
 
   useEffect(() => {
-    if (boot !== "ready" || !userId) return;
+    if (boot !== "ready") return;
     let cancelled = false;
 
     const syncLatest = async (): Promise<void> => {
@@ -260,12 +260,8 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
       }
     };
 
-    const unsubscribe = subscribeWebSync({
-      userId,
-      onAuthRequired: () => {
-        router.replace("/sign-in");
-      },
-      onDeltas: async (deltas) => {
+    const unsubscribe = syncHub.subscribe(
+      async (deltas) => {
         if (cancelled) return;
 
         let refresh = false;
@@ -302,13 +298,13 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
           await syncLatest();
         }
       },
-    });
+    );
 
     return () => {
       cancelled = true;
       unsubscribe();
     };
-  }, [boot, conversationId, router, updateRows, userId, workspace]);
+  }, [boot, conversationId, syncHub, updateRows, workspace]);
 
   useEffect(() => {
     if (!activeMention) return;
