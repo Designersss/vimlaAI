@@ -325,6 +325,25 @@ describe("ContextSnapshotService", () => {
     await expect(
       service.resolveForInvocation({ actorUserId, invocationId }),
     ).rejects.toBeInstanceOf(ContextAccessDeniedError);
+
+    let verifierCalled = false;
+    const permissiveService = new ContextSnapshotService(
+      prisma,
+      async () => {
+        verifierCalled = true;
+        return true;
+      },
+    );
+    await expect(
+      permissiveService.resolveForPlan(
+        actorUserId,
+        planId,
+      ),
+    ).rejects.toBeInstanceOf(
+      ContextAccessDeniedError,
+    );
+    expect(verifierCalled).toBe(false);
+
     const retained = await service.getByPlan(actorUserId, planId);
     expect(retained.id).toBe(snapshot.id);
     expect(retained.fingerprint).toBe(snapshot.fingerprint);
