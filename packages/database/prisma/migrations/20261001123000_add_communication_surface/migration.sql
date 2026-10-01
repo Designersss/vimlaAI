@@ -76,6 +76,44 @@ ON "communication_surface"
 FOR EACH ROW
 EXECUTE FUNCTION "vimla_communication_surface_binding_immutable"();
 
+CREATE FUNCTION "vimla_communication_surface_delete_guard"()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $
+BEGIN
+  IF
+    OLD."conversationId" IS NOT NULL
+    AND EXISTS (
+      SELECT 1
+      FROM "conversation"
+      WHERE "id" = OLD."conversationId"
+    )
+  THEN
+    RAISE EXCEPTION 'Cannot delete a communication surface while its AI thread exists'
+      USING ERRCODE = '23503';
+  END IF;
+
+  IF
+    OLD."directConversationId" IS NOT NULL
+    AND EXISTS (
+      SELECT 1
+      FROM "direct_conversation"
+      WHERE "id" = OLD."directConversationId"
+    )
+  THEN
+    RAISE EXCEPTION 'Cannot delete a communication surface while its Direct Chat exists'
+      USING ERRCODE = '23503';
+  END IF;
+
+  RETURN OLD;
+END;
+$;
+
+CREATE TRIGGER "communication_surface_delete_guard"
+BEFORE DELETE ON "communication_surface"
+FOR EACH ROW
+EXECUTE FUNCTION "vimla_communication_surface_delete_guard"();
+
 -- Existing development rows are assigned independent stable surface identities.
 -- There is no released-client/data compatibility requirement, but making this
 -- migration self-contained also keeps local/test databases easy to upgrade.
