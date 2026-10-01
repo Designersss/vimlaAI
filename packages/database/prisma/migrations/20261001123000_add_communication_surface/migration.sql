@@ -52,6 +52,30 @@ ALTER TABLE "communication_surface"
   FOREIGN KEY ("directConversationId") REFERENCES "direct_conversation"("id")
   ON DELETE CASCADE ON UPDATE CASCADE;
 
+CREATE FUNCTION "vimla_communication_surface_binding_immutable"()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $
+BEGIN
+  IF
+    NEW."id" IS DISTINCT FROM OLD."id"
+    OR NEW."kind" IS DISTINCT FROM OLD."kind"
+    OR NEW."conversationId" IS DISTINCT FROM OLD."conversationId"
+    OR NEW."directConversationId" IS DISTINCT FROM OLD."directConversationId"
+  THEN
+    RAISE EXCEPTION 'Communication surface identity and domain binding are immutable'
+      USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END;
+$;
+
+CREATE TRIGGER "communication_surface_binding_immutable"
+BEFORE UPDATE OF "id", "kind", "conversationId", "directConversationId"
+ON "communication_surface"
+FOR EACH ROW
+EXECUTE FUNCTION "vimla_communication_surface_binding_immutable"();
+
 -- Existing development rows are assigned independent stable surface identities.
 -- There is no released-client/data compatibility requirement, but making this
 -- migration self-contained also keeps local/test databases easy to upgrade.
