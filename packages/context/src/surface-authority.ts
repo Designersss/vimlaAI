@@ -126,7 +126,8 @@ export class SurfaceAuthorityRegistry {
     if (
       !authority ||
       authority.surfaceId !== identity.surfaceId ||
-      authority.kind !== identity.kind
+      authority.kind !== identity.kind ||
+      authority.actorUserId !== input.actorUserId
     ) {
       throw new SurfaceAccessDeniedError(
         input.surfaceId,
