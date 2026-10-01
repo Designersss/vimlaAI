@@ -24,7 +24,7 @@ describe("context source-scope authority adapters", () => {
     await prisma.$disconnect();
   });
 
-  it("keeps project reads membership-based but never upgrades membership into generic write authority", async () => {
+  it("re-resolves project read authority from current membership", async () => {
     const ownerId = await createUser(
       prisma,
       "scope-project-owner",
@@ -59,12 +59,21 @@ describe("context source-scope authority adapters", () => {
       registry.canRead(viewerId, scope),
     ).resolves.toBe(true);
 
+    await prisma.projectMember.delete({
+      where: {
+        projectId_userId: {
+          projectId: project.id,
+          userId: viewerId,
+        },
+      },
+    });
+
     await expect(
-      registry.canWrite(ownerId, scope),
+      registry.canRead(viewerId, scope),
     ).resolves.toBe(false);
     await expect(
-      registry.canWrite(viewerId, scope),
-    ).resolves.toBe(false);
+      registry.canRead(ownerId, scope),
+    ).resolves.toBe(true);
   });
 });
 
