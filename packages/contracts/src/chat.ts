@@ -61,6 +61,8 @@ export type AiModelsResponse = z.infer<typeof aiModelsResponseSchema>;
 
 export const conversationSummarySchema = z.object({
   id: z.string().min(1),
+  surfaceId: z.string().uuid(),
+  surfaceKind: z.literal("AI_THREAD"),
   projectId: z.string().uuid().nullable(),
   title: z.string().nullable(),
   defaultTarget: conversationDefaultTargetSchema.nullable(),
