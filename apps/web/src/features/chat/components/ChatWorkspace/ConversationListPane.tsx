@@ -23,9 +23,9 @@ import {
   Spinner,
   Heading,
 } from "@vimla/ui";
-import { AuthRequiredError } from "../../../auth/services/current-user";
+import { AuthRequiredError, fetchCurrentUser } from "../../../auth/services/current-user";
 import { fetchConversations, createConversation } from "../../services/conversations";
-import { useChatWorkspace, usePrepareChatDevice } from "./ChatWorkspaceProvider";
+import { useChatSyncHub, useChatWorkspace, usePrepareChatDevice } from "./ChatWorkspaceProvider";
 import { CONSUMER_FEATURES } from "../../../../shared/config/consumer-features";
 import { apiErrorMessageKey } from "../../../../shared/errors/error-keys";
 import { tx } from "../../../../shared/i18n/translate";
@@ -34,6 +34,7 @@ import {
   createDirectConversation,
   fetchDirectConversations,
 } from "../../../direct-chats/services/api";
+import { subscribeWebSync } from "../../../../shared/sync/web-sync";
 import styles from "./ChatWorkspace.module.scss";
 
 type InboxTab = "all" | "ai" | "direct";
@@ -43,6 +44,7 @@ export const ConversationListPane = observer(function ConversationListPane({ aiI
   const locale = useLocale();
   const router = useRouter();
   const store = useChatWorkspace();
+  const syncHub = useChatSyncHub();
   const prepareDevice = usePrepareChatDevice();
   const [boot, setBoot] = useState<"loading" | "ready" | "failed">("loading");
   const [query, setQuery] = useState("");
@@ -50,6 +52,7 @@ export const ConversationListPane = observer(function ConversationListPane({ aiI
   const [directOpen, setDirectOpen] = useState(false);
   const [peerEmail, setPeerEmail] = useState("");
   const [directError, setDirectError] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
 
   const [attempt, setAttempt] = useState(0);
   const [creating, setCreating] = useState(false);
@@ -58,13 +61,15 @@ export const ConversationListPane = observer(function ConversationListPane({ aiI
   useEffect(() => {
     let cancelled = false;
     void Promise.all([
+      fetchCurrentUser(),
       fetchConversations(),
       CONSUMER_FEATURES.directChats ? fetchDirectConversations() : Promise.resolve({ items: [], nextCursor: null }),
     ])
-      .then(async ([conversations, directPage]) => {
+      .then(async ([currentUser, conversations, directPage]) => {
         if (cancelled) return;
         if (CONSUMER_FEATURES.directChats) await prepareDevice();
         if (cancelled) return;
+        setUserId(currentUser.id);
         store.setConversations(conversations);
         store.hydrateDirectConversations(directPage.items);
         setBoot("ready");
@@ -83,6 +88,44 @@ export const ConversationListPane = observer(function ConversationListPane({ aiI
       cancelled = true;
     };
   }, [attempt, prepareDevice, router, store]);
+
+  useEffect(() => {
+    if (boot !== "ready" || !userId) return;
+    let cancelled = false;
+    const unsubscribe = subscribeWebSync({
+      userId,
+      onAuthRequired: () => {
+        router.replace("/sign-in");
+      },
+      onDeltas: async (deltas) => {
+        if (cancelled) return;
+        const directChanged =
+          CONSUMER_FEATURES.directChats &&
+          deltas.some(
+            (delta) =>
+              delta.scope.kind === "DIRECT_CHAT",
+          );
+        if (directChanged) {
+          const directPage =
+            await fetchDirectConversations();
+          if (cancelled) return;
+          for (const conversation of directPage.items) {
+            store.updateDirectConversation(
+              conversation,
+            );
+          }
+        }
+        if (!cancelled) {
+          await syncHub.publish(deltas);
+        }
+      },
+    });
+
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, [boot, router, store, syncHub, userId]);
 
   async function onNewChat(): Promise<void> {
     if (creating) return;
