@@ -34,6 +34,7 @@ export interface SubscribeRealtimeOptions {
   installationId: string;
   onEvent: (event: RealtimeEventEnvelope) => void;
   onOpen?: () => void;
+  onHeartbeat?: () => void;
   socketFactory?: (url: string) => RealtimeSocket;
   setTimeoutFn?: (
     callback: () => void,
@@ -110,6 +111,7 @@ export function subscribeRealtime(
             }),
           ),
         );
+        options.onHeartbeat?.();
         return;
       }
       options.onEvent(parsed.data);
