@@ -66,6 +66,12 @@ describe("execution plan context snapshot", () => {
         kind: "CHAT",
       },
     });
+    const surface =
+      await prisma.communicationSurface.findUniqueOrThrow({
+        where: { conversationId: conversation.id },
+        select: { id: true, kind: true },
+      });
+    expect(surface.kind).toBe("AI_THREAD");
 
     const memory = new MemoryService(
       prisma,
@@ -143,9 +149,9 @@ describe("execution plan context snapshot", () => {
     const audience = snapshot.items.find(
       (item) => item.sourceType === "AUDIENCE",
     );
-    expect(audience?.sourceId).toBe(conversation.id);
+    expect(audience?.sourceId).toBe(surface.id);
     expect(audience?.metadata).toMatchObject({
-      kind: "PERSONAL",
+      surfaceId: surface.id,
       participantUserIds: [owner.id],
       focusedProjectId: project.id,
     });

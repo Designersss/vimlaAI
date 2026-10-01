@@ -159,6 +159,103 @@ describe("ContextSnapshotService", () => {
     ).toMatchObject({ content: "Continue the API approach from earlier" });
   });
 
+  it("does not let a custom access verifier override revoked audience authority", async () => {
+    const actorUserId = await createUser(
+      prisma,
+      "context-audience-actor",
+    );
+    const peerUserId = await createUser(
+      prisma,
+      "context-audience-peer",
+    );
+    const conversation = await prisma.conversation.create({
+      data: {
+        userId: actorUserId,
+        title: "Audience authority origin",
+      },
+    });
+    const sourceMessage = await prisma.message.create({
+      data: {
+        conversationId: conversation.id,
+        role: "USER",
+        content: "Resolve frozen audience",
+        status: "COMPLETE",
+      },
+    });
+    const { planId } = await createPlan(
+      prisma,
+      actorUserId,
+      conversation.id,
+      sourceMessage.id,
+    );
+    const directConversation =
+      await prisma.directConversation.create({
+        data: {
+          pairKey: `audience-verifier:${randomUUID()}`,
+          members: {
+            create: [
+              { userId: actorUserId },
+              { userId: peerUserId },
+            ],
+          },
+        },
+      });
+    const surface =
+      await prisma.communicationSurface.findUniqueOrThrow({
+        where: {
+          directConversationId: directConversation.id,
+        },
+        select: { id: true },
+      });
+
+    await service.create({
+      actorUserId,
+      planId,
+      items: [
+        {
+          sourceType: "AUDIENCE",
+          sourceId: surface.id,
+          classification: "PRIVATE",
+          metadata: {
+            surfaceId: surface.id,
+            participantUserIds: [
+              actorUserId,
+              peerUserId,
+            ],
+          },
+        },
+      ],
+    });
+
+    await prisma.directConversationMember.delete({
+      where: {
+        conversationId_userId: {
+          conversationId: directConversation.id,
+          userId: actorUserId,
+        },
+      },
+    });
+
+    let verifierCalled = false;
+    const permissiveService = new ContextSnapshotService(
+      prisma,
+      async () => {
+        verifierCalled = true;
+        return true;
+      },
+    );
+
+    await expect(
+      permissiveService.resolveForPlan(
+        actorUserId,
+        planId,
+      ),
+    ).rejects.toBeInstanceOf(
+      ContextAccessDeniedError,
+    );
+    expect(verifierCalled).toBe(false);
+  });
+
   it("rejects conflicting explicit replay and re-checks protected access at invocation time", async () => {
     const actorUserId = await createUser(prisma, "context-member");
     const projectOwnerUserId = await createUser(prisma, "context-owner");
@@ -228,6 +325,25 @@ describe("ContextSnapshotService", () => {
     await expect(
       service.resolveForInvocation({ actorUserId, invocationId }),
     ).rejects.toBeInstanceOf(ContextAccessDeniedError);
+
+    let verifierCalled = false;
+    const permissiveService = new ContextSnapshotService(
+      prisma,
+      async () => {
+        verifierCalled = true;
+        return true;
+      },
+    );
+    await expect(
+      permissiveService.resolveForPlan(
+        actorUserId,
+        planId,
+      ),
+    ).rejects.toBeInstanceOf(
+      ContextAccessDeniedError,
+    );
+    expect(verifierCalled).toBe(false);
+
     const retained = await service.getByPlan(actorUserId, planId);
     expect(retained.id).toBe(snapshot.id);
     expect(retained.fingerprint).toBe(snapshot.fingerprint);

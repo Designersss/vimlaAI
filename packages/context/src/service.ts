@@ -10,6 +10,13 @@ import { fingerprintContextItem, fingerprintContextSnapshot } from "./fingerprin
 import { canReadCompactedState } from "./compaction.js";
 import { canReadMemoryItem } from "./memory.js";
 import { ContextRetrievalService } from "./retrieval.js";
+import {
+  SurfaceAccessDeniedError,
+  SurfaceAuthorityUnavailableError,
+  SurfaceIdentityUnavailableError,
+  type SurfaceAuthorityRegistry,
+} from "./surface-authority.js";
+import { createSurfaceAuthorityRegistry } from "./surface-authority-db.js";
 import type {
   ContextAccessCheck,
   ContextAccessVerifier,
@@ -31,14 +38,27 @@ type SnapshotRow = Prisma.ContextSnapshotGetPayload<{
 
 export class ContextSnapshotService {
   private readonly retrieval: ContextRetrievalService;
+  private readonly surfaceAuthorities: SurfaceAuthorityRegistry;
 
   constructor(
     private readonly db: PrismaClient,
     private readonly accessVerifier?: ContextAccessVerifier,
     retrievalService?: ContextRetrievalService,
+    surfaceAuthorityRegistry?: SurfaceAuthorityRegistry,
   ) {
+    this.surfaceAuthorities =
+      surfaceAuthorityRegistry ??
+      createSurfaceAuthorityRegistry(db);
     this.retrieval =
-      retrievalService ?? new ContextRetrievalService(db);
+      retrievalService ??
+      new ContextRetrievalService(
+        db,
+        [],
+        {},
+        undefined,
+        undefined,
+        this.surfaceAuthorities,
+      );
   }
 
   async createForExecutionPlan(input: CreateExecutionPlanSnapshotInput): Promise<ContextSnapshotView> {
@@ -105,7 +125,11 @@ export class ContextSnapshotService {
     if (await this.hasBuiltInAccess(check)) {
       return;
     }
-    if (this.accessVerifier && (await this.accessVerifier(check))) {
+    if (
+      isExtensionVerifiableSource(check.sourceType) &&
+      this.accessVerifier &&
+      (await this.accessVerifier(check))
+    ) {
       return;
     }
     throw new ContextAccessDeniedError("Context source is no longer accessible");
@@ -231,39 +255,23 @@ export class ContextSnapshotService {
           }),
         );
       case "AUDIENCE": {
-        const [conversation, project, direct] = await Promise.all([
-          this.db.conversation.findFirst({
-            where: {
-              id: check.sourceId,
-              userId: check.actorUserId,
-            },
-            select: { id: true },
-          }),
-          this.db.project.findFirst({
-            where: {
-              id: check.sourceId,
-              OR: [
-                { ownerUserId: check.actorUserId },
-                {
-                  members: {
-                    some: { userId: check.actorUserId },
-                  },
-                },
-              ],
-            },
-            select: { id: true },
-          }),
-          this.db.directConversationMember.findUnique({
-            where: {
-              conversationId_userId: {
-                conversationId: check.sourceId,
-                userId: check.actorUserId,
-              },
-            },
-            select: { id: true },
-          }),
-        ]);
-        return Boolean(conversation || project || direct);
+        try {
+          const authority =
+            await this.surfaceAuthorities.resolve({
+              actorUserId: check.actorUserId,
+              surfaceId: check.sourceId,
+            });
+          return authority.canRead;
+        } catch (error: unknown) {
+          if (
+            error instanceof SurfaceIdentityUnavailableError ||
+            error instanceof SurfaceAuthorityUnavailableError ||
+            error instanceof SurfaceAccessDeniedError
+          ) {
+            return false;
+          }
+          throw error;
+        }
       }
       case "PARTICIPANT":
       case "LOCALE_TIMEZONE":
@@ -335,6 +343,16 @@ export class ContextSnapshotService {
         return false;
     }
   }
+}
+
+function isExtensionVerifiableSource(
+  sourceType: ContextSourceType,
+): boolean {
+  return (
+    sourceType === "ATTACHMENT" ||
+    sourceType === "FILE_METADATA" ||
+    sourceType === "ENTITY"
+  );
 }
 
 function validateItems(items: readonly ContextSnapshotItemInput[]): void {

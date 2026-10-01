@@ -362,12 +362,23 @@ describe("ExternalAiInvocationExecutor", () => {
       snapshotId: "test-snapshot",
       fingerprint: "sha256:test-frozen-bundle",
       manifest: {
-        version: 1,
+        version: 2,
         packingVersion: 1,
         targetKind: "AI_MODEL",
-        surfaceKind: "PERSONAL",
-        surfaceScopeHash: "sha256:test-personal-surface",
+        surfaceKind: "AI_THREAD",
+        surfaceScopeHash: "sha256:test-ai-thread-surface",
         audienceParticipantCount: 1,
+        surfaceCapabilities: [
+          "CONTEXT_READ",
+          "CONTEXT_CONTRIBUTE",
+          "AI_INVOKE",
+          "ACTION_INVOKE",
+        ],
+        disclosurePolicy: {
+          serverPlaintextAvailable: true,
+          clientDisclosureRequired: false,
+          peerContentRequiresConsent: false,
+        },
         budget: {
           contextWindowTokens: 16_384,
           outputReserveTokens: 4_096,
@@ -440,12 +451,23 @@ describe("ExternalAiInvocationExecutor", () => {
       snapshotId: "test-rendered-snapshot",
       fingerprint: "sha256:test-rendered-bundle",
       manifest: {
-        version: 1,
+        version: 2,
         packingVersion: 1,
         targetKind: "AI_MODEL",
-        surfaceKind: "PERSONAL",
-        surfaceScopeHash: "sha256:test-personal-surface",
+        surfaceKind: "AI_THREAD",
+        surfaceScopeHash: "sha256:test-ai-thread-surface",
         audienceParticipantCount: 1,
+        surfaceCapabilities: [
+          "CONTEXT_READ",
+          "CONTEXT_CONTRIBUTE",
+          "AI_INVOKE",
+          "ACTION_INVOKE",
+        ],
+        disclosurePolicy: {
+          serverPlaintextAvailable: true,
+          clientDisclosureRequired: false,
+          peerContentRequiresConsent: false,
+        },
         budget: {
           contextWindowTokens: 16_384,
           outputReserveTokens: 4_096,

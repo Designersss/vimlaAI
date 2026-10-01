@@ -4,6 +4,7 @@ import {
   ArtifactService,
   type ResolvedArtifactInput,
 } from "@vimla/artifacts";
+import type { CommunicationSurfaceKind } from "@vimla/contracts";
 import { type Prisma, type PrismaClient } from "@vimla/database";
 import {
   ContextAccessDeniedError,
@@ -25,13 +26,25 @@ import {
   evaluateContextPolicy,
   isInvocationTargetClassificationAllowed,
   isKnownContextClassification,
-  surfaceFromAudience,
-  type ContextAudienceDescriptor,
   type ContextInvocationTargetKind,
   type ContextPolicyDenialReason,
   type ContextSourceScope,
-  type ContextSurfaceDescriptor,
 } from "./policy.js";
+import {
+  isReadScopeEligible,
+  SurfaceAccessDeniedError,
+  SurfaceAuthorityUnavailableError,
+  SurfaceIdentityUnavailableError,
+  type ResolvedSurfaceAuthority,
+  type SurfaceAuthorityRegistry,
+  type SurfaceCapability,
+  type SurfaceDisclosurePolicy,
+} from "./surface-authority.js";
+import { createSurfaceAuthorityRegistry } from "./surface-authority-db.js";
+import {
+  createContextScopeAuthorityRegistry,
+  type ContextScopeAuthorityRegistry,
+} from "./scope-authority.js";
 import { ContextSnapshotService } from "./service.js";
 import type {
   ContextClassification,
@@ -41,6 +54,12 @@ import type {
 } from "./types.js";
 
 const MAX_AUDIENCE_PARTICIPANTS = 64;
+
+interface ContextAudienceClaim {
+  surfaceId: string;
+  participantUserIds: readonly string[];
+  focusedProjectId?: string;
+}
 
 export type ContextBundleDenialReason =
   | ContextPolicyDenialReason
@@ -73,9 +92,11 @@ export interface ContextBundleManifest {
   version: typeof CONTEXT_POLICY_VERSION;
   packingVersion: typeof CONTEXT_PACKING_VERSION;
   targetKind: ContextInvocationTargetKind;
-  surfaceKind: ContextSurfaceDescriptor["kind"];
+  surfaceKind: CommunicationSurfaceKind | "UNKNOWN";
   surfaceScopeHash: string;
   audienceParticipantCount: number;
+  surfaceCapabilities: SurfaceCapability[];
+  disclosurePolicy: SurfaceDisclosurePolicy;
   budget: ContextBudget;
   usedTokens: number;
   rawHistoryTokens: number;
@@ -124,14 +145,31 @@ export class ContextBundleService {
   private readonly snapshots: ContextSnapshotService;
   private readonly artifacts: ArtifactService;
   private readonly budgets: ContextBudgetService;
+  private readonly surfaceAuthorities: SurfaceAuthorityRegistry;
+  private readonly scopeAuthorities: ContextScopeAuthorityRegistry;
 
   constructor(
     private readonly db: PrismaClient,
     snapshotService?: ContextSnapshotService,
     artifactService?: ArtifactService,
     budgetService?: ContextBudgetService,
+    surfaceAuthorityRegistry?: SurfaceAuthorityRegistry,
+    scopeAuthorityRegistry?: ContextScopeAuthorityRegistry,
   ) {
-    this.snapshots = snapshotService ?? new ContextSnapshotService(db);
+    this.surfaceAuthorities =
+      surfaceAuthorityRegistry ??
+      createSurfaceAuthorityRegistry(db);
+    this.scopeAuthorities =
+      scopeAuthorityRegistry ??
+      createContextScopeAuthorityRegistry(db);
+    this.snapshots =
+      snapshotService ??
+      new ContextSnapshotService(
+        db,
+        undefined,
+        undefined,
+        this.surfaceAuthorities,
+      );
     this.artifacts = artifactService ?? new ArtifactService(db);
     this.budgets = budgetService ?? new ContextBudgetService(db);
   }
@@ -161,8 +199,14 @@ export class ContextBundleService {
       invocation.planId,
     );
     const audienceItem = singleAudienceItem(snapshot.items);
-    const audience = parseAudience(input.actorUserId, audienceItem);
-    const surface = surfaceFromAudience(input.actorUserId, audience);
+    const audience = parseAudience(
+      input.actorUserId,
+      audienceItem,
+    );
+    const authority = await this.resolveSurfaceAuthority(
+      input.actorUserId,
+      audience.surfaceId,
+    );
 
     const policyAllowedItems: ContextSnapshotItemView[] = [];
     const allowedArtifacts: ResolvedArtifactInput[] = [];
@@ -171,11 +215,14 @@ export class ContextBundleService {
     let blockingDenial = false;
 
     if (
-      !(await this.audienceMatchesCurrentSurface(
-        input.actorUserId,
-        audience,
-        surface,
-      ))
+      !authority ||
+      !authority.canRead ||
+      !authority.capabilities.includes("CONTEXT_READ") ||
+      !authoritySupportsInvocation(authority, targetKind) ||
+      !sameAudience(
+        audience.participantUserIds,
+        authority.audienceUserIds,
+      )
     ) {
       denials.push(
         denialFor(audienceItem, "INVALID_AUDIENCE"),
@@ -187,11 +234,12 @@ export class ContextBundleService {
 
         const sourceScope = inferSourceScope(input.actorUserId, item);
         const preflight = evaluateContextPolicy({
-          actorUserId: input.actorUserId,
-          surface,
           targetKind,
           classification: item.classification,
-          sourceScope,
+          sourceScopeEligible: isReadScopeEligible(
+            authority,
+            sourceScope,
+          ),
           actorHasAccess: true,
           audienceHasAccess: true,
         });
@@ -207,20 +255,21 @@ export class ContextBundleService {
         const audienceHasAccess =
           actorHasAccess &&
           (await this.everyAudienceMemberCanReadScope(
-            audience,
+            authority.audienceUserIds,
             sourceScope,
           )) &&
           (await this.everyAudienceMemberCanReadSource(
-            audience,
+            authority.audienceUserIds,
             item,
             input.actorUserId,
           ));
         const decision = evaluateContextPolicy({
-          actorUserId: input.actorUserId,
-          surface,
           targetKind,
           classification: item.classification,
-          sourceScope,
+          sourceScopeEligible: isReadScopeEligible(
+            authority,
+            sourceScope,
+          ),
           actorHasAccess,
           audienceHasAccess,
         });
@@ -289,7 +338,7 @@ export class ContextBundleService {
 
         const audienceHasAccess =
           await this.everyAudienceMemberCanReadArtifact(
-            audience,
+            authority.audienceUserIds,
             reference.artifactVersionId,
           );
         if (!audienceHasAccess) {
@@ -336,9 +385,20 @@ export class ContextBundleService {
       version: CONTEXT_POLICY_VERSION,
       packingVersion: CONTEXT_PACKING_VERSION,
       targetKind,
-      surfaceKind: surface.kind,
-      surfaceScopeHash: hashSurface(surface),
-      audienceParticipantCount: audience.participantUserIds.length,
+      surfaceKind: authority?.kind ?? "UNKNOWN",
+      surfaceScopeHash: hashSurface(
+        audience.surfaceId,
+        authority?.kind ?? "UNKNOWN",
+      ),
+      audienceParticipantCount:
+        authority?.audienceUserIds.length ??
+        audience.participantUserIds.length,
+      surfaceCapabilities: [
+        ...(authority?.capabilities ?? []),
+      ],
+      disclosurePolicy:
+        authority?.disclosurePolicy ??
+        UNKNOWN_DISCLOSURE_POLICY,
       budget,
       usedTokens: packed.usedTokens,
       rawHistoryTokens: packed.rawHistoryTokens,
@@ -428,21 +488,21 @@ export class ContextBundleService {
   }
 
   private everyAudienceMemberCanReadArtifact(
-    audience: ContextAudienceDescriptor,
+    audienceUserIds: readonly string[],
     artifactVersionId: string,
   ): Promise<boolean> {
     return this.artifacts.canUsersReadVersion({
-      actorUserIds: audience.participantUserIds,
+      actorUserIds: audienceUserIds,
       artifactVersionId,
     });
   }
 
   private async everyAudienceMemberCanReadSource(
-    audience: ContextAudienceDescriptor,
+    audienceUserIds: readonly string[],
     item: ContextSnapshotItemView,
     alreadyCheckedActorUserId: string,
   ): Promise<boolean> {
-    for (const userId of audience.participantUserIds) {
+    for (const userId of audienceUserIds) {
       if (userId === alreadyCheckedActorUserId) continue;
       if (!(await this.canReadSource(userId, item))) {
         return false;
@@ -452,96 +512,41 @@ export class ContextBundleService {
   }
 
   private async everyAudienceMemberCanReadScope(
-    audience: ContextAudienceDescriptor,
+    audienceUserIds: readonly string[],
     scope: ContextSourceScope,
   ): Promise<boolean> {
-    for (const userId of audience.participantUserIds) {
-      if (!(await this.hasScopeAccess(userId, scope))) {
+    for (const userId of audienceUserIds) {
+      if (
+        !(await this.scopeAuthorities.canRead(
+          userId,
+          scope,
+        ))
+      ) {
         return false;
       }
     }
     return true;
   }
 
-  private async hasScopeAccess(
-    userId: string,
-    scope: ContextSourceScope,
-  ): Promise<boolean> {
-    switch (scope.kind) {
-      case "PERSONAL":
-        return scope.ownerUserId === userId;
-
-      case "PROJECT":
-        try {
-          await this.snapshots.assertSourceAccess({
-            actorUserId: userId,
-            sourceType: "PROJECT",
-            sourceId: scope.projectId,
-          });
-          return true;
-        } catch (error: unknown) {
-          if (error instanceof ContextAccessDeniedError) {
-            return false;
-          }
-          throw error;
-        }
-
-      case "DIRECT_CHAT":
-        return Boolean(
-          await this.db.directConversationMember.findUnique({
-            where: {
-              conversationId_userId: {
-                conversationId: scope.directConversationId,
-                userId,
-              },
-            },
-            select: { id: true },
-          }),
-        );
-    }
-  }
-
-  private async audienceMatchesCurrentSurface(
+  private async resolveSurfaceAuthority(
     actorUserId: string,
-    audience: ContextAudienceDescriptor,
-    surface: ContextSurfaceDescriptor,
-  ): Promise<boolean> {
-    if (!audience.participantUserIds.includes(actorUserId)) {
-      return false;
-    }
-
-    if (surface.kind === "PERSONAL") {
-      return (
-        audience.participantUserIds.length === 1 &&
-        audience.participantUserIds[0] === actorUserId
-      );
-    }
-
-    if (surface.kind === "PROJECT") {
-      for (const userId of audience.participantUserIds) {
-        if (
-          !(await this.hasScopeAccess(userId, {
-            kind: "PROJECT",
-            projectId: surface.projectId,
-          }))
-        ) {
-          return false;
-        }
+    surfaceId: string,
+  ): Promise<ResolvedSurfaceAuthority | null> {
+    try {
+      return await this.surfaceAuthorities.resolve({
+        actorUserId,
+        surfaceId,
+      });
+    } catch (error: unknown) {
+      if (
+        error instanceof SurfaceIdentityUnavailableError ||
+        error instanceof SurfaceAuthorityUnavailableError ||
+        error instanceof SurfaceAccessDeniedError
+      ) {
+        return null;
       }
-      return true;
+      throw error;
     }
-
-    const members = await this.db.directConversationMember.findMany({
-      where: { conversationId: surface.directConversationId },
-      select: { userId: true },
-      orderBy: { userId: "asc" },
-    });
-    const currentIds = members.map((member) => member.userId);
-    const claimedIds = [...audience.participantUserIds].sort();
-    return (
-      currentIds.length === claimedIds.length &&
-      currentIds.every((userId, index) => userId === claimedIds[index])
-    );
   }
 
   private async persistBundle(
@@ -617,10 +622,22 @@ function singleAudienceItem(
 function parseAudience(
   actorUserId: string,
   item: ContextSnapshotItemView,
-): ContextAudienceDescriptor {
+): ContextAudienceClaim {
   const metadata = asRecord(item.metadata);
-  if (!metadata || typeof metadata.kind !== "string") {
-    throw new ContextValidationError("Context audience metadata is invalid");
+  if (!metadata) {
+    throw new ContextValidationError(
+      "Context audience metadata is invalid",
+    );
+  }
+
+  const surfaceId = boundedId(
+    metadata.surfaceId,
+    "audience surfaceId",
+  );
+  if (item.sourceId !== surfaceId) {
+    throw new ContextValidationError(
+      "Context audience source does not match its surface identity",
+    );
   }
 
   const participantUserIds = parseParticipantIds(
@@ -632,47 +649,21 @@ function parseAudience(
     );
   }
 
-  switch (metadata.kind) {
-    case "PERSONAL":
-      return {
-        kind: "PERSONAL",
-        participantUserIds,
-      };
-
-    case "PROJECT": {
-      const projectId = boundedId(metadata.projectId, "audience projectId");
-      if (item.sourceId !== projectId) {
-        throw new ContextValidationError(
-          "Context audience source does not match the project surface",
+  const focusedProjectId =
+    metadata.focusedProjectId === undefined
+      ? undefined
+      : boundedId(
+          metadata.focusedProjectId,
+          "audience focusedProjectId",
         );
-      }
-      return {
-        kind: "PROJECT",
-        participantUserIds,
-        projectId,
-      };
-    }
 
-    case "DIRECT_CHAT": {
-      const directConversationId = boundedId(
-        metadata.directConversationId,
-        "audience directConversationId",
-      );
-      if (item.sourceId !== directConversationId) {
-        throw new ContextValidationError(
-          "Context audience source does not match the Direct Chat surface",
-        );
-      }
-      return {
-        kind: "DIRECT_CHAT",
-        participantUserIds,
-        directConversationId,
-      };
-    }
-
-    default:
-      throw new ContextValidationError("Context audience kind is unsupported");
-  }
+  return {
+    surfaceId,
+    participantUserIds,
+    ...(focusedProjectId
+      ? { focusedProjectId }
+      : {}),
+  };
 }
 
 function parseParticipantIds(value: unknown): string[] {
@@ -779,16 +770,45 @@ function denialFor(
   };
 }
 
-function hashSurface(surface: ContextSurfaceDescriptor): string {
-  switch (surface.kind) {
-    case "PERSONAL":
-      return hashValue(`PERSONAL:${surface.ownerUserId}`);
-    case "PROJECT":
-      return hashValue(`PROJECT:${surface.projectId}`);
-    case "DIRECT_CHAT":
-      return hashValue(`DIRECT_CHAT:${surface.directConversationId}`);
-  }
+function hashSurface(
+  surfaceId: string,
+  surfaceKind: CommunicationSurfaceKind | "UNKNOWN",
+): string {
+  return hashValue(
+    `${surfaceKind}:${surfaceId}`,
+  );
 }
+
+function sameAudience(
+  claimed: readonly string[],
+  current: readonly string[],
+): boolean {
+  const left = [...claimed].sort();
+  const right = [...current].sort();
+  return (
+    left.length === right.length &&
+    left.every(
+      (userId, index) => userId === right[index],
+    )
+  );
+}
+
+function authoritySupportsInvocation(
+  authority: ResolvedSurfaceAuthority,
+  targetKind: ContextInvocationTargetKind,
+): boolean {
+  const capability =
+    targetKind === "VIMLA"
+      ? "ACTION_INVOKE"
+      : "AI_INVOKE";
+  return authority.capabilities.includes(capability);
+}
+
+const UNKNOWN_DISCLOSURE_POLICY: SurfaceDisclosurePolicy = {
+  serverPlaintextAvailable: false,
+  clientDisclosureRequired: true,
+  peerContentRequiresConsent: true,
+};
 
 function bundleFingerprint(manifest: ContextBundleManifest): string {
   return hashValue(

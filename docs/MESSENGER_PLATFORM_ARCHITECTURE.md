@@ -109,6 +109,38 @@ The first implemented surface kinds are `AI_THREAD` and `DIRECT`.
 
 Surface rows contain no ownership, role, membership or E2EE authority. The authority-adapter registry prepared in MSG-01 first resolves the surface kind through a server-authoritative identity resolver and only then dispatches to a domain adapter; CTX-02 owns the domain-specific audience/read/write/capability decisions.
 
+### 5.2 CTX-02 authority model
+
+CommunicationSurface remains identity only. Current authorization is resolved through a registry of focused domain adapters.
+
+For the currently implemented surface kinds:
+
+- `AI_THREAD` resolves its owner, current audience, eligible PERSONAL/PROJECT source scopes, disclosure mode and AI/action capabilities from the owning `Conversation(kind='CHAT')`;
+- `DIRECT` resolves current membership from `DirectConversationMember`, exposes only DIRECT_CHAT/authorized-project context scopes, and declares that server plaintext is unavailable and client disclosure is required;
+- source-scope access is delegated separately to focused PERSONAL, PROJECT and DIRECT_CHAT adapters, so the bundle core does not contain a growing domain membership switch;
+- a denied actor receives no eligible read/write scopes or invocation capabilities;
+- frozen snapshot audience metadata stores `surfaceId` plus the participant set; it does not claim an authorization kind;
+- ContextBundle re-resolves the current SurfaceAuthority for every invocation and compares the frozen participant set with current authority, so revoked membership/visibility invalidates stale snapshots and frozen bundle replay;
+- worker execution consumes generic capabilities such as `AI_INVOKE` / `ACTION_INVOKE`; it does not branch on surface kinds.
+
+The mandatory execution order is:
+
+```text
+actor
+→ server-authoritative surface identity
+→ domain SurfaceAuthority
+→ current audience/capabilities
+→ eligible source scopes
+→ source queries
+→ provider scope invariant
+→ ranking/budget
+→ model/executor
+```
+
+Provider/model/prompt content never selects a SurfaceAuthority adapter and cannot expand a source/write scope.
+
+Direct Chat keeps a second, stricter E2EE boundary after SurfaceAuthority: bounded client-disclosed plaintext is validated against current membership and consent, including transactional consent re-checks immediately before side effects. SurfaceAuthority never grants the server access to encrypted Direct Chat history or decryption keys; only the already-established, explicitly client-disclosed bounded plaintext may be frozen in ContextSnapshot for the authorized invocation.
+
 ## 6. Context / audience rule
 
 The central privacy invariant is:
