@@ -168,9 +168,15 @@ export class ChatWorkspaceStore {
 
   updateDirectConversation(conversation: DirectConversationSummary): void {
     const exists = this.directConversations.some((item) => item.id === conversation.id);
-    this.directConversations = exists
+    const next = exists
       ? this.directConversations.map((item) => item.id === conversation.id ? conversation : item)
       : [conversation, ...this.directConversations];
+    this.directConversations = next.sort(
+      (left, right) =>
+        Date.parse(right.lastMessageAt) -
+          Date.parse(left.lastMessageAt) ||
+        right.id.localeCompare(left.id),
+    );
   }
 
   setUsage(usage: UsageResponse): void {
