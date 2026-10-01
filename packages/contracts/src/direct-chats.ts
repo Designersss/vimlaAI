@@ -179,6 +179,8 @@ export type DirectConversationPrivacy = z.infer<typeof directConversationPrivacy
 
 export const directConversationSummarySchema = z.object({
   id: z.string().uuid(),
+  surfaceId: z.string().uuid(),
+  surfaceKind: z.literal("DIRECT"),
   peer: directParticipantSchema,
   lastMessageAt: z.string(),
   unreadCount: z.number().int().min(0),
