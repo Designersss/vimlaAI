@@ -187,21 +187,6 @@ export class ContextBundleService {
         planId: true,
         targetKind: true,
         targetModelSlug: true,
-        plan: {
-          select: {
-            conversation: {
-              select: {
-                id: true,
-                kind: true,
-                surface: {
-                  select: {
-                    id: true,
-                  },
-                },
-              },
-            },
-          },
-        },
       },
     });
     if (!invocation) {
@@ -222,12 +207,6 @@ export class ContextBundleService {
       input.actorUserId,
       audience.surfaceId,
     );
-    const planConversation = invocation.plan.conversation;
-    const audienceMatchesPlanSurface =
-      planConversation.kind === "CHAT" &&
-      planConversation.surface?.id === audience.surfaceId &&
-      authority?.kind === "AI_THREAD" &&
-      authority.domainId === planConversation.id;
 
     const policyAllowedItems: ContextSnapshotItemView[] = [];
     const allowedArtifacts: ResolvedArtifactInput[] = [];
@@ -237,7 +216,6 @@ export class ContextBundleService {
 
     if (
       !authority ||
-      !audienceMatchesPlanSurface ||
       !authority.canRead ||
       !authority.capabilities.includes("CONTEXT_READ") ||
       !authoritySupportsInvocation(authority, targetKind) ||
