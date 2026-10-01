@@ -1,18 +1,11 @@
 import type { PrismaClient } from "@vimla/database";
-import type {
-  ContextReadScope,
-  ContextWriteScope,
-} from "./policy.js";
+import type { ContextReadScope } from "./policy.js";
 
 export interface ContextScopeAuthorityAdapter {
   readonly kind: ContextReadScope["kind"];
   canRead(
     userId: string,
     scope: ContextReadScope,
-  ): Promise<boolean>;
-  canWrite(
-    userId: string,
-    scope: ContextWriteScope,
   ): Promise<boolean>;
 }
 
@@ -45,15 +38,6 @@ export class ContextScopeAuthorityRegistry {
       : Promise.resolve(false);
   }
 
-  canWrite(
-    userId: string,
-    scope: ContextWriteScope,
-  ): Promise<boolean> {
-    const adapter = this.adapters.get(scope.kind);
-    return adapter
-      ? adapter.canWrite(userId, scope)
-      : Promise.resolve(false);
-  }
 }
 
 export class PersonalContextScopeAuthorityAdapter
@@ -71,15 +55,6 @@ export class PersonalContextScopeAuthorityAdapter
     );
   }
 
-  canWrite(
-    userId: string,
-    scope: ContextWriteScope,
-  ): Promise<boolean> {
-    return Promise.resolve(
-      scope.kind === "PERSONAL" &&
-        scope.ownerUserId === userId,
-    );
-  }
 }
 
 export class ProjectContextScopeAuthorityAdapter
@@ -112,15 +87,6 @@ export class ProjectContextScopeAuthorityAdapter
     );
   }
 
-  canWrite(
-    _userId: string,
-    _scope: ContextWriteScope,
-  ): Promise<boolean> {
-    // Project mutation authority depends on role + entitlement/read-only
-    // state and remains owned by ProjectService. Membership alone must never
-    // be upgraded into a generic write capability here.
-    return Promise.resolve(false);
-  }
 }
 
 export class DirectChatContextScopeAuthorityAdapter
@@ -149,12 +115,6 @@ export class DirectChatContextScopeAuthorityAdapter
     );
   }
 
-  canWrite(
-    userId: string,
-    scope: ContextWriteScope,
-  ): Promise<boolean> {
-    return this.canRead(userId, scope);
-  }
 }
 
 export function createContextScopeAuthorityRegistry(
