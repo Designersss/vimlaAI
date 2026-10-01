@@ -34,7 +34,7 @@ export class SurfaceAuthorityRegistry<TResult> {
     }
   }
 
-  resolve(
+  async resolve(
     kind: CommunicationSurfaceKind,
     input: ResolveSurfaceAuthorityInput,
   ): Promise<TResult> {
