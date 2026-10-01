@@ -360,14 +360,6 @@ export class ContextRetrievalService {
             },
           })
         : null;
-    if (
-      focusedProjectId !== null &&
-      currentProject === null
-    ) {
-      throw new ContextAccessDeniedError(
-        "Focused project access is no longer authorized",
-      );
-    }
     const currentProjectId =
       currentProject?.id ?? null;
     const query = sourceMessage.content;
