@@ -145,6 +145,13 @@ describe("AI chat integration", () => {
       kind: "AI_MODEL",
       modelId: threadModelId,
     });
+    expect(created.json()).toMatchObject({
+      surfaceKind: "AI_THREAD",
+    });
+    expect(String(created.json().surfaceId)).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
+    const surfaceId = String(created.json().surfaceId);
     const conversationId = String(created.json().id);
 
     provider.scenario = "success";
@@ -176,6 +183,37 @@ describe("AI chat integration", () => {
     expect(detail.json().defaultTarget).toEqual({
       kind: "AI_MODEL",
       modelId: threadModelId,
+    });
+    expect(detail.json()).toMatchObject({
+      surfaceId,
+      surfaceKind: "AI_THREAD",
+    });
+    const listed = await app.inject({
+      method: "GET",
+      url: "/v1/conversations",
+      headers: { origin },
+      cookies: user.cookies,
+    });
+    expect(listed.statusCode).toBe(200);
+    expect(
+      listed
+        .json()
+        .conversations.find(
+          (item: { id: string }) =>
+            item.id === conversationId,
+        ),
+    ).toMatchObject({
+      surfaceId,
+      surfaceKind: "AI_THREAD",
+    });
+    expect(
+      await prisma.communicationSurface.findUnique({
+        where: { id: surfaceId },
+      }),
+    ).toMatchObject({
+      kind: "AI_THREAD",
+      conversationId,
+      directConversationId: null,
     });
     await prisma.$disconnect();
   });
