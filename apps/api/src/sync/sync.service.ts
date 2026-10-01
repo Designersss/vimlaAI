@@ -100,14 +100,17 @@ export class SyncService {
         include: { event: true },
       });
 
+    for (const candidate of candidates) {
+      assertSupportedSyncEvent(candidate.event);
+    }
+
     const directChatIds = [
       ...new Set(
         candidates
           .filter(
             (row) =>
-              row.event.scopeKind ===
-                "DIRECT_CHAT" &&
-              row.event.changeKind !== "TOMBSTONE",
+              row.event.eventType ===
+              "DIRECT_MESSAGE_CREATED",
           )
           .map((row) => row.event.scopeId),
       ),
@@ -138,9 +141,9 @@ export class SyncService {
     for (const candidate of candidates) {
       const event = candidate.event;
       const eligible =
-        event.changeKind === "TOMBSTONE" ||
-        (event.scopeKind === "DIRECT_CHAT" &&
-          allowedDirectChats.has(event.scopeId));
+        event.eventType ===
+          "DIRECT_MESSAGE_DELETED" ||
+        allowedDirectChats.has(event.scopeId);
 
       if (eligible) {
         if (deltas.length >= input.limit) {
@@ -179,6 +182,27 @@ export class SyncService {
   }
 }
 
+function assertSupportedSyncEvent(event: {
+  eventType: string;
+  changeKind: string;
+  scopeKind: string;
+}): void {
+  const created =
+    event.eventType === "DIRECT_MESSAGE_CREATED" &&
+    event.changeKind === "UPSERT_REF" &&
+    event.scopeKind === "DIRECT_CHAT";
+  const deleted =
+    event.eventType === "DIRECT_MESSAGE_DELETED" &&
+    event.changeKind === "TOMBSTONE" &&
+    event.scopeKind === "DIRECT_CHAT";
+
+  if (!created && !deleted) {
+    throw new InternalServerErrorException(
+      "Unsupported durable sync event",
+    );
+  }
+}
+
 function toSyncDelta(event: {
   id: string;
   eventType: string;
@@ -188,17 +212,6 @@ function toSyncDelta(event: {
   occurredAt: Date;
   payload: unknown;
 }): SyncDelta {
-  if (
-    event.eventType !==
-      "DIRECT_MESSAGE_CREATED" &&
-    event.eventType !==
-      "DIRECT_MESSAGE_DELETED"
-  ) {
-    throw new InternalServerErrorException(
-      "Unsupported durable sync event",
-    );
-  }
-
   const parsed = syncDeltaSchema.safeParse({
     syncProtocolVersion: SYNC_PROTOCOL_VERSION,
     eventId: event.id,
