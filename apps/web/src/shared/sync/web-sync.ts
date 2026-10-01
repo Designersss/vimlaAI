@@ -185,6 +185,14 @@ export function subscribeWebSync(
         options.onError?.(error);
         return;
       }
+      if (
+        error instanceof ClientApiError &&
+        (error.code === "installation_revoked" ||
+          error.code === "installation_limit_reached")
+      ) {
+        options.onError?.(error);
+        return;
+      }
       options.onError?.(error);
       scheduleRealtimeRetry();
     } finally {
@@ -255,15 +263,33 @@ export function createWebSyncCursorStore(
   storage: WebSyncStorage,
 ): SyncCursorStore {
   const key = webSyncCursorStorageKey(userId);
+  let memoryCursor: string | null | undefined;
   return {
     async read() {
-      return storage.getItem(key);
+      try {
+        const stored = storage.getItem(key);
+        memoryCursor = stored;
+        return stored;
+      } catch {
+        return memoryCursor ?? null;
+      }
     },
     async write(cursor) {
-      storage.setItem(key, cursor);
+      memoryCursor = cursor;
+      try {
+        storage.setItem(key, cursor);
+      } catch {
+        // In-memory progress is enough for the current tab.
+        // A reload safely starts from the durable server stream again.
+      }
     },
     async clear() {
-      storage.removeItem(key);
+      memoryCursor = null;
+      try {
+        storage.removeItem(key);
+      } catch {
+        // Storage availability never blocks durable recovery.
+      }
     },
   };
 }
