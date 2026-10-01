@@ -68,6 +68,7 @@ describe("surface authority adapters", () => {
     ).resolves.toMatchObject({
       canRead: false,
       canContribute: false,
+      audienceUserIds: [],
       eligibleReadScopes: [],
       eligibleWriteScopes: [],
       capabilities: [],
@@ -151,6 +152,7 @@ describe("surface authority adapters", () => {
     ).resolves.toMatchObject({
       canRead: false,
       canContribute: false,
+      audienceUserIds: [],
       eligibleReadScopes: [],
       eligibleWriteScopes: [],
       capabilities: [],
