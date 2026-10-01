@@ -6,6 +6,7 @@ import {
   createInstallationsClient,
   createNotificationsClient,
   createOperatorClient,
+  createSyncClient,
 } from "@vimla/client-api";
 import { publicWebConfig } from "../config/public-env";
 
@@ -28,5 +29,6 @@ export function createWebClientApi(
     installations: createInstallationsClient(transport),
     notifications: createNotificationsClient(transport),
     operator: createOperatorClient(transport),
+    sync: createSyncClient(transport),
   };
 }

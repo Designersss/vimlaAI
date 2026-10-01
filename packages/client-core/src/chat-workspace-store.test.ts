@@ -72,6 +72,37 @@ describe("persistent chat workspace", () => {
     expect(new ChatWorkspaceStore().conversation("a").draft).toBe("");
   });
 
+  it("moves a Direct Chat to the front when sync reports a newer message", () => {
+    const workspace = new ChatWorkspaceStore();
+    const base: DirectConversationSummary = {
+      id: "a",
+      peer: { userId: "peer-a", name: "A", email: "a@example.com" },
+      lastMessageAt: "2026-09-14T10:00:00Z",
+      createdAt: historyCreatedAt,
+      unreadCount: 0,
+      lastKind: "HUMAN",
+      lastSenderUserId: "peer-a",
+      privacy: {
+        shareOwnHistoryWithVimla: false,
+        includePeerHistoryWhenInvoking: false,
+        peerShareOwnHistoryWithVimla: false,
+      },
+    };
+    workspace.hydrateDirectConversations([
+      { ...base, id: "b", peer: { userId: "peer-b", name: "B", email: "b@example.com" }, lastMessageAt: "2026-09-14T11:00:00Z" },
+      base,
+    ]);
+
+    workspace.updateDirectConversation({
+      ...base,
+      lastMessageAt: "2026-09-14T12:00:00Z",
+      unreadCount: 1,
+    });
+
+    expect(workspace.directConversations.map((item) => item.id)).toEqual(["a", "b"]);
+    expect(workspace.directConversations[0]?.unreadCount).toBe(1);
+  });
+
   it("keeps a newer read response when a cold direct-chat list arrives late", () => {
     const workspace = new ChatWorkspaceStore();
     const unread: DirectConversationSummary = {

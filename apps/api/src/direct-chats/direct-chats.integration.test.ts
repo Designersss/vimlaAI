@@ -37,7 +37,6 @@ import { loadApiConfig } from "@vimla/config/server";
 import { createPrismaClient } from "@vimla/database";
 import { createVimlaApiApp } from "../create-app.js";
 import { PrismaService } from "../persistence/prisma.service.js";
-import { DirectChatRealtimeService } from "./direct-chat-realtime.service.js";
 import { DirectMentionRoutingService } from "./direct-mention-routing.service.js";
 import { registerVerifiedUser } from "../test/identity-helpers.js";
 
@@ -700,11 +699,6 @@ describe("direct chats API", () => {
     ).toEqual([201, 400]);
 
     const secondNikitaDevice = await registerHarness(app, nikita);
-    const realtime = app.get(
-      DirectChatRealtimeService,
-    );
-    const publishSpy = vi.spyOn(realtime, "publish");
-    publishSpy.mockClear();
     const replay = await app.inject({
       method: "POST",
       url: `/v1/direct-chats/${chat.id}/messages`,
@@ -714,16 +708,6 @@ describe("direct chats API", () => {
     });
     expect(replay.statusCode).toBe(201);
     expect(replay.json().id).toBe(sent.json().id);
-    expect(publishSpy).toHaveBeenCalledWith(
-      expect.arrayContaining([alice.id, nikita.id]),
-      expect.objectContaining({
-        type: "direct_message",
-        conversationId: chat.id,
-        messageId: sent.json().id,
-      }),
-    );
-    publishSpy.mockRestore();
-
     expect(
       await app
         .get(PrismaService)

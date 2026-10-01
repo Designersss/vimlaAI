@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactElement } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactElement, type SetStateAction } from "react";
 import { useRouter } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import type {
@@ -70,9 +70,6 @@ import {
   shouldContinueDeepHistoryBootstrap,
 } from "@vimla/client-core";
 import { decodeDirectPlaintext, encodeDirectPlaintext, type DirectPlaintextPayload } from "../services/payload";
-import { ensureWebInstallation } from "../../installations/services/installation";
-import { subscribeRealtime } from "../../../shared/realtime/realtime";
-import { subscribeDirectChatEvents } from "../services/realtime";
 import {
   decryptMessageWithStatus,
   encryptForDevices,
@@ -85,7 +82,7 @@ import {
   withPendingOperatorInvocationLock,
   type PendingOperatorInvocation,
 } from "../services/session";
-import { useChatWorkspace, usePrepareChatDevice } from "../../chat/components/ChatWorkspace/ChatWorkspaceProvider";
+import { useChatSyncHub, useChatWorkspace, usePrepareChatDevice } from "../../chat/components/ChatWorkspace/ChatWorkspaceProvider";
 import { ChatConversationHeader } from "../../chat/components/ChatWorkspace/ChatConversationHeader";
 import { ChatDetailStatus } from "../../chat/components/ChatWorkspace/ChatDetailStatus";
 import styles from "./DirectChatWorkspace.module.scss";
@@ -143,11 +140,25 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
   const router = useRouter();
   const prepareDevice = usePrepareChatDevice();
   const workspace = useChatWorkspace();
+  const syncHub = useChatSyncHub();
   const [attempt, setAttempt] = useState(0);
   const [boot, setBoot] = useState<"loading" | "ready" | "failed">("loading");
   const [error, setError] = useState<string | null>(null);
   const [conversation, setConversation] = useState<DirectConversationView | null>(null);
   const [rows, setRows] = useState<DecryptedRow[]>([]);
+  const rowsRef = useRef<DecryptedRow[]>([]);
+  const updateRows = useCallback(
+    (next: SetStateAction<DecryptedRow[]>): void => {
+      const current = rowsRef.current;
+      const resolved =
+        typeof next === "function"
+          ? next(current)
+          : next;
+      rowsRef.current = resolved;
+      setRows(resolved);
+    },
+    [],
+  );
   const [draft, setDraft] = useState("");
   const draftRef = useRef("");
   const [activeMention, setActiveMention] = useState<ActiveMentionQuery | null>(null);
@@ -191,7 +202,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         if (cancelled) return;
         setUserId(currentUser.id);
         setConversation(detail);
-        setRows(page.decrypted.reverse());
+        updateRows(page.decrypted.reverse());
         setNextCursor(page.nextCursor);
         setBoot("ready");
         const read =
@@ -214,119 +225,133 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
     return () => {
       cancelled = true;
     };
-  }, [attempt, conversationId, locale, prepareDevice, router, workspace]);
+  }, [attempt, conversationId, locale, prepareDevice, router, updateRows, workspace]);
 
   useEffect(() => {
-    if (boot !== "ready" || !userId) return;
+    if (boot !== "ready") return;
     let cancelled = false;
-    let syncing = false;
-    let queued = false;
-    const recentMessageIds = new Set<string>();
-    const recentMessageOrder: string[] = [];
 
-    const syncLatest = async (): Promise<void> => {
-      if (syncing) {
-        queued = true;
-        return;
+    const syncLatest = async (
+      requiredMessageIds: readonly string[] = [],
+    ): Promise<void> => {
+      const detail =
+        await fetchDirectConversation(conversationId);
+      const device = await ensureLocalDevice();
+      const decrypted =
+        await fetchDecryptedGap(
+          detail,
+          device.deviceId,
+          rowsRef.current,
+          requiredMessageIds,
+        );
+      if (cancelled) return;
+      setConversation(detail);
+      if (decrypted.length > 0) {
+        updateRows((current) =>
+          mergeDecryptedRows(
+            current,
+            decrypted,
+          ),
+        );
       }
-      syncing = true;
-      do {
-        queued = false;
-        try {
-          const detail = await fetchDirectConversation(conversationId);
-          const device = await ensureLocalDevice();
-          const page = await fetchLatestDecryptedPage(
-            detail,
-            device.deviceId,
-          );
-          if (cancelled) break;
-          setConversation(detail);
-          setRows((current) =>
-            mergeDecryptedRows(
-              current,
-              page.decrypted.reverse(),
+      const read =
+        detail.unreadCount > 0
+          ? await markDirectChatRead(conversationId)
+          : detail;
+      if (!cancelled) {
+        workspace.updateDirectConversation(read);
+      }
+    };
+
+    let refreshTail: Promise<void> =
+      Promise.resolve();
+    const requestRefresh = (
+      requiredMessageIds: readonly string[] = [],
+    ): Promise<void> => {
+      const next = refreshTail
+        .catch(() => undefined)
+        .then(async () => {
+          if (!cancelled) {
+            await syncLatest(requiredMessageIds);
+          }
+        });
+      refreshTail = next;
+      return next;
+    };
+
+    const unsubscribe = syncHub.subscribe(
+      async (deltas) => {
+        if (cancelled) return;
+
+        let refresh = false;
+        const createdMessageIds = new Set<string>();
+        const deletedMessageIds = new Set<string>();
+        for (const delta of deltas) {
+          if (
+            delta.scope.kind !== "DIRECT_CHAT" ||
+            delta.scope.id !== conversationId
+          ) {
+            continue;
+          }
+          refresh = true;
+          if (
+            delta.eventType ===
+            "DIRECT_MESSAGE_CREATED"
+          ) {
+            createdMessageIds.add(
+              delta.payload.messageId,
+            );
+          } else if (
+            delta.eventType ===
+            "DIRECT_MESSAGE_DELETED"
+          ) {
+            deletedMessageIds.add(
+              delta.payload.messageId,
+            );
+            createdMessageIds.delete(
+              delta.payload.messageId,
+            );
+          }
+        }
+
+        if (deletedMessageIds.size > 0) {
+          updateRows((current) =>
+            current.filter(
+              (row) =>
+                !deletedMessageIds.has(
+                  row.message.id,
+                ),
             ),
           );
-          const read =
-            detail.unreadCount > 0
-              ? await markDirectChatRead(conversationId)
-              : detail;
-          if (!cancelled) {
-            workspace.updateDirectConversation(read);
-          }
-        } catch (caught: unknown) {
-          if (cancelled) break;
-          if (caught instanceof AuthRequiredError) {
-            router.replace("/sign-in");
-            break;
-          }
-          setError(caught instanceof DirectChatsApiError ? caught.code : "internal_error");
         }
-      } while (queued && !cancelled);
-      syncing = false;
-    };
-
-    const notifyMessage = (
-      eventConversationId: string,
-      messageId: string,
-    ): void => {
-      if (eventConversationId !== conversationId) {
-        return;
-      }
-      if (recentMessageIds.has(messageId)) {
-        return;
-      }
-      recentMessageIds.add(messageId);
-      recentMessageOrder.push(messageId);
-      if (recentMessageOrder.length > 128) {
-        const expired = recentMessageOrder.shift();
-        if (expired) recentMessageIds.delete(expired);
-      }
-      void syncLatest();
-    };
-
-    const unsubscribeLegacy = subscribeDirectChatEvents({
-      onOpen: () => void syncLatest(),
-      onMessage: (event) => {
-        notifyMessage(
-          event.conversationId,
-          event.messageId,
-        );
+        if (refresh) {
+          await requestRefresh(
+            [...createdMessageIds],
+          );
+        }
       },
-    });
+    );
 
-    let unsubscribeRealtime = (): void => undefined;
-    void ensureWebInstallation(userId)
-      .then((installation) => {
-        if (cancelled) return;
-        unsubscribeRealtime = subscribeRealtime({
-          installationId: installation.id,
-          onOpen: () => void syncLatest(),
-          onEvent: (event) => {
-            if (
-              event.eventType ===
-              "DIRECT_MESSAGE_CREATED"
-            ) {
-              notifyMessage(
-                event.payload.conversationId,
-                event.payload.messageId,
-              );
-            }
-          },
-        });
-      })
-      .catch(() => {
-        // ARCH-03 bootstrap remains best-effort here.
-        // Legacy SSE stays active until #97 replaces it
-        // with durable Sync + WebSocket convergence.
-      });
+    // Close the boot/subscription race: the workspace cursor may have
+    // advanced while this detail was still loading its initial snapshot.
+    void requestRefresh().catch((caught: unknown) => {
+      if (cancelled) return;
+      if (caught instanceof AuthRequiredError) {
+        router.replace("/sign-in");
+        return;
+      }
+      setError(
+        caught instanceof DirectChatsApiError
+          ? caught.code
+          : "internal_error",
+      );
+    });
 
     return () => {
       cancelled = true;
-      unsubscribeLegacy();
-      unsubscribeRealtime();
+      unsubscribe();
     };
-  }, [boot, conversationId, router, userId, workspace]);
+  }, [boot, conversationId, router, syncHub, updateRows, workspace]);
 
   useEffect(() => {
     if (!activeMention) return;
@@ -505,7 +530,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         ...options,
       });
       setConversation(result.latest);
-      setRows((current) =>
+      updateRows((current) =>
         mergeDecryptedRows(current, [
           {
             message: result.message,
@@ -566,7 +591,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
       setConversation(delivery.latest);
     }
     if (delivery.rows.length > 0) {
-      setRows((current) =>
+      updateRows((current) =>
         mergeDecryptedRows(
           current,
           delivery.rows,
@@ -685,7 +710,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
             setConversation(delivery.latest);
           }
           if (delivery.rows.length > 0) {
-            setRows((current) =>
+            updateRows((current) =>
               mergeDecryptedRows(
                 current,
                 delivery.rows,
@@ -710,7 +735,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
     return () => {
       cancelled = true;
     };
-  }, [boot, conversationId, router, userId]);
+  }, [boot, conversationId, router, updateRows, userId]);
 
   async function onLoadOlder(): Promise<void> {
     if (!nextCursor || !conversation) return;
@@ -740,7 +765,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
             ...rows.map((row) => row.message),
           ],
         );
-        setRows(
+        updateRows(
           mergeDecryptedRows([], decrypted),
         );
       } else {
@@ -748,7 +773,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
           conversation,
           page.items,
         );
-        setRows((current) =>
+        updateRows((current) =>
           mergeDecryptedRows(current, decrypted),
         );
       }
@@ -1368,6 +1393,116 @@ function operatorRequestSignal(): AbortSignal {
   return AbortSignal.timeout(
     OPERATOR_RECOVERY_REQUEST_TIMEOUT_MS,
   );
+}
+
+async function fetchDecryptedGap(
+  detail: DirectConversationView,
+  deviceId: string,
+  currentRows: readonly DecryptedRow[],
+  requiredMessageIds: readonly string[] = [],
+): Promise<DecryptedRow[]> {
+  if (currentRows.length === 0) {
+    const all: DirectMessageView[] = [];
+    let cursor: string | undefined;
+    while (true) {
+      const page = await fetchDirectMessages(
+        detail.id,
+        deviceId,
+        cursor,
+      );
+      all.push(...page.items);
+      if (!page.nextCursor) {
+        break;
+      }
+      cursor = page.nextCursor;
+    }
+    return (
+      await decryptPage(detail, all)
+    ).reverse();
+  }
+
+  const knownIds = new Set(
+    currentRows.map((row) => row.message.id),
+  );
+  const requiredUnknownIds = new Set(
+    requiredMessageIds.filter(
+      (messageId) => !knownIds.has(messageId),
+    ),
+  );
+  const targetDriven = requiredMessageIds.length > 0;
+  if (targetDriven && requiredUnknownIds.size === 0) {
+    return [];
+  }
+
+  const incoming: DirectMessageView[] = [];
+  let cursor: string | undefined;
+
+  while (true) {
+    const page = await fetchDirectMessages(
+      detail.id,
+      deviceId,
+      cursor,
+    );
+
+    if (targetDriven) {
+      let oldestRequiredIndex = -1;
+      page.items.forEach((message, index) => {
+        if (requiredUnknownIds.delete(message.id)) {
+          oldestRequiredIndex = index;
+        }
+      });
+
+      const upperBound =
+        requiredUnknownIds.size === 0 &&
+        oldestRequiredIndex >= 0
+          ? oldestRequiredIndex + 1
+          : page.items.length;
+      incoming.push(
+        ...page.items
+          .slice(0, upperBound)
+          .filter(
+            (message) => !knownIds.has(message.id),
+          ),
+      );
+      if (requiredUnknownIds.size === 0) {
+        break;
+      }
+    } else {
+      let oldestKnownIndex = -1;
+      page.items.forEach((message, index) => {
+        if (knownIds.has(message.id)) {
+          oldestKnownIndex = index;
+        }
+      });
+      if (oldestKnownIndex >= 0) {
+        incoming.push(
+          ...page.items
+            .slice(0, oldestKnownIndex)
+            .filter(
+              (message) => !knownIds.has(message.id),
+            ),
+        );
+        break;
+      }
+      incoming.push(
+        ...page.items.filter(
+          (message) => !knownIds.has(message.id),
+        ),
+      );
+    }
+
+    if (!page.nextCursor) {
+      break;
+    }
+    cursor = page.nextCursor;
+  }
+
+  if (incoming.length === 0) {
+    return [];
+  }
+  return (
+    await decryptPage(detail, incoming)
+  ).reverse();
 }
 
 async function fetchLatestDecryptedPage(
