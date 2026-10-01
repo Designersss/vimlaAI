@@ -50,6 +50,12 @@ function recordingTelemetry(): {
 
 function contextBundle(
   surfaceKind: ContextBundleView["manifest"]["surfaceKind"],
+  surfaceCapabilities: ContextBundleView["manifest"]["surfaceCapabilities"] = [
+    "CONTEXT_READ",
+    "CONTEXT_CONTRIBUTE",
+    "AI_INVOKE",
+    "ACTION_INVOKE",
+  ],
 ): ContextBundleView {
   return {
     id: "bundle-1",
@@ -57,12 +63,18 @@ function contextBundle(
     snapshotId: "snapshot-1",
     fingerprint: `sha256:${surfaceKind.toLowerCase()}`,
     manifest: {
-      version: 1,
+      version: 2,
       packingVersion: 1,
       targetKind: "VIMLA",
       surfaceKind,
       surfaceScopeHash: "sha256:surface",
       audienceParticipantCount: 1,
+      surfaceCapabilities,
+      disclosurePolicy: {
+        serverPlaintextAvailable: surfaceKind === "AI_THREAD",
+        clientDisclosureRequired: surfaceKind === "DIRECT",
+        peerContentRequiresConsent: surfaceKind === "DIRECT",
+      },
       budget: {
         contextWindowTokens: 32_768,
         outputReserveTokens: 4_096,
@@ -139,7 +151,7 @@ describe("ContextAwareInvocationExecutorRegistry", () => {
 
   it("delegates only after the invocation context passes authorization", async () => {
     const findFirst = vi.fn().mockResolvedValue(persistedVimlaInvocation);
-    const allowedBundle = contextBundle("PERSONAL");
+    const allowedBundle = contextBundle("AI_THREAD");
     const resolveForInvocation = vi.fn().mockResolvedValue(allowedBundle);
     const execute = vi.fn().mockResolvedValue({
       status: "COMPLETED" as const,
@@ -250,7 +262,7 @@ describe("ContextAwareInvocationExecutorRegistry", () => {
     expect(execute).not.toHaveBeenCalled();
   });
 
-  it("does not let the personal Vimla executor run on a shared surface", async () => {
+  it("fails closed when surface authority does not grant ACTION_INVOKE", async () => {
     const execute = vi.fn();
     const registry = new ContextAwareInvocationExecutorRegistry(
       {
@@ -262,7 +274,12 @@ describe("ContextAwareInvocationExecutorRegistry", () => {
       {
         resolveForInvocation: vi
           .fn()
-          .mockResolvedValue(contextBundle("DIRECT_CHAT")),
+          .mockResolvedValue(
+            contextBundle("DIRECT", [
+              "CONTEXT_READ",
+              "CONTEXT_CONTRIBUTE",
+            ]),
+          ),
       } as unknown as ContextBundleService,
     );
 
