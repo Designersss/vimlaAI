@@ -217,7 +217,6 @@ export class ContextBundleService {
     if (
       !authority ||
       !authority.canRead ||
-      !authority.canContribute ||
       !authority.capabilities.includes("CONTEXT_READ") ||
       !authoritySupportsInvocation(authority, targetKind) ||
       !sameAudience(
