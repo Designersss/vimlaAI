@@ -55,7 +55,7 @@ ALTER TABLE "communication_surface"
 CREATE FUNCTION "vimla_communication_surface_binding_immutable"()
 RETURNS TRIGGER
 LANGUAGE plpgsql
-AS $
+AS $surface_binding$
 BEGIN
   IF
     NEW."id" IS DISTINCT FROM OLD."id"
@@ -68,7 +68,7 @@ BEGIN
   END IF;
   RETURN NEW;
 END;
-$;
+$surface_binding$;
 
 CREATE TRIGGER "communication_surface_binding_immutable"
 BEFORE UPDATE OF "id", "kind", "conversationId", "directConversationId"
@@ -79,7 +79,7 @@ EXECUTE FUNCTION "vimla_communication_surface_binding_immutable"();
 CREATE FUNCTION "vimla_communication_surface_delete_guard"()
 RETURNS TRIGGER
 LANGUAGE plpgsql
-AS $
+AS $surface_delete$
 BEGIN
   IF
     OLD."conversationId" IS NOT NULL
@@ -107,7 +107,7 @@ BEGIN
 
   RETURN OLD;
 END;
-$;
+$surface_delete$;
 
 CREATE TRIGGER "communication_surface_delete_guard"
 BEFORE DELETE ON "communication_surface"
