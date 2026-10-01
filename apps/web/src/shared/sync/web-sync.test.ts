@@ -4,7 +4,8 @@ import {
   AuthRequiredError,
   ClientApiError,
 } from "@vimla/client-api";
-import type { RealtimeEventEnvelope, SyncDelta, SyncResponse } from "@vimla/contracts";
+import type { SyncDelta, SyncResponse } from "@vimla/contracts";
+import type { SubscribeRealtimeOptions } from "../realtime/realtime";
 import {
   classifySyncError,
   createWebSyncCursorStore,
@@ -136,15 +137,7 @@ describe("Web sync adapter", () => {
         },
       });
     }) as unknown as typeof fetch;
-    let realtime:
-      | Parameters<
-          NonNullable<
-            Parameters<
-              typeof subscribeWebSync
-            >[0]["realtimeSubscribe"]
-          >
-        >[0]
-      | null = null;
+    let realtime: SubscribeRealtimeOptions | null = null;
     const onDeltas = vi.fn(async () => undefined);
     const eventTarget = {
       addEventListener: vi.fn(),
