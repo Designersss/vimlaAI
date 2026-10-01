@@ -321,8 +321,14 @@ describe("direct chats API", () => {
     expect(created.statusCode).toBe(400);
 
     const chat = await createChat(app, alice.cookies, nikita.email);
+    expect(chat.surfaceKind).toBe("DIRECT");
+    expect(String(chat.surfaceId)).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
     const replay = await createChat(app, nikita.cookies, alice.email);
     expect(replay.id).toBe(chat.id);
+    expect(replay.surfaceId).toBe(chat.surfaceId);
+    expect(replay.surfaceKind).toBe("DIRECT");
 
     const stolen = await app.inject({
       method: "GET",
@@ -390,6 +396,11 @@ describe("direct chats API", () => {
       cookies: nikita.cookies,
     });
     expect(listed.json().items[0]?.unreadCount).toBeGreaterThan(0);
+    expect(listed.json().items[0]).toMatchObject({
+      id: chat.id,
+      surfaceId: chat.surfaceId,
+      surfaceKind: "DIRECT",
+    });
     await app.inject({
       method: "POST",
       url: `/v1/direct-chats/${chat.id}/read`,
@@ -404,6 +415,20 @@ describe("direct chats API", () => {
       cookies: nikita.cookies,
     });
     expect(afterRead.json().unreadCount).toBe(0);
+    expect(afterRead.json()).toMatchObject({
+      id: chat.id,
+      surfaceId: chat.surfaceId,
+      surfaceKind: "DIRECT",
+    });
+    expect(
+      await prisma.communicationSurface.findUnique({
+        where: { id: chat.surfaceId },
+      }),
+    ).toMatchObject({
+      kind: "DIRECT",
+      conversationId: null,
+      directConversationId: chat.id,
+    });
 
     await sendPlain(app, alice, aliceDevice, chat.id, "HUMAN", "second");
     const page = await app.inject({
