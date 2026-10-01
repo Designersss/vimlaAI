@@ -12,6 +12,14 @@ import {
   type ContextSourceScope,
 } from "./policy.js";
 import {
+  isReadScopeEligible,
+  SurfaceAccessDeniedError,
+  SurfaceAuthorityUnavailableError,
+  SurfaceIdentityUnavailableError,
+  type SurfaceAuthorityRegistry,
+} from "./surface-authority.js";
+import { createSurfaceAuthorityRegistry } from "./surface-authority-db.js";
+import {
   conservativeTokensFromByteCount,
   estimateConservativeTokens as estimateTokens,
 } from "./token-estimate.js";
@@ -175,6 +183,7 @@ export type ContextRetrievalTelemetryObserver = (
 export class ContextRetrievalService {
   private readonly options: Required<ContextRetrievalOptions>;
   private readonly artifacts: ArtifactService;
+  private readonly surfaceAuthorities: SurfaceAuthorityRegistry;
 
   constructor(
     private readonly db: PrismaClient,
@@ -182,8 +191,12 @@ export class ContextRetrievalService {
     options: ContextRetrievalOptions = {},
     private readonly semanticSearch?: SemanticSearchService,
     private readonly telemetryObserver?: ContextRetrievalTelemetryObserver,
+    surfaceAuthorityRegistry?: SurfaceAuthorityRegistry,
   ) {
     this.artifacts = new ArtifactService(db);
+    this.surfaceAuthorities =
+      surfaceAuthorityRegistry ??
+      createSurfaceAuthorityRegistry(db);
     this.options = {
       l1RawLimit: options.l1RawLimit ?? DEFAULTS.l1RawLimit,
       olderHistoryScanLimit:
@@ -234,6 +247,9 @@ export class ContextRetrievalService {
                 kind: true,
                 createdAt: true,
                 updatedAt: true,
+                surface: {
+                  select: { id: true },
+                },
               },
             },
           },
@@ -264,6 +280,45 @@ export class ContextRetrievalService {
     }
 
     const sourceMessage = plan.message;
+    if (
+      sourceMessage.conversation.kind !== "CHAT" ||
+      !sourceMessage.conversation.surface
+    ) {
+      throw new ContextAccessDeniedError(
+        "Execution plan does not belong to an authorized AI thread surface",
+      );
+    }
+
+    let surfaceAuthority;
+    try {
+      surfaceAuthority =
+        await this.surfaceAuthorities.resolve({
+          actorUserId: input.actorUserId,
+          surfaceId:
+            sourceMessage.conversation.surface.id,
+        });
+    } catch (error: unknown) {
+      if (
+        error instanceof SurfaceIdentityUnavailableError ||
+        error instanceof SurfaceAuthorityUnavailableError ||
+        error instanceof SurfaceAccessDeniedError
+      ) {
+        throw new ContextAccessDeniedError(
+          "Execution plan surface authority is unavailable",
+        );
+      }
+      throw error;
+    }
+    if (
+      surfaceAuthority.kind !== "AI_THREAD" ||
+      surfaceAuthority.domainId !==
+        sourceMessage.conversation.id ||
+      !surfaceAuthority.canRead
+    ) {
+      throw new ContextAccessDeniedError(
+        "Execution plan surface access is denied",
+      );
+    }
     const focusedProjectId =
       sourceMessage.conversation.projectId;
     const currentProject = focusedProjectId
@@ -292,6 +347,16 @@ export class ContextRetrievalService {
       kind: "PERSONAL",
       ownerUserId: input.actorUserId,
     };
+    if (
+      !isReadScopeEligible(
+        surfaceAuthority,
+        personalScope,
+      )
+    ) {
+      throw new ContextAccessDeniedError(
+        "AI thread surface cannot read its personal scope",
+      );
+    }
     // A project-focused personal conversation remains a PERSONAL surface.
     // projectId is a retrieval/ranking hint only; it must never relabel the
     // private conversation or its raw history as shared Project context.
@@ -655,13 +720,15 @@ export class ContextRetrievalService {
       candidate({
         item: {
           sourceType: "AUDIENCE",
-          sourceId: sourceMessage.conversation.id,
+          sourceId: surfaceAuthority.surfaceId,
           sourceVersion:
             sourceMessage.conversation.updatedAt.toISOString(),
           classification: "PRIVATE",
           metadata: {
-            kind: "PERSONAL",
-            participantUserIds: [input.actorUserId],
+            surfaceId: surfaceAuthority.surfaceId,
+            participantUserIds: [
+              ...surfaceAuthority.audienceUserIds,
+            ],
             ...(currentProjectId
               ? { focusedProjectId: currentProjectId }
               : {}),
@@ -967,8 +1034,15 @@ export class ContextRetrievalService {
       }
     }
 
+    const eligibleCandidates = candidates.filter(
+      (entry) =>
+        isReadScopeEligible(
+          surfaceAuthority,
+          entry.sourceScope,
+        ),
+    );
     const normalized = normalizeCandidates(
-      candidates,
+      eligibleCandidates,
       this.options.maxCandidates,
     );
     if (this.telemetryObserver) {
