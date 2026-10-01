@@ -29,3 +29,13 @@ export {
   type StoredLegacyRatchetRecord,
   type StoredRatchetRecord,
 } from "./direct-chat-ratchet-coordination.js";
+export {
+  SyncEngine,
+  retryDelay,
+  type SyncCursorStore,
+  type SyncDeltaSink,
+  type SyncEngineOptions,
+  type SyncEngineState,
+  type SyncFailureKind,
+  type SyncPageSource,
+} from "./sync-engine.js";
