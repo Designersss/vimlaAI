@@ -661,8 +661,18 @@ export class DirectChatService {
       return message.createdAt > mine.lastReadMessageCreatedAt;
     }).length;
     const latest = conversation.messages[0];
+    if (
+      conversation.surface === null ||
+      conversation.surface.kind !== "DIRECT"
+    ) {
+      throw new Error(
+        "Direct Chat communication surface binding is invalid",
+      );
+    }
     return {
       id: conversation.id,
+      surfaceId: conversation.surface.id,
+      surfaceKind: "DIRECT",
       peer: toParticipant(peer.user),
       lastMessageAt: conversation.lastMessageAt.toISOString(),
       unreadCount,
@@ -675,6 +685,7 @@ export class DirectChatService {
 }
 
 const conversationInclude = {
+  surface: true,
   members: {
     include: {
       user: {
