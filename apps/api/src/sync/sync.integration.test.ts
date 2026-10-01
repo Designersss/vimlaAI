@@ -542,6 +542,86 @@ describe("durable cursor sync API", () => {
     ).toEqual([messageId]);
   });
 
+  it("fails closed on an unsupported durable event domain instead of advancing the cursor", async () => {
+    const owner = await registerVerifiedUser(
+      app,
+      "sync-unsupported-owner",
+    );
+    const peer = await registerVerifiedUser(
+      app,
+      "sync-unsupported-peer",
+    );
+    const conversationId = await createDirectConversation(
+      prisma,
+      owner.id,
+      peer.id,
+    );
+    const eventId = randomUUID();
+
+    await prisma.$transaction(async (tx) => {
+      await tx.userSyncState.create({
+        data: {
+          userId: owner.id,
+          lastPosition: 1n,
+          minRetainedPosition: 0n,
+        },
+      });
+      await tx.durableEvent.create({
+        data: {
+          id: eventId,
+          protocolVersion: 1,
+          eventType: "PROJECT_UPDATED",
+          durability: "DURABLE_HINT",
+          changeKind: "UPSERT_REF",
+          scopeKind: "PROJECT",
+          scopeId: randomUUID(),
+          occurredAt: new Date(),
+          payload: {},
+          recipients: {
+            create: {
+              userId: owner.id,
+              position: 1n,
+            },
+          },
+        },
+      });
+    });
+
+    const unsupported = await syncRequest(
+      app,
+      owner.cookies,
+      { limit: 10 },
+    );
+    expect(unsupported.statusCode).toBe(500);
+
+    await prisma.durableEvent.update({
+      where: { id: eventId },
+      data: {
+        eventType: "DIRECT_MESSAGE_CREATED",
+        changeKind: "UPSERT_REF",
+        scopeKind: "DIRECT_CHAT",
+        scopeId: conversationId,
+        payload: {
+          conversationId,
+          messageId: eventId,
+        },
+      },
+    });
+
+    const recovered = syncResponseSchema.parse(
+      (
+        await syncRequest(app, owner.cookies, {
+          limit: 10,
+        })
+      ).json(),
+    );
+    expect(
+      recovered.deltas.map(
+        (delta) => delta.eventId,
+      ),
+    ).toEqual([eventId]);
+  });
+
   it("serializes concurrent per-user positions without duplicates or gaps", async () => {
     const owner = await registerVerifiedUser(
       app,
