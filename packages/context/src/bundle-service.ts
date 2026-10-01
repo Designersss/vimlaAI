@@ -207,6 +207,24 @@ export class ContextBundleService {
       input.actorUserId,
       audience.surfaceId,
     );
+    const focusedProjectScope: ContextSourceScope | null =
+      audience.focusedProjectId
+        ? {
+            kind: "PROJECT",
+            projectId: audience.focusedProjectId,
+          }
+        : null;
+    const focusedProjectAuthorized =
+      focusedProjectScope === null ||
+      (authority !== null &&
+        isReadScopeEligible(
+          authority,
+          focusedProjectScope,
+        ) &&
+        (await this.everyAudienceMemberCanReadScope(
+          authority.audienceUserIds,
+          focusedProjectScope,
+        )));
 
     const policyAllowedItems: ContextSnapshotItemView[] = [];
     const allowedArtifacts: ResolvedArtifactInput[] = [];
@@ -219,6 +237,7 @@ export class ContextBundleService {
       !authority.canRead ||
       !authority.capabilities.includes("CONTEXT_READ") ||
       !authoritySupportsInvocation(authority, targetKind) ||
+      !focusedProjectAuthorized ||
       !sameAudience(
         audience.participantUserIds,
         authority.audienceUserIds,
