@@ -125,12 +125,11 @@ export class ContextSnapshotService {
     if (await this.hasBuiltInAccess(check)) {
       return;
     }
-    if (check.sourceType === "AUDIENCE") {
-      throw new ContextAccessDeniedError(
-        "Communication surface authority is no longer accessible",
-      );
-    }
-    if (this.accessVerifier && (await this.accessVerifier(check))) {
+    if (
+      isExtensionVerifiableSource(check.sourceType) &&
+      this.accessVerifier &&
+      (await this.accessVerifier(check))
+    ) {
       return;
     }
     throw new ContextAccessDeniedError("Context source is no longer accessible");
@@ -344,6 +343,16 @@ export class ContextSnapshotService {
         return false;
     }
   }
+}
+
+function isExtensionVerifiableSource(
+  sourceType: ContextSourceType,
+): boolean {
+  return (
+    sourceType === "ATTACHMENT" ||
+    sourceType === "FILE_METADATA" ||
+    sourceType === "ENTITY"
+  );
 }
 
 function validateItems(items: readonly ContextSnapshotItemInput[]): void {
