@@ -113,6 +113,35 @@ describe("SurfaceAuthorityRegistry", () => {
     );
   });
 
+  it("rejects an adapter result bound to a different actor", async () => {
+    const registry = new SurfaceAuthorityRegistry(
+      {
+        resolve: async () => ({
+          surfaceId: authority.surfaceId,
+          kind: "DIRECT",
+        }),
+      },
+      [
+        {
+          kind: "DIRECT",
+          resolve: async () => ({
+            ...authority,
+            actorUserId: "other-user",
+          }),
+        },
+      ],
+    );
+
+    await expect(
+      registry.resolve({
+        actorUserId: "user-a",
+        surfaceId: authority.surfaceId,
+      }),
+    ).rejects.toThrow(
+      "Communication surface access is unavailable",
+    );
+  });
+
   it("rejects duplicate adapters", () => {
     const first: SurfaceAuthorityAdapter = {
       kind: "DIRECT",
