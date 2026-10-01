@@ -260,6 +260,25 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
       }
     };
 
+    let refreshQueued = false;
+    let refreshPromise: Promise<void> | null = null;
+    const requestRefresh = (): Promise<void> => {
+      refreshQueued = true;
+      if (refreshPromise) {
+        return refreshPromise;
+      }
+      const run = async (): Promise<void> => {
+        while (refreshQueued && !cancelled) {
+          refreshQueued = false;
+          await syncLatest();
+        }
+      };
+      refreshPromise = run().finally(() => {
+        refreshPromise = null;
+      });
+      return refreshPromise;
+    };
+
     const unsubscribe = syncHub.subscribe(
       async (deltas) => {
         if (cancelled) return;
@@ -295,16 +314,31 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
           );
         }
         if (refresh) {
-          await syncLatest();
+          await requestRefresh();
         }
       },
     );
+
+    // Close the boot/subscription race: the workspace cursor may have
+    // advanced while this detail was still loading its initial snapshot.
+    void requestRefresh().catch((caught: unknown) => {
+      if (cancelled) return;
+      if (caught instanceof AuthRequiredError) {
+        router.replace("/sign-in");
+        return;
+      }
+      setError(
+        caught instanceof DirectChatsApiError
+          ? caught.code
+          : "internal_error",
+      );
+    });
 
     return () => {
       cancelled = true;
       unsubscribe();
     };
-  }, [boot, conversationId, syncHub, updateRows, workspace]);
+  }, [boot, conversationId, router, syncHub, updateRows, workspace]);
 
   useEffect(() => {
     if (!activeMention) return;
