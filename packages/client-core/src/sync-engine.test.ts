@@ -217,6 +217,11 @@ describe("SyncEngine", () => {
     expect(engine.state).toBe("RETRY_WAIT");
     expect(scheduled[0]?.delay).toBe(25);
 
+    await engine.requestSync();
+    await engine.requestSync();
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(scheduled).toHaveLength(1);
+
     scheduled[0]?.callback();
     await vi.waitFor(() => {
       expect(cursor.value).toBe("cursor.one");
