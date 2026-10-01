@@ -52,6 +52,54 @@ ALTER TABLE "communication_surface"
   FOREIGN KEY ("directConversationId") REFERENCES "direct_conversation"("id")
   ON DELETE CASCADE ON UPDATE CASCADE;
 
+CREATE FUNCTION "vimla_validate_communication_surface_domain"()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $surface_domain$
+BEGIN
+  IF
+    NEW."kind" = 'AI_THREAD'
+    AND NOT EXISTS (
+      SELECT 1
+      FROM "conversation"
+      WHERE
+        "id" = NEW."conversationId"
+        AND "kind" = 'CHAT'
+    )
+  THEN
+    RAISE EXCEPTION 'AI_THREAD communication surfaces require a CHAT conversation'
+      USING ERRCODE = '23514';
+  END IF;
+
+  RETURN NEW;
+END;
+$surface_domain$;
+
+CREATE TRIGGER "communication_surface_domain_guard"
+BEFORE INSERT OR UPDATE OF "kind", "conversationId", "directConversationId"
+ON "communication_surface"
+FOR EACH ROW
+EXECUTE FUNCTION "vimla_validate_communication_surface_domain"();
+
+CREATE FUNCTION "vimla_conversation_kind_immutable"()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $conversation_kind$
+BEGIN
+  IF NEW."kind" IS DISTINCT FROM OLD."kind" THEN
+    RAISE EXCEPTION 'Conversation kind is immutable'
+      USING ERRCODE = '23514';
+  END IF;
+  RETURN NEW;
+END;
+$conversation_kind$;
+
+CREATE TRIGGER "conversation_kind_immutable"
+BEFORE UPDATE OF "kind"
+ON "conversation"
+FOR EACH ROW
+EXECUTE FUNCTION "vimla_conversation_kind_immutable"();
+
 CREATE FUNCTION "vimla_communication_surface_binding_immutable"()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -132,7 +180,8 @@ SELECT
   "id",
   "createdAt",
   "updatedAt"
-FROM "conversation";
+FROM "conversation"
+WHERE "kind" = 'CHAT';
 
 INSERT INTO "communication_surface" (
   "id",
@@ -153,6 +202,7 @@ FROM "direct_conversation";
 
 -- Domain rows own their authorization semantics; these triggers only guarantee
 -- that every newly-created supported communication thread receives one surface.
+-- Dedicated OPERATOR conversations are not AI threads and intentionally have no surface.
 CREATE FUNCTION "vimla_create_ai_thread_communication_surface"()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -181,6 +231,7 @@ $$;
 CREATE TRIGGER "conversation_create_communication_surface"
 AFTER INSERT ON "conversation"
 FOR EACH ROW
+WHEN (NEW."kind" = 'CHAT')
 EXECUTE FUNCTION "vimla_create_ai_thread_communication_surface"();
 
 CREATE FUNCTION "vimla_create_direct_communication_surface"()
