@@ -28,6 +28,37 @@ import { PrismaService } from "../persistence/prisma.service.js";
 import { AiConcurrencyService } from "./concurrency.service.js";
 import { AI_GATEWAY } from "./ai.tokens.js";
 
+type AiThreadSurfaceRecord = {
+  surface: {
+    id: string;
+    kind: string;
+  } | null;
+};
+
+function requireAiThreadSurface<T extends AiThreadSurfaceRecord>(
+  conversation: T,
+): T & {
+  surface: {
+    id: string;
+    kind: "AI_THREAD";
+  };
+} {
+  if (
+    conversation.surface === null ||
+    conversation.surface.kind !== "AI_THREAD"
+  ) {
+    throw new Error(
+      "AI thread communication surface binding is invalid",
+    );
+  }
+  return conversation as T & {
+    surface: {
+      id: string;
+      kind: "AI_THREAD";
+    };
+  };
+}
+
 const IN_PROGRESS_STATUSES = new Set([
   "CREATED",
   "RESERVED",
@@ -131,7 +162,7 @@ export class TextChatService {
       await this.resolveModel(defaultTarget.modelId);
     }
 
-    return this.prisma.conversation.create({
+    const conversation = await this.prisma.conversation.create({
       data: {
         userId,
         projectId: projectId ?? null,
@@ -143,7 +174,9 @@ export class TextChatService {
             ? defaultTarget.modelId
             : null,
       },
+      include: { surface: true },
     });
+    return requireAiThreadSurface(conversation);
   }
 
   async setConversationDefaultTarget(
@@ -171,23 +204,30 @@ export class TextChatService {
       throw new NotFoundException("Conversation was not found");
     }
 
-    return this.prisma.conversation.findFirstOrThrow({
-      where: { id: conversationId, userId, kind: "CHAT" },
-    });
+    const conversation =
+      await this.prisma.conversation.findFirstOrThrow({
+        where: { id: conversationId, userId, kind: "CHAT" },
+        include: { surface: true },
+      });
+    return requireAiThreadSurface(conversation);
   }
 
   async listConversations(userId: string) {
-    return this.prisma.conversation.findMany({
-      where: { userId, kind: "CHAT" },
-      orderBy: { updatedAt: "desc" },
-      take: 50,
-    });
+    const conversations =
+      await this.prisma.conversation.findMany({
+        where: { userId, kind: "CHAT" },
+        include: { surface: true },
+        orderBy: { updatedAt: "desc" },
+        take: 50,
+      });
+    return conversations.map(requireAiThreadSurface);
   }
 
   async getConversation(userId: string, conversationId: string) {
     const conversation = await this.prisma.conversation.findFirst({
       where: { id: conversationId, userId },
       include: {
+        surface: true,
         messages: {
           orderBy: { createdAt: "asc" },
           include: { operatorRun: { include: { steps: { orderBy: { sequence: "asc" } } } } },
@@ -201,7 +241,7 @@ export class TextChatService {
       throw new NotFoundException("Conversation was not found");
     }
 
-    return conversation;
+    return requireAiThreadSurface(conversation);
   }
 
   async streamMessage(input: {
