@@ -260,23 +260,18 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
       }
     };
 
-    let refreshQueued = false;
-    let refreshPromise: Promise<void> | null = null;
+    let refreshTail: Promise<void> =
+      Promise.resolve();
     const requestRefresh = (): Promise<void> => {
-      refreshQueued = true;
-      if (refreshPromise) {
-        return refreshPromise;
-      }
-      const run = async (): Promise<void> => {
-        while (refreshQueued && !cancelled) {
-          refreshQueued = false;
-          await syncLatest();
-        }
-      };
-      refreshPromise = run().finally(() => {
-        refreshPromise = null;
-      });
-      return refreshPromise;
+      const next = refreshTail
+        .catch(() => undefined)
+        .then(async () => {
+          if (!cancelled) {
+            await syncLatest();
+          }
+        });
+      refreshTail = next;
+      return next;
     };
 
     const unsubscribe = syncHub.subscribe(
