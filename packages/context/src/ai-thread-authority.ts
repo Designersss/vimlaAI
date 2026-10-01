@@ -49,28 +49,32 @@ export class AiThreadSurfaceAuthorityAdapter
       canRead,
       canContribute: canRead,
       audienceUserIds: [conversation.userId],
-      eligibleReadScopes: [
-        {
-          kind: "PERSONAL",
-          ownerUserId: conversation.userId,
-        },
-        {
-          kind: "PROJECT",
-          projectId: "ANY_AUTHORIZED",
-        },
-      ],
-      eligibleWriteScopes: [
-        {
-          kind: "PERSONAL",
-          ownerUserId: conversation.userId,
-          explicitActionRequired: false,
-        },
-        {
-          kind: "PROJECT",
-          projectId: "ANY_AUTHORIZED",
-          explicitActionRequired: true,
-        },
-      ],
+      eligibleReadScopes: canRead
+        ? [
+            {
+              kind: "PERSONAL",
+              ownerUserId: conversation.userId,
+            },
+            {
+              kind: "PROJECT",
+              projectId: "ANY_AUTHORIZED",
+            },
+          ]
+        : [],
+      eligibleWriteScopes: canRead
+        ? [
+            {
+              kind: "PERSONAL",
+              ownerUserId: conversation.userId,
+              explicitActionRequired: false,
+            },
+            {
+              kind: "PROJECT",
+              projectId: "ANY_AUTHORIZED",
+              explicitActionRequired: true,
+            },
+          ]
+        : [],
       disclosurePolicy: {
         serverPlaintextAvailable: true,
         clientDisclosureRequired: false,
