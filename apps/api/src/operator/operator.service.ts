@@ -2,6 +2,10 @@ import { randomUUID } from "node:crypto";
 import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import { mockOperatorPlannerResponse } from "@vimla/ai";
 import {
+  SurfaceAccessDeniedError,
+  SurfaceAuthorityUnavailableError,
+  SurfaceIdentityUnavailableError,
+  createSurfaceAuthorityRegistry,
   freezeDirectOperatorContextSnapshot,
   loadDirectOperatorContextSnapshot,
 } from "@vimla/context";
@@ -1348,6 +1352,10 @@ export class OperatorService {
         "Direct Chat invocation provenance is required",
       );
     }
+    await this.assertDirectChatSurfaceAuthority(
+      userId,
+      directConversationId,
+    );
     const disclosure =
       await this.directChats.chats.validateOperatorContextDisclosure(
         userId,
@@ -1368,6 +1376,68 @@ export class OperatorService {
         disclosure.messages,
       ),
     };
+  }
+
+  private async assertDirectChatSurfaceAuthority(
+    userId: string,
+    directConversationId: string,
+  ): Promise<void> {
+    const surface =
+      await this.prisma.communicationSurface.findUnique({
+        where: { directConversationId },
+        select: { id: true },
+      });
+    if (!surface) {
+      throw new OperatorError(
+        "CONTEXT_REVOKED",
+        "Direct Chat surface is unavailable",
+      );
+    }
+
+    try {
+      const authority =
+        await createSurfaceAuthorityRegistry(
+          this.prisma,
+        ).resolve({
+          actorUserId: userId,
+          surfaceId: surface.id,
+        });
+      if (
+        authority.kind !== "DIRECT" ||
+        authority.domainId !== directConversationId ||
+        !authority.canRead ||
+        !authority.canContribute ||
+        !authority.capabilities.includes(
+          "CONTEXT_READ",
+        ) ||
+        !authority.capabilities.includes(
+          "ACTION_INVOKE",
+        ) ||
+        authority.disclosurePolicy
+          .serverPlaintextAvailable ||
+        !authority.disclosurePolicy
+          .clientDisclosureRequired ||
+        !authority.disclosurePolicy
+          .peerContentRequiresConsent
+      ) {
+        throw new OperatorError(
+          "CONTEXT_REVOKED",
+          "Direct Chat surface authority is unavailable",
+        );
+      }
+    } catch (error: unknown) {
+      if (
+        error instanceof SurfaceIdentityUnavailableError ||
+        error instanceof SurfaceAuthorityUnavailableError ||
+        error instanceof SurfaceAccessDeniedError
+      ) {
+        throw new OperatorError(
+          "CONTEXT_REVOKED",
+          "Direct Chat surface authority is unavailable",
+        );
+      }
+      throw error;
+    }
   }
 
   private async loadFrozenDirectChatContext(
@@ -1392,6 +1462,10 @@ export class OperatorService {
     }
     let disclosure;
     try {
+      await this.assertDirectChatSurfaceAuthority(
+        run.userId,
+        run.directConversationId,
+      );
       disclosure =
         await this.directChats.chats.validateOperatorContextDisclosure(
           run.userId,
@@ -1400,7 +1474,11 @@ export class OperatorService {
           frozen.messages,
         );
     } catch (error: unknown) {
-      if (error instanceof DirectChatError) {
+      if (
+        error instanceof DirectChatError ||
+        (error instanceof OperatorError &&
+          error.code === "CONTEXT_REVOKED")
+      ) {
         throw new OperatorError(
           "CONTEXT_REVOKED",
           "Direct Chat context is no longer authorized",
