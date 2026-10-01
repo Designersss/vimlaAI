@@ -149,14 +149,13 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
   const rowsRef = useRef<DecryptedRow[]>([]);
   const updateRows = useCallback(
     (next: SetStateAction<DecryptedRow[]>): void => {
-      setRows((current) => {
-        const resolved =
-          typeof next === "function"
-            ? next(current)
-            : next;
-        rowsRef.current = resolved;
-        return resolved;
-      });
+      const current = rowsRef.current;
+      const resolved =
+        typeof next === "function"
+          ? next(current)
+          : next;
+      rowsRef.current = resolved;
+      setRows(resolved);
     },
     [],
   );
@@ -226,7 +225,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
     return () => {
       cancelled = true;
     };
-  }, [attempt, conversationId, locale, prepareDevice, router, workspace]);
+  }, [attempt, conversationId, locale, prepareDevice, router, updateRows, workspace]);
 
   useEffect(() => {
     if (boot !== "ready" || !userId) return;
@@ -693,7 +692,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
     return () => {
       cancelled = true;
     };
-  }, [boot, conversationId, router, userId]);
+  }, [boot, conversationId, router, updateRows, userId]);
 
   async function onLoadOlder(): Promise<void> {
     if (!nextCursor || !conversation) return;
