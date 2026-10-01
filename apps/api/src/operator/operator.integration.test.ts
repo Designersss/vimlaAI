@@ -151,7 +151,18 @@ describe("operator API", () => {
       cookies: user.cookies,
     });
     expect(thread.statusCode).toBe(200);
+    expect(thread.json().id).toBe(
+      operatorRun.conversationId,
+    );
     expect(JSON.stringify(thread.json())).not.toMatch(/VIMLA_OPERATOR_PLANNER|"commands"|inputJson/);
+
+    const notAiThread = await app.inject({
+      method: "GET",
+      url: `/v1/conversations/${operatorRun.conversationId}`,
+      headers: { origin },
+      cookies: user.cookies,
+    });
+    expect(notAiThread.statusCode).toBe(404);
 
     const replay = await app.inject({
       method: "POST",
