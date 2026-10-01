@@ -68,6 +68,12 @@ describe("ContextBundleService", () => {
       },
     });
 
+    const directSurfaceId =
+      await communicationSurfaceIdForDirectChat(
+        prisma,
+        directConversation.id,
+      );
+
     const project = await prisma.project.create({
       data: {
         ownerUserId: actorUserId,
@@ -93,11 +99,10 @@ describe("ContextBundleService", () => {
       items: [
         {
           sourceType: "AUDIENCE",
-          sourceId: directConversation.id,
+          sourceId: directSurfaceId,
           classification: "PRIVATE",
           metadata: {
-            kind: "DIRECT_CHAT",
-            directConversationId: directConversation.id,
+            surfaceId: directSurfaceId,
             participantUserIds: [actorUserId, peerUserId],
           },
         },
@@ -252,6 +257,11 @@ describe("ContextBundleService", () => {
           title: "Current Zephyr project chat",
         },
       });
+    const currentSurfaceId =
+      await communicationSurfaceIdForAiThread(
+        prisma,
+        currentConversation.id,
+      );
     const sourceMessage = await prisma.message.create({
       data: {
         conversationId: currentConversation.id,
@@ -281,10 +291,10 @@ describe("ContextBundleService", () => {
       (item) => item.sourceType === "AUDIENCE",
     );
     expect(audience?.sourceId).toBe(
-      currentConversation.id,
+      currentSurfaceId,
     );
     expect(audience?.metadata).toMatchObject({
-      kind: "PERSONAL",
+      surfaceId: currentSurfaceId,
       participantUserIds: [actorUserId],
       focusedProjectId: project.id,
     });
@@ -296,15 +306,15 @@ describe("ContextBundleService", () => {
       (item) => item.sourceId === privateMessage.id,
     );
     expect(related).toBeDefined();
-    // Cross-chat retrieval remains project-focused even though the response
-    // surface itself stays PERSONAL.
+    // Cross-chat retrieval remains project-focused while the response
+    // surface remains the owning AI thread.
     expect(privateItem).toBeUndefined();
 
     const resolved = await bundles.resolveForInvocation({
       actorUserId,
       invocationId,
     });
-    expect(resolved.manifest.surfaceKind).toBe("PERSONAL");
+    expect(resolved.manifest.surfaceKind).toBe("AI_THREAD");
     expect(
       resolved.items.some(
         (item) => item.sourceId === relatedMessage.id,
@@ -355,17 +365,27 @@ describe("ContextBundleService", () => {
       },
     });
 
+    const personalSurfaceId =
+      await communicationSurfaceIdForAiThread(
+        prisma,
+        personalConversation.id,
+      );
+    const directSurfaceId =
+      await communicationSurfaceIdForDirectChat(
+        prisma,
+        directConversation.id,
+      );
+
     await snapshots.create({
       actorUserId,
       planId,
       items: [
         {
           sourceType: "AUDIENCE",
-          sourceId: personalConversation.id,
+          sourceId: personalSurfaceId,
           classification: "PRIVATE",
           metadata: {
-            kind: "DIRECT_CHAT",
-            directConversationId: directConversation.id,
+            surfaceId: directSurfaceId,
             participantUserIds: [actorUserId, peerUserId],
           },
         },
@@ -408,6 +428,12 @@ describe("ContextBundleService", () => {
         },
       },
     });
+
+    const directSurfaceId =
+      await communicationSurfaceIdForDirectChat(
+        prisma,
+        directConversation.id,
+      );
 
     const planId = randomUUID();
     const sourceInvocationId = randomUUID();
@@ -500,11 +526,10 @@ describe("ContextBundleService", () => {
       items: [
         {
           sourceType: "AUDIENCE",
-          sourceId: directConversation.id,
+          sourceId: directSurfaceId,
           classification: "PRIVATE",
           metadata: {
-            kind: "DIRECT_CHAT",
-            directConversationId: directConversation.id,
+            surfaceId: directSurfaceId,
             participantUserIds: [actorUserId, peerUserId],
           },
         },
@@ -581,6 +606,32 @@ describe("ContextBundleService", () => {
     expect(serialized).not.toContain(peerUserId);
   });
 });
+
+async function communicationSurfaceIdForAiThread(
+  prisma: PrismaClient,
+  conversationId: string,
+): Promise<string> {
+  const surface =
+    await prisma.communicationSurface.findUniqueOrThrow({
+      where: { conversationId },
+      select: { id: true, kind: true },
+    });
+  expect(surface.kind).toBe("AI_THREAD");
+  return surface.id;
+}
+
+async function communicationSurfaceIdForDirectChat(
+  prisma: PrismaClient,
+  directConversationId: string,
+): Promise<string> {
+  const surface =
+    await prisma.communicationSurface.findUniqueOrThrow({
+      where: { directConversationId },
+      select: { id: true, kind: true },
+    });
+  expect(surface.kind).toBe("DIRECT");
+  return surface.id;
+}
 
 async function createUser(
   prisma: PrismaClient,
