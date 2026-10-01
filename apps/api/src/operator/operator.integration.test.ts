@@ -115,9 +115,19 @@ describe("operator API", () => {
     ).toBe(0);
     const operatorRun = await prisma.operatorRun.findUniqueOrThrow({
       where: { id: body.id },
-      select: { plannerAiRequestId: true },
+      select: {
+        plannerAiRequestId: true,
+        conversationId: true,
+      },
     });
     expect(operatorRun.plannerAiRequestId).toBeNull();
+    expect(
+      await prisma.communicationSurface.findUnique({
+        where: {
+          conversationId: operatorRun.conversationId,
+        },
+      }),
+    ).toBeNull();
     const usage = await prisma.usageBucket.aggregate({
       where: { userId: user.id },
       _sum: { spentMicroRub: true },
