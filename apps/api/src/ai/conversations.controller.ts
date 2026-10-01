@@ -70,6 +70,8 @@ export class ConversationsController {
     );
     return conversationCreatedSchema.parse({
       id: conversation.id,
+      surfaceId: conversation.surface.id,
+      surfaceKind: conversation.surface.kind,
       projectId: conversation.projectId,
       title: conversation.title,
       defaultTarget: toDefaultTarget(conversation),
@@ -83,6 +85,8 @@ export class ConversationsController {
     return conversationsResponseSchema.parse({
       conversations: conversations.map((conversation) => ({
         id: conversation.id,
+        surfaceId: conversation.surface.id,
+        surfaceKind: conversation.surface.kind,
         projectId: conversation.projectId,
         title: conversation.title,
         defaultTarget: toDefaultTarget(conversation),
@@ -100,6 +104,8 @@ export class ConversationsController {
     const mentions = await this.routing.readForMessages(conversation.messages.map((message) => message.id));
     return conversationDetailSchema.parse({
       id: conversation.id,
+      surfaceId: conversation.surface.id,
+      surfaceKind: conversation.surface.kind,
       projectId: conversation.projectId,
       title: conversation.title,
       defaultTarget: toDefaultTarget(conversation),
