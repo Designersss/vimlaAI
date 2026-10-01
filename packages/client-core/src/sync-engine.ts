@@ -90,7 +90,9 @@ export class SyncEngine {
     }
 
     this.queued = true;
-    this.cancelRetry();
+    if (this.retryTimer !== null) {
+      return Promise.resolve();
+    }
     if (this.activeRun) {
       return this.activeRun;
     }
