@@ -22,6 +22,7 @@ import { MentionsModule } from "./mentions/mentions.module.js";
 import { MemoryModule } from "./memory/memory.module.js";
 import { InstallationsModule } from "./installations/installations.module.js";
 import { RealtimeModule } from "./realtime/realtime.module.js";
+import { SyncModule } from "./sync/sync.module.js";
 import { createPinoHttpOptions } from "./observability/logger.js";
 import { ObservabilityModule } from "./observability/observability.module.js";
 
@@ -54,6 +55,7 @@ export class AppModule {
       MemoryModule,
       InstallationsModule,
       RealtimeModule,
+      SyncModule,
     ];
 
     if (isDevBillingEnvironment(config.appEnv)) {

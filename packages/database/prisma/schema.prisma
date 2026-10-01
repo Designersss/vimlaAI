@@ -46,6 +46,7 @@ model User {
   operatorAuditEvents        OperatorAuditEvent[]
   cryptoDevices              UserCryptoDevice[]
   clientInstallations        ClientInstallation[]
+  syncState                  UserSyncState?
   durableEventRecipients     DurableEventRecipient[]
   directMemberships          DirectConversationMember[]
   directMessagesSent         DirectMessage[]            @relation("DirectMessageSender")
@@ -1199,6 +1200,7 @@ model DurableEvent {
   protocolVersion Int
   eventType       String
   durability      String
+  changeKind      String
   scopeKind       String
   scopeId         String
   occurredAt      DateTime
@@ -1217,11 +1219,23 @@ model DurableEventRecipient {
   event     DurableEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
   userId    String
   user      User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  position  BigInt
   createdAt DateTime     @default(now())
 
   @@id([eventId, userId])
-  @@index([userId, eventId])
+  @@unique([userId, position])
   @@map("durable_event_recipient")
+}
+
+model UserSyncState {
+  userId              String   @id
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lastPosition        BigInt   @default(0)
+  minRetainedPosition BigInt   @default(0)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@map("user_sync_state")
 }
 
 model RealtimeOutbox {

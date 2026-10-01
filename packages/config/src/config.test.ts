@@ -108,6 +108,7 @@ describe("loadApiConfig", () => {
     ).toBe(6_000);
     expect(config.realtimeHandshakeLimitPerMinute).toBe(120);
     expect(config.realtimeClientFramesPerMinute).toBe(60);
+    expect(config.syncReadLimitPerMinute).toBe(120);
   });
 
   it("requires realtime heartbeat timeout to exceed its interval", () => {

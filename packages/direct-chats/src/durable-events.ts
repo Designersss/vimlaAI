@@ -34,6 +34,24 @@ export class PrismaDirectChatDurableEventWriter
       );
     }
 
+    recipientUserIds.sort();
+    const positions = new Map<string, bigint>();
+    for (const userId of recipientUserIds) {
+      const state = await tx.userSyncState.upsert({
+        where: { userId },
+        create: {
+          userId,
+          lastPosition: 1n,
+          minRetainedPosition: 0n,
+        },
+        update: {
+          lastPosition: { increment: 1n },
+        },
+        select: { lastPosition: true },
+      });
+      positions.set(userId, state.lastPosition);
+    }
+
     const event =
       directMessageCreatedRealtimeEventSchema.parse({
         protocolVersion: REALTIME_PROTOCOL_VERSION,
@@ -58,14 +76,24 @@ export class PrismaDirectChatDurableEventWriter
         protocolVersion: event.protocolVersion,
         eventType: event.eventType,
         durability: event.durability,
+        changeKind: "UPSERT_REF",
         scopeKind: event.scope.kind,
         scopeId: event.scope.id,
         occurredAt: input.occurredAt,
         payload: event.payload as Prisma.InputJsonValue,
         recipients: {
-          create: recipientUserIds.map((userId) => ({
-            userId,
-          })),
+          create: recipientUserIds.map((userId) => {
+            const position = positions.get(userId);
+            if (position === undefined) {
+              throw new Error(
+                "Durable Direct Chat cursor position missing",
+              );
+            }
+            return {
+              userId,
+              position,
+            };
+          }),
         },
         outbox: {
           create: {},

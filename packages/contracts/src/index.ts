@@ -1,4 +1,18 @@
 export {
+  SYNC_LIMITS,
+  SYNC_PROTOCOL_VERSION,
+  directMessageCreatedSyncDeltaSchema,
+  directMessageDeletedSyncDeltaSchema,
+  syncChangeKindSchema,
+  syncCursorSchema,
+  syncDeltaSchema,
+  syncQuerySchema,
+  syncResponseSchema,
+  syncScopeSchema,
+  type SyncDelta,
+  type SyncResponse,
+} from "./sync.js";
+export {
   REALTIME_PROTOCOL_VERSION,
   directMessageCreatedRealtimeEventSchema,
   directMessageCreatedRealtimePayloadSchema,
