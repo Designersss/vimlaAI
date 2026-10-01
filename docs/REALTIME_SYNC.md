@@ -112,7 +112,7 @@ Connection count, coarse pre-auth handshake frequency by actual network peer, au
 
 Redis Pub/Sub fans events between API instances on server-derived per-user channels. Publication failure is logged as transport failure and does not roll back an already committed domain mutation.
 
-Web includes a bounded exponential-reconnect transport and answers application heartbeats. Direct Chat temporarily consumes both the common WebSocket hint and its existing SSE signal only during the #94→#97 migration window; duplicate message identifiers are suppressed before refresh. #97 must remove SSE/EventSource after durable Sync proves correctness.
+Web includes a bounded exponential-reconnect transport and answers application heartbeats. SYNC-02 removes the Direct Chat SSE/EventSource migration path: durable WebSocket hints, reconnects and heartbeat recovery now wake the common durable SyncEngine instead of directly mutating chat state.
 
 ## 5B. RT-02 transactional durable event outbox
 
@@ -143,7 +143,7 @@ If an event has no remaining recipients at dispatch time (for example after reci
 
 Published `RealtimeOutbox` rows have bounded operational retention and may be compacted after the configured retention interval. Compaction deletes only publication state. The associated `DurableEvent` remains until SYNC-01 defines and proves a safe durable-event retention horizon.
 
-Direct Chat's old SSE publication remains temporary only for the #94→#97 transition. Global WebSocket publication for durable Direct Chat events now comes from the transactional outbox path rather than the post-commit API controller.
+Global WebSocket publication for durable Direct Chat events comes only from the transactional outbox path. The old post-commit Direct Chat SSE publication path and its dedicated Redis namespace are removed by SYNC-02.
 
 ## 6. Sync cursor
 
@@ -179,6 +179,24 @@ Tombstone event identity is intentionally distinct from resource identity so mul
 
 The per-user recipient stream is for bounded/private state such as Direct Chats. Large public Channels/feeds must **not** write one `DurableEventRecipient` row per subscriber per post. Those domains will use domain-specific feed cursors/checkpoints and the future client SyncEngine will merge them into one coherent recovery model.
 
+## 6A. SYNC-02 Web SyncEngine
+
+Web now applies one recovery model for Direct Chat realtime convergence:
+
+- a platform-neutral `SyncEngine` lives in `@vimla/client-core`;
+- the Web adapter persists the opaque per-user cursor in tab-scoped `sessionStorage` so one browser tab cannot advance another tab past changes it has not applied;
+- cold start immediately drains `/v1/sync` to a completed checkpoint;
+- WebSocket `HELLO`, durable event hints, server heartbeat, browser online, page-show and visible-resume events trigger another durable sync pass;
+- triggers are serialized/coalesced, so duplicate/out-of-order realtime frames cannot create concurrent cursor application;
+- a page cursor is persisted only after its deltas have been applied successfully;
+- stale or locally corrupted cursors are discarded automatically and rebuilt from the server-retained stream; there is no manual resync UX;
+- transient failures use bounded retry, while authentication loss is terminal for the current session;
+- Direct Chat still resolves message bodies/envelopes from its authoritative HTTP/domain API and merges by authoritative message id; WebSocket and Sync deltas remain identifier-only.
+
+Heartbeat-triggered sync is intentional: it repairs a durable event when Redis publication or an individual WebSocket event frame was lost even though the connection itself remained healthy.
+
+The old `/v1/direct-chats/events` SSE endpoint, browser `EventSource` client, dedicated Direct Chat realtime service and post-commit SSE publisher are removed. There is no compatibility/fallback transport in the target state.
+
 
 ## 7. Channels and scale
 
@@ -190,7 +208,7 @@ Do not choose one global event table design merely for conceptual uniformity if 
 
 ## 8. Direct Chat realtime replacement
 
-Current Direct Chat SSE/EventSource is an obsolete pre-production transport. #97 must replace it with the common WebSocket + durable Sync architecture and remove the SSE/EventSource path before completion.
+SYNC-02 replaces the obsolete Direct Chat SSE/EventSource transport with the common WebSocket + durable Sync architecture. The SSE/EventSource path is removed rather than retained as a fallback.
 
 The replacement must preserve these correctness/security invariants:
 
