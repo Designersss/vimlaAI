@@ -231,7 +231,9 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
     if (boot !== "ready") return;
     let cancelled = false;
 
-    const syncLatest = async (): Promise<void> => {
+    const syncLatest = async (
+      requiredMessageIds: readonly string[] = [],
+    ): Promise<void> => {
       const detail =
         await fetchDirectConversation(conversationId);
       const device = await ensureLocalDevice();
@@ -240,6 +242,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
           detail,
           device.deviceId,
           rowsRef.current,
+          requiredMessageIds,
         );
       if (cancelled) return;
       setConversation(detail);
@@ -262,12 +265,14 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
 
     let refreshTail: Promise<void> =
       Promise.resolve();
-    const requestRefresh = (): Promise<void> => {
+    const requestRefresh = (
+      requiredMessageIds: readonly string[] = [],
+    ): Promise<void> => {
       const next = refreshTail
         .catch(() => undefined)
         .then(async () => {
           if (!cancelled) {
-            await syncLatest();
+            await syncLatest(requiredMessageIds);
           }
         });
       refreshTail = next;
@@ -279,6 +284,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         if (cancelled) return;
 
         let refresh = false;
+        const createdMessageIds = new Set<string>();
         const deletedMessageIds = new Set<string>();
         for (const delta of deltas) {
           if (
@@ -290,9 +296,19 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
           refresh = true;
           if (
             delta.eventType ===
+            "DIRECT_MESSAGE_CREATED"
+          ) {
+            createdMessageIds.add(
+              delta.payload.messageId,
+            );
+          } else if (
+            delta.eventType ===
             "DIRECT_MESSAGE_DELETED"
           ) {
             deletedMessageIds.add(
+              delta.payload.messageId,
+            );
+            createdMessageIds.delete(
               delta.payload.messageId,
             );
           }
@@ -309,7 +325,9 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
           );
         }
         if (refresh) {
-          await requestRefresh();
+          await requestRefresh(
+            [...createdMessageIds],
+          );
         }
       },
     );
@@ -1381,6 +1399,7 @@ async function fetchDecryptedGap(
   detail: DirectConversationView,
   deviceId: string,
   currentRows: readonly DecryptedRow[],
+  requiredMessageIds: readonly string[] = [],
 ): Promise<DecryptedRow[]> {
   if (currentRows.length === 0) {
     const all: DirectMessageView[] = [];
@@ -1405,6 +1424,16 @@ async function fetchDecryptedGap(
   const knownIds = new Set(
     currentRows.map((row) => row.message.id),
   );
+  const requiredUnknownIds = new Set(
+    requiredMessageIds.filter(
+      (messageId) => !knownIds.has(messageId),
+    ),
+  );
+  const targetDriven = requiredMessageIds.length > 0;
+  if (targetDriven && requiredUnknownIds.size === 0) {
+    return [];
+  }
+
   const incoming: DirectMessageView[] = [];
   let cursor: string | undefined;
 
@@ -1414,17 +1443,54 @@ async function fetchDecryptedGap(
       deviceId,
       cursor,
     );
-    const knownIndex = page.items.findIndex(
-      (message) => knownIds.has(message.id),
-    );
-    if (knownIndex >= 0) {
+
+    if (targetDriven) {
+      let oldestRequiredIndex = -1;
+      page.items.forEach((message, index) => {
+        if (requiredUnknownIds.delete(message.id)) {
+          oldestRequiredIndex = index;
+        }
+      });
+
+      const upperBound =
+        requiredUnknownIds.size === 0 &&
+        oldestRequiredIndex >= 0
+          ? oldestRequiredIndex + 1
+          : page.items.length;
       incoming.push(
-        ...page.items.slice(0, knownIndex),
+        ...page.items
+          .slice(0, upperBound)
+          .filter(
+            (message) => !knownIds.has(message.id),
+          ),
       );
-      break;
+      if (requiredUnknownIds.size === 0) {
+        break;
+      }
+    } else {
+      let oldestKnownIndex = -1;
+      page.items.forEach((message, index) => {
+        if (knownIds.has(message.id)) {
+          oldestKnownIndex = index;
+        }
+      });
+      if (oldestKnownIndex >= 0) {
+        incoming.push(
+          ...page.items
+            .slice(0, oldestKnownIndex)
+            .filter(
+              (message) => !knownIds.has(message.id),
+            ),
+        );
+        break;
+      }
+      incoming.push(
+        ...page.items.filter(
+          (message) => !knownIds.has(message.id),
+        ),
+      );
     }
 
-    incoming.push(...page.items);
     if (!page.nextCursor) {
       break;
     }
