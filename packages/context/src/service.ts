@@ -125,6 +125,11 @@ export class ContextSnapshotService {
     if (await this.hasBuiltInAccess(check)) {
       return;
     }
+    if (check.sourceType === "AUDIENCE") {
+      throw new ContextAccessDeniedError(
+        "Communication surface authority is no longer accessible",
+      );
+    }
     if (this.accessVerifier && (await this.accessVerifier(check))) {
       return;
     }
