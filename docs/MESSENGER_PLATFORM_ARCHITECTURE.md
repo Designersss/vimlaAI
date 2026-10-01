@@ -94,6 +94,20 @@ Each domain retains its own authority:
 - Project capabilities;
 - personal ownership.
 
+### 5.1 Current MSG-01 identity model
+
+The first implemented surface kinds are `AI_THREAD` and `DIRECT`.
+
+- `CommunicationSurface.id` is an independent UUID routing identity; it is not a replacement for the domain object's id.
+- exactly one current domain binding is stored per surface (`Conversation` or `DirectConversation`);
+- PostgreSQL constraints prevent one surface from binding both domains and unique constraints prevent two surfaces from binding the same domain object;
+- the identity, kind and domain binding are immutable after creation;
+- domain-row creation transactionally causes creation of its surface in PostgreSQL, including direct domain/test writes that do not pass through one specific HTTP service;
+- AI Thread APIs expose `surfaceId/surfaceKind` only after owner-scoped conversation authorization;
+- Direct Chat APIs expose `surfaceId/surfaceKind` only after the existing membership/E2EE authority succeeds.
+
+Surface rows contain no ownership, role, membership or E2EE authority. The authority-adapter registry prepared in MSG-01 is only a dispatch boundary; CTX-02 owns the domain-specific audience/read/write/capability decisions.
+
 ## 6. Context / audience rule
 
 The central privacy invariant is:
