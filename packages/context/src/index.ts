@@ -4,6 +4,7 @@ export * from "./errors.js";
 export * from "./fingerprint.js";
 export * from "./packer.js";
 export * from "./policy.js";
+export * from "./surface-authority.js";
 export * from "./render.js";
 export * from "./retrieval.js";
 export * from "./service.js";
