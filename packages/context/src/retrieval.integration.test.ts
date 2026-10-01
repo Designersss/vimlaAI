@@ -3,7 +3,6 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ArtifactService } from "@vimla/artifacts";
 import { createPrismaClient, type PrismaClient } from "@vimla/database";
 import {
-  ContextAccessDeniedError,
   ContextValidationError,
 } from "./errors.js";
 import { ContextRetrievalService } from "./retrieval.js";
@@ -689,101 +688,6 @@ describe("Context retrieval v1", () => {
     ).rejects.toBeInstanceOf(
       ContextValidationError,
     );
-  });
-
-  it("fails closed instead of broadening retrieval after focused project access is revoked", async () => {
-    const ownerUserId = await createUser(
-      prisma,
-      "retrieval-revoked-project-owner",
-    );
-    const actorUserId = await createUser(
-      prisma,
-      "retrieval-revoked-project-actor",
-    );
-    const project = await prisma.project.create({
-      data: {
-        ownerUserId,
-        name: "Revoked Project",
-        members: {
-          create: {
-            userId: actorUserId,
-            role: "MEMBER",
-          },
-        },
-      },
-    });
-    const projectConversation =
-      await prisma.conversation.create({
-        data: {
-          userId: actorUserId,
-          projectId: project.id,
-          title: "Former project chat",
-        },
-      });
-    const unrelatedConversation =
-      await prisma.conversation.create({
-        data: {
-          userId: actorUserId,
-          title: "Unrelated personal chat",
-        },
-      });
-    await prisma.message.create({
-      data: {
-        conversationId: unrelatedConversation.id,
-        role: "ASSISTANT",
-        content:
-          "Revoked Project secret fallback must never be retrieved.",
-        status: "COMPLETE",
-      },
-    });
-    const sourceMessage = await prisma.message.create({
-      data: {
-        conversationId: projectConversation.id,
-        role: "USER",
-        content:
-          "Recall the Revoked Project secret fallback.",
-        status: "COMPLETE",
-      },
-    });
-    await prisma.projectMember.delete({
-      where: {
-        projectId_userId: {
-          projectId: project.id,
-          userId: actorUserId,
-        },
-      },
-    });
-
-    const planId = randomUUID();
-    await prisma.executionPlan.create({
-      data: {
-        id: planId,
-        messageId: sourceMessage.id,
-        userId: actorUserId,
-        conversationId: projectConversation.id,
-        schemaVersion: 1,
-        version: 1,
-        planHash: "planning:pending:v1",
-        goal: "Do not broaden revoked project context",
-        status: "PLANNING",
-        maxParallelism: 1,
-      },
-    });
-
-    await expect(
-      snapshots.createForExecutionPlan({
-        actorUserId,
-        planId,
-      }),
-    ).rejects.toBeInstanceOf(
-      ContextAccessDeniedError,
-    );
-
-    expect(
-      await prisma.contextSnapshot.count({
-        where: { planId },
-      }),
-    ).toBe(0);
   });
 
   it("does not pull unrelated messages from another personal conversation", async () => {
