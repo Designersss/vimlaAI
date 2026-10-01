@@ -68,11 +68,13 @@ describe("Web realtime transport", () => {
     const socket = new FakeSocket();
     const events: RealtimeEventEnvelope[] = [];
     const onOpen = vi.fn();
+    const onHeartbeat = vi.fn();
     const installationId = randomUUID();
     const stop = subscribeRealtime({
       installationId,
       onEvent: (event) => events.push(event),
       onOpen,
+      onHeartbeat,
       socketFactory: () => socket,
     });
 
@@ -98,6 +100,7 @@ describe("Web realtime transport", () => {
       frameType: "PONG",
       heartbeatId,
     });
+    expect(onHeartbeat).toHaveBeenCalledTimes(1);
 
     const conversationId = randomUUID();
     const event = {
