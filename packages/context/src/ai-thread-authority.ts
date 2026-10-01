@@ -48,7 +48,9 @@ export class AiThreadSurfaceAuthorityAdapter
       actorUserId: input.actorUserId,
       canRead,
       canContribute: canRead,
-      audienceUserIds: [conversation.userId],
+      audienceUserIds: canRead
+        ? [conversation.userId]
+        : [],
       eligibleReadScopes: canRead
         ? [
             {
