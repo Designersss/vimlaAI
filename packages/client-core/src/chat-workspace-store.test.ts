@@ -54,6 +54,8 @@ describe("persistent chat workspace", () => {
     workspace.conversation("a").setMessages(history, 0);
     workspace.addConversation({
       id: "b",
+      surfaceId: "11111111-1111-4111-8111-111111111111",
+      surfaceKind: "AI_THREAD",
       projectId: null,
       title: "B",
       defaultTarget: null,
@@ -61,6 +63,8 @@ describe("persistent chat workspace", () => {
     });
     workspace.addConversation({
       id: "b",
+      surfaceId: "11111111-1111-4111-8111-111111111111",
+      surfaceKind: "AI_THREAD",
       projectId: null,
       title: "Updated B",
       defaultTarget: null,
@@ -76,6 +80,8 @@ describe("persistent chat workspace", () => {
     const workspace = new ChatWorkspaceStore();
     const base: DirectConversationSummary = {
       id: "a",
+      surfaceId: "22222222-2222-4222-8222-222222222222",
+      surfaceKind: "DIRECT",
       peer: { userId: "peer-a", name: "A", email: "a@example.com" },
       lastMessageAt: "2026-09-14T10:00:00Z",
       createdAt: historyCreatedAt,
@@ -89,7 +95,7 @@ describe("persistent chat workspace", () => {
       },
     };
     workspace.hydrateDirectConversations([
-      { ...base, id: "b", peer: { userId: "peer-b", name: "B", email: "b@example.com" }, lastMessageAt: "2026-09-14T11:00:00Z" },
+      { ...base, id: "b", surfaceId: "44444444-4444-4444-8444-444444444444", peer: { userId: "peer-b", name: "B", email: "b@example.com" }, lastMessageAt: "2026-09-14T11:00:00Z" },
       base,
     ]);
 
@@ -107,6 +113,8 @@ describe("persistent chat workspace", () => {
     const workspace = new ChatWorkspaceStore();
     const unread: DirectConversationSummary = {
       id: "a",
+      surfaceId: "33333333-3333-4333-8333-333333333333",
+      surfaceKind: "DIRECT",
       peer: { userId: "peer", name: "Peer", email: "peer@example.com" },
       lastMessageAt: historyCreatedAt,
       createdAt: historyCreatedAt,
@@ -120,7 +128,14 @@ describe("persistent chat workspace", () => {
       },
     };
     workspace.updateDirectConversation({ ...unread, unreadCount: 0 });
-    workspace.hydrateDirectConversations([unread, { ...unread, id: "b" }]);
+    workspace.hydrateDirectConversations([
+      unread,
+      {
+        ...unread,
+        id: "b",
+        surfaceId: "55555555-5555-4555-8555-555555555555",
+      },
+    ]);
     expect(workspace.directConversations.map(({ id, unreadCount }) => ({ id, unreadCount })))
       .toEqual([{ id: "a", unreadCount: 0 }, { id: "b", unreadCount: 1 }]);
   });
