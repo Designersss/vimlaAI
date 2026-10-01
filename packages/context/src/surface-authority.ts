@@ -146,6 +146,9 @@ export function isReadScopeEligible(
   );
 }
 
+// This is the surface-level eligibility boundary only. A caller that performs
+// a domain mutation must still obtain the domain's current write authority
+// (for example ProjectService capabilities) before applying the action.
 export function writeScopeRequirement(
   authority: ResolvedSurfaceAuthority,
   scope: ContextWriteScope,
