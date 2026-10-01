@@ -113,10 +113,13 @@ export class ProjectContextScopeAuthorityAdapter
   }
 
   canWrite(
-    userId: string,
-    scope: ContextWriteScope,
+    _userId: string,
+    _scope: ContextWriteScope,
   ): Promise<boolean> {
-    return this.canRead(userId, scope);
+    // Project mutation authority depends on role + entitlement/read-only
+    // state and remains owned by ProjectService. Membership alone must never
+    // be upgraded into a generic write capability here.
+    return Promise.resolve(false);
   }
 }
 
