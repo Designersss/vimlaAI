@@ -400,6 +400,122 @@ describe("ContextBundleService", () => {
     ).rejects.toBeInstanceOf(ContextValidationError);
   });
 
+  it("revalidates Direct Chat audience membership for every invocation and frozen replay", async () => {
+    const actorUserId = await createUser(
+      prisma,
+      "stale-direct-authority-actor",
+    );
+    const peerUserId = await createUser(
+      prisma,
+      "stale-direct-authority-peer",
+    );
+    const origin = await prisma.conversation.create({
+      data: {
+        userId: actorUserId,
+        kind: "CHAT",
+        title: "Direct authority origin",
+      },
+    });
+    const sourceMessage = await prisma.message.create({
+      data: {
+        conversationId: origin.id,
+        role: "USER",
+        content: "Use this shared audience",
+        status: "COMPLETE",
+      },
+    });
+    const { planId, invocationIds } = await createPlan(
+      prisma,
+      actorUserId,
+      origin.id,
+      sourceMessage.id,
+      2,
+    );
+    const firstInvocationId = invocationIds[0];
+    const secondInvocationId = invocationIds[1];
+    if (!firstInvocationId || !secondInvocationId) {
+      throw new Error(
+        "Expected two stale-authority invocations",
+      );
+    }
+
+    const directConversation =
+      await prisma.directConversation.create({
+        data: {
+          pairKey: `stale-authority:${randomUUID()}`,
+          members: {
+            create: [
+              { userId: actorUserId },
+              { userId: peerUserId },
+            ],
+          },
+        },
+      });
+    const directSurfaceId =
+      await communicationSurfaceIdForDirectChat(
+        prisma,
+        directConversation.id,
+      );
+
+    await snapshots.create({
+      actorUserId,
+      planId,
+      items: [
+        {
+          sourceType: "AUDIENCE",
+          sourceId: directSurfaceId,
+          classification: "PRIVATE",
+          metadata: {
+            surfaceId: directSurfaceId,
+            participantUserIds: [
+              actorUserId,
+              peerUserId,
+            ],
+          },
+        },
+      ],
+    });
+
+    const first = await bundles.resolveForInvocation({
+      actorUserId,
+      invocationId: firstInvocationId,
+    });
+    expect(first.manifest.surfaceKind).toBe("DIRECT");
+    expect(first.manifest.audienceParticipantCount).toBe(2);
+    expect(first.manifest.disclosurePolicy).toEqual({
+      serverPlaintextAvailable: false,
+      clientDisclosureRequired: true,
+      peerContentRequiresConsent: true,
+    });
+
+    await prisma.directConversationMember.delete({
+      where: {
+        conversationId_userId: {
+          conversationId: directConversation.id,
+          userId: peerUserId,
+        },
+      },
+    });
+
+    await expect(
+      bundles.resolveForInvocation({
+        actorUserId,
+        invocationId: secondInvocationId,
+      }),
+    ).rejects.toBeInstanceOf(
+      ContextAccessDeniedError,
+    );
+
+    await expect(
+      bundles.resolveForInvocation({
+        actorUserId,
+        invocationId: firstInvocationId,
+      }),
+    ).rejects.toBeInstanceOf(
+      ContextAccessDeniedError,
+    );
+  });
+
   it("includes only audience-readable dependency artifacts and re-checks grants between invocations", async () => {
     const actorUserId = await createUser(prisma, "artifact-policy-actor");
     const peerUserId = await createUser(prisma, "artifact-policy-peer");
