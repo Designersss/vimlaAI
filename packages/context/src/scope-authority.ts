@@ -4,18 +4,15 @@ import type {
   ContextWriteScope,
 } from "./policy.js";
 
-export interface ContextScopeAuthorityAdapter<
-  TKind extends ContextReadScope["kind"] =
-    ContextReadScope["kind"],
-> {
-  readonly kind: TKind;
+export interface ContextScopeAuthorityAdapter {
+  readonly kind: ContextReadScope["kind"];
   canRead(
     userId: string,
-    scope: Extract<ContextReadScope, { kind: TKind }>,
+    scope: ContextReadScope,
   ): Promise<boolean>;
   canWrite(
     userId: string,
-    scope: Extract<ContextWriteScope, { kind: TKind }>,
+    scope: ContextWriteScope,
   ): Promise<boolean>;
 }
 
@@ -43,11 +40,9 @@ export class ContextScopeAuthorityRegistry {
     scope: ContextReadScope,
   ): Promise<boolean> {
     const adapter = this.adapters.get(scope.kind);
-    if (!adapter) return Promise.resolve(false);
-    return adapter.canRead(
-      userId,
-      scope as never,
-    );
+    return adapter
+      ? adapter.canRead(userId, scope)
+      : Promise.resolve(false);
   }
 
   canWrite(
@@ -55,48 +50,40 @@ export class ContextScopeAuthorityRegistry {
     scope: ContextWriteScope,
   ): Promise<boolean> {
     const adapter = this.adapters.get(scope.kind);
-    if (!adapter) return Promise.resolve(false);
-    return adapter.canWrite(
-      userId,
-      scope as never,
-    );
+    return adapter
+      ? adapter.canWrite(userId, scope)
+      : Promise.resolve(false);
   }
 }
 
 export class PersonalContextScopeAuthorityAdapter
-  implements
-    ContextScopeAuthorityAdapter<"PERSONAL">
+  implements ContextScopeAuthorityAdapter
 {
   readonly kind = "PERSONAL" as const;
 
   canRead(
     userId: string,
-    scope: Extract<
-      ContextReadScope,
-      { kind: "PERSONAL" }
-    >,
+    scope: ContextReadScope,
   ): Promise<boolean> {
     return Promise.resolve(
-      scope.ownerUserId === userId,
+      scope.kind === "PERSONAL" &&
+        scope.ownerUserId === userId,
     );
   }
 
   canWrite(
     userId: string,
-    scope: Extract<
-      ContextWriteScope,
-      { kind: "PERSONAL" }
-    >,
+    scope: ContextWriteScope,
   ): Promise<boolean> {
     return Promise.resolve(
-      scope.ownerUserId === userId,
+      scope.kind === "PERSONAL" &&
+        scope.ownerUserId === userId,
     );
   }
 }
 
 export class ProjectContextScopeAuthorityAdapter
-  implements
-    ContextScopeAuthorityAdapter<"PROJECT">
+  implements ContextScopeAuthorityAdapter
 {
   readonly kind = "PROJECT" as const;
 
@@ -104,11 +91,9 @@ export class ProjectContextScopeAuthorityAdapter
 
   async canRead(
     userId: string,
-    scope: Extract<
-      ContextReadScope,
-      { kind: "PROJECT" }
-    >,
+    scope: ContextReadScope,
   ): Promise<boolean> {
+    if (scope.kind !== "PROJECT") return false;
     return Boolean(
       await this.db.project.findFirst({
         where: {
@@ -129,18 +114,14 @@ export class ProjectContextScopeAuthorityAdapter
 
   canWrite(
     userId: string,
-    scope: Extract<
-      ContextWriteScope,
-      { kind: "PROJECT" }
-    >,
+    scope: ContextWriteScope,
   ): Promise<boolean> {
     return this.canRead(userId, scope);
   }
 }
 
 export class DirectChatContextScopeAuthorityAdapter
-  implements
-    ContextScopeAuthorityAdapter<"DIRECT_CHAT">
+  implements ContextScopeAuthorityAdapter
 {
   readonly kind = "DIRECT_CHAT" as const;
 
@@ -148,11 +129,9 @@ export class DirectChatContextScopeAuthorityAdapter
 
   async canRead(
     userId: string,
-    scope: Extract<
-      ContextReadScope,
-      { kind: "DIRECT_CHAT" }
-    >,
+    scope: ContextReadScope,
   ): Promise<boolean> {
+    if (scope.kind !== "DIRECT_CHAT") return false;
     return Boolean(
       await this.db.directConversationMember.findUnique({
         where: {
@@ -169,10 +148,7 @@ export class DirectChatContextScopeAuthorityAdapter
 
   canWrite(
     userId: string,
-    scope: Extract<
-      ContextWriteScope,
-      { kind: "DIRECT_CHAT" }
-    >,
+    scope: ContextWriteScope,
   ): Promise<boolean> {
     return this.canRead(userId, scope);
   }
