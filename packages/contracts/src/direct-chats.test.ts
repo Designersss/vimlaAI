@@ -26,6 +26,14 @@ describe("direct chat contracts", () => {
     ).toBe(false);
 
     expect(
+      createDirectConversationSchema.safeParse({
+        peerEmail: "nikita@example.com",
+        surfaceId:
+          "11111111-1111-4111-8111-111111111111",
+      }).success,
+    ).toBe(false);
+
+    expect(
       registerCryptoDeviceSchema.safeParse({
         deviceId: "11111111-1111-4111-8111-111111111111",
         identityEd25519Public: "aaaaaaaaaaaaaaaaaaaaaa==",
