@@ -403,6 +403,7 @@ model AiModelPriceVersion {
 
 model Conversation {
   id         String      @id @default(cuid())
+  surface    CommunicationSurface? @relation("AiThreadCommunicationSurface")
   userId     String
   user       User        @relation(fields: [userId], references: [id], onDelete: Restrict)
   projectId  String?
@@ -428,6 +429,22 @@ model Conversation {
   @@index([defaultTargetModelId])
   @@map("conversation")
   // Partial unique index conversation_one_operator_per_user (userId WHERE kind = 'OPERATOR') is in SQL.
+  // SQL also makes kind immutable; only kind='CHAT' receives an AI_THREAD CommunicationSurface.
+}
+
+model CommunicationSurface {
+  id                   String              @id @default(uuid()) @db.Uuid
+  kind                 String
+  status               String              @default("ACTIVE")
+  conversationId       String?             @unique
+  conversation         Conversation?       @relation("AiThreadCommunicationSurface", fields: [conversationId], references: [id], onDelete: Cascade)
+  directConversationId String?             @unique
+  directConversation   DirectConversation? @relation("DirectCommunicationSurface", fields: [directConversationId], references: [id], onDelete: Cascade)
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+
+  @@index([kind, status, updatedAt])
+  @@map("communication_surface")
 }
 
 model Message {
@@ -1121,6 +1138,7 @@ model DirectOneTimePrekey {
 
 model DirectConversation {
   id            String   @id @default(uuid())
+  surface       CommunicationSurface? @relation("DirectCommunicationSurface")
   pairKey       String   @unique
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt

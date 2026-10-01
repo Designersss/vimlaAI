@@ -40,6 +40,7 @@ describe("Prisma persistence", () => {
           "ai_model",
           "ai_model_price_version",
           "conversation",
+          "communication_surface",
           "message",
           "ai_request",
           "workspace_object",

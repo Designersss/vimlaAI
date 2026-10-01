@@ -105,9 +105,19 @@ describe("sendMessageSchema", () => {
     ).toBe(false);
   });
 
-  it("rejects extra fields on conversation create", () => {
+  it("rejects client-selected authority or surface identity on conversation create", () => {
     expect(
-      createConversationSchema.safeParse({ title: "Hi", userId: "other" }).success,
+      createConversationSchema.safeParse({
+        title: "Hi",
+        userId: "other",
+      }).success,
+    ).toBe(false);
+    expect(
+      createConversationSchema.safeParse({
+        title: "Hi",
+        surfaceId:
+          "11111111-1111-4111-8111-111111111111",
+      }).success,
     ).toBe(false);
   });
 });

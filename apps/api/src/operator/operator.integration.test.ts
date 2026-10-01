@@ -115,9 +115,19 @@ describe("operator API", () => {
     ).toBe(0);
     const operatorRun = await prisma.operatorRun.findUniqueOrThrow({
       where: { id: body.id },
-      select: { plannerAiRequestId: true },
+      select: {
+        plannerAiRequestId: true,
+        conversationId: true,
+      },
     });
     expect(operatorRun.plannerAiRequestId).toBeNull();
+    expect(
+      await prisma.communicationSurface.findUnique({
+        where: {
+          conversationId: operatorRun.conversationId,
+        },
+      }),
+    ).toBeNull();
     const usage = await prisma.usageBucket.aggregate({
       where: { userId: user.id },
       _sum: { spentMicroRub: true },
@@ -141,7 +151,18 @@ describe("operator API", () => {
       cookies: user.cookies,
     });
     expect(thread.statusCode).toBe(200);
+    expect(thread.json().id).toBe(
+      operatorRun.conversationId,
+    );
     expect(JSON.stringify(thread.json())).not.toMatch(/VIMLA_OPERATOR_PLANNER|"commands"|inputJson/);
+
+    const notAiThread = await app.inject({
+      method: "GET",
+      url: `/v1/conversations/${operatorRun.conversationId}`,
+      headers: { origin },
+      cookies: user.cookies,
+    });
+    expect(notAiThread.statusCode).toBe(404);
 
     const replay = await app.inject({
       method: "POST",
