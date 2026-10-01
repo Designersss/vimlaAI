@@ -429,6 +429,7 @@ model Conversation {
   @@index([defaultTargetModelId])
   @@map("conversation")
   // Partial unique index conversation_one_operator_per_user (userId WHERE kind = 'OPERATOR') is in SQL.
+  // SQL also makes kind immutable; only kind='CHAT' receives an AI_THREAD CommunicationSurface.
 }
 
 model CommunicationSurface {
