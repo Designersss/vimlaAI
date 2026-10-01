@@ -8,7 +8,7 @@ CREATE TABLE "communication_surface" (
     "conversationId" TEXT,
     "directConversationId" TEXT,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
 
     CONSTRAINT "communication_surface_pkey" PRIMARY KEY ("id"),
     CONSTRAINT "communication_surface_id_non_nil_chk"
