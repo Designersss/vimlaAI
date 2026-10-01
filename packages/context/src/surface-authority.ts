@@ -7,6 +7,12 @@ export interface ResolveSurfaceAuthorityInput {
   surfaceId: string;
 }
 
+export interface SurfaceIdentityResolver {
+  resolveKind(
+    surfaceId: string,
+  ): Promise<CommunicationSurfaceKind | null>;
+}
+
 export interface SurfaceAuthorityAdapter<TResult> {
   readonly kind: CommunicationSurfaceKind;
   resolve(
@@ -22,6 +28,7 @@ export class SurfaceAuthorityRegistry<TResult> {
     >();
 
   constructor(
+    private readonly identities: SurfaceIdentityResolver,
     adapters: readonly SurfaceAuthorityAdapter<TResult>[],
   ) {
     for (const adapter of adapters) {
@@ -35,14 +42,30 @@ export class SurfaceAuthorityRegistry<TResult> {
   }
 
   async resolve(
-    kind: CommunicationSurfaceKind,
     input: ResolveSurfaceAuthorityInput,
   ): Promise<TResult> {
+    const kind =
+      await this.identities.resolveKind(input.surfaceId);
+    if (!kind) {
+      throw new SurfaceIdentityUnavailableError(
+        input.surfaceId,
+      );
+    }
+
     const adapter = this.adapters.get(kind);
     if (!adapter) {
       throw new SurfaceAuthorityUnavailableError(kind);
     }
     return adapter.resolve(input);
+  }
+}
+
+export class SurfaceIdentityUnavailableError extends Error {
+  constructor(readonly surfaceId: string) {
+    super(
+      `Communication surface identity is unavailable for ${surfaceId}`,
+    );
+    this.name = "SurfaceIdentityUnavailableError";
   }
 }
 
