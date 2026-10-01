@@ -218,11 +218,11 @@ describe("SyncEngine", () => {
     expect(scheduled[0]?.delay).toBe(25);
 
     scheduled[0]?.callback();
-    await Promise.resolve();
-    await Promise.resolve();
+    await vi.waitFor(() => {
+      expect(cursor.value).toBe("cursor.one");
+    });
 
     expect(apply).toHaveBeenCalledTimes(2);
-    expect(cursor.value).toBe("cursor.one");
   });
 
   it("never persists a fetched page after the engine is stopped", async () => {
