@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { ArtifactService } from "@vimla/artifacts";
 import { createPrismaClient, type PrismaClient } from "@vimla/database";
 import {
+  ContextAccessDeniedError,
   ContextValidationError,
 } from "./errors.js";
 import { ContextRetrievalService } from "./retrieval.js";
@@ -687,6 +688,96 @@ describe("Context retrieval v1", () => {
       }),
     ).rejects.toBeInstanceOf(
       ContextValidationError,
+    );
+  });
+
+  it("rejects provider project scope without current project authority before ranking", async () => {
+    const actorUserId = await createUser(
+      prisma,
+      "retrieval-provider-project-actor",
+    );
+    const ownerUserId = await createUser(
+      prisma,
+      "retrieval-provider-project-owner",
+    );
+    const project = await prisma.project.create({
+      data: {
+        ownerUserId,
+        name: "Foreign provider project",
+      },
+    });
+    const conversation = await prisma.conversation.create({
+      data: {
+        userId: actorUserId,
+        title: "Provider project authority",
+      },
+    });
+    const sourceMessage = await prisma.message.create({
+      data: {
+        conversationId: conversation.id,
+        role: "USER",
+        content: "Recall the foreign project fact",
+        status: "COMPLETE",
+      },
+    });
+    const planId = randomUUID();
+    await prisma.executionPlan.create({
+      data: {
+        id: planId,
+        messageId: sourceMessage.id,
+        userId: actorUserId,
+        conversationId: conversation.id,
+        schemaVersion: 1,
+        version: 1,
+        planHash: "planning:pending:v1",
+        goal: "Reject unauthorized provider scope",
+        status: "PLANNING",
+        maxParallelism: 1,
+      },
+    });
+
+    const retrieval = new ContextRetrievalService(
+      prisma,
+      [
+        {
+          retrieve: () =>
+            Promise.resolve([
+              {
+                item: {
+                  sourceType: "MEMORY" as const,
+                  sourceId: "foreign-project-memory",
+                  sourceVersion: "v1",
+                  classification: "PRIVATE" as const,
+                  metadata: {
+                    fact: "Provider should not rank this.",
+                  },
+                },
+                sourceKind: "PROJECT_MEMORY" as const,
+                sourceScope: {
+                  kind: "PROJECT" as const,
+                  projectId: project.id,
+                },
+                reason: "unauthorized provider scope",
+                lexicalScore: 1,
+                directReference: true,
+                currentSurface: false,
+                currentProject: false,
+                authority: "DERIVED" as const,
+                occurredAt: null,
+                estimatedTokens: 8,
+              },
+            ]),
+        },
+      ],
+    );
+
+    await expect(
+      retrieval.retrieveForExecutionPlan({
+        actorUserId,
+        planId,
+      }),
+    ).rejects.toBeInstanceOf(
+      ContextAccessDeniedError,
     );
   });
 
