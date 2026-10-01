@@ -139,7 +139,7 @@ actor
 
 Provider/model/prompt content never selects a SurfaceAuthority adapter and cannot expand a source/write scope.
 
-Direct Chat keeps a second, stricter E2EE boundary after SurfaceAuthority: bounded client-disclosed plaintext is validated against current membership and consent, including transactional consent re-checks immediately before side effects. SurfaceAuthority never causes Direct Chat plaintext or decryption keys to be stored server-side.
+Direct Chat keeps a second, stricter E2EE boundary after SurfaceAuthority: bounded client-disclosed plaintext is validated against current membership and consent, including transactional consent re-checks immediately before side effects. SurfaceAuthority never grants the server access to encrypted Direct Chat history or decryption keys; only the already-established, explicitly client-disclosed bounded plaintext may be frozen in ContextSnapshot for the authorized invocation.
 
 ## 6. Context / audience rule
 
