@@ -16,6 +16,7 @@ import {
   SurfaceAccessDeniedError,
   SurfaceAuthorityUnavailableError,
   SurfaceIdentityUnavailableError,
+  type ResolvedSurfaceAuthority,
   type SurfaceAuthorityRegistry,
 } from "./surface-authority.js";
 import { createSurfaceAuthorityRegistry } from "./surface-authority-db.js";
@@ -289,7 +290,7 @@ export class ContextRetrievalService {
       );
     }
 
-    let surfaceAuthority;
+    let surfaceAuthority: ResolvedSurfaceAuthority;
     try {
       surfaceAuthority =
         await this.surfaceAuthorities.resolve({
@@ -313,7 +314,10 @@ export class ContextRetrievalService {
       surfaceAuthority.kind !== "AI_THREAD" ||
       surfaceAuthority.domainId !==
         sourceMessage.conversation.id ||
-      !surfaceAuthority.canRead
+      !surfaceAuthority.canRead ||
+      !surfaceAuthority.capabilities.includes(
+        "CONTEXT_READ",
+      )
     ) {
       throw new ContextAccessDeniedError(
         "Execution plan surface access is denied",
@@ -321,26 +325,43 @@ export class ContextRetrievalService {
     }
     const focusedProjectId =
       sourceMessage.conversation.projectId;
-    const currentProject = focusedProjectId
-      ? await this.db.project.findFirst({
-          where: {
-            id: focusedProjectId,
-            OR: [
-              { ownerUserId: input.actorUserId },
-              {
-                members: {
-                  some: { userId: input.actorUserId },
+    const focusedProjectScope: ContextSourceScope | null =
+      focusedProjectId
+        ? {
+            kind: "PROJECT",
+            projectId: focusedProjectId,
+          }
+        : null;
+    const focusedProjectEligible =
+      focusedProjectScope !== null &&
+      isReadScopeEligible(
+        surfaceAuthority,
+        focusedProjectScope,
+      );
+    const currentProject =
+      focusedProjectId && focusedProjectEligible
+        ? await this.db.project.findFirst({
+            where: {
+              id: focusedProjectId,
+              OR: [
+                { ownerUserId: input.actorUserId },
+                {
+                  members: {
+                    some: {
+                      userId: input.actorUserId,
+                    },
+                  },
                 },
-              },
-            ],
-          },
-          select: {
-            id: true,
-            updatedAt: true,
-          },
-        })
-      : null;
-    const currentProjectId = currentProject?.id ?? null;
+              ],
+            },
+            select: {
+              id: true,
+              updatedAt: true,
+            },
+          })
+        : null;
+    const currentProjectId =
+      currentProject?.id ?? null;
     const query = sourceMessage.content;
     const queryTokens = tokenize(query);
     const personalScope: ContextSourceScope = {
@@ -1034,15 +1055,20 @@ export class ContextRetrievalService {
       }
     }
 
-    const eligibleCandidates = candidates.filter(
-      (entry) =>
-        isReadScopeEligible(
+    for (const entry of candidates) {
+      if (
+        !isReadScopeEligible(
           surfaceAuthority,
           entry.sourceScope,
-        ),
-    );
+        )
+      ) {
+        throw new ContextValidationError(
+          "Context retrieval produced a source outside the authorized surface scopes",
+        );
+      }
+    }
     const normalized = normalizeCandidates(
-      eligibleCandidates,
+      candidates,
       this.options.maxCandidates,
     );
     if (this.telemetryObserver) {
