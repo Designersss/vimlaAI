@@ -3,21 +3,63 @@ import {
   SurfaceAuthorityRegistry,
   SurfaceAuthorityUnavailableError,
   SurfaceIdentityUnavailableError,
+  isReadScopeEligible,
+  writeScopeRequirement,
+  type ResolvedSurfaceAuthority,
   type SurfaceAuthorityAdapter,
   type SurfaceIdentityResolver,
 } from "./surface-authority.js";
 
+const authority: ResolvedSurfaceAuthority = {
+  surfaceId: "11111111-1111-4111-8111-111111111111",
+  kind: "DIRECT",
+  domainId: "22222222-2222-4222-8222-222222222222",
+  actorUserId: "user-a",
+  canRead: true,
+  canContribute: true,
+  audienceUserIds: ["user-a", "user-b"],
+  eligibleReadScopes: [
+    {
+      kind: "DIRECT_CHAT",
+      directConversationId:
+        "22222222-2222-4222-8222-222222222222",
+    },
+    {
+      kind: "PROJECT",
+      projectId: "ANY_AUTHORIZED",
+    },
+  ],
+  eligibleWriteScopes: [
+    {
+      kind: "DIRECT_CHAT",
+      directConversationId:
+        "22222222-2222-4222-8222-222222222222",
+      explicitActionRequired: false,
+    },
+  ],
+  disclosurePolicy: {
+    serverPlaintextAvailable: false,
+    clientDisclosureRequired: true,
+    peerContentRequiresConsent: true,
+  },
+  capabilities: [
+    "CONTEXT_READ",
+    "CONTEXT_CONTRIBUTE",
+    "AI_INVOKE",
+    "ACTION_INVOKE",
+  ],
+};
+
 describe("SurfaceAuthorityRegistry", () => {
-  it("routes using the server-resolved surface kind", async () => {
+  it("selects an adapter only after server-authoritative identity resolution", async () => {
     const identities: SurfaceIdentityResolver = {
-      resolveKind: vi.fn(async () => "DIRECT"),
+      resolve: vi.fn(async () => ({
+        surfaceId: authority.surfaceId,
+        kind: "DIRECT",
+      })),
     };
-    const resolve = vi.fn(async () => ({
-      canRead: true,
-    }));
-    const adapter: SurfaceAuthorityAdapter<{
-      canRead: boolean;
-    }> = {
+    const resolve = vi.fn(async () => authority);
+    const adapter: SurfaceAuthorityAdapter = {
       kind: "DIRECT",
       resolve,
     };
@@ -25,84 +67,93 @@ describe("SurfaceAuthorityRegistry", () => {
       identities,
       [adapter],
     );
-    const input = {
-      actorUserId: "user-a",
-      surfaceId:
-        "11111111-1111-4111-8111-111111111111",
-    };
-
-    await expect(
-      registry.resolve(input),
-    ).resolves.toEqual({ canRead: true });
-    expect(identities.resolveKind).toHaveBeenCalledWith(
-      input.surfaceId,
-    );
-    expect(resolve).toHaveBeenCalledWith(input);
-  });
-
-  it("fails closed when the surface identity cannot be resolved", async () => {
-    const identities: SurfaceIdentityResolver = {
-      resolveKind: async () => null,
-    };
-    const registry =
-      new SurfaceAuthorityRegistry<unknown>(
-        identities,
-        [],
-      );
 
     await expect(
       registry.resolve({
         actorUserId: "user-a",
-        surfaceId:
-          "11111111-1111-4111-8111-111111111111",
+        surfaceId: authority.surfaceId,
+      }),
+    ).resolves.toEqual(authority);
+    expect(identities.resolve).toHaveBeenCalledWith(
+      authority.surfaceId,
+    );
+    expect(resolve).toHaveBeenCalledOnce();
+  });
+
+  it("fails closed for unknown identity or unregistered kind", async () => {
+    const missing = new SurfaceAuthorityRegistry(
+      { resolve: async () => null },
+      [],
+    );
+    await expect(
+      missing.resolve({
+        actorUserId: "user-a",
+        surfaceId: authority.surfaceId,
       }),
     ).rejects.toBeInstanceOf(
       SurfaceIdentityUnavailableError,
     );
-  });
 
-  it("fails closed when no adapter exists for the authoritative kind", async () => {
-    const identities: SurfaceIdentityResolver = {
-      resolveKind: async () => "AI_THREAD",
-    };
-    const registry =
-      new SurfaceAuthorityRegistry<unknown>(
-        identities,
-        [],
-      );
-
+    const noAdapter = new SurfaceAuthorityRegistry(
+      {
+        resolve: async () => ({
+          surfaceId: authority.surfaceId,
+          kind: "AI_THREAD",
+        }),
+      },
+      [],
+    );
     await expect(
-      registry.resolve({
+      noAdapter.resolve({
         actorUserId: "user-a",
-        surfaceId:
-          "11111111-1111-4111-8111-111111111111",
+        surfaceId: authority.surfaceId,
       }),
     ).rejects.toBeInstanceOf(
       SurfaceAuthorityUnavailableError,
     );
   });
 
-  it("rejects duplicate adapters for one surface kind", () => {
-    const identities: SurfaceIdentityResolver = {
-      resolveKind: async () => "DIRECT",
-    };
-    const first: SurfaceAuthorityAdapter<unknown> = {
+  it("rejects duplicate adapters", () => {
+    const first: SurfaceAuthorityAdapter = {
       kind: "DIRECT",
-      resolve: async () => ({}),
+      resolve: async () => authority,
     };
-    const second: SurfaceAuthorityAdapter<unknown> = {
+    const second: SurfaceAuthorityAdapter = {
       kind: "DIRECT",
-      resolve: async () => ({}),
+      resolve: async () => authority,
     };
-
     expect(
       () =>
         new SurfaceAuthorityRegistry(
-          identities,
+          { resolve: async () => null },
           [first, second],
         ),
     ).toThrow(
       "Duplicate surface authority adapter for DIRECT",
     );
+  });
+
+  it("evaluates eligible read/write scopes from the domain adapter result", () => {
+    expect(
+      isReadScopeEligible(authority, {
+        kind: "DIRECT_CHAT",
+        directConversationId: authority.domainId,
+      }),
+    ).toBe(true);
+    expect(
+      isReadScopeEligible(authority, {
+        kind: "PERSONAL",
+        ownerUserId: "user-a",
+      }),
+    ).toBe(false);
+    expect(
+      writeScopeRequirement(authority, {
+        kind: "DIRECT_CHAT",
+        directConversationId: authority.domainId,
+      }),
+    ).toEqual({
+      eligible: true,
+      explicitActionRequired: false,
+    });
   });
 });
