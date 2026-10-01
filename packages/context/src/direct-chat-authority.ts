@@ -51,7 +51,9 @@ export class DirectChatSurfaceAuthorityAdapter
       actorUserId: input.actorUserId,
       canRead,
       canContribute: canRead,
-      audienceUserIds,
+      audienceUserIds: canRead
+        ? audienceUserIds
+        : [],
       eligibleReadScopes: canRead
         ? [
             {
