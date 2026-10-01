@@ -2,11 +2,16 @@ import { describe, expect, it, vi } from "vitest";
 import {
   SurfaceAuthorityRegistry,
   SurfaceAuthorityUnavailableError,
+  SurfaceIdentityUnavailableError,
   type SurfaceAuthorityAdapter,
+  type SurfaceIdentityResolver,
 } from "./surface-authority.js";
 
 describe("SurfaceAuthorityRegistry", () => {
-  it("routes a surface to the matching domain-owned adapter", async () => {
+  it("routes using the server-resolved surface kind", async () => {
+    const identities: SurfaceIdentityResolver = {
+      resolveKind: vi.fn(async () => "DIRECT"),
+    };
     const resolve = vi.fn(async () => ({
       canRead: true,
     }));
@@ -16,30 +21,58 @@ describe("SurfaceAuthorityRegistry", () => {
       kind: "DIRECT",
       resolve,
     };
-    const registry = new SurfaceAuthorityRegistry([
-      adapter,
-    ]);
+    const registry = new SurfaceAuthorityRegistry(
+      identities,
+      [adapter],
+    );
+    const input = {
+      actorUserId: "user-a",
+      surfaceId:
+        "11111111-1111-4111-8111-111111111111",
+    };
 
     await expect(
-      registry.resolve("DIRECT", {
+      registry.resolve(input),
+    ).resolves.toEqual({ canRead: true });
+    expect(identities.resolveKind).toHaveBeenCalledWith(
+      input.surfaceId,
+    );
+    expect(resolve).toHaveBeenCalledWith(input);
+  });
+
+  it("fails closed when the surface identity cannot be resolved", async () => {
+    const identities: SurfaceIdentityResolver = {
+      resolveKind: async () => null,
+    };
+    const registry =
+      new SurfaceAuthorityRegistry<unknown>(
+        identities,
+        [],
+      );
+
+    await expect(
+      registry.resolve({
         actorUserId: "user-a",
         surfaceId:
           "11111111-1111-4111-8111-111111111111",
       }),
-    ).resolves.toEqual({ canRead: true });
-    expect(resolve).toHaveBeenCalledWith({
-      actorUserId: "user-a",
-      surfaceId:
-        "11111111-1111-4111-8111-111111111111",
-    });
+    ).rejects.toBeInstanceOf(
+      SurfaceIdentityUnavailableError,
+    );
   });
 
-  it("fails closed when no authority adapter is registered", async () => {
+  it("fails closed when no adapter exists for the authoritative kind", async () => {
+    const identities: SurfaceIdentityResolver = {
+      resolveKind: async () => "AI_THREAD",
+    };
     const registry =
-      new SurfaceAuthorityRegistry<unknown>([]);
+      new SurfaceAuthorityRegistry<unknown>(
+        identities,
+        [],
+      );
 
     await expect(
-      registry.resolve("AI_THREAD", {
+      registry.resolve({
         actorUserId: "user-a",
         surfaceId:
           "11111111-1111-4111-8111-111111111111",
@@ -50,6 +83,9 @@ describe("SurfaceAuthorityRegistry", () => {
   });
 
   it("rejects duplicate adapters for one surface kind", () => {
+    const identities: SurfaceIdentityResolver = {
+      resolveKind: async () => "DIRECT",
+    };
     const first: SurfaceAuthorityAdapter<unknown> = {
       kind: "DIRECT",
       resolve: async () => ({}),
@@ -61,10 +97,10 @@ describe("SurfaceAuthorityRegistry", () => {
 
     expect(
       () =>
-        new SurfaceAuthorityRegistry([
-          first,
-          second,
-        ]),
+        new SurfaceAuthorityRegistry(
+          identities,
+          [first, second],
+        ),
     ).toThrow(
       "Duplicate surface authority adapter for DIRECT",
     );
