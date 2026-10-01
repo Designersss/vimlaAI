@@ -52,23 +52,27 @@ export class DirectChatSurfaceAuthorityAdapter
       canRead,
       canContribute: canRead,
       audienceUserIds,
-      eligibleReadScopes: [
-        {
-          kind: "DIRECT_CHAT",
-          directConversationId: conversation.id,
-        },
-        {
-          kind: "PROJECT",
-          projectId: "ANY_AUTHORIZED",
-        },
-      ],
-      eligibleWriteScopes: [
-        {
-          kind: "DIRECT_CHAT",
-          directConversationId: conversation.id,
-          explicitActionRequired: false,
-        },
-      ],
+      eligibleReadScopes: canRead
+        ? [
+            {
+              kind: "DIRECT_CHAT",
+              directConversationId: conversation.id,
+            },
+            {
+              kind: "PROJECT",
+              projectId: "ANY_AUTHORIZED",
+            },
+          ]
+        : [],
+      eligibleWriteScopes: canRead
+        ? [
+            {
+              kind: "DIRECT_CHAT",
+              directConversationId: conversation.id,
+              explicitActionRequired: false,
+            },
+          ]
+        : [],
       disclosurePolicy: {
         serverPlaintextAvailable: false,
         clientDisclosureRequired: true,
