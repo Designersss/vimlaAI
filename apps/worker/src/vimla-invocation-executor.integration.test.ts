@@ -595,12 +595,23 @@ function contextBundleWithMessage(
     snapshotId: "vimla-context-snapshot",
     fingerprint: "sha256:vimla-context-bundle",
     manifest: {
-      version: 1,
+      version: 2,
       packingVersion: 1,
       targetKind: "VIMLA",
-      surfaceKind: "PERSONAL",
-      surfaceScopeHash: "sha256:personal",
+      surfaceKind: "AI_THREAD",
+      surfaceScopeHash: "sha256:ai-thread",
       audienceParticipantCount: 1,
+      surfaceCapabilities: [
+        "CONTEXT_READ",
+        "CONTEXT_CONTRIBUTE",
+        "AI_INVOKE",
+        "ACTION_INVOKE",
+      ],
+      disclosurePolicy: {
+        serverPlaintextAvailable: true,
+        clientDisclosureRequired: false,
+        peerContentRequiresConsent: false,
+      },
       budget: {
         contextWindowTokens: 32_768,
         outputReserveTokens: 4_096,
