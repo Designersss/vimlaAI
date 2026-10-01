@@ -1358,12 +1358,23 @@ async function fetchDecryptedGap(
   currentRows: readonly DecryptedRow[],
 ): Promise<DecryptedRow[]> {
   if (currentRows.length === 0) {
-    const latest =
-      await fetchLatestDecryptedPage(
-        detail,
+    const all: DirectMessageView[] = [];
+    let cursor: string | undefined;
+    while (true) {
+      const page = await fetchDirectMessages(
+        detail.id,
         deviceId,
+        cursor,
       );
-    return latest.decrypted.reverse();
+      all.push(...page.items);
+      if (!page.nextCursor) {
+        break;
+      }
+      cursor = page.nextCursor;
+    }
+    return (
+      await decryptPage(detail, all)
+    ).reverse();
   }
 
   const knownIds = new Set(
