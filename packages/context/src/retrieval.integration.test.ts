@@ -380,6 +380,7 @@ describe("Context retrieval v1", () => {
       },
     });
 
+    const historyStart = new Date("2026-01-01T00:00:00.000Z");
     for (let index = 0; index < 6; index += 1) {
       await prisma.message.create({
         data: {
@@ -387,6 +388,7 @@ describe("Context retrieval v1", () => {
           role: index % 2 === 0 ? "USER" : "ASSISTANT",
           content: "x".repeat(40),
           status: "COMPLETE",
+          createdAt: new Date(historyStart.getTime() + index * 1_000),
         },
       });
     }
@@ -397,6 +399,7 @@ describe("Context retrieval v1", () => {
         role: "USER",
         content: "continue",
         status: "COMPLETE",
+        createdAt: new Date(historyStart.getTime() + 6_000),
       },
     });
     const planId = randomUUID();
