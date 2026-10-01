@@ -6,7 +6,6 @@ import {
 } from "@vimla/database";
 import {
   createSurfaceAuthorityRegistry,
-  SurfaceAccessDeniedError,
 } from "./index.js";
 
 const testDatabaseUrl = process.env.TEST_DATABASE_URL;
@@ -66,7 +65,13 @@ describe("surface authority adapters", () => {
         actorUserId: strangerId,
         surfaceId: surface.id,
       }),
-    ).rejects.toBeInstanceOf(SurfaceAccessDeniedError);
+    ).resolves.toMatchObject({
+      canRead: false,
+      canContribute: false,
+      eligibleReadScopes: [],
+      eligibleWriteScopes: [],
+      capabilities: [],
+    });
   });
 
   it("re-resolves Direct Chat membership and never grants server plaintext", async () => {
@@ -143,7 +148,13 @@ describe("surface authority adapters", () => {
         actorUserId: actorId,
         surfaceId: surface.id,
       }),
-    ).rejects.toBeInstanceOf(SurfaceAccessDeniedError);
+    ).resolves.toMatchObject({
+      canRead: false,
+      canContribute: false,
+      eligibleReadScopes: [],
+      eligibleWriteScopes: [],
+      capabilities: [],
+    });
   });
 });
 
