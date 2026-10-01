@@ -89,14 +89,10 @@ export const chatMessageSchema = z.object({
 });
 export type ChatMessage = z.infer<typeof chatMessageSchema>;
 
-export const conversationDetailSchema = z.object({
-  id: z.string().min(1),
-  projectId: z.string().uuid().nullable(),
-  title: z.string().nullable(),
-  defaultTarget: conversationDefaultTargetSchema.nullable(),
-  updatedAt: z.string(),
-  messages: z.array(chatMessageSchema),
-});
+export const conversationDetailSchema =
+  conversationSummarySchema.extend({
+    messages: z.array(chatMessageSchema),
+  });
 export type ConversationDetail = z.infer<typeof conversationDetailSchema>;
 
 export const operatorConversationSchema = z.object({
