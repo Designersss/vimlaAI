@@ -137,7 +137,7 @@ describe("Web sync adapter", () => {
         },
       });
     }) as unknown as typeof fetch;
-    let realtime: SubscribeRealtimeOptions | null = null;
+    const realtimeOptions: SubscribeRealtimeOptions[] = [];
     const onDeltas = vi.fn(async () => undefined);
     const eventTarget = {
       addEventListener: vi.fn(),
@@ -156,7 +156,7 @@ describe("Web sync adapter", () => {
         id: randomUUID(),
       }),
       realtimeSubscribe: (options) => {
-        realtime = options;
+        realtimeOptions.push(options);
         return () => undefined;
       },
       windowTarget: eventTarget,
@@ -170,12 +170,12 @@ describe("Web sync adapter", () => {
           webSyncCursorStorageKey(userId),
         ),
       ).toBe("cursor.one");
-      expect(realtime).not.toBeNull();
+      expect(realtimeOptions).toHaveLength(1);
     });
 
     // No EVENT is delivered. The next heartbeat still repairs
     // the committed change through the durable cursor stream.
-    realtime?.onHeartbeat?.();
+    realtimeOptions[0]?.onHeartbeat?.();
 
     await vi.waitFor(() => {
       expect(onDeltas).toHaveBeenCalledWith([
