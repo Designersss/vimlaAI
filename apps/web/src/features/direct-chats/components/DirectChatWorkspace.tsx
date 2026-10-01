@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactElement } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactElement, type SetStateAction } from "react";
 import { useRouter } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import type {
@@ -146,6 +146,20 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
   const [error, setError] = useState<string | null>(null);
   const [conversation, setConversation] = useState<DirectConversationView | null>(null);
   const [rows, setRows] = useState<DecryptedRow[]>([]);
+  const rowsRef = useRef<DecryptedRow[]>([]);
+  const updateRows = useCallback(
+    (next: SetStateAction<DecryptedRow[]>): void => {
+      setRows((current) => {
+        const resolved =
+          typeof next === "function"
+            ? next(current)
+            : next;
+        rowsRef.current = resolved;
+        return resolved;
+      });
+    },
+    [],
+  );
   const [draft, setDraft] = useState("");
   const draftRef = useRef("");
   const [activeMention, setActiveMention] = useState<ActiveMentionQuery | null>(null);
@@ -189,7 +203,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         if (cancelled) return;
         setUserId(currentUser.id);
         setConversation(detail);
-        setRows(page.decrypted.reverse());
+        updateRows(page.decrypted.reverse());
         setNextCursor(page.nextCursor);
         setBoot("ready");
         const read =
@@ -222,18 +236,22 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
       const detail =
         await fetchDirectConversation(conversationId);
       const device = await ensureLocalDevice();
-      const page = await fetchLatestDecryptedPage(
-        detail,
-        device.deviceId,
-      );
+      const decrypted =
+        await fetchDecryptedGap(
+          detail,
+          device.deviceId,
+          rowsRef.current,
+        );
       if (cancelled) return;
       setConversation(detail);
-      setRows((current) =>
-        mergeDecryptedRows(
-          current,
-          page.decrypted.reverse(),
-        ),
-      );
+      if (decrypted.length > 0) {
+        updateRows((current) =>
+          mergeDecryptedRows(
+            current,
+            decrypted,
+          ),
+        );
+      }
       const read =
         detail.unreadCount > 0
           ? await markDirectChatRead(conversationId)
@@ -272,7 +290,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         }
 
         if (deletedMessageIds.size > 0) {
-          setRows((current) =>
+          updateRows((current) =>
             current.filter(
               (row) =>
                 !deletedMessageIds.has(
@@ -291,7 +309,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
       cancelled = true;
       unsubscribe();
     };
-  }, [boot, conversationId, router, userId, workspace]);
+  }, [boot, conversationId, router, updateRows, userId, workspace]);
 
   useEffect(() => {
     if (!activeMention) return;
@@ -470,7 +488,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         ...options,
       });
       setConversation(result.latest);
-      setRows((current) =>
+      updateRows((current) =>
         mergeDecryptedRows(current, [
           {
             message: result.message,
@@ -531,7 +549,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
       setConversation(delivery.latest);
     }
     if (delivery.rows.length > 0) {
-      setRows((current) =>
+      updateRows((current) =>
         mergeDecryptedRows(
           current,
           delivery.rows,
@@ -650,7 +668,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
             setConversation(delivery.latest);
           }
           if (delivery.rows.length > 0) {
-            setRows((current) =>
+            updateRows((current) =>
               mergeDecryptedRows(
                 current,
                 delivery.rows,
@@ -705,7 +723,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
             ...rows.map((row) => row.message),
           ],
         );
-        setRows(
+        updateRows(
           mergeDecryptedRows([], decrypted),
         );
       } else {
@@ -713,7 +731,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
           conversation,
           page.items,
         );
-        setRows((current) =>
+        updateRows((current) =>
           mergeDecryptedRows(current, decrypted),
         );
       }
@@ -1333,6 +1351,57 @@ function operatorRequestSignal(): AbortSignal {
   return AbortSignal.timeout(
     OPERATOR_RECOVERY_REQUEST_TIMEOUT_MS,
   );
+}
+
+async function fetchDecryptedGap(
+  detail: DirectConversationView,
+  deviceId: string,
+  currentRows: readonly DecryptedRow[],
+): Promise<DecryptedRow[]> {
+  if (currentRows.length === 0) {
+    const latest =
+      await fetchLatestDecryptedPage(
+        detail,
+        deviceId,
+      );
+    return latest.decrypted.reverse();
+  }
+
+  const knownIds = new Set(
+    currentRows.map((row) => row.message.id),
+  );
+  const incoming: DirectMessageView[] = [];
+  let cursor: string | undefined;
+
+  while (true) {
+    const page = await fetchDirectMessages(
+      detail.id,
+      deviceId,
+      cursor,
+    );
+    const knownIndex = page.items.findIndex(
+      (message) => knownIds.has(message.id),
+    );
+    if (knownIndex >= 0) {
+      incoming.push(
+        ...page.items.slice(0, knownIndex),
+      );
+      break;
+    }
+
+    incoming.push(...page.items);
+    if (!page.nextCursor) {
+      break;
+    }
+    cursor = page.nextCursor;
+  }
+
+  if (incoming.length === 0) {
+    return [];
+  }
+  return (
+    await decryptPage(detail, incoming)
+  ).reverse();
 }
 
 async function fetchLatestDecryptedPage(
