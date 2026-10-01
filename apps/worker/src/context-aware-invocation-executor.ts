@@ -78,9 +78,14 @@ export class ContextAwareInvocationExecutorRegistry
         actorUserId: invocation.plan.userId,
         invocationId: input.invocationId,
       });
+      const requiredCapability =
+        input.target.kind === "VIMLA"
+          ? "ACTION_INVOKE"
+          : "AI_INVOKE";
       if (
-        input.target.kind === "VIMLA" &&
-        bundle.manifest.surfaceKind !== "PERSONAL"
+        !bundle.manifest.surfaceCapabilities.includes(
+          requiredCapability,
+        )
       ) {
         this.telemetry.emit({
           event: "safety.policy",
@@ -90,7 +95,9 @@ export class ContextAwareInvocationExecutorRegistry
           reason: "CROSS_SCOPE_BLOCKED",
           count: 1,
         });
-        return terminal("CONTEXT_POLICY_EXECUTOR_SURFACE_UNSUPPORTED");
+        return terminal(
+          "CONTEXT_POLICY_EXECUTOR_SURFACE_UNSUPPORTED",
+        );
       }
     } catch (error: unknown) {
       if (error instanceof ContextAccessDeniedError) {
