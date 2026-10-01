@@ -31,7 +31,7 @@ import {
   ContextAccessDeniedError,
   ContextSnapshotService,
 } from "@vimla/context";
-import type { MessageMentionInput } from "@vimla/contracts";
+import type { DirectConversationView, MessageMentionInput } from "@vimla/contracts";
 import { seedVimlaPlans } from "@vimla/billing";
 import { loadApiConfig } from "@vimla/config/server";
 import { createPrismaClient } from "@vimla/database";
@@ -2009,7 +2009,7 @@ async function createChat(
   app: NestFastifyApplication,
   cookies: Record<string, string>,
   peerEmail: string,
-): Promise<{ id: string; devices: Array<{ id: string; userId: string; identityEd25519Public: string }> }> {
+): Promise<DirectConversationView> {
   const created = await app.inject({
     method: "POST",
     url: "/v1/direct-chats",
