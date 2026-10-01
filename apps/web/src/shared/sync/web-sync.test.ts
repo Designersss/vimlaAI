@@ -1,12 +1,14 @@
 import { randomUUID } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   AuthRequiredError,
   ClientApiError,
 } from "@vimla/client-api";
+import type { RealtimeEventEnvelope, SyncDelta, SyncResponse } from "@vimla/contracts";
 import {
   classifySyncError,
   createWebSyncCursorStore,
+  subscribeWebSync,
   webSyncCursorStorageKey,
   type WebSyncStorage,
 } from "./web-sync";
@@ -87,4 +89,139 @@ describe("Web sync adapter", () => {
       classifySyncError(new Error("offline")),
     ).toBe("RETRY");
   });
+
+  it("uses heartbeat to recover a durable change even when its event frame was lost", async () => {
+    const storage = new MemoryStorage();
+    const userId = randomUUID();
+    const conversationId = randomUUID();
+    const messageId = randomUUID();
+    const delta: SyncDelta = {
+      syncProtocolVersion: 1,
+      eventId: messageId,
+      eventType: "DIRECT_MESSAGE_CREATED",
+      changeKind: "UPSERT_REF",
+      scope: {
+        kind: "DIRECT_CHAT",
+        id: conversationId,
+      },
+      occurredAt: new Date().toISOString(),
+      payload: {
+        conversationId,
+        messageId,
+      },
+    };
+    const pages: SyncResponse[] = [
+      {
+        syncProtocolVersion: 1,
+        deltas: [],
+        nextCursor: "cursor.one",
+        hasMore: false,
+      },
+      {
+        syncProtocolVersion: 1,
+        deltas: [delta],
+        nextCursor: "cursor.two",
+        hasMore: false,
+      },
+    ];
+    const fetchImpl = vi.fn(async () => {
+      const page = pages.shift();
+      if (!page) {
+        throw new Error("unexpected sync request");
+      }
+      return new Response(JSON.stringify(page), {
+        status: 200,
+        headers: {
+          "content-type": "application/json",
+        },
+      });
+    }) as unknown as typeof fetch;
+    let realtime:
+      | Parameters<
+          NonNullable<
+            Parameters<
+              typeof subscribeWebSync
+            >[0]["realtimeSubscribe"]
+          >
+        >[0]
+      | null = null;
+    const onDeltas = vi.fn(async () => undefined);
+    const eventTarget = {
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    };
+    const documentTarget = {
+      ...eventTarget,
+      visibilityState: "visible",
+    };
+    const stop = subscribeWebSync({
+      userId,
+      storage,
+      fetchImpl,
+      onDeltas,
+      ensureInstallation: async () => ({
+        id: randomUUID(),
+      }),
+      realtimeSubscribe: (options) => {
+        realtime = options;
+        return () => undefined;
+      },
+      windowTarget: eventTarget,
+      documentTarget,
+    });
+
+    await vi.waitFor(() => {
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+      expect(
+        storage.getItem(
+          webSyncCursorStorageKey(userId),
+        ),
+      ).toBe("cursor.one");
+      expect(realtime).not.toBeNull();
+    });
+
+    // No EVENT is delivered. The next heartbeat still repairs
+    // the committed change through the durable cursor stream.
+    realtime?.onHeartbeat?.();
+
+    await vi.waitFor(() => {
+      expect(onDeltas).toHaveBeenCalledWith([
+        delta,
+      ]);
+      expect(
+        storage.getItem(
+          webSyncCursorStorageKey(userId),
+        ),
+      ).toBe("cursor.two");
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+
+    stop();
+  });
+
+  it("keeps reload state in one tab without sharing progress with another tab", async () => {
+    const userId = randomUUID();
+    const firstTab = new MemoryStorage();
+    const secondTab = new MemoryStorage();
+    const beforeReload = createWebSyncCursorStore(
+      userId,
+      firstTab,
+    );
+    await beforeReload.write("cursor.saved");
+
+    const afterReload = createWebSyncCursorStore(
+      userId,
+      firstTab,
+    );
+    const otherTab = createWebSyncCursorStore(
+      userId,
+      secondTab,
+    );
+
+    expect(await afterReload.read()).toBe(
+      "cursor.saved",
+    );
+    expect(await otherTab.read()).toBeNull();
+  });
+
 });
