@@ -36,6 +36,14 @@ export {
   type RealtimeServerFrame,
 } from "./realtime.js";
 export {
+  communicationSurfaceKindSchema,
+  communicationSurfaceRefSchema,
+  communicationSurfaceStatusSchema,
+  type CommunicationSurfaceKind,
+  type CommunicationSurfaceRef,
+  type CommunicationSurfaceStatus,
+} from "./communication-surfaces.js";
+export {
   CLIENT_INSTALLATION_LIMITS,
   clientInstallationCapabilitiesSchema,
   clientInstallationIdSchema,
