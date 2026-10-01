@@ -121,6 +121,21 @@ describe("communication surface persistence", () => {
         conversationId: conversation.id,
         directConversationId: null,
       });
+
+      await expect(
+        client.communicationSurface.delete({
+          where: { id: aiSurface.id },
+        }),
+      ).rejects.toThrow();
+
+      expect(
+        await client.communicationSurface.findUnique({
+          where: { id: aiSurface.id },
+        }),
+      ).toMatchObject({
+        id: aiSurface.id,
+        conversationId: conversation.id,
+      });
     } finally {
       if (directConversationId) {
         await client.directConversationMember.deleteMany({
@@ -148,56 +163,24 @@ describe("communication surface persistence", () => {
 
   it("rejects a surface kind that does not match its domain binding", async () => {
     const client = createPrismaClient(testDatabaseUrl);
-    const suffix = randomUUID();
-    const userId = `surface-kind-${suffix}`;
-    let conversationId: string | null = null;
 
     try {
-      await client.user.create({
-        data: {
-          id: userId,
-          name: "Surface Kind User",
-          email: `surface-kind-${suffix}@example.test`,
-          emailVerified: true,
-        },
-      });
-      const conversation = await client.conversation.create({
-        data: {
-          userId,
-          kind: "CHAT",
-        },
-      });
-      conversationId = conversation.id;
-
-      await client.communicationSurface.delete({
-        where: { conversationId: conversation.id },
-      });
-
       await expect(
         client.communicationSurface.create({
           data: {
             kind: "DIRECT",
-            conversationId: conversation.id,
           },
         }),
       ).rejects.toThrow();
 
-      expect(
-        await client.communicationSurface.findUnique({
-          where: {
-            conversationId: conversation.id,
+      await expect(
+        client.communicationSurface.create({
+          data: {
+            kind: "AI_THREAD",
           },
         }),
-      ).toBeNull();
+      ).rejects.toThrow();
     } finally {
-      if (conversationId) {
-        await client.conversation.deleteMany({
-          where: { id: conversationId },
-        });
-      }
-      await client.user.deleteMany({
-        where: { id: userId },
-      });
       await client.$disconnect();
     }
   });
