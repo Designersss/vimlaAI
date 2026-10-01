@@ -21,6 +21,10 @@ import {
 } from "./surface-authority.js";
 import { createSurfaceAuthorityRegistry } from "./surface-authority-db.js";
 import {
+  createContextScopeAuthorityRegistry,
+  type ContextScopeAuthorityRegistry,
+} from "./scope-authority.js";
+import {
   conservativeTokensFromByteCount,
   estimateConservativeTokens as estimateTokens,
 } from "./token-estimate.js";
@@ -185,6 +189,7 @@ export class ContextRetrievalService {
   private readonly options: Required<ContextRetrievalOptions>;
   private readonly artifacts: ArtifactService;
   private readonly surfaceAuthorities: SurfaceAuthorityRegistry;
+  private readonly scopeAuthorities: ContextScopeAuthorityRegistry;
 
   constructor(
     private readonly db: PrismaClient,
@@ -193,11 +198,15 @@ export class ContextRetrievalService {
     private readonly semanticSearch?: SemanticSearchService,
     private readonly telemetryObserver?: ContextRetrievalTelemetryObserver,
     surfaceAuthorityRegistry?: SurfaceAuthorityRegistry,
+    scopeAuthorityRegistry?: ContextScopeAuthorityRegistry,
   ) {
     this.artifacts = new ArtifactService(db);
     this.surfaceAuthorities =
       surfaceAuthorityRegistry ??
       createSurfaceAuthorityRegistry(db);
+    this.scopeAuthorities =
+      scopeAuthorityRegistry ??
+      createContextScopeAuthorityRegistry(db);
     this.options = {
       l1RawLimit: options.l1RawLimit ?? DEFAULTS.l1RawLimit,
       olderHistoryScanLimit:
@@ -1064,6 +1073,16 @@ export class ContextRetrievalService {
       ) {
         throw new ContextValidationError(
           "Context retrieval produced a source outside the authorized surface scopes",
+        );
+      }
+      if (
+        !(await this.scopeAuthorities.canRead(
+          input.actorUserId,
+          entry.sourceScope,
+        ))
+      ) {
+        throw new ContextAccessDeniedError(
+          "Context retrieval source scope is no longer authorized",
         );
       }
     }
