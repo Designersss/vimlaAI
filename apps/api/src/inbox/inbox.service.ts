@@ -46,7 +46,7 @@ const surfaceInclude = {
     include: {
       messages: {
         orderBy: [
-          { createdAt: "desc" as const },
+          { updatedAt: "desc" as const },
           { id: "desc" as const },
         ],
         take: 1,
