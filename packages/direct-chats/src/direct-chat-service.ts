@@ -95,40 +95,6 @@ export class DirectChatService {
     }
   }
 
-  async list(actor: ActorContext, query: { limit: number; cursor?: string }): Promise<{
-    items: DirectConversationSummary[];
-    nextCursor: string | null;
-  }> {
-    const cursor = decodeCursor(query.cursor);
-    const memberships = await this.db.directConversationMember.findMany({
-      where: {
-        userId: actor.userId,
-        ...(cursor
-          ? {
-              conversation: {
-                OR: [
-                  { lastMessageAt: { lt: cursor.at } },
-                  { AND: [{ lastMessageAt: cursor.at }, { id: { lt: cursor.id } }] },
-                ],
-              },
-            }
-          : {}),
-      },
-      include: { conversation: { include: conversationInclude } },
-      orderBy: [{ conversation: { lastMessageAt: "desc" } }, { conversation: { id: "desc" } }],
-      take: query.limit + 1,
-    });
-    const page = memberships.slice(0, query.limit);
-    const last = page.at(-1);
-    return {
-      items: page.map((row) => this.toSummary(row.conversation, actor.userId)),
-      nextCursor:
-        memberships.length > query.limit && last
-          ? encodeCursor(last.conversation.lastMessageAt, last.conversation.id)
-          : null,
-    };
-  }
-
   async get(actor: ActorContext, conversationId: string): Promise<DirectConversationView> {
     const conversation = await this.requireMemberConversation(actor.userId, conversationId);
     return this.toView(conversation, actor.userId);
