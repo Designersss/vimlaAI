@@ -222,7 +222,8 @@
     "usageUnavailable": "Использование недоступно",
     "monthlyUsage": "Использование за месяц",
     "topupUsed": "Докупленный пакет: {percent}% использовано",
-    "signedInAs": "Вы вошли как {email}"
+    "signedInAs": "Вы вошли как {email}",
+    "loadMore": "Загрузить ещё"
   },
   "direct": {
     "loading": "Загружаем личный чат…",
@@ -247,7 +248,8 @@
     "invoke": "Запрос @Vimla",
     "contextShared": "Контекст чата передан @Vimla",
     "contextDenied": "История чата не передана",
-    "action": "Действие @Vimla"
+    "action": "Действие @Vimla",
+    "encryptedPreview": "Зашифрованное сообщение"
   },
   "operator": {
     "title": "@Vimla",
