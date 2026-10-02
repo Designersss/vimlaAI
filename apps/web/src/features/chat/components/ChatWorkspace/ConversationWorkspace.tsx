@@ -339,6 +339,7 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
           onError: (code) => {
             failed = true;
             store.failAssistant(code);
+            workspace.requestInboxRefresh();
           },
         });
         if (!failed) {
@@ -355,6 +356,7 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
           return;
         }
         store.failAssistant("internal_error");
+        workspace.requestInboxRefresh();
       }
       return;
     }
@@ -377,7 +379,10 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
           workspace.requestInboxRefresh();
           void fetchUsage().then((usage) => workspace.setUsage(usage));
         },
-        onError: (code) => store.failAssistant(code),
+        onError: (code) => {
+          store.failAssistant(code);
+          workspace.requestInboxRefresh();
+        },
       });
     } catch (error: unknown) {
       if (error instanceof AuthRequiredError) {
@@ -385,6 +390,7 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
         return;
       }
       store.failAssistant("internal_error");
+      workspace.requestInboxRefresh();
     }
   }
 
