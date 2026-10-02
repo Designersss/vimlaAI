@@ -402,6 +402,8 @@ export class InboxService {
         );
       }
 
+      const peerName =
+        boundedInboxPeerName(peer.user.name);
       const latest =
         conversation.messages[0];
       const parsedKind = latest
@@ -427,13 +429,14 @@ export class InboxService {
         surfaceId: row.id,
         surfaceKind: "DIRECT",
         domainId: conversation.id,
-        title: peer.user.name,
+        title: peerName,
         peer: {
           userId: peer.user.id,
-          name: peer.user.name,
+          name: peerName,
           avatarUrl:
             peer.user.image &&
-            peer.user.image.length <= 2_048
+            peer.user.image.length <=
+              INBOX_LIMITS.avatarUrlMax
               ? peer.user.image
               : null,
         },
@@ -507,6 +510,16 @@ function directConversationIds(
     .filter(
       (id): id is string => id !== null,
     );
+}
+
+function boundedInboxPeerName(
+  value: string,
+): string {
+  const trimmed = value.trim();
+  return (trimmed || "User").slice(
+    0,
+    INBOX_LIMITS.peerNameMax,
+  );
 }
 
 function compactServerPreview(
