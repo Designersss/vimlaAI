@@ -81,6 +81,26 @@ describe("resolveInboxPreview", () => {
     expect(
       resolveInboxPreview(direct, {
         ...local,
+        conversationId:
+          "77777777-7777-4777-8777-777777777777",
+      }),
+    ).toBeNull();
+    expect(
+      resolveInboxPreview(direct, {
+        ...local,
+        messageId:
+          "88888888-8888-4888-8888-888888888888",
+      }),
+    ).toBeNull();
+    expect(
+      resolveInboxPreview(direct, {
+        ...local,
+        kind: "OPERATOR_RESPONSE",
+      }),
+    ).toBeNull();
+    expect(
+      resolveInboxPreview(direct, {
+        ...local,
         senderUserId: "attacker",
       }),
     ).toBeNull();
