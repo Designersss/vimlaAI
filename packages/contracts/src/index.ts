@@ -54,6 +54,7 @@ export {
   type RealtimeServerFrame,
 } from "./realtime.js";
 export {
+  communicationSurfaceIdSchema,
   communicationSurfaceKindSchema,
   communicationSurfaceRefSchema,
   communicationSurfaceStatusSchema,
