@@ -434,7 +434,10 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
                     .catch((error: unknown) => {
                       store.failAssistant(error instanceof OperatorRequestError ? error.code : "internal_error");
                     })
-                    .finally(() => setOperatorBusy(false));
+                    .finally(() => {
+                      workspace.requestInboxRefresh();
+                      setOperatorBusy(false);
+                    });
                 }}
                 onCancel={() => {
                   const runId = message.operatorRun?.id;
