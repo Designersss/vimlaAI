@@ -186,6 +186,7 @@ export class ChatWorkspaceStore {
     unreadCount: number,
   ): void {
     this.inboxItems = this.inboxItems.map((item) =>
+      item.surfaceKind === "DIRECT" &&
       item.surfaceId === surfaceId
         ? { ...item, unreadCount }
         : item,
