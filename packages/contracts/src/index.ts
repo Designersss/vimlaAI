@@ -2,6 +2,7 @@ export {
   INBOX_LIMITS,
   aiThreadInboxItemSchema,
   directInboxItemSchema,
+  inboxCursorSchema,
   inboxE2eeLocalPreviewSchema,
   inboxEmptyPreviewSchema,
   inboxItemSchema,
