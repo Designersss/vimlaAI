@@ -147,7 +147,15 @@ export const ConversationListPane = observer(
       store.inboxRefreshRevision;
     const inboxItems = store.inboxItems;
     const nextCursor = store.inboxNextCursor;
-    const listGeneration = useRef(0);
+    const inboxRequestKey = JSON.stringify([
+      kind ?? null,
+      normalizedQuery ?? null,
+      refreshRevision,
+    ]);
+    const inboxRequestKeyRef =
+      useRef(inboxRequestKey);
+    inboxRequestKeyRef.current =
+      inboxRequestKey;
 
     useEffect(() => {
       let cancelled = false;
@@ -208,8 +216,8 @@ export const ConversationListPane = observer(
         return;
       }
 
-      listGeneration.current += 1;
       let cancelled = false;
+      const requestKey = inboxRequestKey;
       const timer = window.setTimeout(() => {
         void fetchInbox({
           limit: 50,
@@ -217,14 +225,22 @@ export const ConversationListPane = observer(
           q: normalizedQuery,
         })
           .then((page) => {
-            if (cancelled) {
+            if (
+              cancelled ||
+              requestKey !==
+                inboxRequestKeyRef.current
+            ) {
               return;
             }
             store.setInboxPage(page);
             setListError(false);
           })
           .catch((error: unknown) => {
-            if (cancelled) {
+            if (
+              cancelled ||
+              requestKey !==
+                inboxRequestKeyRef.current
+            ) {
               return;
             }
             if (
@@ -387,7 +403,7 @@ export const ConversationListPane = observer(
         return;
       }
       const cursor = nextCursor;
-      const generation = listGeneration.current;
+      const requestKey = inboxRequestKey;
       setLoadingMore(true);
       try {
         const page = await fetchInbox({
@@ -397,7 +413,8 @@ export const ConversationListPane = observer(
           q: normalizedQuery,
         });
         if (
-          generation !== listGeneration.current ||
+          requestKey !==
+            inboxRequestKeyRef.current ||
           store.inboxNextCursor !== cursor
         ) {
           return;
@@ -410,7 +427,8 @@ export const ConversationListPane = observer(
         ) {
           router.replace("/sign-in");
         } else if (
-          generation === listGeneration.current &&
+          requestKey ===
+            inboxRequestKeyRef.current &&
           store.inboxNextCursor === cursor
         ) {
           setListError(true);
