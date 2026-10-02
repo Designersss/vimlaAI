@@ -61,7 +61,6 @@ const surfaceInclude = {
             select: {
               id: true,
               name: true,
-              image: true,
             },
           },
         },
@@ -434,12 +433,7 @@ export class InboxService {
         peer: {
           userId: peer.user.id,
           name: peerName,
-          avatarUrl:
-            peer.user.image &&
-            peer.user.image.length <=
-              INBOX_LIMITS.avatarUrlMax
-              ? peer.user.image
-              : null,
+          avatarUrl: null,
         },
         lastActivityAt:
           row.lastActivityAt.toISOString(),
