@@ -25,6 +25,21 @@ const CURSOR_VERSION = 1 as const;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+type AiThreadInboxPreview = Extract<
+  InboxItem,
+  { surfaceKind: "AI_THREAD" }
+>["preview"];
+
+function toServerPreviewRole(
+  role: string,
+): "USER" | "ASSISTANT" | null {
+  if (role === "USER" || role === "ASSISTANT") {
+    return role;
+  }
+
+  return null;
+}
+
 const surfaceInclude = {
   conversation: {
     include: {
@@ -329,22 +344,20 @@ export class InboxService {
 
       const latest =
         conversation.messages[0];
-      const previewRole =
-        latest?.role === "USER" ||
-        latest?.role === "ASSISTANT"
-          ? latest.role
-          : null;
-      const preview =
+      const previewRole = latest
+        ? toServerPreviewRole(latest.role)
+        : null;
+      const preview: AiThreadInboxPreview =
         latest && previewRole
           ? {
-              kind: "SERVER_TEXT" as const,
+              kind: "SERVER_TEXT",
               messageId: latest.id,
               role: previewRole,
               text: compactServerPreview(
                 latest.content,
               ),
             }
-          : { kind: "NONE" as const };
+          : { kind: "NONE" };
 
       return {
         surfaceId: row.id,
