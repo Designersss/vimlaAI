@@ -244,6 +244,41 @@ describe("unified inbox API", () => {
       },
     });
 
+    const resolvedSurface = await app.inject({
+      method: "GET",
+      url: `/v1/inbox/${directSurface.id}`,
+      headers: { origin },
+      cookies: alice.cookies,
+    });
+    expect(resolvedSurface.statusCode).toBe(200);
+    expect(resolvedSurface.json()).toMatchObject({
+      surfaceId: directSurface.id,
+      surfaceKind: "DIRECT",
+      domainId: direct.id,
+    });
+
+    const foreignSurfaceResponse =
+      await app.inject({
+        method: "GET",
+        url: `/v1/inbox/${foreignSurface.id}`,
+        headers: { origin },
+        cookies: alice.cookies,
+      });
+    expect(
+      foreignSurfaceResponse.statusCode,
+    ).toBe(404);
+
+    const invalidSurfaceResponse =
+      await app.inject({
+        method: "GET",
+        url: "/v1/inbox/not-a-uuid",
+        headers: { origin },
+        cookies: alice.cookies,
+      });
+    expect(
+      invalidSurfaceResponse.statusCode,
+    ).toBe(400);
+
     const directSearch = await app.inject({
       method: "GET",
       url: "/v1/inbox?q=Bob",
