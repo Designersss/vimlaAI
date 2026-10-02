@@ -2,8 +2,7 @@ import { makeAutoObservable } from "mobx";
 import type {
   ChatMessage,
   ConversationDefaultTarget,
-  ConversationSummary,
-  DirectConversationSummary,
+  InboxItem,
   OperatorRunView,
   RetailAiModel,
   UsageResponse,
@@ -128,8 +127,8 @@ export class ConversationState {
 export class ChatWorkspaceStore {
   usage: UsageResponse | null = null;
   models: RetailAiModel[] = [];
-  conversations: ConversationSummary[] = [];
-  directConversations: DirectConversationSummary[] = [];
+  inboxItems: InboxItem[] = [];
+  inboxNextCursor: string | null = null;
   selectedModelId = "";
   private readonly details = new Map<string, ConversationState>();
 
@@ -154,29 +153,31 @@ export class ChatWorkspaceStore {
     }
   }
 
-  setConversations(conversations: ConversationSummary[]): void {
-    this.conversations = conversations;
-  }
+  setInboxPage(
+    page: {
+      items: InboxItem[];
+      nextCursor: string | null;
+    },
+    append = false,
+  ): void {
+    if (!append) {
+      this.inboxItems = page.items;
+      this.inboxNextCursor = page.nextCursor;
+      return;
+    }
 
-  hydrateDirectConversations(conversations: DirectConversationSummary[]): void {
-    // A cold detail can finish marking a chat read before the initial list arrives.
-    // Preserve those newer server responses while adding the rest of the list.
-    const merged = new Map(conversations.map((conversation) => [conversation.id, conversation]));
-    for (const conversation of this.directConversations) merged.set(conversation.id, conversation);
-    this.directConversations = [...merged.values()];
-  }
-
-  updateDirectConversation(conversation: DirectConversationSummary): void {
-    const exists = this.directConversations.some((item) => item.id === conversation.id);
-    const next = exists
-      ? this.directConversations.map((item) => item.id === conversation.id ? conversation : item)
-      : [conversation, ...this.directConversations];
-    this.directConversations = next.sort(
-      (left, right) =>
-        Date.parse(right.lastMessageAt) -
-          Date.parse(left.lastMessageAt) ||
-        right.id.localeCompare(left.id),
+    const existing = new Set(
+      this.inboxItems.map(
+        (item) => item.surfaceId,
+      ),
     );
+    this.inboxItems = [
+      ...this.inboxItems,
+      ...page.items.filter(
+        (item) => !existing.has(item.surfaceId),
+      ),
+    ];
+    this.inboxNextCursor = page.nextCursor;
   }
 
   setUsage(usage: UsageResponse): void {
@@ -187,7 +188,4 @@ export class ChatWorkspaceStore {
     this.selectedModelId = modelId;
   }
 
-  addConversation(conversation: ConversationSummary): void {
-    this.conversations = [conversation, ...this.conversations.filter((item) => item.id !== conversation.id)];
-  }
 }
