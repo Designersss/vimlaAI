@@ -211,9 +211,10 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
             : detail;
         if (!cancelled) {
           workspace.setInboxUnreadCount(
-          read.surfaceId,
-          read.unreadCount,
-        );
+            read.surfaceId,
+            read.unreadCount,
+          );
+          workspace.requestInboxRefresh();
         }
       } catch (caught: unknown) {
         if (cancelled) return;
@@ -266,6 +267,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
           read.surfaceId,
           read.unreadCount,
         );
+        workspace.requestInboxRefresh();
       }
     };
 
