@@ -409,7 +409,10 @@ export const ConversationListPane = observer(
           error instanceof AuthRequiredError
         ) {
           router.replace("/sign-in");
-        } else {
+        } else if (
+          generation === listGeneration.current &&
+          store.inboxNextCursor === cursor
+        ) {
           setListError(true);
         }
       } finally {
