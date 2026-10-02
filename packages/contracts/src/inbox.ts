@@ -29,7 +29,16 @@ export const listInboxQuerySchema = z
       .default(INBOX_LIMITS.pageDefault),
     cursor: inboxCursorSchema.optional(),
     kind: communicationSurfaceKindSchema.optional(),
-    q: z.string().trim().min(1).max(INBOX_LIMITS.searchMax).optional(),
+    q: z
+      .string()
+      .trim()
+      .min(1)
+      .max(INBOX_LIMITS.searchMax)
+      .refine(
+        (value) => !value.includes("\u0000"),
+        "Inbox search cannot contain NUL",
+      )
+      .optional(),
   })
   .strict();
 export type ListInboxQuery = z.infer<typeof listInboxQuerySchema>;
@@ -118,7 +127,9 @@ export type InboxItem = z.infer<typeof inboxItemSchema>;
 
 export const inboxResponseSchema = z
   .object({
-    items: z.array(inboxItemSchema),
+    items: z
+      .array(inboxItemSchema)
+      .max(INBOX_LIMITS.pageMax),
     nextCursor: inboxCursorSchema.nullable(),
   })
   .strict();
