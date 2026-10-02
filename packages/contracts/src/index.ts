@@ -1,4 +1,22 @@
 export {
+  INBOX_LIMITS,
+  aiThreadInboxItemSchema,
+  directInboxItemSchema,
+  inboxE2eeLocalPreviewSchema,
+  inboxEmptyPreviewSchema,
+  inboxItemSchema,
+  inboxNavigationTargetSchema,
+  inboxPeerSummarySchema,
+  inboxResponseSchema,
+  inboxServerTextPreviewSchema,
+  listInboxQuerySchema,
+  type InboxItem,
+  type InboxPeerSummary,
+  type InboxResponse,
+  type ListInboxQuery,
+} from "./inbox.js";
+
+export {
   SYNC_LIMITS,
   SYNC_PROTOCOL_VERSION,
   directMessageCreatedSyncDeltaSchema,
