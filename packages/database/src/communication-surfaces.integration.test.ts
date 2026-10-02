@@ -286,4 +286,137 @@ describe("communication surface persistence", () => {
       await client.$disconnect();
     }
   });
+  it("advances the shared activity key when supported domains persist messages", async () => {
+    const client = createPrismaClient(testDatabaseUrl);
+    const suffix = randomUUID();
+    const firstUserId = `surface-activity-a-${suffix}`;
+    const secondUserId = `surface-activity-b-${suffix}`;
+    let conversationId: string | null = null;
+    let directConversationId: string | null = null;
+    let deviceId: string | null = null;
+
+    try {
+      await client.user.createMany({
+        data: [
+          {
+            id: firstUserId,
+            name: "Activity User A",
+            email: `surface-activity-a-${suffix}@example.test`,
+            emailVerified: true,
+          },
+          {
+            id: secondUserId,
+            name: "Activity User B",
+            email: `surface-activity-b-${suffix}@example.test`,
+            emailVerified: true,
+          },
+        ],
+      });
+
+      const conversation = await client.conversation.create({
+        data: {
+          userId: firstUserId,
+          kind: "CHAT",
+          title: "Activity AI thread",
+        },
+      });
+      conversationId = conversation.id;
+      const aiMessageAt = new Date(Date.now() + 5_000);
+      await client.message.create({
+        data: {
+          conversationId: conversation.id,
+          role: "USER",
+          content: "activity",
+          status: "COMPLETE",
+          createdAt: aiMessageAt,
+        },
+      });
+      const aiSurface =
+        await client.communicationSurface.findUniqueOrThrow({
+          where: { conversationId: conversation.id },
+        });
+      expect(aiSurface.lastActivityAt.toISOString()).toBe(
+        aiMessageAt.toISOString(),
+      );
+
+      const direct = await client.directConversation.create({
+        data: {
+          pairKey: `surface-activity-pair-${suffix}`,
+          members: {
+            create: [
+              { userId: firstUserId },
+              { userId: secondUserId },
+            ],
+          },
+        },
+      });
+      directConversationId = direct.id;
+      const device = await client.userCryptoDevice.create({
+        data: {
+          userId: firstUserId,
+          identityEd25519Public: "ed25519-public",
+          identityX25519Public: "x25519-public",
+          signedPrekeyId: 1,
+          signedPrekeyPublic: "signed-prekey-public",
+          signedPrekeySignature: "signed-prekey-signature",
+        },
+      });
+      deviceId = device.id;
+      const directMessageAt = new Date(Date.now() + 10_000);
+      await client.directMessage.create({
+        data: {
+          conversationId: direct.id,
+          senderUserId: firstUserId,
+          senderDeviceId: device.id,
+          clientMessageId: randomUUID(),
+          kind: "HUMAN",
+          createdAt: directMessageAt,
+        },
+      });
+      const directSurface =
+        await client.communicationSurface.findUniqueOrThrow({
+          where: { directConversationId: direct.id },
+        });
+      expect(directSurface.lastActivityAt.toISOString()).toBe(
+        directMessageAt.toISOString(),
+      );
+    } finally {
+      if (directConversationId) {
+        await client.directMessageEnvelope.deleteMany({
+          where: { message: { conversationId: directConversationId } },
+        });
+        await client.directMessage.deleteMany({
+          where: { conversationId: directConversationId },
+        });
+        await client.directConversationMember.deleteMany({
+          where: { conversationId: directConversationId },
+        });
+        await client.directConversation.deleteMany({
+          where: { id: directConversationId },
+        });
+      }
+      if (deviceId) {
+        await client.userCryptoDevice.deleteMany({
+          where: { id: deviceId },
+        });
+      }
+      if (conversationId) {
+        await client.message.deleteMany({
+          where: { conversationId },
+        });
+        await client.conversation.deleteMany({
+          where: { id: conversationId },
+        });
+      }
+      await client.user.deleteMany({
+        where: {
+          id: {
+            in: [firstUserId, secondUserId],
+          },
+        },
+      });
+      await client.$disconnect();
+    }
+  });
+
 });
