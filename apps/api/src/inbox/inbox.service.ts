@@ -379,11 +379,10 @@ export class InboxService {
 function compactServerPreview(
   value: string,
 ): string {
-  return Array.from(
-    value.trim().replace(/\s+/g, " "),
-  )
-    .slice(0, INBOX_LIMITS.serverPreviewMax)
-    .join("");
+  return value
+    .trim()
+    .replace(/\s+/g, " ")
+    .slice(0, INBOX_LIMITS.serverPreviewMax);
 }
 
 function cursorFilterKey(
