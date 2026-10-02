@@ -94,7 +94,6 @@ export function AIConversationRow(props: {
 
 export function DirectConversationRow(props: {
   name: string;
-  avatarUrl?: string | null;
   preview?: string;
   time?: string;
   unreadCount?: number;
@@ -105,7 +104,7 @@ export function DirectConversationRow(props: {
 }): ReactElement {
   return (
     <BaseListRow
-      leading={<Avatar name={props.name} src={props.avatarUrl} />}
+      leading={<Avatar name={props.name} />}
       title={props.name}
       subtitle={props.preview}
       meta={props.time}
