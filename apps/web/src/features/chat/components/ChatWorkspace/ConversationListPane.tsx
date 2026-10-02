@@ -173,13 +173,7 @@ export const ConversationListPane = observer(
           kind: inboxKindFor("all"),
         }),
       ])
-        .then(async ([currentUser, page]) => {
-          if (cancelled) {
-            return;
-          }
-          if (CONSUMER_FEATURES.directChats) {
-            await prepareDevice();
-          }
+        .then(([currentUser, page]) => {
           if (cancelled) {
             return;
           }
@@ -191,6 +185,24 @@ export const ConversationListPane = observer(
             store.setInboxPage(page);
           }
           setBoot("ready");
+
+          if (CONSUMER_FEATURES.directChats) {
+            void prepareDevice().catch(
+              (error: unknown) => {
+                if (cancelled) {
+                  return;
+                }
+                if (
+                  error instanceof
+                  AuthRequiredError
+                ) {
+                  router.replace("/sign-in");
+                  return;
+                }
+                setListError(true);
+              },
+            );
+          }
         })
         .catch((error: unknown) => {
           if (cancelled) {
