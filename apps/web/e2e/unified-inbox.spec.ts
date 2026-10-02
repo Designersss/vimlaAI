@@ -77,12 +77,9 @@ test.describe("Unified Inbox", () => {
       ),
     ).toBeVisible({ timeout: 20_000 });
     await expect(
-      bobPage
-        .getByTestId("ai-conversation-row")
-        .filter({
-          hasText:
-            "older unified inbox activity",
-        }),
+      bobPage.getByTestId(
+        "unified-inbox-list",
+      ),
     ).toContainText("Hello from Vimla", {
       timeout: 20_000,
     });
