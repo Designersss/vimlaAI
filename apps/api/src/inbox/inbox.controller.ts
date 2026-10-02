@@ -3,13 +3,18 @@ import {
   Controller,
   Get,
   Inject,
+  NotFoundException,
+  Param,
   Query,
   UseGuards,
 } from "@nestjs/common";
 import type { AuthenticatedUser } from "@vimla/auth";
 import {
+  communicationSurfaceIdSchema,
+  inboxItemSchema,
   inboxResponseSchema,
   listInboxQuerySchema,
+  type InboxItem,
   type InboxResponse,
 } from "@vimla/contracts";
 import { AuthGuard } from "../auth/auth.guard.js";
@@ -31,6 +36,32 @@ export class InboxController {
     @Inject(InboxService)
     private readonly inbox: InboxService,
   ) {}
+
+  @Get(":surfaceId")
+  async getOne(
+    @AuthUser() user: AuthenticatedUser,
+    @Param("surfaceId") surfaceId: string,
+  ): Promise<InboxItem> {
+    const parsed =
+      communicationSurfaceIdSchema.safeParse(
+        surfaceId,
+      );
+    if (!parsed.success) {
+      throw new BadRequestException(
+        "Invalid communication surface id",
+      );
+    }
+    const item = await this.inbox.get(
+      user.id,
+      parsed.data,
+    );
+    if (!item) {
+      throw new NotFoundException(
+        "Communication surface was not found",
+      );
+    }
+    return inboxItemSchema.parse(item);
+  }
 
   @Get()
   async list(
