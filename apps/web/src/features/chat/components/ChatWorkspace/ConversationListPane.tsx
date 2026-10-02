@@ -197,9 +197,7 @@ export const ConversationListPane = observer(
                   AuthRequiredError
                 ) {
                   router.replace("/sign-in");
-                  return;
                 }
-                setListError(true);
               },
             );
           }
