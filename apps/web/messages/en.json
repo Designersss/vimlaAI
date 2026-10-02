@@ -222,7 +222,8 @@
     "usageUnavailable": "Usage unavailable",
     "monthlyUsage": "Monthly usage",
     "topupUsed": "Top-up {percent}% used",
-    "signedInAs": "Signed in as {email}"
+    "signedInAs": "Signed in as {email}",
+    "loadMore": "Load more"
   },
   "direct": {
     "loading": "Loading Direct Chat…",
@@ -247,7 +248,8 @@
     "invoke": "@Vimla request",
     "contextShared": "Chat context sent to @Vimla",
     "contextDenied": "No extra chat history sent",
-    "action": "@Vimla action"
+    "action": "@Vimla action",
+    "encryptedPreview": "Encrypted message"
   },
   "operator": {
     "title": "@Vimla",
