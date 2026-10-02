@@ -1,7 +1,8 @@
-import type {
-  InboxItem,
-  InboxResponse,
-  CommunicationSurfaceKind,
+import {
+  INBOX_LIMITS,
+  type InboxItem,
+  type InboxResponse,
+  type CommunicationSurfaceKind,
 } from "@vimla/contracts";
 import {
   resolveInboxPreview,
@@ -51,12 +52,22 @@ export async function resolveWebInboxPreview(
     );
     const plaintext =
       resolveInboxPreview(item, local);
-    return plaintext === null
+    const displayText =
+      plaintext === null
+        ? null
+        : directPlaintextPreview(
+            item.preview.messageKind,
+            plaintext,
+          );
+    return displayText === null
       ? null
-      : directPlaintextPreview(
-          item.preview.messageKind,
-          plaintext,
-        );
+      : displayText
+          .trim()
+          .replace(/\s+/g, " ")
+          .slice(
+            0,
+            INBOX_LIMITS.serverPreviewMax,
+          );
   } catch {
     // Local encrypted storage being absent/unavailable must never cause
     // a server plaintext fallback for an E2EE surface.
