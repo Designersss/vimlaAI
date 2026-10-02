@@ -115,6 +115,11 @@ describe("inbox contracts", () => {
     ).toEqual({ limit: 20, kind: "DIRECT", q: "Nikita" });
     expect(() => listInboxQuerySchema.parse({ limit: 101 })).toThrow();
     expect(() => listInboxQuerySchema.parse({ unknown: "x" })).toThrow();
+    expect(() =>
+      listInboxQuerySchema.parse({
+        q: "bad\u0000query",
+      }),
+    ).toThrow();
 
     expect(
       inboxResponseSchema.parse({ items: [], nextCursor: null }),
@@ -125,6 +130,36 @@ describe("inbox contracts", () => {
         nextCursor: "x".repeat(
           INBOX_LIMITS.cursorMax + 1,
         ),
+      }),
+    ).toThrow();
+    expect(() =>
+      inboxResponseSchema.parse({
+        items: Array.from(
+          {
+            length:
+              INBOX_LIMITS.pageMax + 1,
+          },
+          () => ({
+            surfaceId,
+            surfaceKind:
+              "AI_THREAD" as const,
+            domainId: "conversation",
+            title: null,
+            peer: null,
+            lastActivityAt:
+              "2026-10-02T04:00:00.000Z",
+            unreadCount: 0 as const,
+            preview: {
+              kind: "NONE" as const,
+            },
+            navigationTarget: {
+              version: 1 as const,
+              kind: "CHAT" as const,
+              id: surfaceId,
+            },
+          }),
+        ),
+        nextCursor: null,
       }),
     ).toThrow();
   });
