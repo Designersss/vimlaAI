@@ -394,6 +394,8 @@ describe("unified inbox API", () => {
             item.domainId === direct.id,
         )?.unreadCount,
     ).toBe(0);
+  });
+
   it("keeps equal-activity pagination stable and rejects malformed cursors", async () => {
     const user = await registerVerifiedUser(
       app,
