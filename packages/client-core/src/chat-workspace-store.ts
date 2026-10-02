@@ -129,6 +129,7 @@ export class ChatWorkspaceStore {
   models: RetailAiModel[] = [];
   inboxItems: InboxItem[] = [];
   inboxNextCursor: string | null = null;
+  inboxRefreshRevision = 0;
   selectedModelId = "";
   private readonly details = new Map<string, ConversationState>();
 
@@ -178,6 +179,21 @@ export class ChatWorkspaceStore {
       ),
     ];
     this.inboxNextCursor = page.nextCursor;
+  }
+
+  setInboxUnreadCount(
+    surfaceId: string,
+    unreadCount: number,
+  ): void {
+    this.inboxItems = this.inboxItems.map((item) =>
+      item.surfaceId === surfaceId
+        ? { ...item, unreadCount }
+        : item,
+    );
+  }
+
+  requestInboxRefresh(): void {
+    this.inboxRefreshRevision += 1;
   }
 
   setUsage(usage: UsageResponse): void {
