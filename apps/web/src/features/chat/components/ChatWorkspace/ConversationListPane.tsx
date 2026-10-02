@@ -151,6 +151,8 @@ export const ConversationListPane = observer(
 
     useEffect(() => {
       let cancelled = false;
+      const bootRefreshRevision =
+        store.inboxRefreshRevision;
 
       void Promise.all([
         fetchCurrentUser(),
@@ -170,7 +172,12 @@ export const ConversationListPane = observer(
             return;
           }
           setUserId(currentUser.id);
-          store.setInboxPage(page);
+          if (
+            store.inboxRefreshRevision ===
+            bootRefreshRevision
+          ) {
+            store.setInboxPage(page);
+          }
           setBoot("ready");
         })
         .catch((error: unknown) => {
