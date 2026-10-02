@@ -510,8 +510,10 @@ function directConversationIds(
 function boundedInboxPeerName(
   value: string,
 ): string {
-  const trimmed = value.trim();
-  return (trimmed || "User").slice(
+  const compact = value
+    .trim()
+    .replace(/\s+/g, " ");
+  return (compact || "User").slice(
     0,
     INBOX_LIMITS.peerNameMax,
   );
