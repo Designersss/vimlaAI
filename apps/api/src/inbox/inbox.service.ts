@@ -329,14 +329,17 @@ export class InboxService {
 
       const latest =
         conversation.messages[0];
+      const previewRole =
+        latest?.role === "USER" ||
+        latest?.role === "ASSISTANT"
+          ? latest.role
+          : null;
       const preview =
-        latest &&
-        (latest.role === "USER" ||
-          latest.role === "ASSISTANT")
+        latest && previewRole
           ? {
               kind: "SERVER_TEXT" as const,
               messageId: latest.id,
-              role: latest.role,
+              role: previewRole,
               text: compactServerPreview(
                 latest.content,
               ),
