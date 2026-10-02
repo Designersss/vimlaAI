@@ -2,14 +2,12 @@ import {
   cryptoDeviceViewSchema,
   cryptoDevicesResponseSchema,
   directConversationViewSchema,
-  directConversationsResponseSchema,
   directMessageViewSchema,
   directMessagesResponseSchema,
   prekeyBundlesResponseSchema,
   type CreateDirectConversation,
   type CryptoDeviceView,
   type DirectConversationView,
-  type DirectConversationsResponse,
   type DirectMessageView,
   type DirectMessagesResponse,
   type PrekeyBundlesResponse,
@@ -42,17 +40,6 @@ export function createDirectChatsClient(
     new DirectChatsApiError(code, status);
 
   return {
-    fetchDirectConversations(
-      options: DirectChatRequestOptions = {},
-    ): Promise<DirectConversationsResponse> {
-      return transport.request("/v1/direct-chats", {
-        init: signalInit(options.signal),
-        parse: (payload) =>
-          directConversationsResponseSchema.parse(payload),
-        errorFactory,
-      });
-    },
-
     fetchDirectConversation(
       id: string,
       options: DirectChatRequestOptions = {},
