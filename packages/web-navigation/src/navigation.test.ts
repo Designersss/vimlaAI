@@ -45,6 +45,14 @@ describe("Web NavigationTarget adapter", () => {
     [{ version: 1, kind: "TODAY" } as const, "/work"],
     [{ version: 1, kind: "PROFILE" } as const, "/settings/account"],
     [
+      {
+        version: 1,
+        kind: "CHAT",
+        id: "11111111-1111-4111-8111-111111111111",
+      } as const,
+      "/app/chat/11111111-1111-4111-8111-111111111111",
+    ],
+    [
       { version: 1, kind: "NOTIFICATION_SETTINGS" } as const,
       "/settings/notifications",
     ],
