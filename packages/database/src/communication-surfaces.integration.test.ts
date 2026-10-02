@@ -322,7 +322,7 @@ describe("communication surface persistence", () => {
       });
       conversationId = conversation.id;
       const aiMessageAt = new Date(Date.now() + 5_000);
-      await client.message.create({
+      const aiMessage = await client.message.create({
         data: {
           conversationId: conversation.id,
           role: "USER",
@@ -338,6 +338,24 @@ describe("communication surface persistence", () => {
       expect(aiSurface.lastActivityAt.toISOString()).toBe(
         aiMessageAt.toISOString(),
       );
+
+      const aiMessageUpdatedAt = new Date(
+        aiMessageAt.getTime() + 5_000,
+      );
+      await client.message.update({
+        where: { id: aiMessage.id },
+        data: {
+          content: "updated activity",
+          updatedAt: aiMessageUpdatedAt,
+        },
+      });
+      const updatedAiSurface =
+        await client.communicationSurface.findUniqueOrThrow({
+          where: { conversationId: conversation.id },
+        });
+      expect(
+        updatedAiSurface.lastActivityAt.toISOString(),
+      ).toBe(aiMessageUpdatedAt.toISOString());
 
       const direct = await client.directConversation.create({
         data: {
