@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  INBOX_LIMITS,
   inboxItemSchema,
   inboxResponseSchema,
   listInboxQuerySchema,
@@ -118,5 +119,13 @@ describe("inbox contracts", () => {
     expect(
       inboxResponseSchema.parse({ items: [], nextCursor: null }),
     ).toEqual({ items: [], nextCursor: null });
+    expect(() =>
+      inboxResponseSchema.parse({
+        items: [],
+        nextCursor: "x".repeat(
+          INBOX_LIMITS.cursorMax + 1,
+        ),
+      }),
+    ).toThrow();
   });
 });
