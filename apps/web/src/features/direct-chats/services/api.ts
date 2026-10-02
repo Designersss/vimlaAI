@@ -2,7 +2,6 @@ import type {
   CreateDirectConversation,
   CryptoDeviceView,
   DirectConversationView,
-  DirectConversationsResponse,
   DirectMessageView,
   DirectMessagesResponse,
   PrekeyBundlesResponse,
@@ -34,14 +33,6 @@ async function wipeAfterCurrentDeviceRevocation(
     await clearLocalE2eeData();
   }
   throw error;
-}
-
-export async function fetchDirectConversations(
-  fetchImpl: typeof fetch = fetch,
-): Promise<DirectConversationsResponse> {
-  return createWebClientApi(fetchImpl).directChats.fetchDirectConversations({
-    signal: timeoutSignal(),
-  });
 }
 
 export async function fetchDirectConversation(
