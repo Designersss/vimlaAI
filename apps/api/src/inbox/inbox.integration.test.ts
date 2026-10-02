@@ -8,6 +8,7 @@ import {
 } from "vitest";
 import type { NestFastifyApplication } from "@nestjs/platform-fastify";
 import { loadApiConfig } from "@vimla/config/server";
+import { INBOX_LIMITS } from "@vimla/contracts";
 import { createPrismaClient } from "@vimla/database";
 import { createVimlaApiApp } from "../create-app.js";
 import { PrismaService } from "../persistence/prisma.service.js";
@@ -453,6 +454,57 @@ describe("unified inbox API", () => {
     expect(projected.peer.name).toBe(
       "x".repeat(200),
     );
+  });
+
+  it("keeps server-issued cursors within bounds for maximum Unicode search", async () => {
+    const user = await registerVerifiedUser(
+      app,
+      "inbox-unicode-cursor",
+    );
+    const db = app.get(PrismaService).client;
+    const query = "界".repeat(
+      INBOX_LIMITS.searchMax,
+    );
+
+    await db.conversation.createMany({
+      data: [
+        {
+          userId: user.id,
+          kind: "CHAT",
+          title: query,
+        },
+        {
+          userId: user.id,
+          kind: "CHAT",
+          title: query,
+        },
+      ],
+    });
+
+    const first = await app.inject({
+      method: "GET",
+      url: `/v1/inbox?kind=AI_THREAD&limit=1&q=${encodeURIComponent(query)}`,
+      headers: { origin },
+      cookies: user.cookies,
+    });
+    expect(first.statusCode).toBe(200);
+    const nextCursor =
+      first.json().nextCursor as string;
+    expect(nextCursor).toEqual(
+      expect.any(String),
+    );
+    expect(nextCursor.length).toBeLessThanOrEqual(
+      INBOX_LIMITS.cursorMax,
+    );
+
+    const second = await app.inject({
+      method: "GET",
+      url: `/v1/inbox?kind=AI_THREAD&limit=1&q=${encodeURIComponent(query)}&cursor=${encodeURIComponent(nextCursor)}`,
+      headers: { origin },
+      cookies: user.cookies,
+    });
+    expect(second.statusCode).toBe(200);
+    expect(second.json().items).toHaveLength(1);
   });
 
   it("keeps equal-activity pagination stable and rejects malformed cursors", async () => {
