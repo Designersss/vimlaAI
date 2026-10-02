@@ -430,6 +430,29 @@ describe("unified inbox API", () => {
       peer: { name: "User" },
     });
 
+    await db.user.update({
+      where: { id: peer.id },
+      data: { name: "Inbox\n\tPeer" },
+    });
+    const multilineNameResponse =
+      await app.inject({
+        method: "GET",
+        url: "/v1/inbox?kind=DIRECT",
+        headers: { origin },
+        cookies: owner.cookies,
+      });
+    expect(
+      multilineNameResponse
+        .json()
+        .items.find(
+          (item: { domainId: string }) =>
+            item.domainId === direct.id,
+        ),
+    ).toMatchObject({
+      title: "Inbox Peer",
+      peer: { name: "Inbox Peer" },
+    });
+
     const longName = "x".repeat(250);
     await db.user.update({
       where: { id: peer.id },
