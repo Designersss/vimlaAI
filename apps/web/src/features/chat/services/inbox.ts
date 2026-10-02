@@ -8,6 +8,7 @@ import {
 } from "@vimla/client-core";
 import { createWebClientApi } from "../../../shared/api/client";
 import { loadPlaintext } from "../../direct-chats/services/crypto-store";
+import { directPlaintextPreview } from "../../direct-chats/services/payload";
 
 export interface FetchInboxInput {
   limit?: number;
@@ -48,7 +49,14 @@ export async function resolveWebInboxPreview(
     const local = await loadPlaintext(
       item.preview.messageId,
     );
-    return resolveInboxPreview(item, local);
+    const plaintext =
+      resolveInboxPreview(item, local);
+    return plaintext === null
+      ? null
+      : directPlaintextPreview(
+          item.preview.messageKind,
+          plaintext,
+        );
   } catch {
     // Local encrypted storage being absent/unavailable must never cause
     // a server plaintext fallback for an E2EE surface.
