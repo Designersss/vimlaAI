@@ -182,7 +182,7 @@ describe("unified inbox API", () => {
     expect(directItem).toMatchObject({
       surfaceKind: "DIRECT",
       domainId: direct.id,
-      title: bob.name,
+      title: "inbox-bob",
       unreadCount: 1,
       lastActivityAt: directAt.toISOString(),
       preview: {
