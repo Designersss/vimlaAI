@@ -597,5 +597,27 @@ describe("unified inbox API", () => {
       cookies: user.cookies,
     });
     expect(malformed.statusCode).toBe(400);
+
+    const decodedCursor = JSON.parse(
+      Buffer.from(
+        pageOne.json().nextCursor,
+        "base64url",
+      ).toString("utf8"),
+    ) as Record<string, unknown>;
+    const nonCanonicalCursor =
+      Buffer.from(
+        JSON.stringify({
+          ...decodedCursor,
+          at: "2026-10-02T00:00:00Z",
+        }),
+        "utf8",
+      ).toString("base64url");
+    const nonCanonical = await app.inject({
+      method: "GET",
+      url: `/v1/inbox?kind=AI_THREAD&limit=1&cursor=${encodeURIComponent(nonCanonicalCursor)}`,
+      headers: { origin },
+      cookies: user.cookies,
+    });
+    expect(nonCanonical.statusCode).toBe(400);
   });
 });
