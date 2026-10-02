@@ -209,13 +209,11 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
           detail.unreadCount > 0
             ? await markDirectChatRead(conversationId)
             : detail;
-        if (!cancelled) {
-          workspace.setInboxUnreadCount(
-            read.surfaceId,
-            read.unreadCount,
-          );
-          workspace.requestInboxRefresh();
-        }
+        workspace.setInboxUnreadCount(
+          read.surfaceId,
+          read.unreadCount,
+        );
+        workspace.requestInboxRefresh();
       } catch (caught: unknown) {
         if (cancelled) return;
         if (caught instanceof AuthRequiredError) {
@@ -262,13 +260,11 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         detail.unreadCount > 0
           ? await markDirectChatRead(conversationId)
           : detail;
-      if (!cancelled) {
-        workspace.setInboxUnreadCount(
-          read.surfaceId,
-          read.unreadCount,
-        );
-        workspace.requestInboxRefresh();
-      }
+      workspace.setInboxUnreadCount(
+        read.surfaceId,
+        read.unreadCount,
+      );
+      workspace.requestInboxRefresh();
     };
 
     let refreshTail: Promise<void> =
