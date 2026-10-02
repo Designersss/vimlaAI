@@ -65,7 +65,7 @@ test("desktop preserves shell, list, search, filter, scroll and drafts while det
   await expect(master(page)).toBeVisible();
   await expect(first).toHaveAttribute("aria-current", "page");
   await composer(page).fill("Черновик A — draft A");
-  await master(page).getByRole("link", { name: "Layout 09", exact: true }).click();
+  await master(page).getByRole("link", { name: "Layout 09" }).click();
   await expect(page).toHaveURL(`/app/${ids[9]}`);
   await expect(composer(page)).toHaveValue("");
   await expect(master(page).getByRole("searchbox")).toHaveValue("Layout");
