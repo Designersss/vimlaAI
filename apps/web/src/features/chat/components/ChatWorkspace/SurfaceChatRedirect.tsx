@@ -24,12 +24,12 @@ export function SurfaceChatRedirect({
   const router = useRouter();
   const [attempt, setAttempt] =
     useState(0);
-  const [failed, setFailed] =
-    useState(false);
+  const [failedAttempt, setFailedAttempt] =
+    useState<number | null>(null);
+  const failed = failedAttempt === attempt;
 
   useEffect(() => {
     let cancelled = false;
-    setFailed(false);
 
     void fetchInboxItem(surfaceId)
       .then((item) => {
@@ -55,7 +55,7 @@ export function SurfaceChatRedirect({
           router.replace("/sign-in");
           return;
         }
-        setFailed(true);
+        setFailedAttempt(attempt);
       });
 
     return () => {
