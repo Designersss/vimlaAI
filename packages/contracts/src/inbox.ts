@@ -8,6 +8,9 @@ export const INBOX_LIMITS = {
   pageMax: 100,
   searchMax: 120,
   serverPreviewMax: 280,
+  titleMax: 200,
+  peerNameMax: 200,
+  avatarUrlMax: 2_048,
   cursorMax: 512,
 } as const;
 
@@ -37,8 +40,8 @@ export const inboxNavigationTargetSchema = z
 export const inboxPeerSummarySchema = z
   .object({
     userId: z.string().min(1).max(128),
-    name: z.string().min(1).max(200),
-    avatarUrl: z.string().max(2_048).nullable(),
+    name: z.string().min(1).max(INBOX_LIMITS.peerNameMax),
+    avatarUrl: z.string().max(INBOX_LIMITS.avatarUrlMax).nullable(),
   })
   .strict();
 export type InboxPeerSummary = z.infer<typeof inboxPeerSummarySchema>;
@@ -73,7 +76,7 @@ export const aiThreadInboxItemSchema = z
     surfaceId: z.string().uuid(),
     surfaceKind: z.literal("AI_THREAD"),
     domainId: z.string().min(1).max(128),
-    title: z.string().max(200).nullable(),
+    title: z.string().max(INBOX_LIMITS.titleMax).nullable(),
     peer: z.null(),
     lastActivityAt: z.string().datetime({ offset: true }),
     unreadCount: z.literal(0),
@@ -90,7 +93,7 @@ export const directInboxItemSchema = z
     surfaceId: z.string().uuid(),
     surfaceKind: z.literal("DIRECT"),
     domainId: z.string().uuid(),
-    title: z.string().min(1).max(200),
+    title: z.string().min(1).max(INBOX_LIMITS.titleMax),
     peer: inboxPeerSummarySchema,
     lastActivityAt: z.string().datetime({ offset: true }),
     unreadCount: z.number().int().min(0),
