@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   BadRequestException,
   Inject,
@@ -538,10 +539,15 @@ function cursorFilterKey(
   kind: string | null,
   query: string | null,
 ): string {
-  return JSON.stringify({
-    kind,
-    q: query?.toLowerCase() ?? null,
-  });
+  return createHash("sha256")
+    .update(
+      JSON.stringify({
+        kind,
+        q: query?.toLowerCase() ?? null,
+      }),
+      "utf8",
+    )
+    .digest("base64url");
 }
 
 function encodeCursor(
