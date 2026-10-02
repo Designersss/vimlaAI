@@ -382,6 +382,79 @@ describe("unified inbox API", () => {
     ).toBe(0);
   });
 
+  it("bounds malformed persisted peer names instead of failing the whole inbox", async () => {
+    const owner = await registerVerifiedUser(
+      app,
+      "inbox-peer-owner",
+    );
+    const peer = await registerVerifiedUser(
+      app,
+      "inbox-peer-boundary",
+    );
+    const db = app.get(PrismaService).client;
+
+    const direct =
+      await db.directConversation.create({
+        data: {
+          pairKey: `inbox-peer-${randomUUID()}`,
+          members: {
+            create: [
+              { userId: owner.id },
+              { userId: peer.id },
+            ],
+          },
+        },
+      });
+
+    await db.user.update({
+      where: { id: peer.id },
+      data: { name: "" },
+    });
+    const emptyNameResponse = await app.inject({
+      method: "GET",
+      url: "/v1/inbox?kind=DIRECT",
+      headers: { origin },
+      cookies: owner.cookies,
+    });
+    expect(emptyNameResponse.statusCode).toBe(200);
+    expect(
+      emptyNameResponse
+        .json()
+        .items.find(
+          (item: { domainId: string }) =>
+            item.domainId === direct.id,
+        ),
+    ).toMatchObject({
+      title: "User",
+      peer: { name: "User" },
+    });
+
+    const longName = "x".repeat(250);
+    await db.user.update({
+      where: { id: peer.id },
+      data: { name: longName },
+    });
+    const longNameResponse = await app.inject({
+      method: "GET",
+      url: "/v1/inbox?kind=DIRECT",
+      headers: { origin },
+      cookies: owner.cookies,
+    });
+    expect(longNameResponse.statusCode).toBe(200);
+    const projected = longNameResponse
+      .json()
+      .items.find(
+        (item: { domainId: string }) =>
+          item.domainId === direct.id,
+      );
+    expect(projected.title).toBe(
+      "x".repeat(200),
+    );
+    expect(projected.peer.name).toBe(
+      "x".repeat(200),
+    );
+  });
+
   it("keeps equal-activity pagination stable and rejects malformed cursors", async () => {
     const user = await registerVerifiedUser(
       app,
