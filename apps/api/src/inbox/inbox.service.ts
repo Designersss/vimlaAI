@@ -543,7 +543,7 @@ function cursorFilterKey(
     .update(
       JSON.stringify({
         kind,
-        q: query?.toLowerCase() ?? null,
+        q: query,
       }),
       "utf8",
     )
