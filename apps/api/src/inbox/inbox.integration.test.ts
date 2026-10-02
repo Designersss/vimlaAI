@@ -63,6 +63,29 @@ describe("unified inbox API", () => {
     }
   });
 
+  it("fails closed for anonymous and untrusted-origin inbox reads", async () => {
+    const anonymous = await app.inject({
+      method: "GET",
+      url: "/v1/inbox",
+      headers: { origin },
+    });
+    expect(anonymous.statusCode).toBe(401);
+
+    const user = await registerVerifiedUser(
+      app,
+      "inbox-origin",
+    );
+    const untrusted = await app.inject({
+      method: "GET",
+      url: "/v1/inbox",
+      headers: {
+        origin: "https://evil.example",
+      },
+      cookies: user.cookies,
+    });
+    expect(untrusted.statusCode).toBe(403);
+  });
+
   it("returns one authorized stable mixed feed without Direct plaintext", async () => {
     const alice = await registerVerifiedUser(
       app,
@@ -371,5 +394,97 @@ describe("unified inbox API", () => {
             item.domainId === direct.id,
         )?.unreadCount,
     ).toBe(0);
+  it("keeps equal-activity pagination stable and rejects malformed cursors", async () => {
+    const user = await registerVerifiedUser(
+      app,
+      "inbox-tie",
+    );
+    const db = app.get(PrismaService).client;
+    const tiedAt = new Date(
+      Date.now() + 120_000,
+    );
+
+    const firstConversation =
+      await db.conversation.create({
+        data: {
+          userId: user.id,
+          kind: "CHAT",
+          title: "Tie A",
+        },
+      });
+    const secondConversation =
+      await db.conversation.create({
+        data: {
+          userId: user.id,
+          kind: "CHAT",
+          title: "Tie B",
+        },
+      });
+    await db.message.createMany({
+      data: [
+        {
+          conversationId:
+            firstConversation.id,
+          role: "USER",
+          content: "Tie A",
+          status: "COMPLETE",
+          createdAt: tiedAt,
+        },
+        {
+          conversationId:
+            secondConversation.id,
+          role: "USER",
+          content: "Tie B",
+          status: "COMPLETE",
+          createdAt: tiedAt,
+        },
+      ],
+    });
+
+    const pageOne = await app.inject({
+      method: "GET",
+      url: "/v1/inbox?kind=AI_THREAD&limit=1",
+      headers: { origin },
+      cookies: user.cookies,
+    });
+    expect(pageOne.statusCode).toBe(200);
+    expect(pageOne.json().items).toHaveLength(1);
+    expect(pageOne.json().nextCursor).toEqual(
+      expect.any(String),
+    );
+
+    const repeated = await app.inject({
+      method: "GET",
+      url: "/v1/inbox?kind=AI_THREAD&limit=1",
+      headers: { origin },
+      cookies: user.cookies,
+    });
+    expect(
+      repeated.json().items[0].surfaceId,
+    ).toBe(pageOne.json().items[0].surfaceId);
+
+    const pageTwo = await app.inject({
+      method: "GET",
+      url: `/v1/inbox?kind=AI_THREAD&limit=1&cursor=${encodeURIComponent(pageOne.json().nextCursor)}`,
+      headers: { origin },
+      cookies: user.cookies,
+    });
+    expect(pageTwo.statusCode).toBe(200);
+    expect(pageTwo.json().items).toHaveLength(1);
+    expect(
+      pageTwo.json().items[0].surfaceId,
+    ).not.toBe(
+      pageOne.json().items[0].surfaceId,
+    );
+
+    const malformed = await app.inject({
+      method: "GET",
+      url: "/v1/inbox?cursor=not-a-valid-cursor",
+      headers: { origin },
+      cookies: user.cookies,
+    });
+    expect(malformed.statusCode).toBe(400);
+  });
+
   });
 });
