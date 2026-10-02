@@ -602,6 +602,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
           delivery.rows,
         ),
       );
+      workspace.requestInboxRefresh();
     }
   }
 
@@ -705,6 +706,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
     })
       .then((deliveries) => {
         if (cancelled) return;
+        let inboxChanged = false;
         for (const delivery of deliveries) {
           setPendingRun(
             operatorRunNeedsPanel(delivery.run)
@@ -715,6 +717,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
             setConversation(delivery.latest);
           }
           if (delivery.rows.length > 0) {
+            inboxChanged = true;
             updateRows((current) =>
               mergeDecryptedRows(
                 current,
@@ -722,6 +725,9 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
               ),
             );
           }
+        }
+        if (inboxChanged) {
+          workspace.requestInboxRefresh();
         }
       })
       .catch((caught: unknown) => {
@@ -740,7 +746,14 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
     return () => {
       cancelled = true;
     };
-  }, [boot, conversationId, router, updateRows, userId]);
+  }, [
+    boot,
+    conversationId,
+    router,
+    updateRows,
+    userId,
+    workspace,
+  ]);
 
   async function onLoadOlder(): Promise<void> {
     if (!nextCursor || !conversation) return;
