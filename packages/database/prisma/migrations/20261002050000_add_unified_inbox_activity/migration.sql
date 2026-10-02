@@ -7,7 +7,12 @@ ALTER TABLE "communication_surface"
 UPDATE "communication_surface" AS surface
 SET "lastActivityAt" = COALESCE(
   (
-    SELECT MAX(message."createdAt")
+    SELECT MAX(
+      GREATEST(
+        message."createdAt",
+        message."updatedAt"
+      )
+    )
     FROM "message" AS message
     WHERE message."conversationId" = surface."conversationId"
   ),
