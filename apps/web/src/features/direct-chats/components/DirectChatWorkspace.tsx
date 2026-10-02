@@ -205,16 +205,19 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         updateRows(page.decrypted.reverse());
         setNextCursor(page.nextCursor);
         setBoot("ready");
-        const read =
-          detail.unreadCount > 0
-            ? await markDirectChatRead(conversationId)
-            : detail;
+        const markedRead =
+          detail.unreadCount > 0;
+        const read = markedRead
+          ? await markDirectChatRead(conversationId)
+          : detail;
         if (!cancelled) {
           workspace.setInboxUnreadCount(
             read.surfaceId,
             read.unreadCount,
           );
-          workspace.requestInboxRefresh();
+          if (markedRead) {
+            workspace.requestInboxRefresh();
+          }
         }
       } catch (caught: unknown) {
         if (cancelled) return;
@@ -258,16 +261,19 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
           ),
         );
       }
-      const read =
-        detail.unreadCount > 0
-          ? await markDirectChatRead(conversationId)
-          : detail;
+      const markedRead =
+        detail.unreadCount > 0;
+      const read = markedRead
+        ? await markDirectChatRead(conversationId)
+        : detail;
       if (!cancelled) {
         workspace.setInboxUnreadCount(
           read.surfaceId,
           read.unreadCount,
         );
-        workspace.requestInboxRefresh();
+        if (markedRead) {
+          workspace.requestInboxRefresh();
+        }
       }
     };
 
