@@ -3,6 +3,7 @@ import {
   test,
 } from "@playwright/test";
 import {
+  apiBase,
   purchasePro,
   signUp,
   uniqueEmail,
@@ -75,6 +76,35 @@ test.describe("Unified Inbox", () => {
         "Hello from Vimla",
       ),
     ).toBeVisible({ timeout: 20_000 });
+
+    const aiInboxResponse =
+      await bobPage.request.get(
+        `${apiBase}/v1/inbox?kind=AI_THREAD`,
+      );
+    expect(aiInboxResponse.ok()).toBe(true);
+    const aiInboxPayload =
+      (await aiInboxResponse.json()) as {
+        items: Array<{
+          surfaceId: string;
+          domainId: string;
+        }>;
+      };
+    const aiInboxItem =
+      aiInboxPayload.items[0];
+    expect(aiInboxItem).toBeTruthy();
+    if (!aiInboxItem) {
+      throw new Error(
+        "Expected the created AI thread in the unified inbox",
+      );
+    }
+    await bobPage.goto(
+      `/app/chat/${aiInboxItem.surfaceId}`,
+    );
+    await expect(bobPage).toHaveURL(
+      `/app/${aiInboxItem.domainId}`,
+      { timeout: 20_000 },
+    );
+    await expect(aiComposer).toBeVisible();
 
     await signUp(alicePage, {
       name: "Inbox Alice",
