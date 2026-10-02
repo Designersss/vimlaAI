@@ -16,10 +16,8 @@ import {
   cryptoDevicesResponseSchema,
   cryptoDeviceViewSchema,
   directConversationViewSchema,
-  directConversationsResponseSchema,
   directMessageViewSchema,
   directMessagesResponseSchema,
-  listDirectConversationsQuerySchema,
   listDirectMessagesQuerySchema,
   prekeyBundlesResponseSchema,
   registerCryptoDeviceSchema,
@@ -29,7 +27,6 @@ import {
   type CryptoDeviceView,
   type CryptoDevicesResponse,
   type DirectConversationView,
-  type DirectConversationsResponse,
   type DirectMessageView,
   type DirectMessagesResponse,
   type PrekeyBundlesResponse,
@@ -49,92 +46,6 @@ import { parseRequest } from "./http.js";
 @UseGuards(AuthGuard, OriginGuard, SensitiveAreaGuard, DirectChatsRateLimitGuard)
 export class DirectChatDevicesController {
   constructor(@Inject(DirectChatsFacade) private readonly directChats: DirectChatsFacade) {}
-
-  @Get()
-  async list(@AuthUser() user: AuthenticatedUser): Promise<CryptoDevicesResponse> {
-    this.directChats.assertEnabled();
-    const items = await this.directChats.devices.listMine(this.directChats.actor(user));
-    return cryptoDevicesResponseSchema.parse({ items });
-  }
-
-  @Post()
-  @HttpCode(201)
-  async register(@AuthUser() user: AuthenticatedUser, @Body() body: unknown): Promise<CryptoDeviceView> {
-    this.directChats.assertEnabled();
-    const input = parseRequest(registerCryptoDeviceSchema, body, "Invalid device payload");
-    const device = await this.directChats.devices.register(this.directChats.actor(user), input);
-    this.directChats.logMutation("device.register", user.id);
-    return cryptoDeviceViewSchema.parse(device);
-  }
-
-  @Post(":deviceId/rotate")
-  @HttpCode(200)
-  async rotate(
-    @AuthUser() user: AuthenticatedUser,
-    @Param("deviceId") deviceId: string,
-    @Body() body: unknown,
-  ): Promise<CryptoDeviceView> {
-    this.directChats.assertEnabled();
-    const input = parseRequest(rotatePrekeysSchema, body, "Invalid prekey payload");
-    const device = await this.directChats.devices.rotate(this.directChats.actor(user), deviceId, input);
-    this.directChats.logMutation("device.rotate", user.id);
-    return cryptoDeviceViewSchema.parse(device);
-  }
-
-  @Post(":deviceId/revoke")
-  @HttpCode(200)
-  async revoke(@AuthUser() user: AuthenticatedUser, @Param("deviceId") deviceId: string): Promise<CryptoDeviceView> {
-    this.directChats.assertEnabled();
-    const device = await this.directChats.devices.revoke(this.directChats.actor(user), deviceId);
-    this.directChats.logMutation("device.revoke", user.id);
-    return cryptoDeviceViewSchema.parse(device);
-  }
-}
-
-@Controller("v1/direct-chats/users")
-@SensitiveArea()
-@UseGuards(AuthGuard, OriginGuard, SensitiveAreaGuard, DirectChatsRateLimitGuard)
-export class DirectChatPrekeysController {
-  constructor(@Inject(DirectChatsFacade) private readonly directChats: DirectChatsFacade) {}
-
-  @Get(":userId/prekeys")
-  async prekeys(@AuthUser() user: AuthenticatedUser, @Param("userId") userId: string): Promise<PrekeyBundlesResponse> {
-    this.directChats.assertEnabled();
-    await this.directChats.chats.assertCanFetchPrekeys(user.id, userId);
-    const bundles = await this.directChats.devices.prekeyBundlesForUser(userId);
-    return prekeyBundlesResponseSchema.parse({ userId, bundles });
-  }
-}
-
-@Controller("v1/direct-chats")
-@SensitiveArea()
-@UseGuards(AuthGuard, OriginGuard, SensitiveAreaGuard, DirectChatsRateLimitGuard)
-export class DirectChatsController {
-  constructor(
-    @Inject(DirectChatsFacade) private readonly directChats: DirectChatsFacade,
-    @Inject(DirectMentionRoutingService) private readonly mentionRouting: DirectMentionRoutingService,
-  ) {}
-
-  @Post()
-  @HttpCode(201)
-  async create(@AuthUser() user: AuthenticatedUser, @Body() body: unknown): Promise<DirectConversationView> {
-    this.directChats.assertEnabled();
-    const input = parseRequest(createDirectConversationSchema, body, "Invalid Direct Chat payload");
-    const created = await this.directChats.chats.create(this.directChats.actor(user), input);
-    this.directChats.logMutation("conversation.create", user.id, created.id);
-    return directConversationViewSchema.parse(created);
-  }
-
-  @Get()
-  async list(@AuthUser() user: AuthenticatedUser, @Query() query: unknown): Promise<DirectConversationsResponse> {
-    this.directChats.assertEnabled();
-    const parsed = parseRequest(listDirectConversationsQuerySchema, query, "Invalid Direct Chat query");
-    const page = await this.directChats.chats.list(this.directChats.actor(user), {
-      limit: parsed.limit,
-      cursor: parsed.cursor,
-    });
-    return directConversationsResponseSchema.parse(page);
-  }
 
   @Get(":id")
   async getOne(@AuthUser() user: AuthenticatedUser, @Param("id") id: string): Promise<DirectConversationView> {
