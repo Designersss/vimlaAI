@@ -113,11 +113,6 @@ export const sendDirectMessageSchema = z
   .strict();
 export type SendDirectMessage = z.infer<typeof sendDirectMessageSchema>;
 
-export const listDirectConversationsQuerySchema = z.object({
-  limit: z.coerce.number().int().min(1).max(DIRECT_CHAT_LIMITS.pageLimitMax).default(DIRECT_CHAT_LIMITS.pageLimitDefault),
-  cursor: z.string().min(1).max(512).optional(),
-});
-
 export const listDirectMessagesQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(DIRECT_CHAT_LIMITS.pageLimitMax).default(DIRECT_CHAT_LIMITS.pageLimitDefault),
   cursor: z.string().min(1).max(512).optional(),
@@ -191,11 +186,6 @@ export const directConversationSummarySchema = z.object({
 });
 export type DirectConversationSummary = z.infer<typeof directConversationSummarySchema>;
 
-export const directConversationsResponseSchema = z.object({
-  items: z.array(directConversationSummarySchema),
-  nextCursor: z.string().nullable(),
-});
-export type DirectConversationsResponse = z.infer<typeof directConversationsResponseSchema>;
 
 export const directConversationViewSchema = directConversationSummarySchema.extend({
   members: z.array(directParticipantSchema),
