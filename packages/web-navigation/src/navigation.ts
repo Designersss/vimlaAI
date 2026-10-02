@@ -22,6 +22,8 @@ export function navigationTargetToWebPath(
       return "/work";
     case "PROFILE":
       return "/settings/account";
+    case "CHAT":
+      return `/app/chat/${target.id}`;
     case "NOTIFICATION_SETTINGS":
       return "/settings/notifications";
     default: {
