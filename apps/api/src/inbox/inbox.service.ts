@@ -588,7 +588,13 @@ function decodeCursor(
       throw new Error("invalid cursor");
     }
     const at = new Date(decoded.at);
-    if (Number.isNaN(at.getTime())) {
+    if (
+      Number.isNaN(at.getTime()) ||
+      !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(
+        decoded.at,
+      ) ||
+      at.toISOString() !== decoded.at
+    ) {
       throw new Error(
         "invalid cursor time",
       );
