@@ -487,6 +487,4 @@ describe("unified inbox API", () => {
     });
     expect(malformed.statusCode).toBe(400);
   });
-
-  });
 });
