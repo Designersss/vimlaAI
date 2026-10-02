@@ -1494,10 +1494,9 @@ test.describe("Secure Direct Chats", () => {
       { timeout: 20_000 },
     );
     await expect(
-      alicePage.getByText(
-        syntheticActionTitle,
-        { exact: true },
-      ),
+      alicePage
+        .getByTestId("direct-message-action")
+        .filter({ hasText: syntheticActionTitle }),
     ).toHaveCount(1);
     await alicePage.reload();
     await expect(
@@ -1511,10 +1510,9 @@ test.describe("Secure Direct Chats", () => {
       timeout: 20_000,
     });
     await expect(
-      alicePage.getByText(
-        syntheticActionTitle,
-        { exact: true },
-      ),
+      alicePage
+        .getByTestId("direct-message-action")
+        .filter({ hasText: syntheticActionTitle }),
     ).toHaveCount(1);
 
     alicePage.off("request", countMessagePosts);
