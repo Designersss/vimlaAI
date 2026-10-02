@@ -14,6 +14,11 @@ export const INBOX_LIMITS = {
   cursorMax: 512,
 } as const;
 
+export const inboxCursorSchema = z
+  .string()
+  .min(1)
+  .max(INBOX_LIMITS.cursorMax);
+
 export const listInboxQuerySchema = z
   .object({
     limit: z.coerce
@@ -22,7 +27,7 @@ export const listInboxQuerySchema = z
       .min(1)
       .max(INBOX_LIMITS.pageMax)
       .default(INBOX_LIMITS.pageDefault),
-    cursor: z.string().min(1).max(INBOX_LIMITS.cursorMax).optional(),
+    cursor: inboxCursorSchema.optional(),
     kind: communicationSurfaceKindSchema.optional(),
     q: z.string().trim().min(1).max(INBOX_LIMITS.searchMax).optional(),
   })
@@ -114,7 +119,7 @@ export type InboxItem = z.infer<typeof inboxItemSchema>;
 export const inboxResponseSchema = z
   .object({
     items: z.array(inboxItemSchema),
-    nextCursor: z.string().nullable(),
+    nextCursor: inboxCursorSchema.nullable(),
   })
   .strict();
 export type InboxResponse = z.infer<typeof inboxResponseSchema>;
