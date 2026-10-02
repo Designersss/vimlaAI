@@ -2,6 +2,7 @@
 
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type AnchorHTMLAttributes,
@@ -154,8 +155,11 @@ export const ConversationListPane = observer(
     ]);
     const inboxRequestKeyRef =
       useRef(inboxRequestKey);
-    inboxRequestKeyRef.current =
-      inboxRequestKey;
+
+    useLayoutEffect(() => {
+      inboxRequestKeyRef.current =
+        inboxRequestKey;
+    }, [inboxRequestKey]);
 
     useEffect(() => {
       let cancelled = false;
