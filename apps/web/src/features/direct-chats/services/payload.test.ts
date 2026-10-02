@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { decodeDirectPlaintext, encodeDirectPlaintext } from "./payload";
+import {
+  decodeDirectPlaintext,
+  directPlaintextPreview,
+  encodeDirectPlaintext,
+} from "./payload";
 
 describe("direct chat plaintext payloads", () => {
   it("keeps operator clarification in the encrypted response payload", () => {
@@ -38,5 +42,63 @@ describe("direct chat plaintext payloads", () => {
       contextShared: true,
       peerIncluded: false,
     });
+  });
+
+  it("projects structured encrypted payloads without exposing internal JSON metadata", () => {
+    const invoke = encodeDirectPlaintext({
+      type: "invoke",
+      text: "summarize this",
+      contextShared: true,
+      peerIncluded: false,
+    });
+    const response = encodeDirectPlaintext({
+      type: "response",
+      text: "Done",
+      runId: "internal-run-id",
+      clarificationQuestion: null,
+    });
+    const clarification = encodeDirectPlaintext({
+      type: "response",
+      text: "",
+      runId: "internal-run-id",
+      clarificationQuestion: "Which project?",
+    });
+    const action = encodeDirectPlaintext({
+      type: "action",
+      title: "Create reminder",
+      detail: "Tomorrow",
+      status: "success",
+    });
+
+    expect(
+      directPlaintextPreview(
+        "OPERATOR_INVOKE",
+        invoke,
+      ),
+    ).toBe("summarize this");
+    expect(
+      directPlaintextPreview(
+        "OPERATOR_RESPONSE",
+        response,
+      ),
+    ).toBe("Done");
+    expect(
+      directPlaintextPreview(
+        "OPERATOR_RESPONSE",
+        clarification,
+      ),
+    ).toBe("Which project?");
+    expect(
+      directPlaintextPreview(
+        "OPERATOR_ACTION",
+        action,
+      ),
+    ).toBe("Create reminder");
+    expect(
+      directPlaintextPreview(
+        "OPERATOR_RESPONSE",
+        '{"type":"response","text":"visible","runId":123}',
+      ),
+    ).toBeNull();
   });
 });
