@@ -466,6 +466,7 @@ model Message {
   executionPlan           ExecutionPlan?
 
   @@index([conversationId, createdAt])
+  @@index([conversationId, updatedAt, id])
   @@index([aiRequestId])
   @@index([operatorRunId])
   @@map("message")
