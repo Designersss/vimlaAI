@@ -391,13 +391,21 @@ describe("direct chats API", () => {
 
     const listed = await app.inject({
       method: "GET",
-      url: "/v1/direct-chats",
+      url: "/v1/inbox?kind=DIRECT",
       headers: { origin },
       cookies: nikita.cookies,
     });
-    expect(listed.json().items[0]?.unreadCount).toBeGreaterThan(0);
-    expect(listed.json().items[0]).toMatchObject({
-      id: chat.id,
+    const listedChat = listed
+      .json()
+      .items.find(
+        (item: { domainId: string }) =>
+          item.domainId === chat.id,
+      );
+    expect(
+      listedChat?.unreadCount,
+    ).toBeGreaterThan(0);
+    expect(listedChat).toMatchObject({
+      domainId: chat.id,
       surfaceId: chat.surfaceId,
       surfaceKind: "DIRECT",
     });
