@@ -1,6 +1,8 @@
 import {
+  inboxItemSchema,
   inboxResponseSchema,
   type CommunicationSurfaceKind,
+  type InboxItem,
   type InboxResponse,
 } from "@vimla/contracts";
 import {
@@ -19,6 +21,18 @@ export function createInboxClient(
   transport: ClientTransport,
 ) {
   return {
+    fetchInboxItem(
+      surfaceId: string,
+    ): Promise<InboxItem> {
+      return transport.request(
+        `/v1/inbox/${encodeURIComponent(surfaceId)}`,
+        {
+          parse: (payload) =>
+            inboxItemSchema.parse(payload),
+        },
+      );
+    },
+
     fetchInbox(
       input: InboxRequest = {},
     ): Promise<InboxResponse> {
