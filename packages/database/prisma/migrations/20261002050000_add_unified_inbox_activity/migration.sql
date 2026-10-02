@@ -38,6 +38,9 @@ DROP INDEX IF EXISTS "communication_surface_kind_status_updatedAt_idx";
 CREATE INDEX "communication_surface_status_lastActivityAt_id_idx"
   ON "communication_surface"("status", "lastActivityAt", "id");
 
+CREATE INDEX "message_conversationId_updatedAt_id_idx"
+  ON "message"("conversationId", "updatedAt", "id");
+
 CREATE OR REPLACE FUNCTION "vimla_create_ai_thread_communication_surface"()
 RETURNS TRIGGER
 LANGUAGE plpgsql
