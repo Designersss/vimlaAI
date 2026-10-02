@@ -383,6 +383,79 @@ describe("unified inbox API", () => {
     ).toBe(0);
   });
 
+  it("keeps AI preview aligned with the most recently updated message", async () => {
+    const user = await registerVerifiedUser(
+      app,
+      "inbox-ai-update",
+    );
+    const db = app.get(PrismaService).client;
+    const base = Date.now() + 180_000;
+    const firstAt = new Date(base + 1_000);
+    const secondAt = new Date(base + 2_000);
+    const updatedAt = new Date(base + 3_000);
+
+    const conversation =
+      await db.conversation.create({
+        data: {
+          userId: user.id,
+          kind: "CHAT",
+          title: "Updated preview thread",
+        },
+      });
+    const first = await db.message.create({
+      data: {
+        conversationId: conversation.id,
+        role: "ASSISTANT",
+        content: "older response",
+        status: "COMPLETE",
+        createdAt: firstAt,
+        updatedAt: firstAt,
+      },
+    });
+    await db.message.create({
+      data: {
+        conversationId: conversation.id,
+        role: "USER",
+        content: "newer created message",
+        status: "COMPLETE",
+        createdAt: secondAt,
+        updatedAt: secondAt,
+      },
+    });
+    await db.message.update({
+      where: { id: first.id },
+      data: {
+        content: "updated operator response",
+        updatedAt,
+      },
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/v1/inbox?kind=AI_THREAD",
+      headers: { origin },
+      cookies: user.cookies,
+    });
+    expect(response.statusCode).toBe(200);
+    const item = response
+      .json()
+      .items.find(
+        (candidate: { domainId: string }) =>
+          candidate.domainId ===
+          conversation.id,
+      );
+    expect(item).toMatchObject({
+      domainId: conversation.id,
+      lastActivityAt: updatedAt.toISOString(),
+      preview: {
+        kind: "SERVER_TEXT",
+        messageId: first.id,
+        role: "ASSISTANT",
+        text: "updated operator response",
+      },
+    });
+  });
+
   it("bounds malformed persisted peer names instead of failing the whole inbox", async () => {
     const owner = await registerVerifiedUser(
       app,
