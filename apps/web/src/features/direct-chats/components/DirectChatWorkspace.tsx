@@ -205,15 +205,27 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         updateRows(page.decrypted.reverse());
         setNextCursor(page.nextCursor);
         setBoot("ready");
-        const read =
-          detail.unreadCount > 0
-            ? await markDirectChatRead(conversationId)
-            : detail;
-        workspace.setInboxUnreadCount(
-          read.surfaceId,
-          read.unreadCount,
-        );
-        workspace.requestInboxRefresh();
+
+        try {
+          const read =
+            detail.unreadCount > 0
+              ? await markDirectChatRead(
+                  conversationId,
+                )
+              : detail;
+          workspace.setInboxUnreadCount(
+            read.surfaceId,
+            read.unreadCount,
+          );
+          workspace.requestInboxRefresh();
+        } catch (readError: unknown) {
+          if (
+            readError instanceof
+            AuthRequiredError
+          ) {
+            router.replace("/sign-in");
+          }
+        }
       } catch (caught: unknown) {
         if (cancelled) return;
         if (caught instanceof AuthRequiredError) {
