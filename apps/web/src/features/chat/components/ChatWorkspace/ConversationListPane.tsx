@@ -2,6 +2,7 @@
 
 import {
   useEffect,
+  useRef,
   useState,
   type AnchorHTMLAttributes,
   type FormEvent,
@@ -139,6 +140,7 @@ export const ConversationListPane = observer(
       store.inboxRefreshRevision;
     const inboxItems = store.inboxItems;
     const nextCursor = store.inboxNextCursor;
+    const listGeneration = useRef(0);
 
     useEffect(() => {
       let cancelled = false;
@@ -192,6 +194,7 @@ export const ConversationListPane = observer(
         return;
       }
 
+      listGeneration.current += 1;
       let cancelled = false;
       const timer = window.setTimeout(() => {
         void fetchInbox({
@@ -363,14 +366,22 @@ export const ConversationListPane = observer(
       if (!nextCursor || loadingMore) {
         return;
       }
+      const cursor = nextCursor;
+      const generation = listGeneration.current;
       setLoadingMore(true);
       try {
         const page = await fetchInbox({
           limit: 50,
-          cursor: nextCursor,
+          cursor,
           kind,
           q: normalizedQuery,
         });
+        if (
+          generation !== listGeneration.current ||
+          store.inboxNextCursor !== cursor
+        ) {
+          return;
+        }
         store.setInboxPage(page, true);
         setListError(false);
       } catch (error: unknown) {
