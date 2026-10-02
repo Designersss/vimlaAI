@@ -1,6 +1,7 @@
 import type {
   ConversationDefaultTarget,
   ConversationDetail,
+  ConversationSummary,
 } from "@vimla/contracts";
 import { createWebClientApi } from "../../../shared/api/client";
 
