@@ -629,7 +629,6 @@ export const ConversationListPane = observer(
                   <DirectConversationRow
                     key={item.surfaceId}
                     name={item.title}
-                    avatarUrl={item.peer.avatarUrl}
                     preview={
                       preview ?? undefined
                     }
