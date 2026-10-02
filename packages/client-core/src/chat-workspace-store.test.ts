@@ -1,11 +1,44 @@
 import { describe, expect, it } from "vitest";
-import type { ChatMessage, DirectConversationSummary } from "@vimla/contracts";
+import type {
+  ChatMessage,
+  InboxItem,
+} from "@vimla/contracts";
 import { ChatWorkspaceStore } from "./chat-workspace-store.js";
 
-const historyCreatedAt = "2026-09-14T00:00:00Z";
-const history: ChatMessage[] = [{
-  id: "saved", role: "USER", content: "Saved message", status: "COMPLETE", createdAt: historyCreatedAt, mentions: [],
-}];
+const historyCreatedAt =
+  "2026-09-14T00:00:00Z";
+const history: ChatMessage[] = [
+  {
+    id: "saved",
+    role: "USER",
+    content: "Saved message",
+    status: "COMPLETE",
+    createdAt: historyCreatedAt,
+    mentions: [],
+  },
+];
+
+function aiInboxItem(
+  surfaceId: string,
+  domainId: string,
+  lastActivityAt: string,
+): InboxItem {
+  return {
+    surfaceId,
+    surfaceKind: "AI_THREAD",
+    domainId,
+    title: domainId,
+    peer: null,
+    lastActivityAt,
+    unreadCount: 0,
+    preview: { kind: "NONE" },
+    navigationTarget: {
+      version: 1,
+      kind: "CHAT",
+      id: surfaceId,
+    },
+  };
+}
 
 describe("persistent chat workspace", () => {
   it("isolates drafts, messages and late stream callbacks by conversation without selecting a route", () => {
@@ -18,125 +51,132 @@ describe("persistent chat workspace", () => {
     expect(workspace.conversation("a")).toBe(a);
     expect(a.draft).toBe("A draft");
     a.beginUserMessage("A question");
-    const lateDelta = (text: string): void => a.appendAssistantDelta(text);
+    const lateDelta = (text: string): void =>
+      a.appendAssistantDelta(text);
     b.beginUserMessage("B question");
     b.appendAssistantDelta("B answer");
     lateDelta("A answer");
     a.finishAssistant();
-    expect(a.messages.at(-1)).toMatchObject({ content: "A answer", status: "COMPLETE" });
-    expect(b.messages.at(-1)).toMatchObject({ content: "B answer", status: "STREAMING" });
+    expect(a.messages.at(-1)).toMatchObject({
+      content: "A answer",
+      status: "COMPLETE",
+    });
+    expect(b.messages.at(-1)).toMatchObject({
+      content: "B answer",
+      status: "STREAMING",
+    });
     expect(b.streaming).toBe(true);
     b.failAssistant("rate_limited");
     expect(a.error).toBeNull();
-    expect(b.messages.at(-1)?.status).toBe("FAILED");
+    expect(b.messages.at(-1)?.status).toBe(
+      "FAILED",
+    );
   });
 
   it("does not overwrite a pending or just-completed send with an older detail response", () => {
-    const state = new ChatWorkspaceStore().conversation("a");
+    const state =
+      new ChatWorkspaceStore().conversation("a");
     const revisionAtFetch = state.revision;
     state.beginUserMessage("New message");
     const revisionDuringStream = state.revision;
     state.setMessages(history, state.revision);
-    expect(state.messages[0]?.content).toBe("New message");
+    expect(state.messages[0]?.content).toBe(
+      "New message",
+    );
     state.appendAssistantDelta("New answer");
     state.finishAssistant();
     state.setMessages(history, revisionAtFetch);
-    expect(state.messages.at(-1)?.content).toBe("New answer");
-    state.setMessages(history, revisionDuringStream);
-    expect(state.messages.at(-1)?.content).toBe("New answer");
+    expect(
+      state.messages.at(-1)?.content,
+    ).toBe("New answer");
+    state.setMessages(
+      history,
+      revisionDuringStream,
+    );
+    expect(
+      state.messages.at(-1)?.content,
+    ).toBe("New answer");
     state.setMessages(history, state.revision);
     expect(state.messages).toEqual(history);
   });
 
-  it("creating another chat preserves existing state, and a new workspace has no previous user's drafts", () => {
+  it("keeps detail state independent from unified inbox refreshes", () => {
     const workspace = new ChatWorkspaceStore();
-    workspace.conversation("a").setDraft("Private draft");
-    workspace.conversation("a").setMessages(history, 0);
-    workspace.addConversation({
-      id: "b",
-      surfaceId: "11111111-1111-4111-8111-111111111111",
-      surfaceKind: "AI_THREAD",
-      projectId: null,
-      title: "B",
-      defaultTarget: null,
-      updatedAt: historyCreatedAt,
+    workspace.conversation("a").setDraft(
+      "Private draft",
+    );
+    workspace
+      .conversation("a")
+      .setMessages(history, 0);
+
+    workspace.setInboxPage({
+      items: [
+        aiInboxItem(
+          "11111111-1111-4111-8111-111111111111",
+          "b",
+          "2026-09-14T12:00:00Z",
+        ),
+      ],
+      nextCursor: null,
     });
-    workspace.addConversation({
-      id: "b",
-      surfaceId: "11111111-1111-4111-8111-111111111111",
-      surfaceKind: "AI_THREAD",
-      projectId: null,
-      title: "Updated B",
-      defaultTarget: null,
-      updatedAt: historyCreatedAt,
+    workspace.setInboxPage({
+      items: [
+        aiInboxItem(
+          "22222222-2222-4222-8222-222222222222",
+          "c",
+          "2026-09-14T13:00:00Z",
+        ),
+      ],
+      nextCursor: null,
     });
-    expect(workspace.conversations).toHaveLength(1);
-    expect(workspace.conversation("a").messages).toEqual(history);
-    expect(workspace.conversation("a").draft).toBe("Private draft");
-    expect(new ChatWorkspaceStore().conversation("a").draft).toBe("");
+
+    expect(
+      workspace.inboxItems.map(
+        (item) => item.domainId,
+      ),
+    ).toEqual(["c"]);
+    expect(
+      workspace.conversation("a").messages,
+    ).toEqual(history);
+    expect(
+      workspace.conversation("a").draft,
+    ).toBe("Private draft");
+    expect(
+      new ChatWorkspaceStore().conversation("a")
+        .draft,
+    ).toBe("");
   });
 
-  it("moves a Direct Chat to the front when sync reports a newer message", () => {
+  it("preserves server ordering while appending paginated inbox results without duplicates", () => {
     const workspace = new ChatWorkspaceStore();
-    const base: DirectConversationSummary = {
-      id: "a",
-      surfaceId: "22222222-2222-4222-8222-222222222222",
-      surfaceKind: "DIRECT",
-      peer: { userId: "peer-a", name: "A", email: "a@example.com" },
-      lastMessageAt: "2026-09-14T10:00:00Z",
-      createdAt: historyCreatedAt,
-      unreadCount: 0,
-      lastKind: "HUMAN",
-      lastSenderUserId: "peer-a",
-      privacy: {
-        shareOwnHistoryWithVimla: false,
-        includePeerHistoryWhenInvoking: false,
-        peerShareOwnHistoryWithVimla: false,
-      },
-    };
-    workspace.hydrateDirectConversations([
-      { ...base, id: "b", surfaceId: "44444444-4444-4444-8444-444444444444", peer: { userId: "peer-b", name: "B", email: "b@example.com" }, lastMessageAt: "2026-09-14T11:00:00Z" },
-      base,
-    ]);
+    const first = aiInboxItem(
+      "33333333-3333-4333-8333-333333333333",
+      "first",
+      "2026-09-14T13:00:00Z",
+    );
+    const second = aiInboxItem(
+      "44444444-4444-4444-8444-444444444444",
+      "second",
+      "2026-09-14T12:00:00Z",
+    );
 
-    workspace.updateDirectConversation({
-      ...base,
-      lastMessageAt: "2026-09-14T12:00:00Z",
-      unreadCount: 1,
+    workspace.setInboxPage({
+      items: [first],
+      nextCursor: "page-2",
     });
-
-    expect(workspace.directConversations.map((item) => item.id)).toEqual(["a", "b"]);
-    expect(workspace.directConversations[0]?.unreadCount).toBe(1);
-  });
-
-  it("keeps a newer read response when a cold direct-chat list arrives late", () => {
-    const workspace = new ChatWorkspaceStore();
-    const unread: DirectConversationSummary = {
-      id: "a",
-      surfaceId: "33333333-3333-4333-8333-333333333333",
-      surfaceKind: "DIRECT",
-      peer: { userId: "peer", name: "Peer", email: "peer@example.com" },
-      lastMessageAt: historyCreatedAt,
-      createdAt: historyCreatedAt,
-      unreadCount: 1,
-      lastKind: "HUMAN",
-      lastSenderUserId: "peer",
-      privacy: {
-        shareOwnHistoryWithVimla: false,
-        includePeerHistoryWhenInvoking: false,
-        peerShareOwnHistoryWithVimla: false,
-      },
-    };
-    workspace.updateDirectConversation({ ...unread, unreadCount: 0 });
-    workspace.hydrateDirectConversations([
-      unread,
+    workspace.setInboxPage(
       {
-        ...unread,
-        id: "b",
-        surfaceId: "55555555-5555-4555-8555-555555555555",
+        items: [first, second],
+        nextCursor: null,
       },
-    ]);
-    expect(workspace.directConversations.map(({ id, unreadCount }) => ({ id, unreadCount })))
-      .toEqual([{ id: "a", unreadCount: 0 }, { id: "b", unreadCount: 1 }]);
+      true,
+    );
+
+    expect(
+      workspace.inboxItems.map(
+        (item) => item.domainId,
+      ),
+    ).toEqual(["first", "second"]);
+    expect(workspace.inboxNextCursor).toBeNull();
   });
 });
