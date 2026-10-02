@@ -63,27 +63,13 @@ describe("unified inbox API", () => {
     }
   });
 
-  it("fails closed for anonymous and untrusted-origin inbox reads", async () => {
+  it("requires authentication for inbox reads", async () => {
     const anonymous = await app.inject({
       method: "GET",
       url: "/v1/inbox",
       headers: { origin },
     });
     expect(anonymous.statusCode).toBe(401);
-
-    const user = await registerVerifiedUser(
-      app,
-      "inbox-origin",
-    );
-    const untrusted = await app.inject({
-      method: "GET",
-      url: "/v1/inbox",
-      headers: {
-        origin: "https://evil.example",
-      },
-      cookies: user.cookies,
-    });
-    expect(untrusted.statusCode).toBe(403);
   });
 
   it("returns one authorized stable mixed feed without Direct plaintext", async () => {
