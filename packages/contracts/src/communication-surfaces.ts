@@ -1,5 +1,8 @@
 import { z } from "zod";
 
+export const communicationSurfaceIdSchema =
+  z.string().uuid();
+
 export const communicationSurfaceKindSchema = z.enum([
   "AI_THREAD",
   "DIRECT",
@@ -17,7 +20,7 @@ export type CommunicationSurfaceStatus = z.infer<
 
 export const communicationSurfaceRefSchema = z
   .object({
-    surfaceId: z.string().uuid(),
+    surfaceId: communicationSurfaceIdSchema,
     surfaceKind: communicationSurfaceKindSchema,
   })
   .strict();
