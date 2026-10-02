@@ -210,7 +210,10 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
             ? await markDirectChatRead(conversationId)
             : detail;
         if (!cancelled) {
-          workspace.updateDirectConversation(read);
+          workspace.setInboxUnreadCount(
+          read.surfaceId,
+          read.unreadCount,
+        );
         }
       } catch (caught: unknown) {
         if (cancelled) return;
@@ -259,7 +262,10 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
           ? await markDirectChatRead(conversationId)
           : detail;
       if (!cancelled) {
-        workspace.updateDirectConversation(read);
+        workspace.setInboxUnreadCount(
+          read.surfaceId,
+          read.unreadCount,
+        );
       }
     };
 
@@ -565,6 +571,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
             );
           });
       }
+      workspace.requestInboxRefresh();
       return result.message;
     } catch (caught: unknown) {
       setError(
