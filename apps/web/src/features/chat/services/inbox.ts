@@ -16,6 +16,15 @@ export interface FetchInboxInput {
   q?: string;
 }
 
+export function fetchInboxItem(
+  surfaceId: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<InboxItem> {
+  return createWebClientApi(
+    fetchImpl,
+  ).inbox.fetchInboxItem(surfaceId);
+}
+
 export function fetchInbox(
   input: FetchInboxInput = {},
   fetchImpl: typeof fetch = fetch,
