@@ -260,6 +260,7 @@ export const ConversationListPane = observer(
       };
     }, [
       boot,
+      inboxRequestKey,
       kind,
       normalizedQuery,
       refreshRevision,
