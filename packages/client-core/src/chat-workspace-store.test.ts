@@ -179,4 +179,43 @@ describe("persistent chat workspace", () => {
     ).toEqual(["first", "second"]);
     expect(workspace.inboxNextCursor).toBeNull();
   });
+
+  it("updates unified unread state and exposes an explicit refresh signal", () => {
+    const workspace = new ChatWorkspaceStore();
+    const direct: InboxItem = {
+      surfaceId: "55555555-5555-4555-8555-555555555555",
+      surfaceKind: "DIRECT",
+      domainId: "66666666-6666-4666-8666-666666666666",
+      title: "Peer",
+      peer: {
+        userId: "peer",
+        name: "Peer",
+        avatarUrl: null,
+      },
+      lastActivityAt: "2026-09-14T14:00:00Z",
+      unreadCount: 3,
+      preview: { kind: "NONE" },
+      navigationTarget: {
+        version: 1,
+        kind: "CHAT",
+        id: "55555555-5555-4555-8555-555555555555",
+      },
+    };
+    workspace.setInboxPage({
+      items: [direct],
+      nextCursor: null,
+    });
+
+    workspace.setInboxUnreadCount(
+      direct.surfaceId,
+      0,
+    );
+    expect(
+      workspace.inboxItems[0]?.unreadCount,
+    ).toBe(0);
+
+    expect(workspace.inboxRefreshRevision).toBe(0);
+    workspace.requestInboxRefresh();
+    expect(workspace.inboxRefreshRevision).toBe(1);
+  });
 });
