@@ -6,6 +6,7 @@ import {
 import {
   INBOX_LIMITS,
   directMessageKindSchema,
+  type CommunicationSurfaceKind,
   type InboxItem,
   type InboxResponse,
   type ListInboxQuery,
@@ -23,6 +24,46 @@ import { PrismaService } from "../persistence/prisma.service.js";
 const CURSOR_VERSION = 1 as const;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const surfaceInclude = {
+  conversation: {
+    include: {
+      messages: {
+        orderBy: [
+          { createdAt: "desc" as const },
+          { id: "desc" as const },
+        ],
+        take: 1,
+      },
+    },
+  },
+  directConversation: {
+    include: {
+      members: {
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+        },
+      },
+      messages: {
+        orderBy: [
+          { createdAt: "desc" as const },
+          { id: "desc" as const },
+        ],
+        take: 1,
+      },
+    },
+  },
+} satisfies Prisma.CommunicationSurfaceInclude;
+
+type InboxSurfaceRow =
+  Prisma.CommunicationSurfaceGetPayload<{
+    include: typeof surfaceInclude;
+  }>;
 
 type DecodedCursor = {
   at: Date;
@@ -51,7 +92,8 @@ export class InboxService {
     userId: string,
     query: ListInboxQuery,
   ): Promise<InboxResponse> {
-    const normalizedSearch = query.q?.trim() || null;
+    const normalizedSearch =
+      query.q?.trim() || null;
     const filterKey = cursorFilterKey(
       query.kind ?? null,
       normalizedSearch,
@@ -59,69 +101,18 @@ export class InboxService {
     const cursor = query.cursor
       ? decodeCursor(query.cursor, filterKey)
       : null;
-
-    const authorityBranches: Prisma.CommunicationSurfaceWhereInput[] =
-      [];
-
-    if (!query.kind || query.kind === "AI_THREAD") {
-      authorityBranches.push({
-        kind: "AI_THREAD",
-        conversation: {
-          is: {
-            userId,
-            kind: "CHAT",
-            ...(normalizedSearch
-              ? {
-                  title: {
-                    contains: normalizedSearch,
-                    mode: "insensitive",
-                  },
-                }
-              : {}),
-          },
-        },
-      });
-    }
-
-    if (
-      this.config.directChatsEnabled &&
-      (!query.kind || query.kind === "DIRECT")
-    ) {
-      authorityBranches.push({
-        kind: "DIRECT",
-        directConversation: {
-          is: {
-            AND: [
-              {
-                members: {
-                  some: { userId },
-                },
-              },
-              ...(normalizedSearch
-                ? [
-                    {
-                      members: {
-                        some: {
-                          userId: { not: userId },
-                          user: {
-                            name: {
-                              contains: normalizedSearch,
-                              mode: "insensitive" as const,
-                            },
-                          },
-                        },
-                      },
-                    },
-                  ]
-                : []),
-            ],
-          },
-        },
-      });
-    }
+    const authorityBranches =
+      this.authorityBranches(
+        userId,
+        query.kind,
+        normalizedSearch,
+      );
 
     if (authorityBranches.length === 0) {
-      return { items: [], nextCursor: null };
+      return {
+        items: [],
+        nextCursor: null,
+      };
     }
 
     const rows =
@@ -146,7 +137,9 @@ export class InboxService {
                               cursor.at,
                           },
                           {
-                            id: { lt: cursor.id },
+                            id: {
+                              lt: cursor.id,
+                            },
                           },
                         ],
                       },
@@ -156,40 +149,7 @@ export class InboxService {
               : []),
           ],
         },
-        include: {
-          conversation: {
-            include: {
-              messages: {
-                orderBy: [
-                  { createdAt: "desc" },
-                  { id: "desc" },
-                ],
-                take: 1,
-              },
-            },
-          },
-          directConversation: {
-            include: {
-              members: {
-                include: {
-                  user: {
-                    select: {
-                      id: true,
-                      name: true,
-                    },
-                  },
-                },
-              },
-              messages: {
-                orderBy: [
-                  { createdAt: "desc" },
-                  { id: "desc" },
-                ],
-                take: 1,
-              },
-            },
-          },
-        },
+        include: surfaceInclude,
         orderBy: [
           { lastActivityAt: "desc" },
           { id: "desc" },
@@ -197,132 +157,22 @@ export class InboxService {
         take: query.limit + 1,
       });
 
-    const page = rows.slice(0, query.limit);
+    const page = rows.slice(
+      0,
+      query.limit,
+    );
     const unreadCounts =
       await this.readDirectUnreadCounts(
         userId,
-        page
-          .map(
-            (row) =>
-              row.directConversation?.id ?? null,
-          )
-          .filter(
-            (id): id is string => id !== null,
-          ),
+        directConversationIds(page),
       );
-
-    const items = page.map((row): InboxItem => {
-      if (row.kind === "AI_THREAD") {
-        const conversation = row.conversation;
-        if (
-          !conversation ||
-          conversation.userId !== userId ||
-          conversation.kind !== "CHAT"
-        ) {
-          throw new Error(
-            "AI thread inbox surface binding is invalid",
-          );
-        }
-        const latest = conversation.messages[0];
-        const preview =
-          latest &&
-          (latest.role === "USER" ||
-            latest.role === "ASSISTANT")
-            ? {
-                kind: "SERVER_TEXT" as const,
-                messageId: latest.id,
-                role: latest.role,
-                text: compactServerPreview(
-                  latest.content,
-                ),
-              }
-            : { kind: "NONE" as const };
-
-        return {
-          surfaceId: row.id,
-          surfaceKind: "AI_THREAD",
-          domainId: conversation.id,
-          title: conversation.title,
-          peer: null,
-          lastActivityAt:
-            row.lastActivityAt.toISOString(),
-          unreadCount: 0,
-          preview,
-          navigationTarget: {
-            version: 1,
-            kind: "CHAT",
-            id: row.id,
-          },
-        };
-      }
-
-      if (row.kind === "DIRECT") {
-        const conversation =
-          row.directConversation;
-        if (!conversation) {
-          throw new Error(
-            "Direct inbox surface binding is invalid",
-          );
-        }
-        const mine = conversation.members.find(
-          (member) => member.userId === userId,
-        );
-        const peer = conversation.members.find(
-          (member) => member.userId !== userId,
-        );
-        if (!mine || !peer) {
-          throw new Error(
-            "Direct inbox membership is invalid",
-          );
-        }
-        const latest = conversation.messages[0];
-        const parsedKind = latest
-          ? directMessageKindSchema.safeParse(
-              latest.kind,
-            )
-          : null;
-        const preview =
-          latest && parsedKind?.success
-            ? {
-                kind: "E2EE_LOCAL" as const,
-                messageId: latest.id,
-                senderUserId:
-                  latest.senderUserId,
-                messageKind: parsedKind.data,
-                createdAt:
-                  latest.createdAt.toISOString(),
-              }
-            : { kind: "NONE" as const };
-
-        return {
-          surfaceId: row.id,
-          surfaceKind: "DIRECT",
-          domainId: conversation.id,
-          title: peer.user.name,
-          peer: {
-            userId: peer.user.id,
-            name: peer.user.name,
-            avatarUrl: null,
-          },
-          lastActivityAt:
-            row.lastActivityAt.toISOString(),
-          unreadCount:
-            unreadCounts.get(
-              conversation.id,
-            ) ?? 0,
-          preview,
-          navigationTarget: {
-            version: 1,
-            kind: "CHAT",
-            id: row.id,
-          },
-        };
-      }
-
-      throw new Error(
-        "Unsupported communication surface kind reached inbox",
-      );
-    });
+    const items = page.map((row) =>
+      this.toItem(
+        userId,
+        row,
+        unreadCounts,
+      ),
+    );
 
     const last = page.at(-1);
     return {
@@ -336,6 +186,254 @@ export class InboxService {
             )
           : null,
     };
+  }
+
+  async get(
+    userId: string,
+    surfaceId: string,
+  ): Promise<InboxItem | null> {
+    const authorityBranches =
+      this.authorityBranches(
+        userId,
+        undefined,
+        null,
+      );
+    if (authorityBranches.length === 0) {
+      return null;
+    }
+
+    const row =
+      await this.prisma.communicationSurface.findFirst({
+        where: {
+          id: surfaceId,
+          status: "ACTIVE",
+          OR: authorityBranches,
+        },
+        include: surfaceInclude,
+      });
+    if (!row) {
+      return null;
+    }
+
+    const unreadCounts =
+      await this.readDirectUnreadCounts(
+        userId,
+        directConversationIds([row]),
+      );
+    return this.toItem(
+      userId,
+      row,
+      unreadCounts,
+    );
+  }
+
+  private authorityBranches(
+    userId: string,
+    kind: CommunicationSurfaceKind | undefined,
+    normalizedSearch: string | null,
+  ): Prisma.CommunicationSurfaceWhereInput[] {
+    const branches:
+      Prisma.CommunicationSurfaceWhereInput[] =
+      [];
+
+    if (!kind || kind === "AI_THREAD") {
+      branches.push({
+        kind: "AI_THREAD",
+        conversation: {
+          is: {
+            userId,
+            kind: "CHAT",
+            ...(normalizedSearch
+              ? {
+                  title: {
+                    contains: normalizedSearch,
+                    mode: "insensitive",
+                  },
+                }
+              : {}),
+          },
+        },
+      });
+    }
+
+    if (
+      this.config.directChatsEnabled &&
+      (!kind || kind === "DIRECT")
+    ) {
+      branches.push({
+        kind: "DIRECT",
+        directConversation: {
+          is: {
+            AND: [
+              {
+                members: {
+                  some: { userId },
+                },
+              },
+              ...(normalizedSearch
+                ? [
+                    {
+                      members: {
+                        some: {
+                          userId: {
+                            not: userId,
+                          },
+                          user: {
+                            OR: [
+                              {
+                                name: {
+                                  contains:
+                                    normalizedSearch,
+                                  mode: "insensitive" as const,
+                                },
+                              },
+                              {
+                                email: {
+                                  contains:
+                                    normalizedSearch,
+                                  mode: "insensitive" as const,
+                                },
+                              },
+                            ],
+                          },
+                        },
+                      },
+                    },
+                  ]
+                : []),
+            ],
+          },
+        },
+      });
+    }
+
+    return branches;
+  }
+
+  private toItem(
+    userId: string,
+    row: InboxSurfaceRow,
+    unreadCounts: ReadonlyMap<string, number>,
+  ): InboxItem {
+    if (row.kind === "AI_THREAD") {
+      const conversation = row.conversation;
+      if (
+        !conversation ||
+        conversation.userId !== userId ||
+        conversation.kind !== "CHAT"
+      ) {
+        throw new Error(
+          "AI thread inbox surface binding is invalid",
+        );
+      }
+
+      const latest =
+        conversation.messages[0];
+      const preview =
+        latest &&
+        (latest.role === "USER" ||
+          latest.role === "ASSISTANT")
+          ? {
+              kind: "SERVER_TEXT" as const,
+              messageId: latest.id,
+              role: latest.role,
+              text: compactServerPreview(
+                latest.content,
+              ),
+            }
+          : { kind: "NONE" as const };
+
+      return {
+        surfaceId: row.id,
+        surfaceKind: "AI_THREAD",
+        domainId: conversation.id,
+        title: conversation.title,
+        peer: null,
+        lastActivityAt:
+          row.lastActivityAt.toISOString(),
+        unreadCount: 0,
+        preview,
+        navigationTarget: {
+          version: 1,
+          kind: "CHAT",
+          id: row.id,
+        },
+      };
+    }
+
+    if (row.kind === "DIRECT") {
+      const conversation =
+        row.directConversation;
+      if (!conversation) {
+        throw new Error(
+          "Direct inbox surface binding is invalid",
+        );
+      }
+      const mine =
+        conversation.members.find(
+          (member) =>
+            member.userId === userId,
+        );
+      const peer =
+        conversation.members.find(
+          (member) =>
+            member.userId !== userId,
+        );
+      if (!mine || !peer) {
+        throw new Error(
+          "Direct inbox membership is invalid",
+        );
+      }
+
+      const latest =
+        conversation.messages[0];
+      const parsedKind = latest
+        ? directMessageKindSchema.safeParse(
+            latest.kind,
+          )
+        : null;
+      const preview =
+        latest && parsedKind?.success
+          ? {
+              kind: "E2EE_LOCAL" as const,
+              messageId: latest.id,
+              senderUserId:
+                latest.senderUserId,
+              messageKind:
+                parsedKind.data,
+              createdAt:
+                latest.createdAt.toISOString(),
+            }
+          : { kind: "NONE" as const };
+
+      return {
+        surfaceId: row.id,
+        surfaceKind: "DIRECT",
+        domainId: conversation.id,
+        title: peer.user.name,
+        peer: {
+          userId: peer.user.id,
+          name: peer.user.name,
+          avatarUrl: null,
+        },
+        lastActivityAt:
+          row.lastActivityAt.toISOString(),
+        unreadCount:
+          unreadCounts.get(
+            conversation.id,
+          ) ?? 0,
+        preview,
+        navigationTarget: {
+          version: 1,
+          kind: "CHAT",
+          id: row.id,
+        },
+      };
+    }
+
+    throw new Error(
+      "Unsupported communication surface kind reached inbox",
+    );
   }
 
   private async readDirectUnreadCounts(
@@ -376,13 +474,30 @@ export class InboxService {
   }
 }
 
+function directConversationIds(
+  rows: readonly InboxSurfaceRow[],
+): string[] {
+  return rows
+    .map(
+      (row) =>
+        row.directConversation?.id ??
+        null,
+    )
+    .filter(
+      (id): id is string => id !== null,
+    );
+}
+
 function compactServerPreview(
   value: string,
 ): string {
   return value
     .trim()
     .replace(/\s+/g, " ")
-    .slice(0, INBOX_LIMITS.serverPreviewMax);
+    .slice(
+      0,
+      INBOX_LIMITS.serverPreviewMax,
+    );
 }
 
 function cursorFilterKey(
@@ -417,9 +532,10 @@ function decodeCursor(
 ): DecodedCursor {
   try {
     const decoded = JSON.parse(
-      Buffer.from(value, "base64url").toString(
-        "utf8",
-      ),
+      Buffer.from(
+        value,
+        "base64url",
+      ).toString("utf8"),
     ) as unknown;
     if (
       decoded === null ||
@@ -432,15 +548,21 @@ function decodeCursor(
       typeof decoded.id !== "string" ||
       !UUID_PATTERN.test(decoded.id) ||
       !("filterKey" in decoded) ||
-      decoded.filterKey !== expectedFilterKey
+      decoded.filterKey !==
+        expectedFilterKey
     ) {
       throw new Error("invalid cursor");
     }
     const at = new Date(decoded.at);
     if (Number.isNaN(at.getTime())) {
-      throw new Error("invalid cursor time");
+      throw new Error(
+        "invalid cursor time",
+      );
     }
-    return { at, id: decoded.id };
+    return {
+      at,
+      id: decoded.id,
+    };
   } catch {
     throw new BadRequestException(
       "Invalid inbox cursor",
