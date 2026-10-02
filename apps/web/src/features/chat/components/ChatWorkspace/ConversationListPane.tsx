@@ -17,6 +17,7 @@ import {
 import { observer } from "mobx-react-lite";
 import type {
   CommunicationSurfaceKind,
+  InboxItem,
 } from "@vimla/contracts";
 import {
   AIConversationRow,
@@ -129,9 +130,15 @@ export const ConversationListPane = observer(
     const [createError, setCreateError] =
       useState(false);
     const [previews, setPreviews] =
-      useState<Record<string, string | null>>(
-        {},
-      );
+      useState<
+        Record<
+          string,
+          {
+            descriptorKey: string | null;
+            text: string | null;
+          }
+        >
+      >({});
 
     const kind = inboxKindFor(tab);
     const normalizedQuery =
@@ -243,7 +250,13 @@ export const ConversationListPane = observer(
       void Promise.all(
         inboxItems.map(async (item) => [
           item.surfaceId,
-          await resolveWebInboxPreview(item),
+          {
+            descriptorKey:
+              inboxPreviewDescriptorKey(item),
+            text: await resolveWebInboxPreview(
+              item,
+            ),
+          },
         ] as const),
       ).then((entries) => {
         if (!cancelled) {
@@ -526,18 +539,29 @@ export const ConversationListPane = observer(
           ) : (
             <div className={styles.list} data-testid="unified-inbox-list">
               {inboxItems.map((item) => {
-                const localPreview =
+                const resolvedPreview =
                   previews[item.surfaceId];
+                const descriptorKey =
+                  inboxPreviewDescriptorKey(item);
+                const localPreview =
+                  resolvedPreview?.descriptorKey ===
+                  descriptorKey
+                    ? resolvedPreview.text
+                    : null;
                 const preview =
-                  localPreview ??
-                  (item.surfaceKind ===
-                    "DIRECT" &&
-                  item.preview.kind ===
-                    "E2EE_LOCAL"
-                    ? t(
-                        "direct.encryptedPreview",
-                      )
-                    : undefined);
+                  item.surfaceKind ===
+                    "AI_THREAD"
+                    ? item.preview.kind ===
+                      "SERVER_TEXT"
+                      ? item.preview.text
+                      : undefined
+                    : localPreview ??
+                      (item.preview.kind ===
+                      "E2EE_LOCAL"
+                        ? t(
+                            "direct.encryptedPreview",
+                          )
+                        : undefined);
                 const time = new Date(
                   item.lastActivityAt,
                 ).toLocaleString(locale);
@@ -656,6 +680,24 @@ export const ConversationListPane = observer(
     );
   },
 );
+
+function inboxPreviewDescriptorKey(
+  item: InboxItem,
+): string | null {
+  if (
+    item.surfaceKind !== "DIRECT" ||
+    item.preview.kind !== "E2EE_LOCAL"
+  ) {
+    return null;
+  }
+
+  return [
+    item.preview.messageId,
+    item.preview.senderUserId,
+    item.preview.messageKind,
+    item.preview.createdAt,
+  ].join("\u0000");
+}
 
 function renderConversationLink(
   props: AnchorHTMLAttributes<HTMLAnchorElement> & {
