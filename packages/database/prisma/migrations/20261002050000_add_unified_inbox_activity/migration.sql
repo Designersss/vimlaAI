@@ -98,7 +98,7 @@ $$;
 CREATE FUNCTION "vimla_touch_ai_thread_surface_activity"()
 RETURNS TRIGGER
 LANGUAGE plpgsql
-AS $
+AS $$
 BEGIN
   UPDATE "communication_surface"
   SET "lastActivityAt" = GREATEST(
@@ -111,7 +111,7 @@ BEGIN
     AND "conversationId" = NEW."conversationId";
   RETURN NEW;
 END;
-$;
+$$;
 
 CREATE TRIGGER "message_touch_communication_surface_activity"
 AFTER INSERT OR UPDATE ON "message"
