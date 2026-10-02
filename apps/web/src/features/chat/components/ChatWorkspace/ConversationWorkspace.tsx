@@ -347,6 +347,7 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
           store.setDefaultTarget(detail.defaultTarget);
           setTitle(detail.title);
           setWorkflowRefreshToken((value) => value + 1);
+          workspace.requestInboxRefresh();
         }
       } catch (error: unknown) {
         if (error instanceof AuthRequiredError) {
@@ -373,6 +374,7 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
             store.setDefaultTarget({ kind: "AI_MODEL", modelId });
           }
           setWorkflowRefreshToken((value) => value + 1);
+          workspace.requestInboxRefresh();
           void fetchUsage().then((usage) => workspace.setUsage(usage));
         },
         onError: (code) => store.failAssistant(code),
