@@ -86,7 +86,7 @@ describe("unified inbox API", () => {
       },
     });
     const aiAt = new Date(
-      "2026-10-02T05:00:00.000Z",
+      Date.now() + 60_000,
     );
     await db.message.create({
       data: {
@@ -126,7 +126,7 @@ describe("unified inbox API", () => {
         },
       });
     const directAt = new Date(
-      "2026-10-02T05:01:00.000Z",
+      aiAt.getTime() + 60_000,
     );
     const directMessage =
       await db.directMessage.create({
