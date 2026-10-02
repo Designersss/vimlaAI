@@ -22,6 +22,7 @@ export const navigationTargetSchema = z.discriminatedUnion("kind", [
   entityTarget("LIST"),
   staticTarget("TODAY"),
   staticTarget("PROFILE"),
+  entityTarget("CHAT"),
   staticTarget("NOTIFICATION_SETTINGS"),
 ]);
 
