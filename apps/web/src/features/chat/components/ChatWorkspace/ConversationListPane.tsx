@@ -513,7 +513,7 @@ export const ConversationListPane = observer(
               }
             />
           ) : (
-            <div className={styles.list}>
+            <div className={styles.list} data-testid="unified-inbox-list">
               {inboxItems.map((item) => {
                 const localPreview =
                   previews[item.surfaceId];
