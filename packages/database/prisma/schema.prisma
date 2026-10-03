@@ -1161,6 +1161,7 @@ model DirectConversationMember {
   user                            User               @relation(fields: [userId], references: [id], onDelete: Restrict)
   lastReadAt                      DateTime?
   lastReadMessageCreatedAt        DateTime?
+  lastReadMessageId               String?
   shareOwnHistoryWithVimla        Boolean            @default(false)
   includePeerHistoryWhenInvoking  Boolean            @default(false)
   createdAt                       DateTime           @default(now())
@@ -1185,7 +1186,7 @@ model DirectMessage {
   envelopes      DirectMessageEnvelope[]
 
   @@unique([conversationId, senderUserId, clientMessageId])
-  @@index([conversationId, createdAt])
+  @@index([conversationId, createdAt, id])
   @@index([senderDeviceId, createdAt])
   @@map("direct_message")
 }
