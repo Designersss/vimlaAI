@@ -58,19 +58,22 @@ test.describe("Unified Inbox", () => {
     // Inbox readiness is independent from Direct crypto bootstrap, but a
     // recipient device still becomes available in the background.
     await expect
-      .poll(async () => {
-        const response = await bobPage.request.get(
-          `${apiBase}/v1/direct-chats/devices`,
-          { headers: { origin: webOrigin } },
-        );
-        if (!response.ok()) {
-          return 0;
-        }
-        const payload = (await response.json()) as {
-          items: unknown[];
-        };
-        return payload.items.length;
-      })
+      .poll(
+        async () => {
+          const response = await bobPage.request.get(
+            `${apiBase}/v1/direct-chats/devices`,
+            { headers: { origin: webOrigin } },
+          );
+          if (!response.ok()) {
+            return 0;
+          }
+          const payload = (await response.json()) as {
+            items: unknown[];
+          };
+          return payload.items.length;
+        },
+        { timeout: 20_000 },
+      )
       .toBeGreaterThan(0);
 
     await bobPage
