@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactElement, type SetStateAction } from "react";
 import { useRouter } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
+import { DIRECT_CHAT_LIMITS } from "@vimla/contracts";
 import type {
-  DIRECT_CHAT_LIMITS,
   DirectConversationView,
   DirectMessageKind,
   DirectMessageView,
