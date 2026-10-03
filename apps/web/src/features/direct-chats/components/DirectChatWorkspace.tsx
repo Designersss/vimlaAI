@@ -281,6 +281,24 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
               return;
             }
 
+            const recoveredDetail =
+              await fetchDirectConversation(
+                conversationId,
+              );
+            const recoveredPage =
+              await fetchLatestDecryptedPage(
+                recoveredDetail,
+                device.deviceId,
+              );
+            if (cancelled) return;
+            setConversation(recoveredDetail);
+            updateRows(
+              [...recoveredPage.decrypted].reverse(),
+            );
+            setNextCursor(
+              recoveredPage.nextCursor,
+            );
+
             const deliveries =
               await recoverDirectOperatorInvocations({
                 conversationId,
