@@ -1335,7 +1335,15 @@ describe("direct chats API", () => {
       where: { id: { in: [peerAllowed.id, allowed.source.id] } },
       include: { envelopes: true },
     });
-    expect(JSON.stringify(encryptedRows)).not.toContain("peer allowed history");
+    expect(
+      JSON.stringify(
+        encryptedRows,
+        (_key, value) =>
+          typeof value === "bigint"
+            ? value.toString()
+            : value,
+      ),
+    ).not.toContain("peer allowed history");
     expect(
       await db.semanticSource.count({
         where: { sourceId: { in: [peerAllowed.id, allowed.source.id] } },
