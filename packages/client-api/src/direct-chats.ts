@@ -10,6 +10,7 @@ import {
   type DirectConversationView,
   type DirectMessageView,
   type DirectMessagesResponse,
+  type MarkDirectChatRead,
   type PrekeyBundlesResponse,
   type RegisterCryptoDevice,
   type SendDirectMessage,
@@ -85,12 +86,17 @@ export function createDirectChatsClient(
 
     markDirectChatRead(
       id: string,
+      input: MarkDirectChatRead,
       options: DirectChatRequestOptions = {},
     ): Promise<DirectConversationView> {
       return transport.request(
         `/v1/direct-chats/${encodeURIComponent(id)}/read`,
         {
-          init: jsonRequestInit("POST", {}, options.signal),
+          init: jsonRequestInit(
+            "POST",
+            input,
+            options.signal,
+          ),
           parse: (payload) =>
             directConversationViewSchema.parse(payload),
           errorFactory,
