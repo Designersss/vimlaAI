@@ -49,7 +49,9 @@ LANGUAGE plpgsql
 AS $$
 BEGIN
   UPDATE "direct_conversation"
-  SET "lastMessageSequence" = "lastMessageSequence" + 1
+  SET
+    "lastMessageSequence" = "lastMessageSequence" + 1,
+    "lastMessageAt" = GREATEST("lastMessageAt", NEW."createdAt")
   WHERE "id" = NEW."conversationId"
   RETURNING "lastMessageSequence" INTO NEW."sequence";
 
