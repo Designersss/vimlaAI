@@ -146,8 +146,9 @@ export class DirectChatService {
         );
       }
 
-      let nextSequence =
-        member.lastReadMessageSequence;
+      const currentSequence =
+        member.lastReadMessageSequence ?? 0n;
+      let nextSequence = currentSequence;
       if (input.seenMessageIds.length > 0) {
         const messages = await tx.directMessage.findMany({
           where: {
@@ -178,16 +179,16 @@ export class DirectChatService {
               : max,
           0n,
         );
-        const currentSequence =
-          nextSequence ?? 0n;
-        if (observedPeerSequence > currentSequence) {
+        if (observedPeerSequence > nextSequence) {
           nextSequence = observedPeerSequence;
         }
       }
 
-      const positionChanged =
+      const storedPositionChanged =
         nextSequence !==
         member.lastReadMessageSequence;
+      const readProgressChanged =
+        nextSequence > currentSequence;
 
       await tx.directConversationMember.update({
         where: {
@@ -198,7 +199,7 @@ export class DirectChatService {
         },
         data: {
           lastReadAt: occurredAt,
-          ...(positionChanged
+          ...(storedPositionChanged
             ? {
                 lastReadMessageSequence:
                   nextSequence,
@@ -207,7 +208,7 @@ export class DirectChatService {
         },
       });
 
-      if (positionChanged) {
+      if (readProgressChanged) {
         await this.durableEvents.directReadUpdated(
           tx,
           {
