@@ -417,6 +417,10 @@ export const ConversationListPane = observer(
           { scroll: false },
         );
       } catch (caught: unknown) {
+        if (caught instanceof AuthRequiredError) {
+          router.replace("/sign-in");
+          return;
+        }
         setDirectError(
           caught instanceof
             DirectChatsApiError
