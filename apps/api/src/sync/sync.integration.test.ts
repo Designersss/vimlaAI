@@ -113,6 +113,61 @@ describe("durable cursor sync API", () => {
     );
   });
 
+  it("delivers Direct read-state invalidation only to the reader", async () => {
+    const reader = await registerVerifiedUser(
+      app,
+      "sync-read-reader",
+    );
+    const peer = await registerVerifiedUser(
+      app,
+      "sync-read-peer",
+    );
+    const conversationId = await createDirectConversation(
+      prisma,
+      reader.id,
+      peer.id,
+    );
+    const writer =
+      new PrismaDirectChatDurableEventWriter();
+
+    await prisma.$transaction((tx) =>
+      writer.directReadUpdated(tx, {
+        conversationId,
+        occurredAt: new Date(),
+        recipientUserId: reader.id,
+      }),
+    );
+
+    const readerPage = syncResponseSchema.parse(
+      (
+        await syncRequest(app, reader.cookies, {
+          limit: 10,
+        })
+      ).json(),
+    );
+    expect(readerPage.deltas).toHaveLength(1);
+    expect(readerPage.deltas[0]).toMatchObject({
+      eventType: "DIRECT_READ_UPDATED",
+      changeKind: "UPSERT_REF",
+      scope: {
+        kind: "DIRECT_CHAT",
+        id: conversationId,
+      },
+      payload: {
+        conversationId,
+      },
+    });
+
+    const peerPage = syncResponseSchema.parse(
+      (
+        await syncRequest(app, peer.cookies, {
+          limit: 10,
+        })
+      ).json(),
+    );
+    expect(peerPage.deltas).toEqual([]);
+  });
+
   it("binds cursors to the authenticated user and normalizes malformed/stale cursor errors", async () => {
     const owner = await registerVerifiedUser(
       app,
