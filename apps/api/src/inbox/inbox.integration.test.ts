@@ -720,6 +720,14 @@ describe("unified inbox API", () => {
         createdAt: tiedAt,
       },
     });
+    const secondStored =
+      await db.directMessage.findUniqueOrThrow({
+        where: { id: secondMessageId },
+        select: { sequence: true },
+      });
+    expect(secondStored.sequence).toBeGreaterThan(
+      firstStored.sequence,
+    );
 
     const inbox = await app.inject({
       method: "GET",
@@ -748,6 +756,50 @@ describe("unified inbox API", () => {
       });
     expect(member.lastReadMessageSequence).toBe(
       firstStored.sequence,
+    );
+
+    const secondRead = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/${conversation.id}/read`,
+      headers: {
+        origin,
+        "content-type": "application/json",
+      },
+      cookies: reader.cookies,
+      payload: {
+        seenMessageIds: [secondMessageId],
+      },
+    });
+    expect(secondRead.statusCode).toBe(200);
+    expect(secondRead.json().unreadCount).toBe(0);
+
+    // A stale tab may acknowledge an older message afterwards. The serialized
+    // watermark must never move backwards.
+    const staleRead = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/${conversation.id}/read`,
+      headers: {
+        origin,
+        "content-type": "application/json",
+      },
+      cookies: reader.cookies,
+      payload: {
+        seenMessageIds: [firstMessageId],
+      },
+    });
+    expect(staleRead.statusCode).toBe(200);
+    expect(staleRead.json().unreadCount).toBe(0);
+    const afterStale =
+      await db.directConversationMember.findUniqueOrThrow({
+        where: {
+          conversationId_userId: {
+            conversationId: conversation.id,
+            userId: reader.id,
+          },
+        },
+      });
+    expect(afterStale.lastReadMessageSequence).toBe(
+      secondStored.sequence,
     );
   });
 
