@@ -6,7 +6,7 @@ Direct Chat is a separate conversation type from AI `Conversation` (`CHAT`) and 
 
 ```text
 Browser (protected IndexedDB E2EE state + local plaintext cache)
-  -> POST/GET /v1/direct-chats*
+  -> POST /v1/direct-chats + GET /v1/direct-chats/:id
   -> DirectChatsFacade -> @vimla/direct-chats
   -> PostgreSQL: ciphertext envelopes, public device material, membership, unread cursors
 ```
@@ -16,7 +16,7 @@ Browser (protected IndexedDB E2EE state + local plaintext cache)
 - Server stores metadata only: sender ids, device ids, kind, timestamps, `lastMessageAt`, read cursors, consent flags.
 - Message kinds: `HUMAN`, `OPERATOR_INVOKE`, `OPERATOR_RESPONSE`, `OPERATOR_ACTION`.
 - Fan-out: one AEAD envelope per active member device (including the sender’s other/current devices). Incomplete fan-out is rejected.
-- Unread is `lastReadMessageCreatedAt` vs later peer messages. Pagination is `createdAt|id` base64url cursors.
+- Unread uses a server-assigned per-conversation `sequence` read position. Only an observed peer message advances the position; all peer messages at or before that position are read. Pagination remains `createdAt|id` base64url cursors.
 
 `@Vimla` is not a second runtime. Direct Chat invocations reuse Phase 7 `OperatorRun` with `invocationScope=DIRECT_CHAT`. Planner metering still attaches to the user’s OPERATOR `Conversation` so usage reservation stays unchanged. Direct Chat runs do **not** write plaintext `Message` rows into AI/operator threads.
 
