@@ -385,10 +385,6 @@ export class DirectChatService {
             })),
           });
         }
-        await tx.directConversation.update({
-          where: { id: conversationId },
-          data: { lastMessageAt: message.createdAt },
-        });
         await this.durableEvents.directMessageCreated(
           tx,
           {
