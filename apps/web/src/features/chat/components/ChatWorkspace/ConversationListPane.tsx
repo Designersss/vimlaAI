@@ -173,7 +173,13 @@ export const ConversationListPane = observer(
           kind: inboxKindFor("all"),
         }),
       ])
-        .then(([currentUser, page]) => {
+        .then(async ([currentUser, page]) => {
+          if (cancelled) {
+            return;
+          }
+          if (CONSUMER_FEATURES.directChats) {
+            await prepareDevice();
+          }
           if (cancelled) {
             return;
           }
