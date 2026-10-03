@@ -152,9 +152,9 @@ Current invariants:
 - AI Thread preview may contain bounded server-readable message text.
 - Direct preview never contains ciphertext-derived plaintext from the server. It carries only authoritative latest-message metadata (`messageId`, sender, kind, timestamp).
 - a client may display a Direct plaintext preview only when protected local plaintext matches all of that authoritative metadata. Missing/corrupt local cache degrades to a non-plaintext encrypted-message label; there is no server fallback.
-- unread counts are derived from current Direct membership/read watermark and peer messages; AI Thread unread remains zero until its domain gains an explicit unread model.
-- semantic navigation uses `NavigationTarget { kind: 'CHAT', id: surfaceId }`. The Web adapter resolves `/app/chat/:surfaceId` through the authorized inbox item before selecting the domain detail renderer.
-- durable Direct Chat Sync deltas request a refresh of the current inbox query; the client does not locally invent a new global sort order.
+- unread counts are derived from current Direct membership and a stable read position `(lastReadMessageCreatedAt, lastReadMessageId)`; equal-timestamp messages are ordered by id and an empty-chat read does not invent a future watermark. AI Thread unread remains zero until its domain gains an explicit unread model.
+- semantic navigation uses `NavigationTarget { kind: 'CHAT', id: surfaceId }`. Inbox rows and create flows navigate through `/app/chat/:surfaceId`; the authorized resolver then selects the domain-specific detail renderer.
+- durable Direct Chat message and read-state Sync deltas request a refresh of the current inbox query; read state therefore converges across tabs/reconnects without client-invented authority or sort order.
 - future GROUP/CHANNEL surfaces extend the same projection/contract with focused domain authority; they do not introduce another top-level inbox feed.
 
 
