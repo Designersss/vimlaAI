@@ -479,7 +479,12 @@ export class InboxService {
           AND message."senderUserId" <> ${userId}
           AND (
             member."lastReadMessageCreatedAt" IS NULL
+            OR member."lastReadMessageId" IS NULL
             OR message."createdAt" > member."lastReadMessageCreatedAt"
+            OR (
+              message."createdAt" = member."lastReadMessageCreatedAt"
+              AND message."id" > member."lastReadMessageId"
+            )
           )
         GROUP BY message."conversationId"
       `);
