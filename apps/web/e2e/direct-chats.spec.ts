@@ -14,38 +14,6 @@ test.describe("Secure Direct Chats", () => {
     const alicePage = await aliceContext.newPage();
     const nikitaPage = await nikitaContext.newPage();
 
-    alicePage.on("pageerror", (error) => {
-      console.log("[direct-debug] pageerror", error.stack ?? error.message);
-    });
-    alicePage.on("console", (message) => {
-      if (message.type() === "error") {
-        console.log("[direct-debug] console", message.text());
-      }
-    });
-    alicePage.on("requestfailed", (request) => {
-      if (request.url().includes("/v1/direct-chats/")) {
-        console.log(
-          "[direct-debug] requestfailed",
-          request.method(),
-          request.url(),
-          request.failure()?.errorText ?? "unknown",
-        );
-      }
-    });
-    alicePage.on("response", (response) => {
-      if (
-        response.status() >= 400 &&
-        response.url().includes("/v1/direct-chats/")
-      ) {
-        console.log(
-          "[direct-debug] response",
-          response.status(),
-          response.request().method(),
-          response.url(),
-        );
-      }
-    });
-
     await signUp(alicePage, { name: "Alice", email: aliceEmail, password });
     await verifyEmail(alicePage, request, aliceEmail);
     await purchasePro(alicePage);
