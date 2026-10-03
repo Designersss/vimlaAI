@@ -19,6 +19,7 @@ import {
   directMessageViewSchema,
   directMessagesResponseSchema,
   listDirectMessagesQuerySchema,
+  markDirectChatReadSchema,
   prekeyBundlesResponseSchema,
   registerCryptoDeviceSchema,
   rotatePrekeysSchema,
@@ -143,9 +144,22 @@ export class DirectChatsController {
 
   @Post(":id/read")
   @HttpCode(200)
-  async markRead(@AuthUser() user: AuthenticatedUser, @Param("id") id: string): Promise<DirectConversationView> {
+  async markRead(
+    @AuthUser() user: AuthenticatedUser,
+    @Param("id") id: string,
+    @Body() body: unknown,
+  ): Promise<DirectConversationView> {
     this.directChats.assertEnabled();
-    const updated = await this.directChats.chats.markRead(this.directChats.actor(user), id);
+    const input = parseRequest(
+      markDirectChatReadSchema,
+      body,
+      "Invalid Direct Chat read payload",
+    );
+    const updated = await this.directChats.chats.markRead(
+      this.directChats.actor(user),
+      id,
+      input,
+    );
     this.directChats.logMutation("conversation.read", user.id, id);
     return directConversationViewSchema.parse(updated);
   }
