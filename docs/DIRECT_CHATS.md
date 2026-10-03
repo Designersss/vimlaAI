@@ -143,8 +143,9 @@ API (cookie + OriginGuard + SensitiveArea + mutation rate limit):
 
 - `POST/GET /v1/direct-chats/devices`, rotate, revoke
 - `GET /v1/direct-chats/users/:userId/prekeys` (self or shared-chat peer)
-- `POST/GET /v1/direct-chats`, `GET :id`, `PATCH :id/privacy`, `POST :id/read`
+- `POST /v1/direct-chats`, `GET /v1/direct-chats/:id`, `PATCH /v1/direct-chats/:id/privacy`, `POST /v1/direct-chats/:id/read`
 - `GET/POST /v1/direct-chats/:id/messages`
+- `GET /v1/inbox` is the only communication collection/list API; there is no Direct-Chat-specific list fallback.
 
 Disabled → `direct_chats_disabled` (503).
 
