@@ -292,8 +292,11 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
               );
             if (cancelled) return;
             setConversation(recoveredDetail);
-            updateRows(
-              [...recoveredPage.decrypted].reverse(),
+            updateRows((current) =>
+              mergeDecryptedRows(
+                current,
+                [...recoveredPage.decrypted].reverse(),
+              ),
             );
             setNextCursor(
               recoveredPage.nextCursor,
