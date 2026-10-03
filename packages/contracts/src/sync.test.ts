@@ -3,6 +3,7 @@ import {
   SYNC_PROTOCOL_VERSION,
   directMessageCreatedSyncDeltaSchema,
   directMessageDeletedSyncDeltaSchema,
+  directReadUpdatedSyncDeltaSchema,
   syncQuerySchema,
   syncResponseSchema,
 } from "./sync.js";
@@ -70,6 +71,48 @@ describe("sync contracts", () => {
           conversationId,
           messageId,
           plaintext: "forbidden",
+        },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("keeps read-state updates identifier-only and scoped to the Direct Chat", () => {
+    const conversationId =
+      "11111111-1111-4111-8111-111111111111";
+    const eventId =
+      "33333333-3333-4333-8333-333333333333";
+    expect(
+      directReadUpdatedSyncDeltaSchema.parse({
+        syncProtocolVersion: SYNC_PROTOCOL_VERSION,
+        eventId,
+        eventType: "DIRECT_READ_UPDATED",
+        changeKind: "UPSERT_REF",
+        scope: {
+          kind: "DIRECT_CHAT",
+          id: conversationId,
+        },
+        occurredAt:
+          "2026-10-03T00:00:00.000Z",
+        payload: {
+          conversationId,
+        },
+      }),
+    ).toBeDefined();
+    expect(
+      directReadUpdatedSyncDeltaSchema.safeParse({
+        syncProtocolVersion: SYNC_PROTOCOL_VERSION,
+        eventId,
+        eventType: "DIRECT_READ_UPDATED",
+        changeKind: "UPSERT_REF",
+        scope: {
+          kind: "DIRECT_CHAT",
+          id: conversationId,
+        },
+        occurredAt:
+          "2026-10-03T00:00:00.000Z",
+        payload: {
+          conversationId,
+          unreadCount: 0,
         },
       }).success,
     ).toBe(false);
