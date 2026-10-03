@@ -596,15 +596,6 @@ describe("direct chats API", () => {
         senderDeviceId: peerDevice.id,
         clientMessageId: randomUUID(),
         kind: "HUMAN",
-        envelopes: {
-          create: {
-            recipientDeviceId: readerDevice.id,
-            senderDeviceId: peerDevice.id,
-            headerB64: "gap-header-1",
-            ciphertextB64: "gap-ciphertext-1",
-            dhPublicB64: "gap-dh-1",
-          },
-        },
       },
     });
     const ownMessage = await db.directMessage.create({
@@ -614,15 +605,6 @@ describe("direct chats API", () => {
         senderDeviceId: readerDevice.id,
         clientMessageId: randomUUID(),
         kind: "HUMAN",
-        envelopes: {
-          create: {
-            recipientDeviceId: peerDevice.id,
-            senderDeviceId: readerDevice.id,
-            headerB64: "gap-header-2",
-            ciphertextB64: "gap-ciphertext-2",
-            dhPublicB64: "gap-dh-2",
-          },
-        },
       },
     });
 
