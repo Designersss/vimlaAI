@@ -400,12 +400,13 @@ export async function recoverPendingSends(input: {
   | "LOCAL_DEVICE_INACTIVE"
   | "RECIPIENT_DEVICE_MISSING"
 > {
-  const result = await withPendingSendRecoveryLock(
-    {
-      conversationId: input.conversationId,
-      localDeviceId: input.localDevice.deviceId,
-    },
-    async () => {
+  const result = await retryRatchetCoordination(() =>
+    withPendingSendRecoveryLock(
+      {
+        conversationId: input.conversationId,
+        localDeviceId: input.localDevice.deviceId,
+      },
+      async () => {
       const pending = await loadPendingSends(
         input.conversationId,
         input.localDevice.deviceId,
@@ -549,8 +550,9 @@ export async function recoverPendingSends(input: {
         }
       }
 
-      return blocked ?? "RESOLVED";
-    },
+        return blocked ?? "RESOLVED";
+      },
+    ),
   );
   if (result === "LOCAL_DEVICE_INACTIVE") {
     await clearLocalDataAfterDeviceRevocation();
