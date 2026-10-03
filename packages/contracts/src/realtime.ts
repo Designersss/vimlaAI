@@ -104,13 +104,10 @@ export const directReadUpdatedRealtimeEventSchema = z
     }
   });
 
-export const realtimeEventEnvelopeSchema = z.discriminatedUnion(
-  "eventType",
-  [
-    directMessageCreatedRealtimeEventSchema,
-    directReadUpdatedRealtimeEventSchema,
-  ],
-);
+export const realtimeEventEnvelopeSchema = z.union([
+  directMessageCreatedRealtimeEventSchema,
+  directReadUpdatedRealtimeEventSchema,
+]);
 export type RealtimeEventEnvelope = z.infer<
   typeof realtimeEventEnvelopeSchema
 >;
