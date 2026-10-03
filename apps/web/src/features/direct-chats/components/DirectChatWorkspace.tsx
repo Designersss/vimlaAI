@@ -348,9 +348,9 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
             detail.unreadCount > 0
               ? await markObservedDirectMessagesRead(
                   conversationId,
-                  page.decrypted.map(
-                    (row) => row.message.id,
-                  ),
+                  page.decrypted
+                    .filter((row) => row.payload !== null)
+                    .map((row) => row.message.id),
                   detail,
                 )
               : detail;
@@ -423,9 +423,9 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         decrypted.length > 0
           ? await markObservedDirectMessagesRead(
               conversationId,
-              decrypted.map(
-                (row) => row.message.id,
-              ),
+              decrypted
+                .filter((row) => row.payload !== null)
+                .map((row) => row.message.id),
               detail,
             )
           : detail;
