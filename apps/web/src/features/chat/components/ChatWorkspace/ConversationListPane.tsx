@@ -16,6 +16,7 @@ import {
   useTranslations,
 } from "next-intl";
 import { observer } from "mobx-react-lite";
+import { navigationTargetToWebPath } from "@vimla/web-navigation";
 import type {
   CommunicationSurfaceKind,
   InboxItem,
@@ -173,13 +174,7 @@ export const ConversationListPane = observer(
           kind: inboxKindFor("all"),
         }),
       ])
-        .then(async ([currentUser, page]) => {
-          if (cancelled) {
-            return;
-          }
-          if (CONSUMER_FEATURES.directChats) {
-            await prepareDevice();
-          }
+        .then(([currentUser, page]) => {
           if (cancelled) {
             return;
           }
@@ -191,6 +186,20 @@ export const ConversationListPane = observer(
             store.setInboxPage(page);
           }
           setBoot("ready");
+
+          if (CONSUMER_FEATURES.directChats) {
+            void prepareDevice().catch(
+              (error: unknown) => {
+                if (
+                  cancelled ||
+                  !(error instanceof AuthRequiredError)
+                ) {
+                  return;
+                }
+                router.replace("/sign-in");
+              },
+            );
+          }
         })
         .catch((error: unknown) => {
           if (cancelled) {
@@ -357,7 +366,11 @@ export const ConversationListPane = observer(
         setTab("all");
         store.requestInboxRefresh();
         router.push(
-          `/app/${conversation.id}`,
+          navigationTargetToWebPath({
+            version: 1,
+            kind: "CHAT",
+            id: conversation.surfaceId,
+          }),
           { scroll: false },
         );
       } catch (error: unknown) {
@@ -390,7 +403,11 @@ export const ConversationListPane = observer(
         setTab("all");
         store.requestInboxRefresh();
         router.push(
-          `/app/direct/${created.id}`,
+          navigationTargetToWebPath({
+            version: 1,
+            kind: "CHAT",
+            id: created.surfaceId,
+          }),
           { scroll: false },
         );
       } catch (caught: unknown) {
@@ -617,7 +634,9 @@ export const ConversationListPane = observer(
                       unreadCount={
                         item.unreadCount
                       }
-                      href={`/app/${item.domainId}`}
+                      href={navigationTargetToWebPath(
+                        item.navigationTarget,
+                      )}
                       renderLink={
                         renderConversationLink
                       }
@@ -640,7 +659,9 @@ export const ConversationListPane = observer(
                     unreadCount={
                       item.unreadCount
                     }
-                    href={`/app/direct/${item.domainId}`}
+                    href={navigationTargetToWebPath(
+                      item.navigationTarget,
+                    )}
                     renderLink={
                       renderConversationLink
                     }
