@@ -117,15 +117,80 @@ export class DirectChatService {
   }
 
   async markRead(actor: ActorContext, conversationId: string): Promise<DirectConversationView> {
-    const conversation = await this.requireMemberConversation(actor.userId, conversationId);
-    const latest = conversation.messages[0];
-    await this.db.directConversationMember.update({
-      where: { conversationId_userId: { conversationId, userId: actor.userId } },
-      data: {
-        lastReadAt: new Date(),
-        lastReadMessageCreatedAt: latest?.createdAt ?? new Date(),
-      },
+    const occurredAt = new Date();
+
+    await this.db.$transaction(async (tx) => {
+      const conversation =
+        await tx.directConversation.findFirst({
+          where: {
+            id: conversationId,
+            members: {
+              some: { userId: actor.userId },
+            },
+          },
+          select: {
+            members: {
+              where: { userId: actor.userId },
+              select: {
+                lastReadMessageCreatedAt: true,
+                lastReadMessageId: true,
+              },
+            },
+            messages: {
+              orderBy: [
+                { createdAt: "desc" },
+                { id: "desc" },
+              ],
+              take: 1,
+              select: {
+                id: true,
+                createdAt: true,
+              },
+            },
+          },
+        });
+      const member = conversation?.members[0];
+      if (!conversation || !member) {
+        throw new DirectChatError(
+          "NOT_FOUND",
+          "Direct Chat was not found",
+        );
+      }
+
+      const latest = conversation.messages[0] ?? null;
+      const nextCreatedAt = latest?.createdAt ?? null;
+      const nextMessageId = latest?.id ?? null;
+      const positionChanged =
+        member.lastReadMessageCreatedAt?.getTime() !==
+          nextCreatedAt?.getTime() ||
+        member.lastReadMessageId !== nextMessageId;
+
+      await tx.directConversationMember.update({
+        where: {
+          conversationId_userId: {
+            conversationId,
+            userId: actor.userId,
+          },
+        },
+        data: {
+          lastReadAt: occurredAt,
+          lastReadMessageCreatedAt: nextCreatedAt,
+          lastReadMessageId: nextMessageId,
+        },
+      });
+
+      if (positionChanged) {
+        await this.durableEvents.directReadUpdated(
+          tx,
+          {
+            conversationId,
+            occurredAt,
+            recipientUserId: actor.userId,
+          },
+        );
+      }
     });
+
     return this.get(actor, conversationId);
   }
 
@@ -621,10 +686,25 @@ export class DirectChatService {
       if (message.senderUserId === actorUserId) {
         return false;
       }
-      if (!mine.lastReadMessageCreatedAt) {
+      if (
+        !mine.lastReadMessageCreatedAt ||
+        !mine.lastReadMessageId
+      ) {
         return true;
       }
-      return message.createdAt > mine.lastReadMessageCreatedAt;
+      if (
+        message.createdAt >
+        mine.lastReadMessageCreatedAt
+      ) {
+        return true;
+      }
+      if (
+        message.createdAt <
+        mine.lastReadMessageCreatedAt
+      ) {
+        return false;
+      }
+      return message.id > mine.lastReadMessageId;
     }).length;
     const latest = conversation.messages[0];
     if (
@@ -659,7 +739,13 @@ const conversationInclude = {
       },
     },
   },
-  messages: { orderBy: { createdAt: "desc" as const }, take: 50 },
+  messages: {
+    orderBy: [
+      { createdAt: "desc" as const },
+      { id: "desc" as const },
+    ],
+    take: 50,
+  },
 } satisfies Prisma.DirectConversationInclude;
 
 type ConversationRecord = Prisma.DirectConversationGetPayload<{ include: typeof conversationInclude }>;
