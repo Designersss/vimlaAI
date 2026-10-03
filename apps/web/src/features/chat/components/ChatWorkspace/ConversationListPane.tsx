@@ -185,22 +185,6 @@ export const ConversationListPane = observer(
             store.setInboxPage(page);
           }
           setBoot("ready");
-
-          if (CONSUMER_FEATURES.directChats) {
-            void prepareDevice().catch(
-              (error: unknown) => {
-                if (cancelled) {
-                  return;
-                }
-                if (
-                  error instanceof
-                  AuthRequiredError
-                ) {
-                  router.replace("/sign-in");
-                }
-              },
-            );
-          }
         })
         .catch((error: unknown) => {
           if (cancelled) {
