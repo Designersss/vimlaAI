@@ -127,6 +127,24 @@ export const updateDirectChatPrivacySchema = z
   .strict();
 export type UpdateDirectChatPrivacy = z.infer<typeof updateDirectChatPrivacySchema>;
 
+export const markDirectChatReadSchema = z
+  .object({
+    seenMessageIds: z
+      .array(z.string().uuid())
+      .max(DIRECT_CHAT_LIMITS.pageLimitMax),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (new Set(value.seenMessageIds).size !== value.seenMessageIds.length) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["seenMessageIds"],
+        message: "Seen Direct Chat message ids must be unique",
+      });
+    }
+  });
+export type MarkDirectChatRead = z.infer<typeof markDirectChatReadSchema>;
+
 export const cryptoDeviceViewSchema = z.object({
   id: z.string().uuid(),
   userId: z.string(),
