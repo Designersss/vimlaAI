@@ -260,10 +260,11 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         setBoot("ready");
 
         // Pending outbox recovery must not gate the readable Direct detail.
-        // A server-committed interrupted send is already reconciled while
-        // decrypting the authoritative history above. Truly unsent rows are
-        // retried after the shell is usable; the subscription's initial gap
-        // refresh closes the race if recovery emits before it subscribes.
+        // Recover once after the shell is usable, then re-decrypt the latest
+        // authoritative rows so a server-committed interrupted send can replace
+        // its local undecryptable placeholder. Do not overwrite conversation
+        // metadata or pagination here: sync/load-more may already have advanced
+        // them while this background recovery was running.
         void recoverPendingSends({
           conversationId,
           localDevice: device,
@@ -291,15 +292,11 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
                 device.deviceId,
               );
             if (cancelled) return;
-            setConversation(recoveredDetail);
             updateRows((current) =>
               mergeDecryptedRows(
                 current,
                 [...recoveredPage.decrypted].reverse(),
               ),
-            );
-            setNextCursor(
-              recoveredPage.nextCursor,
             );
 
             const deliveries =
@@ -321,6 +318,15 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
               AuthRequiredError
             ) {
               router.replace("/sign-in");
+              return;
+            }
+            if (
+              recoveryError instanceof
+              RatchetLockLostError
+            ) {
+              // Another same-device tab/process won the recovery lease.
+              // Its durable mutation/sync path is authoritative, so the stale
+              // loser stays usable instead of surfacing a false internal error.
               return;
             }
             setError(
@@ -832,64 +838,6 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
       setOperatorBusy(false);
     }
   }
-
-  useEffect(() => {
-    if (boot !== "ready" || !userId) return;
-    let cancelled = false;
-    void recoverDirectOperatorInvocations({
-      conversationId,
-      actorUserId: userId,
-    })
-      .then((deliveries) => {
-        if (cancelled) return;
-        let inboxChanged = false;
-        for (const delivery of deliveries) {
-          setPendingRun(
-            operatorRunNeedsPanel(delivery.run)
-              ? delivery.run
-              : null,
-          );
-          if (delivery.latest) {
-            setConversation(delivery.latest);
-          }
-          if (delivery.rows.length > 0) {
-            inboxChanged = true;
-            updateRows((current) =>
-              mergeDecryptedRows(
-                current,
-                delivery.rows,
-              ),
-            );
-          }
-        }
-        if (inboxChanged) {
-          workspace.requestInboxRefresh();
-        }
-      })
-      .catch((caught: unknown) => {
-        if (cancelled) return;
-        if (caught instanceof AuthRequiredError) {
-          router.replace("/sign-in");
-          return;
-        }
-        setError(
-          caught instanceof OperatorRequestError ||
-            caught instanceof DirectChatsApiError
-            ? caught.code
-            : "internal_error",
-        );
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    boot,
-    conversationId,
-    router,
-    updateRows,
-    userId,
-    workspace,
-  ]);
 
   async function onLoadOlder(): Promise<void> {
     if (!nextCursor || !conversation) return;
