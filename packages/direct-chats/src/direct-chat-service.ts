@@ -1,4 +1,4 @@
-import type { Prisma } from "@vimla/database";
+import { Prisma } from "@vimla/database";
 import {
   DIRECT_CHAT_LIMITS,
   type CreateDirectConversation,
@@ -664,8 +664,19 @@ export class DirectChatService {
     return device;
   }
 
-  private toView(conversation: ConversationRecord, actorUserId: string): DirectConversationView {
-    const summary = this.toSummary(conversation, actorUserId);
+  private async toView(
+    conversation: ConversationRecord,
+    actorUserId: string,
+  ): Promise<DirectConversationView> {
+    const unreadCount = await this.readUnreadCount(
+      actorUserId,
+      conversation.id,
+    );
+    const summary = this.toSummary(
+      conversation,
+      actorUserId,
+      unreadCount,
+    );
     const devices = conversation.members.flatMap((member) =>
       member.user.cryptoDevices.filter((device) => device.revokedAt === null).map(toDeviceView),
     );
@@ -676,36 +687,44 @@ export class DirectChatService {
     };
   }
 
-  private toSummary(conversation: ConversationRecord, actorUserId: string): DirectConversationSummary {
+  private async readUnreadCount(
+    actorUserId: string,
+    conversationId: string,
+  ): Promise<number> {
+    const rows = await this.db.$queryRaw<
+      Array<{ unreadCount: number }>
+    >(Prisma.sql`
+      SELECT COUNT(*)::int AS "unreadCount"
+      FROM "direct_message" AS message
+      INNER JOIN "direct_conversation_member" AS member
+        ON member."conversationId" = message."conversationId"
+        AND member."userId" = ${actorUserId}
+      WHERE
+        message."conversationId" = ${conversationId}
+        AND message."senderUserId" <> ${actorUserId}
+        AND (
+          member."lastReadMessageCreatedAt" IS NULL
+          OR member."lastReadMessageId" IS NULL
+          OR message."createdAt" > member."lastReadMessageCreatedAt"
+          OR (
+            message."createdAt" = member."lastReadMessageCreatedAt"
+            AND message."id" > member."lastReadMessageId"
+          )
+        )
+    `);
+    return rows[0]?.unreadCount ?? 0;
+  }
+
+  private toSummary(
+    conversation: ConversationRecord,
+    actorUserId: string,
+    unreadCount: number,
+  ): DirectConversationSummary {
     const mine = conversation.members.find((member) => member.userId === actorUserId);
     const peer = conversation.members.find((member) => member.userId !== actorUserId);
     if (!mine || !peer) {
       throw new DirectChatError("NOT_FOUND", "Direct Chat was not found");
     }
-    const unreadCount = conversation.messages.filter((message) => {
-      if (message.senderUserId === actorUserId) {
-        return false;
-      }
-      if (
-        !mine.lastReadMessageCreatedAt ||
-        !mine.lastReadMessageId
-      ) {
-        return true;
-      }
-      if (
-        message.createdAt >
-        mine.lastReadMessageCreatedAt
-      ) {
-        return true;
-      }
-      if (
-        message.createdAt <
-        mine.lastReadMessageCreatedAt
-      ) {
-        return false;
-      }
-      return message.id > mine.lastReadMessageId;
-    }).length;
     const latest = conversation.messages[0];
     if (
       conversation.surface === null ||
