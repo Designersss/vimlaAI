@@ -19,7 +19,14 @@ WHERE
   AND surface."conversationId" = conversation."id";
 
 UPDATE "communication_surface" AS surface
-SET "lastActivityAt" = direct."lastMessageAt"
+SET "lastActivityAt" = COALESCE(
+  (
+    SELECT MAX(message."createdAt")
+    FROM "direct_message" AS message
+    WHERE message."conversationId" = surface."directConversationId"
+  ),
+  direct."createdAt"
+)
 FROM "direct_conversation" AS direct
 WHERE
   surface."kind" = 'DIRECT'
