@@ -8,6 +8,7 @@ import {
   type DirectEnvelopeView,
   type DirectMessageView,
   type DirectParticipant,
+  type MarkDirectChatRead,
   type MessageMentionView,
   type SendDirectMessage,
   type UpdateDirectChatPrivacy,
@@ -116,19 +117,21 @@ export class DirectChatService {
     return this.get(actor, conversationId);
   }
 
-  async markRead(actor: ActorContext, conversationId: string): Promise<DirectConversationView> {
+  async markRead(
+    actor: ActorContext,
+    conversationId: string,
+    input: MarkDirectChatRead,
+  ): Promise<DirectConversationView> {
     const occurredAt = new Date();
 
     await this.db.$transaction(async (tx) => {
       const members = await tx.$queryRaw<
         Array<{
-          lastReadMessageCreatedAt: Date | null;
-          lastReadMessageId: string | null;
+          lastReadMessageSequence: bigint | null;
         }>
       >(Prisma.sql`
         SELECT
-          member."lastReadMessageCreatedAt" AS "lastReadMessageCreatedAt",
-          member."lastReadMessageId" AS "lastReadMessageId"
+          member."lastReadMessageSequence" AS "lastReadMessageSequence"
         FROM "direct_conversation_member" AS member
         WHERE
           member."conversationId" = ${conversationId}
@@ -143,23 +146,47 @@ export class DirectChatService {
         );
       }
 
-      const latest = await tx.directMessage.findFirst({
-        where: { conversationId },
-        orderBy: [
-          { createdAt: "desc" },
-          { id: "desc" },
-        ],
-        select: {
-          id: true,
-          createdAt: true,
-        },
-      });
-      const nextCreatedAt = latest?.createdAt ?? null;
-      const nextMessageId = latest?.id ?? null;
+      let nextSequence =
+        member.lastReadMessageSequence;
+      if (input.seenMessageIds.length > 0) {
+        const messages = await tx.directMessage.findMany({
+          where: {
+            conversationId,
+            id: { in: input.seenMessageIds },
+          },
+          select: {
+            id: true,
+            sequence: true,
+          },
+        });
+        if (
+          messages.length !==
+          input.seenMessageIds.length
+        ) {
+          throw new DirectChatError(
+            "VALIDATION_ERROR",
+            "Seen Direct Chat messages are invalid",
+          );
+        }
+
+        const observedSequence = messages.reduce(
+          (max, message) =>
+            message.sequence > max
+              ? message.sequence
+              : max,
+          0n,
+        );
+        if (
+          nextSequence === null ||
+          observedSequence > nextSequence
+        ) {
+          nextSequence = observedSequence;
+        }
+      }
+
       const positionChanged =
-        member.lastReadMessageCreatedAt?.getTime() !==
-          nextCreatedAt?.getTime() ||
-        member.lastReadMessageId !== nextMessageId;
+        nextSequence !==
+        member.lastReadMessageSequence;
 
       await tx.directConversationMember.update({
         where: {
@@ -170,8 +197,12 @@ export class DirectChatService {
         },
         data: {
           lastReadAt: occurredAt,
-          lastReadMessageCreatedAt: nextCreatedAt,
-          lastReadMessageId: nextMessageId,
+          ...(positionChanged
+            ? {
+                lastReadMessageSequence:
+                  nextSequence,
+              }
+            : {}),
         },
       });
 
@@ -699,13 +730,8 @@ export class DirectChatService {
         message."conversationId" = ${conversationId}
         AND message."senderUserId" <> ${actorUserId}
         AND (
-          member."lastReadMessageCreatedAt" IS NULL
-          OR member."lastReadMessageId" IS NULL
-          OR message."createdAt" > member."lastReadMessageCreatedAt"
-          OR (
-            message."createdAt" = member."lastReadMessageCreatedAt"
-            AND message."id" > member."lastReadMessageId"
-          )
+          member."lastReadMessageSequence" IS NULL
+          OR message."sequence" > member."lastReadMessageSequence"
         )
     `);
     return rows[0]?.unreadCount ?? 0;
