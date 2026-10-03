@@ -131,7 +131,11 @@ LANGUAGE plpgsql
 AS $$
 BEGIN
   UPDATE "communication_surface"
-  SET "lastActivityAt" = GREATEST("lastActivityAt", NEW."createdAt")
+  SET "lastActivityAt" = GREATEST(
+    "lastActivityAt",
+    NEW."createdAt",
+    clock_timestamp()
+  )
   WHERE
     "kind" = 'DIRECT'
     AND "directConversationId" = NEW."conversationId";
