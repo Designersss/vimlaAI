@@ -478,13 +478,8 @@ export class InboxService {
           message."conversationId" IN (${Prisma.join(conversationIds)})
           AND message."senderUserId" <> ${userId}
           AND (
-            member."lastReadMessageCreatedAt" IS NULL
-            OR member."lastReadMessageId" IS NULL
-            OR message."createdAt" > member."lastReadMessageCreatedAt"
-            OR (
-              message."createdAt" = member."lastReadMessageCreatedAt"
-              AND message."id" > member."lastReadMessageId"
-            )
+            member."lastReadMessageSequence" IS NULL
+            OR message."sequence" > member."lastReadMessageSequence"
           )
         GROUP BY message."conversationId"
       `);
