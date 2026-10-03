@@ -603,6 +603,141 @@ describe("unified inbox API", () => {
     expect(second.json().items).toHaveLength(1);
   });
 
+  it("keeps Direct unread correct across empty reads and equal timestamps", async () => {
+    const reader = await registerVerifiedUser(
+      app,
+      "inbox-read-reader",
+    );
+    const peer = await registerVerifiedUser(
+      app,
+      "inbox-read-peer",
+    );
+    const db = app.get(PrismaService).client;
+    const conversation =
+      await db.directConversation.create({
+        data: {
+          pairKey: `inbox-read-${randomUUID()}`,
+          members: {
+            create: [
+              { userId: reader.id },
+              { userId: peer.id },
+            ],
+          },
+        },
+      });
+    const senderDevice =
+      await db.userCryptoDevice.create({
+        data: {
+          userId: peer.id,
+          identityEd25519Public:
+            "inbox-read-ed25519",
+          identityX25519Public:
+            "inbox-read-x25519",
+          signedPrekeyId: 1,
+          signedPrekeyPublic:
+            "inbox-read-signed-prekey",
+          signedPrekeySignature:
+            "inbox-read-signature",
+        },
+      });
+
+    const emptyRead = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/${conversation.id}/read`,
+      headers: {
+        origin,
+        "content-type": "application/json",
+      },
+      cookies: reader.cookies,
+      payload: {},
+    });
+    expect(emptyRead.statusCode).toBe(200);
+    const emptyMember =
+      await db.directConversationMember.findUniqueOrThrow({
+        where: {
+          conversationId_userId: {
+            conversationId: conversation.id,
+            userId: reader.id,
+          },
+        },
+      });
+    expect(emptyMember.lastReadMessageCreatedAt).toBeNull();
+    expect(emptyMember.lastReadMessageId).toBeNull();
+
+    const tiedAt = new Date(
+      Date.now() - 10_000,
+    );
+    const firstMessageId =
+      "11111111-1111-4111-8111-111111111111";
+    const secondMessageId =
+      "22222222-2222-4222-8222-222222222222";
+    await db.directMessage.create({
+      data: {
+        id: firstMessageId,
+        conversationId: conversation.id,
+        senderUserId: peer.id,
+        senderDeviceId: senderDevice.id,
+        clientMessageId: randomUUID(),
+        kind: "HUMAN",
+        createdAt: tiedAt,
+      },
+    });
+
+    const firstRead = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/${conversation.id}/read`,
+      headers: {
+        origin,
+        "content-type": "application/json",
+      },
+      cookies: reader.cookies,
+      payload: {},
+    });
+    expect(firstRead.statusCode).toBe(200);
+
+    await db.directMessage.create({
+      data: {
+        id: secondMessageId,
+        conversationId: conversation.id,
+        senderUserId: peer.id,
+        senderDeviceId: senderDevice.id,
+        clientMessageId: randomUUID(),
+        kind: "HUMAN",
+        createdAt: tiedAt,
+      },
+    });
+
+    const inbox = await app.inject({
+      method: "GET",
+      url: "/v1/inbox?kind=DIRECT",
+      headers: { origin },
+      cookies: reader.cookies,
+    });
+    expect(inbox.statusCode).toBe(200);
+    expect(
+      inbox
+        .json()
+        .items.find(
+          (item: { domainId: string }) =>
+            item.domainId === conversation.id,
+        )?.unreadCount,
+    ).toBe(1);
+
+    const member =
+      await db.directConversationMember.findUniqueOrThrow({
+        where: {
+          conversationId_userId: {
+            conversationId: conversation.id,
+            userId: reader.id,
+          },
+        },
+      });
+    expect(member.lastReadMessageCreatedAt?.toISOString()).toBe(
+      tiedAt.toISOString(),
+    );
+    expect(member.lastReadMessageId).toBe(firstMessageId);
+  });
+
   it("keeps equal-activity pagination stable and rejects malformed cursors", async () => {
     const user = await registerVerifiedUser(
       app,
