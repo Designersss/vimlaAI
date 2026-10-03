@@ -110,7 +110,9 @@ export class SyncService {
           .filter(
             (row) =>
               row.event.eventType ===
-              "DIRECT_MESSAGE_CREATED",
+                "DIRECT_MESSAGE_CREATED" ||
+              row.event.eventType ===
+                "DIRECT_READ_UPDATED",
           )
           .map((row) => row.event.scopeId),
       ),
@@ -191,12 +193,16 @@ function assertSupportedSyncEvent(event: {
     event.eventType === "DIRECT_MESSAGE_CREATED" &&
     event.changeKind === "UPSERT_REF" &&
     event.scopeKind === "DIRECT_CHAT";
+  const readUpdated =
+    event.eventType === "DIRECT_READ_UPDATED" &&
+    event.changeKind === "UPSERT_REF" &&
+    event.scopeKind === "DIRECT_CHAT";
   const deleted =
     event.eventType === "DIRECT_MESSAGE_DELETED" &&
     event.changeKind === "TOMBSTONE" &&
     event.scopeKind === "DIRECT_CHAT";
 
-  if (!created && !deleted) {
+  if (!created && !readUpdated && !deleted) {
     throw new InternalServerErrorException(
       "Unsupported durable sync event",
     );
