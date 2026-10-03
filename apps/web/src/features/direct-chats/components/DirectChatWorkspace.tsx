@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, 
 import { useRouter } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
 import type {
+  DIRECT_CHAT_LIMITS,
   DirectConversationView,
   DirectMessageKind,
   DirectMessageView,
@@ -100,6 +101,35 @@ type ActiveMentionQuery = {
   end: number;
   query: string;
 };
+
+async function markObservedDirectMessagesRead(
+  conversationId: string,
+  messageIds: readonly string[],
+  fallback: DirectConversationView,
+): Promise<DirectConversationView> {
+  const uniqueIds = [...new Set(messageIds)];
+  if (uniqueIds.length === 0) {
+    return fallback;
+  }
+
+  let current = fallback;
+  for (
+    let offset = 0;
+    offset < uniqueIds.length;
+    offset += DIRECT_CHAT_LIMITS.pageLimitMax
+  ) {
+    current = await markDirectChatRead(
+      conversationId,
+      {
+        seenMessageIds: uniqueIds.slice(
+          offset,
+          offset + DIRECT_CHAT_LIMITS.pageLimitMax,
+        ),
+      },
+    );
+  }
+  return current;
+}
 
 function findActiveMention(value: string): ActiveMentionQuery | null {
   const match = /(?:^|\s)@([a-zA-Z0-9._-]*)$/.exec(value);
@@ -202,15 +232,20 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         if (cancelled) return;
         setUserId(currentUser.id);
         setConversation(detail);
-        updateRows(page.decrypted.reverse());
+        const visibleRows = [...page.decrypted].reverse();
+        updateRows(visibleRows);
         setNextCursor(page.nextCursor);
         setBoot("ready");
 
         try {
           const read =
             detail.unreadCount > 0
-              ? await markDirectChatRead(
+              ? await markObservedDirectMessagesRead(
                   conversationId,
+                  page.decrypted.map(
+                    (row) => row.message.id,
+                  ),
+                  detail,
                 )
               : detail;
           workspace.setInboxUnreadCount(
@@ -269,8 +304,15 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         );
       }
       const read =
-        detail.unreadCount > 0
-          ? await markDirectChatRead(conversationId)
+        detail.unreadCount > 0 &&
+        decrypted.length > 0
+          ? await markObservedDirectMessagesRead(
+              conversationId,
+              decrypted.map(
+                (row) => row.message.id,
+              ),
+              detail,
+            )
           : detail;
       workspace.setInboxUnreadCount(
         read.surfaceId,
