@@ -149,7 +149,9 @@ export class DirectChatService {
       const currentSequence =
         member.lastReadMessageSequence ?? 0n;
       let nextSequence = currentSequence;
-      if (input.seenMessageIds.length > 0) {
+      const hasObservedMessages =
+        input.seenMessageIds.length > 0;
+      if (hasObservedMessages) {
         const messages = await tx.directMessage.findMany({
           where: {
             conversationId,
@@ -185,8 +187,9 @@ export class DirectChatService {
       }
 
       const storedPositionChanged =
+        hasObservedMessages &&
         nextSequence !==
-        member.lastReadMessageSequence;
+          member.lastReadMessageSequence;
       const readProgressChanged =
         nextSequence > currentSequence;
 
