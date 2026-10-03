@@ -134,7 +134,7 @@ BEGIN
   SET "lastActivityAt" = GREATEST(
     "lastActivityAt",
     NEW."createdAt",
-    clock_timestamp()
+    clock_timestamp() AT TIME ZONE 'UTC'
   )
   WHERE
     "kind" = 'DIRECT'
