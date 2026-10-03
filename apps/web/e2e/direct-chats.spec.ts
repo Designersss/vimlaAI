@@ -195,6 +195,22 @@ test.describe("Secure Direct Chats", () => {
           aliceStaleRecoveryPage,
         ),
     ).toBe(true);
+    await expect(
+      aliceStaleRecoveryPage.getByTestId(
+        "direct-chat-shell",
+      ),
+    ).toBeVisible({ timeout: 20_000 });
+    const staleLoadOlder =
+      aliceStaleRecoveryPage.getByTestId(
+        "direct-chat-load-older",
+      );
+    await expect(staleLoadOlder).toBeVisible({
+      timeout: 20_000,
+    });
+    await staleLoadOlder.click();
+    await expect(staleLoadOlder).toHaveCount(0, {
+      timeout: 20_000,
+    });
 
     const aliceRecoveryDeviceId =
       await readLocalDeviceId(
@@ -297,6 +313,16 @@ test.describe("Secure Direct Chats", () => {
           hasText: "pending before peer device change",
         }),
     ).toHaveCount(1, { timeout: 20_000 });
+    await expect(
+      aliceStaleRecoveryPage.getByTestId(
+        "direct-chat-load-older",
+      ),
+    ).toHaveCount(0);
+    await expect(
+      aliceStaleRecoveryPage
+        .getByTestId("direct-chat-shell")
+        .getByRole("alert"),
+    ).toHaveCount(0);
     expect(
       await aliceStaleRecoveryPage.evaluate(
         () => navigator.locks === undefined,
