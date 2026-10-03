@@ -449,6 +449,82 @@ describe("direct chats API", () => {
     expect(page.json().nextCursor).toBeTruthy();
   });
 
+  it("counts unread across the full Direct history and clears it with a stable read position", async () => {
+    const reader = await registerVerifiedUser(
+      app,
+      "direct-unread-long-reader",
+    );
+    const peer = await registerVerifiedUser(
+      app,
+      "direct-unread-long-peer",
+    );
+    const db = app.get(PrismaService).client;
+    const conversation =
+      await db.directConversation.create({
+        data: {
+          pairKey: `direct-unread-long-${randomUUID()}`,
+          members: {
+            create: [
+              { userId: reader.id },
+              { userId: peer.id },
+            ],
+          },
+        },
+      });
+    const senderDevice =
+      await db.userCryptoDevice.create({
+        data: {
+          userId: peer.id,
+          identityEd25519Public:
+            "direct-unread-long-ed25519",
+          identityX25519Public:
+            "direct-unread-long-x25519",
+          signedPrekeyId: 1,
+          signedPrekeyPublic:
+            "direct-unread-long-signed-prekey",
+          signedPrekeySignature:
+            "direct-unread-long-signature",
+        },
+      });
+    const base = Date.now() - 120_000;
+    await db.directMessage.createMany({
+      data: Array.from(
+        { length: 60 },
+        (_value, index) => ({
+          id: randomUUID(),
+          conversationId: conversation.id,
+          senderUserId: peer.id,
+          senderDeviceId: senderDevice.id,
+          clientMessageId: randomUUID(),
+          kind: "HUMAN",
+          createdAt: new Date(base + index),
+        }),
+      ),
+    });
+
+    const beforeRead = await app.inject({
+      method: "GET",
+      url: `/v1/direct-chats/${conversation.id}`,
+      headers: { origin },
+      cookies: reader.cookies,
+    });
+    expect(beforeRead.statusCode).toBe(200);
+    expect(beforeRead.json().unreadCount).toBe(60);
+
+    const read = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/${conversation.id}/read`,
+      headers: {
+        origin,
+        "content-type": "application/json",
+      },
+      cookies: reader.cookies,
+      payload: {},
+    });
+    expect(read.statusCode).toBe(200);
+    expect(read.json().unreadCount).toBe(0);
+  });
+
   it("binds structured mention routing to signatures and rejects forged Direct Chat targets", async () => {
     const alice = await readyUser(app, "dc-mentions-alice", "Alice");
     const nikita = await readyUser(app, "dc-mentions-nikita", "Nikita");
