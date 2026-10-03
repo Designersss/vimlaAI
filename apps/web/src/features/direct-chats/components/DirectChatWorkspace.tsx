@@ -265,11 +265,14 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         // its local undecryptable placeholder. Do not overwrite conversation
         // metadata or pagination here: sync/load-more may already have advanced
         // them while this background recovery was running.
-        void recoverPendingSends({
-          conversationId,
-          localDevice: device,
-        })
-          .then(async (result) => {
+        const recoverInitialState = async (
+          retryAfterLeaseLoss: boolean,
+        ): Promise<void> => {
+          try {
+            const result = await recoverPendingSends({
+              conversationId,
+              localDevice: device,
+            });
             if (cancelled) return;
             if (result === "LOCAL_DEVICE_INACTIVE") {
               setError("direct_chat_device_revoked");
@@ -310,8 +313,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
               applyOperatorDelivery(delivery);
             }
             workspace.requestInboxRefresh();
-          })
-          .catch((recoveryError: unknown) => {
+          } catch (recoveryError: unknown) {
             if (cancelled) return;
             if (
               recoveryError instanceof
@@ -324,9 +326,9 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
               recoveryError instanceof
               RatchetLockLostError
             ) {
-              // Another same-device tab/process won the recovery lease.
-              // Its durable mutation/sync path is authoritative, so the stale
-              // loser stays usable instead of surfacing a false internal error.
+              if (retryAfterLeaseLoss) {
+                await recoverInitialState(false);
+              }
               return;
             }
             setError(
@@ -337,7 +339,9 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
                 ? recoveryError.code
                 : "internal_error",
             );
-          });
+          }
+        };
+        void recoverInitialState(true);
 
         try {
           const read =
