@@ -202,6 +202,32 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
 
+  const applyOperatorDelivery = useCallback(
+    (
+      delivery: OperatorInvocationDeliveryResult,
+    ): void => {
+      setError(null);
+      setPendingRun(
+        operatorRunNeedsPanel(delivery.run)
+          ? delivery.run
+          : null,
+      );
+      if (delivery.latest) {
+        setConversation(delivery.latest);
+      }
+      if (delivery.rows.length > 0) {
+        updateRows((current) =>
+          mergeDecryptedRows(
+            current,
+            delivery.rows,
+          ),
+        );
+        workspace.requestInboxRefresh();
+      }
+    },
+    [updateRows, workspace],
+  );
+
   useEffect(() => {
     let cancelled = false;
     void (async () => {
@@ -322,7 +348,16 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
     return () => {
       cancelled = true;
     };
-  }, [attempt, conversationId, locale, prepareDevice, router, updateRows, workspace]);
+  }, [
+    applyOperatorDelivery,
+    attempt,
+    conversationId,
+    locale,
+    prepareDevice,
+    router,
+    updateRows,
+    workspace,
+  ]);
 
   useEffect(() => {
     if (boot !== "ready") return;
@@ -682,29 +717,6 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
       return null;
     } finally {
       setSending(false);
-    }
-  }
-
-  function applyOperatorDelivery(
-    delivery: OperatorInvocationDeliveryResult,
-  ): void {
-    setError(null);
-    setPendingRun(
-      operatorRunNeedsPanel(delivery.run)
-        ? delivery.run
-        : null,
-    );
-    if (delivery.latest) {
-      setConversation(delivery.latest);
-    }
-    if (delivery.rows.length > 0) {
-      updateRows((current) =>
-        mergeDecryptedRows(
-          current,
-          delivery.rows,
-        ),
-      );
-      workspace.requestInboxRefresh();
     }
   }
 
