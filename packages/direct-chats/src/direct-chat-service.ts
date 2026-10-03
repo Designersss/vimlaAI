@@ -157,6 +157,7 @@ export class DirectChatService {
           select: {
             id: true,
             sequence: true,
+            senderUserId: true,
           },
         });
         if (
@@ -169,6 +170,7 @@ export class DirectChatService {
           );
         }
 
+        const seenIds = new Set(input.seenMessageIds);
         const observedSequence = messages.reduce(
           (max, message) =>
             message.sequence > max
@@ -176,11 +178,34 @@ export class DirectChatService {
               : max,
           0n,
         );
-        if (
-          nextSequence === null ||
-          observedSequence > nextSequence
-        ) {
-          nextSequence = observedSequence;
+        const currentSequence =
+          nextSequence ?? 0n;
+        if (observedSequence > currentSequence) {
+          const unreadPeerMessages =
+            await tx.directMessage.findMany({
+              where: {
+                conversationId,
+                senderUserId: { not: actor.userId },
+                sequence: {
+                  gt: currentSequence,
+                  lte: observedSequence,
+                },
+              },
+              select: {
+                id: true,
+                sequence: true,
+              },
+              orderBy: {
+                sequence: "asc",
+              },
+            });
+          const firstUnseenPeerMessage =
+            unreadPeerMessages.find(
+              (message) => !seenIds.has(message.id),
+            );
+          nextSequence = firstUnseenPeerMessage
+            ? firstUnseenPeerMessage.sequence - 1n
+            : observedSequence;
         }
       }
 
