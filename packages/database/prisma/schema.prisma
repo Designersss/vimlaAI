@@ -1144,8 +1144,9 @@ model DirectConversation {
   pairKey       String   @unique
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
-  lastMessageAt DateTime @default(now())
-  members       DirectConversationMember[]
+  lastMessageAt       DateTime @default(now())
+  lastMessageSequence  BigInt   @default(0)
+  members             DirectConversationMember[]
   messages      DirectMessage[]
   operatorRuns  OperatorRun[]
 
@@ -1160,8 +1161,7 @@ model DirectConversationMember {
   userId                          String
   user                            User               @relation(fields: [userId], references: [id], onDelete: Restrict)
   lastReadAt                      DateTime?
-  lastReadMessageCreatedAt        DateTime?
-  lastReadMessageId               String?
+  lastReadMessageSequence         BigInt?
   shareOwnHistoryWithVimla        Boolean            @default(false)
   includePeerHistoryWhenInvoking  Boolean            @default(false)
   createdAt                       DateTime           @default(now())
@@ -1182,10 +1182,12 @@ model DirectMessage {
   senderDevice   UserCryptoDevice   @relation(fields: [senderDeviceId], references: [id], onDelete: Restrict)
   clientMessageId String
   kind           String
+  sequence       BigInt             @default(0)
   createdAt      DateTime           @default(now())
   envelopes      DirectMessageEnvelope[]
 
   @@unique([conversationId, senderUserId, clientMessageId])
+  @@unique([conversationId, sequence])
   @@index([conversationId, createdAt, id])
   @@index([senderDeviceId, createdAt])
   @@map("direct_message")
