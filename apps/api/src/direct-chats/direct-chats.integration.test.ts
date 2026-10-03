@@ -536,6 +536,125 @@ describe("direct chats API", () => {
     expect(read.json().unreadCount).toBe(0);
   });
 
+  it("does not skip an unseen peer message when a later own message is marked observed", async () => {
+    const reader = await registerVerifiedUser(
+      app,
+      "direct-unread-gap-reader",
+    );
+    const peer = await registerVerifiedUser(
+      app,
+      "direct-unread-gap-peer",
+    );
+    const db = app.get(PrismaService).client;
+    const conversation =
+      await db.directConversation.create({
+        data: {
+          pairKey: `direct-unread-gap-${randomUUID()}`,
+          members: {
+            create: [
+              { userId: reader.id },
+              { userId: peer.id },
+            ],
+          },
+        },
+      });
+    const readerDevice =
+      await db.userCryptoDevice.create({
+        data: {
+          userId: reader.id,
+          identityEd25519Public:
+            "direct-unread-gap-reader-ed25519",
+          identityX25519Public:
+            "direct-unread-gap-reader-x25519",
+          signedPrekeyId: 1,
+          signedPrekeyPublic:
+            "direct-unread-gap-reader-signed-prekey",
+          signedPrekeySignature:
+            "direct-unread-gap-reader-signature",
+        },
+      });
+    const peerDevice =
+      await db.userCryptoDevice.create({
+        data: {
+          userId: peer.id,
+          identityEd25519Public:
+            "direct-unread-gap-peer-ed25519",
+          identityX25519Public:
+            "direct-unread-gap-peer-x25519",
+          signedPrekeyId: 1,
+          signedPrekeyPublic:
+            "direct-unread-gap-peer-signed-prekey",
+          signedPrekeySignature:
+            "direct-unread-gap-peer-signature",
+        },
+      });
+
+    const firstPeerMessage = await db.directMessage.create({
+      data: {
+        conversationId: conversation.id,
+        senderUserId: peer.id,
+        senderDeviceId: peerDevice.id,
+        clientMessageId: randomUUID(),
+        kind: "HUMAN",
+        envelopes: {
+          create: {
+            recipientDeviceId: readerDevice.id,
+            senderDeviceId: peerDevice.id,
+            headerB64: "gap-header-1",
+            ciphertextB64: "gap-ciphertext-1",
+            dhPublicB64: "gap-dh-1",
+          },
+        },
+      },
+    });
+    const ownMessage = await db.directMessage.create({
+      data: {
+        conversationId: conversation.id,
+        senderUserId: reader.id,
+        senderDeviceId: readerDevice.id,
+        clientMessageId: randomUUID(),
+        kind: "HUMAN",
+        envelopes: {
+          create: {
+            recipientDeviceId: peerDevice.id,
+            senderDeviceId: readerDevice.id,
+            headerB64: "gap-header-2",
+            ciphertextB64: "gap-ciphertext-2",
+            dhPublicB64: "gap-dh-2",
+          },
+        },
+      },
+    });
+
+    const read = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/${conversation.id}/read`,
+      headers: {
+        origin,
+        "content-type": "application/json",
+      },
+      cookies: reader.cookies,
+      payload: {
+        seenMessageIds: [ownMessage.id],
+      },
+    });
+
+    expect(read.statusCode).toBe(200);
+    expect(read.json().unreadCount).toBe(1);
+
+    const stored = await db.directConversationMember.findUniqueOrThrow({
+      where: {
+        conversationId_userId: {
+          conversationId: conversation.id,
+          userId: reader.id,
+        },
+      },
+    });
+    expect(stored.lastReadMessageSequence?.toString()).toBe(
+      (BigInt(firstPeerMessage.sequence) - 1n).toString(),
+    );
+  });
+
   it("binds structured mention routing to signatures and rejects forged Direct Chat targets", async () => {
     const alice = await readyUser(app, "dc-mentions-alice", "Alice");
     const nikita = await readyUser(app, "dc-mentions-nikita", "Nikita");
