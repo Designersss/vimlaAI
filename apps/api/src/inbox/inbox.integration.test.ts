@@ -363,7 +363,9 @@ describe("unified inbox API", () => {
         "content-type": "application/json",
       },
       cookies: alice.cookies,
-      payload: {},
+      payload: {
+        seenMessageIds: [directMessage.id],
+      },
     });
     expect(markedRead.statusCode).toBe(200);
 
@@ -649,7 +651,9 @@ describe("unified inbox API", () => {
         "content-type": "application/json",
       },
       cookies: reader.cookies,
-      payload: {},
+      payload: {
+        seenMessageIds: [],
+      },
     });
     expect(emptyRead.statusCode).toBe(200);
     const emptyMember =
@@ -661,16 +665,19 @@ describe("unified inbox API", () => {
           },
         },
       });
-    expect(emptyMember.lastReadMessageCreatedAt).toBeNull();
-    expect(emptyMember.lastReadMessageId).toBeNull();
+    expect(
+      emptyMember.lastReadMessageSequence,
+    ).toBeNull();
 
     const tiedAt = new Date(
       Date.now() - 10_000,
     );
+    // The later message deliberately has the lexicographically smaller UUID.
+    // Read correctness must therefore be independent of timestamp/UUID ties.
     const firstMessageId =
-      "11111111-1111-4111-8111-111111111111";
-    const secondMessageId =
       "22222222-2222-4222-8222-222222222222";
+    const secondMessageId =
+      "11111111-1111-4111-8111-111111111111";
     await db.directMessage.create({
       data: {
         id: firstMessageId,
@@ -683,6 +690,11 @@ describe("unified inbox API", () => {
       },
     });
 
+    const firstStored =
+      await db.directMessage.findUniqueOrThrow({
+        where: { id: firstMessageId },
+        select: { sequence: true },
+      });
     const firstRead = await app.inject({
       method: "POST",
       url: `/v1/direct-chats/${conversation.id}/read`,
@@ -691,7 +703,9 @@ describe("unified inbox API", () => {
         "content-type": "application/json",
       },
       cookies: reader.cookies,
-      payload: {},
+      payload: {
+        seenMessageIds: [firstMessageId],
+      },
     });
     expect(firstRead.statusCode).toBe(200);
 
@@ -732,10 +746,9 @@ describe("unified inbox API", () => {
           },
         },
       });
-    expect(member.lastReadMessageCreatedAt?.toISOString()).toBe(
-      tiedAt.toISOString(),
+    expect(member.lastReadMessageSequence).toBe(
+      firstStored.sequence,
     );
-    expect(member.lastReadMessageId).toBe(firstMessageId);
   });
 
   it("keeps equal-activity pagination stable and rejects malformed cursors", async () => {
