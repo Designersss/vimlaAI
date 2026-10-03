@@ -242,7 +242,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
           conversationId,
           localDevice: device,
         })
-          .then((result) => {
+          .then(async (result) => {
             if (cancelled) return;
             if (result === "LOCAL_DEVICE_INACTIVE") {
               setError("direct_chat_device_revoked");
@@ -253,6 +253,16 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
                 "direct_chat_recipient_device_missing",
               );
               return;
+            }
+
+            const deliveries =
+              await recoverDirectOperatorInvocations({
+                conversationId,
+                actorUserId: currentUser.id,
+              });
+            if (cancelled) return;
+            for (const delivery of deliveries) {
+              applyOperatorDelivery(delivery);
             }
             workspace.requestInboxRefresh();
           })
@@ -267,7 +277,9 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
             }
             setError(
               recoveryError instanceof
-                DirectChatsApiError
+                  DirectChatsApiError ||
+                recoveryError instanceof
+                  OperatorRequestError
                 ? recoveryError.code
                 : "internal_error",
             );
