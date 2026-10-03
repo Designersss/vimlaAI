@@ -220,10 +220,6 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         }
         await prepareDevice();
         const device = await ensureLocalDevice();
-        await recoverPendingSends({
-          conversationId,
-          localDevice: device,
-        });
         const detail = await fetchDirectConversation(conversationId);
         const page = await fetchLatestDecryptedPage(
           detail,
@@ -236,6 +232,46 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         updateRows(visibleRows);
         setNextCursor(page.nextCursor);
         setBoot("ready");
+
+        // Pending outbox recovery must not gate the readable Direct detail.
+        // A server-committed interrupted send is already reconciled while
+        // decrypting the authoritative history above. Truly unsent rows are
+        // retried after the shell is usable; the subscription's initial gap
+        // refresh closes the race if recovery emits before it subscribes.
+        void recoverPendingSends({
+          conversationId,
+          localDevice: device,
+        })
+          .then((result) => {
+            if (cancelled) return;
+            if (result === "LOCAL_DEVICE_INACTIVE") {
+              setError("direct_chat_device_revoked");
+              return;
+            }
+            if (result === "RECIPIENT_DEVICE_MISSING") {
+              setError(
+                "direct_chat_recipient_device_missing",
+              );
+              return;
+            }
+            workspace.requestInboxRefresh();
+          })
+          .catch((recoveryError: unknown) => {
+            if (cancelled) return;
+            if (
+              recoveryError instanceof
+              AuthRequiredError
+            ) {
+              router.replace("/sign-in");
+              return;
+            }
+            setError(
+              recoveryError instanceof
+                DirectChatsApiError
+                ? recoveryError.code
+                : "internal_error",
+            );
+          });
 
         try {
           const read =
