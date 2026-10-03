@@ -414,7 +414,9 @@ describe("direct chats API", () => {
       url: `/v1/direct-chats/${chat.id}/read`,
       headers: jsonHeaders(),
       cookies: nikita.cookies,
-      payload: {},
+      payload: {
+        seenMessageIds: [bobMessage.id],
+      },
     });
     const afterRead = await app.inject({
       method: "GET",
@@ -487,19 +489,20 @@ describe("direct chats API", () => {
         },
       });
     const base = Date.now() - 120_000;
+    const messages = Array.from(
+      { length: 60 },
+      (_value, index) => ({
+        id: randomUUID(),
+        conversationId: conversation.id,
+        senderUserId: peer.id,
+        senderDeviceId: senderDevice.id,
+        clientMessageId: randomUUID(),
+        kind: "HUMAN",
+        createdAt: new Date(base + index),
+      }),
+    );
     await db.directMessage.createMany({
-      data: Array.from(
-        { length: 60 },
-        (_value, index) => ({
-          id: randomUUID(),
-          conversationId: conversation.id,
-          senderUserId: peer.id,
-          senderDeviceId: senderDevice.id,
-          clientMessageId: randomUUID(),
-          kind: "HUMAN",
-          createdAt: new Date(base + index),
-        }),
-      ),
+      data: messages,
     });
 
     const beforeRead = await app.inject({
@@ -511,6 +514,12 @@ describe("direct chats API", () => {
     expect(beforeRead.statusCode).toBe(200);
     expect(beforeRead.json().unreadCount).toBe(60);
 
+    const latest =
+      await db.directMessage.findFirstOrThrow({
+        where: { conversationId: conversation.id },
+        orderBy: { sequence: "desc" },
+        select: { id: true },
+      });
     const read = await app.inject({
       method: "POST",
       url: `/v1/direct-chats/${conversation.id}/read`,
@@ -519,7 +528,9 @@ describe("direct chats API", () => {
         "content-type": "application/json",
       },
       cookies: reader.cookies,
-      payload: {},
+      payload: {
+        seenMessageIds: [latest.id],
+      },
     });
     expect(read.statusCode).toBe(200);
     expect(read.json().unreadCount).toBe(0);
