@@ -142,14 +142,11 @@ export type RealtimeHeartbeatFrame = z.infer<
   typeof realtimeHeartbeatFrameSchema
 >;
 
-export const realtimeServerFrameSchema = z.discriminatedUnion(
-  "frameType",
-  [
-    realtimeHelloFrameSchema,
-    realtimeHeartbeatFrameSchema,
-    realtimeEventEnvelopeSchema,
-  ],
-);
+export const realtimeServerFrameSchema = z.union([
+  realtimeHelloFrameSchema,
+  realtimeHeartbeatFrameSchema,
+  realtimeEventEnvelopeSchema,
+]);
 export type RealtimeServerFrame = z.infer<
   typeof realtimeServerFrameSchema
 >;
