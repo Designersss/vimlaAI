@@ -13,6 +13,7 @@ export type RealtimeDurability = z.infer<
 
 export const realtimeEventTypeSchema = z.enum([
   "DIRECT_MESSAGE_CREATED",
+  "DIRECT_READ_UPDATED",
 ]);
 export type RealtimeEventType = z.infer<
   typeof realtimeEventTypeSchema
@@ -66,8 +67,50 @@ export const directMessageCreatedRealtimeEventSchema = z
     }
   });
 
-export const realtimeEventEnvelopeSchema =
-  directMessageCreatedRealtimeEventSchema;
+export const directReadUpdatedRealtimePayloadSchema = z
+  .object({
+    conversationId: z.string().uuid(),
+  })
+  .strict();
+export type DirectReadUpdatedRealtimePayload = z.infer<
+  typeof directReadUpdatedRealtimePayloadSchema
+>;
+
+export const directReadUpdatedRealtimeEventSchema = z
+  .object({
+    protocolVersion: z.literal(REALTIME_PROTOCOL_VERSION),
+    frameType: z.literal("EVENT"),
+    eventId: z.string().uuid(),
+    eventType: z.literal("DIRECT_READ_UPDATED"),
+    durability: z.literal("DURABLE_HINT"),
+    scope: z
+      .object({
+        kind: z.literal("DIRECT_CHAT"),
+        id: z.string().uuid(),
+      })
+      .strict(),
+    occurredAt: z.string().datetime({ offset: true }),
+    payload: directReadUpdatedRealtimePayloadSchema,
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.scope.id !== value.payload.conversationId) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["scope", "id"],
+        message:
+          "Realtime scope id must match Direct Chat conversation id",
+      });
+    }
+  });
+
+export const realtimeEventEnvelopeSchema = z.discriminatedUnion(
+  "eventType",
+  [
+    directMessageCreatedRealtimeEventSchema,
+    directReadUpdatedRealtimeEventSchema,
+  ],
+);
 export type RealtimeEventEnvelope = z.infer<
   typeof realtimeEventEnvelopeSchema
 >;
