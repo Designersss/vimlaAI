@@ -146,7 +146,7 @@ The communication list is a projection over authorized `CommunicationSurface` ro
 Current invariants:
 
 - `GET /v1/inbox` is the single list contract for implemented communication surfaces; the superseded AI-thread and Direct-Chat list endpoints/contracts are removed rather than kept as parallel fallbacks.
-- `CommunicationSurface.lastActivityAt` is the shared ordering key. PostgreSQL message-insert triggers advance it for both AI Thread and Direct Chat writes, so every writer observes the same ordering rule.
+- `CommunicationSurface.lastActivityAt` is the shared ordering key. PostgreSQL advances it on AI Thread message inserts/updates and on Direct Chat message inserts, so every supported visible message activity follows the same server-authoritative ordering rule.
 - ordering is `lastActivityAt DESC, surfaceId DESC`; pagination uses the same tuple and binds an opaque cursor to the active kind/search filter.
 - authorization remains domain-owned before a surface enters the projection: AI Thread requires current ownership of `Conversation(kind='CHAT')`; Direct requires current `DirectConversationMember` membership.
 - AI Thread preview may contain bounded server-readable message text.
