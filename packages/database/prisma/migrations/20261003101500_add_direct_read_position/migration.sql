@@ -23,14 +23,26 @@ FROM ranked
 WHERE ranked."id" = message."id";
 
 UPDATE "direct_conversation" AS conversation
-SET "lastMessageSequence" = COALESCE(
-  (
-    SELECT MAX(message."sequence")
-    FROM "direct_message" AS message
-    WHERE message."conversationId" = conversation."id"
+SET
+  "lastMessageSequence" = COALESCE(
+    (
+      SELECT MAX(message."sequence")
+      FROM "direct_message" AS message
+      WHERE message."conversationId" = conversation."id"
+    ),
+    0
   ),
-  0
-);
+  "lastMessageAt" = GREATEST(
+    conversation."lastMessageAt",
+    COALESCE(
+      (
+        SELECT MAX(message."createdAt")
+        FROM "direct_message" AS message
+        WHERE message."conversationId" = conversation."id"
+      ),
+      conversation."lastMessageAt"
+    )
+  );
 
 ALTER TABLE "direct_message"
   ALTER COLUMN "sequence" SET NOT NULL,
