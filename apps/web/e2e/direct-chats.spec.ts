@@ -279,27 +279,24 @@ test.describe("Secure Direct Chats", () => {
       aliceStaleRecoveryPage,
     );
     await stalePendingRecoveryNavigation;
-    const staleRetry =
-      aliceStaleRecoveryPage.getByRole(
-        "button",
-        { name: /повторить|retry/i },
-      );
-    await expect(staleRetry).toBeVisible({
-      timeout: 20_000,
-    });
-    await staleRetry.click();
     await expect(
       aliceStaleRecoveryPage.getByTestId(
         "direct-chat-shell",
       ),
     ).toBeVisible({ timeout: 20_000 });
     await expect(
+      aliceStaleRecoveryPage.getByRole(
+        "button",
+        { name: /повторить|retry/i },
+      ),
+    ).toHaveCount(0);
+    await expect(
       aliceStaleRecoveryPage
         .getByTestId("direct-message-human")
         .filter({
           hasText: "pending before peer device change",
         }),
-    ).toHaveCount(1);
+    ).toHaveCount(1, { timeout: 20_000 });
     expect(
       await aliceStaleRecoveryPage.evaluate(
         () => navigator.locks === undefined,
