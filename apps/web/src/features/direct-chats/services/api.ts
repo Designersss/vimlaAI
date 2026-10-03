@@ -4,6 +4,7 @@ import type {
   DirectConversationView,
   DirectMessageView,
   DirectMessagesResponse,
+  MarkDirectChatRead,
   PrekeyBundlesResponse,
   RegisterCryptoDevice,
   SendDirectMessage,
@@ -69,10 +70,12 @@ export async function updateDirectChatPrivacy(
 
 export async function markDirectChatRead(
   id: string,
+  input: MarkDirectChatRead,
   fetchImpl: typeof fetch = fetch,
 ): Promise<DirectConversationView> {
   return createWebClientApi(fetchImpl).directChats.markDirectChatRead(
     id,
+    input,
     { signal: timeoutSignal() },
   );
 }
