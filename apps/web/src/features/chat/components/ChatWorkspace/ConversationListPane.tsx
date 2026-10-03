@@ -231,6 +231,8 @@ export const ConversationListPane = observer(
 
       let cancelled = false;
       const requestKey = inboxRequestKey;
+      const requestRefreshRevision =
+        refreshRevision;
       const timer = window.setTimeout(() => {
         void fetchInbox({
           limit: 50,
@@ -241,7 +243,9 @@ export const ConversationListPane = observer(
             if (
               cancelled ||
               requestKey !==
-                inboxRequestKeyRef.current
+                inboxRequestKeyRef.current ||
+              store.inboxRefreshRevision !==
+                requestRefreshRevision
             ) {
               return;
             }
@@ -252,7 +256,9 @@ export const ConversationListPane = observer(
             if (
               cancelled ||
               requestKey !==
-                inboxRequestKeyRef.current
+                inboxRequestKeyRef.current ||
+              store.inboxRefreshRevision !==
+                requestRefreshRevision
             ) {
               return;
             }
@@ -426,6 +432,8 @@ export const ConversationListPane = observer(
       }
       const cursor = nextCursor;
       const requestKey = inboxRequestKey;
+      const requestRefreshRevision =
+        refreshRevision;
       setLoadingMore(true);
       try {
         const page = await fetchInbox({
@@ -437,6 +445,8 @@ export const ConversationListPane = observer(
         if (
           requestKey !==
             inboxRequestKeyRef.current ||
+          store.inboxRefreshRevision !==
+            requestRefreshRevision ||
           store.inboxNextCursor !== cursor
         ) {
           return;
@@ -451,6 +461,8 @@ export const ConversationListPane = observer(
         } else if (
           requestKey ===
             inboxRequestKeyRef.current &&
+          store.inboxRefreshRevision ===
+            requestRefreshRevision &&
           store.inboxNextCursor === cursor
         ) {
           setListError(true);
