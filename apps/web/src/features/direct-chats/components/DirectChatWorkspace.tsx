@@ -306,6 +306,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
               await recoverDirectOperatorInvocations({
                 conversationId,
                 actorUserId: currentUser.id,
+                recoverPending: false,
               });
             if (cancelled) return;
             for (const delivery of deliveries) {
@@ -1237,21 +1238,24 @@ async function recoverDirectOperatorInvocations(input: {
   actorUserId: string;
   pendingClientMessageId?: string;
   runId?: string;
+  recoverPending?: boolean;
 }): Promise<OperatorInvocationDeliveryResult[]> {
   const device = await ensureLocalDevice();
-  const recovery = await recoverPendingSends({
-    conversationId: input.conversationId,
-    localDevice: device,
-  });
-  if (recovery === "LOCAL_DEVICE_INACTIVE") {
-    throw new DirectChatsApiError(
-      "direct_chat_device_revoked",
-    );
-  }
-  if (recovery === "RECIPIENT_DEVICE_MISSING") {
-    throw new DirectChatsApiError(
-      "direct_chat_recipient_device_missing",
-    );
+  if (input.recoverPending !== false) {
+    const recovery = await recoverPendingSends({
+      conversationId: input.conversationId,
+      localDevice: device,
+    });
+    if (recovery === "LOCAL_DEVICE_INACTIVE") {
+      throw new DirectChatsApiError(
+        "direct_chat_device_revoked",
+      );
+    }
+    if (recovery === "RECIPIENT_DEVICE_MISSING") {
+      throw new DirectChatsApiError(
+        "direct_chat_recipient_device_missing",
+      );
+    }
   }
 
   const invocations =
