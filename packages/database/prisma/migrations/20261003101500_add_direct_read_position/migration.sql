@@ -95,7 +95,7 @@ SET "lastReadMessageSequence" = (
   WHERE
     message."conversationId" = member."conversationId"
     AND member."lastReadMessageCreatedAt" IS NOT NULL
-    AND message."createdAt" < member."lastReadMessageCreatedAt"
+    AND message."createdAt" <= member."lastReadMessageCreatedAt"
 )
 WHERE member."lastReadMessageCreatedAt" IS NOT NULL;
 
