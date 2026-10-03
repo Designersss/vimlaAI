@@ -120,44 +120,40 @@ export class DirectChatService {
     const occurredAt = new Date();
 
     await this.db.$transaction(async (tx) => {
-      const conversation =
-        await tx.directConversation.findFirst({
-          where: {
-            id: conversationId,
-            members: {
-              some: { userId: actor.userId },
-            },
-          },
-          select: {
-            members: {
-              where: { userId: actor.userId },
-              select: {
-                lastReadMessageCreatedAt: true,
-                lastReadMessageId: true,
-              },
-            },
-            messages: {
-              orderBy: [
-                { createdAt: "desc" },
-                { id: "desc" },
-              ],
-              take: 1,
-              select: {
-                id: true,
-                createdAt: true,
-              },
-            },
-          },
-        });
-      const member = conversation?.members[0];
-      if (!conversation || !member) {
+      const members = await tx.$queryRaw<
+        Array<{
+          lastReadMessageCreatedAt: Date | null;
+          lastReadMessageId: string | null;
+        }>
+      >(Prisma.sql`
+        SELECT
+          member."lastReadMessageCreatedAt" AS "lastReadMessageCreatedAt",
+          member."lastReadMessageId" AS "lastReadMessageId"
+        FROM "direct_conversation_member" AS member
+        WHERE
+          member."conversationId" = ${conversationId}
+          AND member."userId" = ${actor.userId}
+        FOR UPDATE
+      `);
+      const member = members[0];
+      if (!member) {
         throw new DirectChatError(
           "NOT_FOUND",
           "Direct Chat was not found",
         );
       }
 
-      const latest = conversation.messages[0] ?? null;
+      const latest = await tx.directMessage.findFirst({
+        where: { conversationId },
+        orderBy: [
+          { createdAt: "desc" },
+          { id: "desc" },
+        ],
+        select: {
+          id: true,
+          createdAt: true,
+        },
+      });
       const nextCreatedAt = latest?.createdAt ?? null;
       const nextMessageId = latest?.id ?? null;
       const positionChanged =
