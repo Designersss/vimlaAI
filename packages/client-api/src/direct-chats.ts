@@ -2,16 +2,15 @@ import {
   cryptoDeviceViewSchema,
   cryptoDevicesResponseSchema,
   directConversationViewSchema,
-  directConversationsResponseSchema,
   directMessageViewSchema,
   directMessagesResponseSchema,
   prekeyBundlesResponseSchema,
   type CreateDirectConversation,
   type CryptoDeviceView,
   type DirectConversationView,
-  type DirectConversationsResponse,
   type DirectMessageView,
   type DirectMessagesResponse,
+  type MarkDirectChatRead,
   type PrekeyBundlesResponse,
   type RegisterCryptoDevice,
   type SendDirectMessage,
@@ -42,17 +41,6 @@ export function createDirectChatsClient(
     new DirectChatsApiError(code, status);
 
   return {
-    fetchDirectConversations(
-      options: DirectChatRequestOptions = {},
-    ): Promise<DirectConversationsResponse> {
-      return transport.request("/v1/direct-chats", {
-        init: signalInit(options.signal),
-        parse: (payload) =>
-          directConversationsResponseSchema.parse(payload),
-        errorFactory,
-      });
-    },
-
     fetchDirectConversation(
       id: string,
       options: DirectChatRequestOptions = {},
@@ -98,12 +86,17 @@ export function createDirectChatsClient(
 
     markDirectChatRead(
       id: string,
+      input: MarkDirectChatRead,
       options: DirectChatRequestOptions = {},
     ): Promise<DirectConversationView> {
       return transport.request(
         `/v1/direct-chats/${encodeURIComponent(id)}/read`,
         {
-          init: jsonRequestInit("POST", {}, options.signal),
+          init: jsonRequestInit(
+            "POST",
+            input,
+            options.signal,
+          ),
           parse: (payload) =>
             directConversationViewSchema.parse(payload),
           errorFactory,

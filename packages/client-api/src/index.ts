@@ -15,6 +15,10 @@ export {
 } from "./account.js";
 export { createChatClient } from "./chat.js";
 export {
+  createInboxClient,
+  type InboxRequest,
+} from "./inbox.js";
+export {
   DirectChatsApiError,
   createDirectChatsClient,
   type DirectChatRequestOptions,

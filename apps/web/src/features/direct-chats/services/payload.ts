@@ -74,6 +74,31 @@ export function decodeDirectPlaintext(kind: DirectMessageKind, text: string): Di
   return { type: "human", text };
 }
 
+export function directPlaintextPreview(
+  kind: DirectMessageKind,
+  text: string,
+): string | null {
+  const payload = decodeDirectPlaintext(kind, text);
+
+  if (kind === "HUMAN") {
+    return payload.type === "human" ? payload.text : null;
+  }
+  if (kind === "OPERATOR_INVOKE") {
+    return payload.type === "invoke" ? payload.text : null;
+  }
+  if (kind === "OPERATOR_RESPONSE") {
+    return payload.type === "response"
+      ? payload.text || payload.clarificationQuestion
+      : null;
+  }
+  if (kind === "OPERATOR_ACTION") {
+    return payload.type === "action" ? payload.title : null;
+  }
+
+  const exhaustive: never = kind;
+  return exhaustive;
+}
+
 function tryJson(text: string): Record<string, unknown> | null {
   try {
     const parsed: unknown = JSON.parse(text);

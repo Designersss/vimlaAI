@@ -139,6 +139,25 @@ actor
 
 Provider/model/prompt content never selects a SurfaceAuthority adapter and cannot expand a source/write scope.
 
+### 5.3 MSG-02 Unified Inbox
+
+The communication list is a projection over authorized `CommunicationSurface` rows, not a client-side merge of domain lists.
+
+Current invariants:
+
+- `GET /v1/inbox` is the single list contract for implemented communication surfaces; the superseded AI-thread and Direct-Chat list endpoints/contracts are removed rather than kept as parallel fallbacks.
+- `CommunicationSurface.lastActivityAt` is the shared ordering key. PostgreSQL advances it on AI Thread message inserts/updates and on Direct Chat message inserts, so every supported visible message activity follows the same server-authoritative ordering rule.
+- ordering is `lastActivityAt DESC, surfaceId DESC`; pagination uses the same tuple and binds an opaque cursor to the active kind/search filter.
+- authorization remains domain-owned before a surface enters the projection: AI Thread requires current ownership of `Conversation(kind='CHAT')`; Direct requires current `DirectConversationMember` membership.
+- AI Thread preview may contain bounded server-readable message text.
+- Direct preview never contains ciphertext-derived plaintext from the server. It carries only authoritative latest-message metadata (`messageId`, sender, kind, timestamp).
+- a client may display a Direct plaintext preview only when protected local plaintext matches all of that authoritative metadata. Missing/corrupt local cache degrades to a non-plaintext encrypted-message label; there is no server fallback.
+- unread counts are derived from current Direct membership and a server-assigned per-conversation causal message sequence. The read API advances only through message ids the client actually observed, under a serialized membership lock; wall-clock timestamps and random UUID ordering never grant read progress. AI Thread unread remains zero until its domain gains an explicit unread model.
+- semantic navigation uses `NavigationTarget { kind: 'CHAT', id: surfaceId }`. Inbox rows and create flows navigate through `/app/chat/:surfaceId`; the authorized resolver then selects the domain-specific detail renderer.
+- durable Direct Chat message and read-state Sync deltas request a refresh of the current inbox query; read state therefore converges across tabs/reconnects without client-invented authority or sort order.
+- future GROUP/CHANNEL surfaces extend the same projection/contract with focused domain authority; they do not introduce another top-level inbox feed.
+
+
 Direct Chat keeps a second, stricter E2EE boundary after SurfaceAuthority: bounded client-disclosed plaintext is validated against current membership and consent, including transactional consent re-checks immediately before side effects. SurfaceAuthority never grants the server access to encrypted Direct Chat history or decryption keys; only the already-established, explicitly client-disclosed bounded plaintext may be frozen in ContextSnapshot for the authorized invocation.
 
 ## 6. Context / audience rule

@@ -1,4 +1,4 @@
-import type { Prisma } from "@vimla/database";
+import { Prisma } from "@vimla/database";
 import {
   DIRECT_CHAT_LIMITS,
   type CreateDirectConversation,
@@ -8,6 +8,7 @@ import {
   type DirectEnvelopeView,
   type DirectMessageView,
   type DirectParticipant,
+  type MarkDirectChatRead,
   type MessageMentionView,
   type SendDirectMessage,
   type UpdateDirectChatPrivacy,
@@ -95,40 +96,6 @@ export class DirectChatService {
     }
   }
 
-  async list(actor: ActorContext, query: { limit: number; cursor?: string }): Promise<{
-    items: DirectConversationSummary[];
-    nextCursor: string | null;
-  }> {
-    const cursor = decodeCursor(query.cursor);
-    const memberships = await this.db.directConversationMember.findMany({
-      where: {
-        userId: actor.userId,
-        ...(cursor
-          ? {
-              conversation: {
-                OR: [
-                  { lastMessageAt: { lt: cursor.at } },
-                  { AND: [{ lastMessageAt: cursor.at }, { id: { lt: cursor.id } }] },
-                ],
-              },
-            }
-          : {}),
-      },
-      include: { conversation: { include: conversationInclude } },
-      orderBy: [{ conversation: { lastMessageAt: "desc" } }, { conversation: { id: "desc" } }],
-      take: query.limit + 1,
-    });
-    const page = memberships.slice(0, query.limit);
-    const last = page.at(-1);
-    return {
-      items: page.map((row) => this.toSummary(row.conversation, actor.userId)),
-      nextCursor:
-        memberships.length > query.limit && last
-          ? encodeCursor(last.conversation.lastMessageAt, last.conversation.id)
-          : null,
-    };
-  }
-
   async get(actor: ActorContext, conversationId: string): Promise<DirectConversationView> {
     const conversation = await this.requireMemberConversation(actor.userId, conversationId);
     return this.toView(conversation, actor.userId);
@@ -150,16 +117,112 @@ export class DirectChatService {
     return this.get(actor, conversationId);
   }
 
-  async markRead(actor: ActorContext, conversationId: string): Promise<DirectConversationView> {
-    const conversation = await this.requireMemberConversation(actor.userId, conversationId);
-    const latest = conversation.messages[0];
-    await this.db.directConversationMember.update({
-      where: { conversationId_userId: { conversationId, userId: actor.userId } },
-      data: {
-        lastReadAt: new Date(),
-        lastReadMessageCreatedAt: latest?.createdAt ?? new Date(),
-      },
+  async markRead(
+    actor: ActorContext,
+    conversationId: string,
+    input: MarkDirectChatRead,
+  ): Promise<DirectConversationView> {
+    const occurredAt = new Date();
+
+    await this.db.$transaction(async (tx) => {
+      const members = await tx.$queryRaw<
+        Array<{
+          lastReadMessageSequence: bigint | null;
+        }>
+      >(Prisma.sql`
+        SELECT
+          member."lastReadMessageSequence" AS "lastReadMessageSequence"
+        FROM "direct_conversation_member" AS member
+        WHERE
+          member."conversationId" = ${conversationId}
+          AND member."userId" = ${actor.userId}
+        FOR UPDATE
+      `);
+      const member = members[0];
+      if (!member) {
+        throw new DirectChatError(
+          "NOT_FOUND",
+          "Direct Chat was not found",
+        );
+      }
+
+      const currentSequence =
+        member.lastReadMessageSequence ?? 0n;
+      let nextSequence = currentSequence;
+      const hasObservedMessages =
+        input.seenMessageIds.length > 0;
+      if (hasObservedMessages) {
+        const messages = await tx.directMessage.findMany({
+          where: {
+            conversationId,
+            id: { in: input.seenMessageIds },
+          },
+          select: {
+            id: true,
+            sequence: true,
+            senderUserId: true,
+          },
+        });
+        if (
+          messages.length !==
+          input.seenMessageIds.length
+        ) {
+          throw new DirectChatError(
+            "VALIDATION_ERROR",
+            "Seen Direct Chat messages are invalid",
+          );
+        }
+
+        const observedPeerSequence = messages.reduce(
+          (max, message) =>
+            message.senderUserId !== actor.userId &&
+            message.sequence > max
+              ? message.sequence
+              : max,
+          0n,
+        );
+        if (observedPeerSequence > nextSequence) {
+          nextSequence = observedPeerSequence;
+        }
+      }
+
+      const storedPositionChanged =
+        hasObservedMessages &&
+        nextSequence !==
+          member.lastReadMessageSequence;
+      const readProgressChanged =
+        nextSequence > currentSequence;
+
+      await tx.directConversationMember.update({
+        where: {
+          conversationId_userId: {
+            conversationId,
+            userId: actor.userId,
+          },
+        },
+        data: {
+          lastReadAt: occurredAt,
+          ...(storedPositionChanged
+            ? {
+                lastReadMessageSequence:
+                  nextSequence,
+              }
+            : {}),
+        },
+      });
+
+      if (readProgressChanged) {
+        await this.durableEvents.directReadUpdated(
+          tx,
+          {
+            conversationId,
+            occurredAt,
+            recipientUserId: actor.userId,
+          },
+        );
+      }
     });
+
     return this.get(actor, conversationId);
   }
 
@@ -327,10 +390,6 @@ export class DirectChatService {
             })),
           });
         }
-        await tx.directConversation.update({
-          where: { id: conversationId },
-          data: { lastMessageAt: message.createdAt },
-        });
         await this.durableEvents.directMessageCreated(
           tx,
           {
@@ -633,8 +692,19 @@ export class DirectChatService {
     return device;
   }
 
-  private toView(conversation: ConversationRecord, actorUserId: string): DirectConversationView {
-    const summary = this.toSummary(conversation, actorUserId);
+  private async toView(
+    conversation: ConversationRecord,
+    actorUserId: string,
+  ): Promise<DirectConversationView> {
+    const unreadCount = await this.readUnreadCount(
+      actorUserId,
+      conversation.id,
+    );
+    const summary = this.toSummary(
+      conversation,
+      actorUserId,
+      unreadCount,
+    );
     const devices = conversation.members.flatMap((member) =>
       member.user.cryptoDevices.filter((device) => device.revokedAt === null).map(toDeviceView),
     );
@@ -645,21 +715,39 @@ export class DirectChatService {
     };
   }
 
-  private toSummary(conversation: ConversationRecord, actorUserId: string): DirectConversationSummary {
+  private async readUnreadCount(
+    actorUserId: string,
+    conversationId: string,
+  ): Promise<number> {
+    const rows = await this.db.$queryRaw<
+      Array<{ unreadCount: number }>
+    >(Prisma.sql`
+      SELECT COUNT(*)::int AS "unreadCount"
+      FROM "direct_message" AS message
+      INNER JOIN "direct_conversation_member" AS member
+        ON member."conversationId" = message."conversationId"
+        AND member."userId" = ${actorUserId}
+      WHERE
+        message."conversationId" = ${conversationId}
+        AND message."senderUserId" <> ${actorUserId}
+        AND (
+          member."lastReadMessageSequence" IS NULL
+          OR message."sequence" > member."lastReadMessageSequence"
+        )
+    `);
+    return rows[0]?.unreadCount ?? 0;
+  }
+
+  private toSummary(
+    conversation: ConversationRecord,
+    actorUserId: string,
+    unreadCount: number,
+  ): DirectConversationSummary {
     const mine = conversation.members.find((member) => member.userId === actorUserId);
     const peer = conversation.members.find((member) => member.userId !== actorUserId);
     if (!mine || !peer) {
       throw new DirectChatError("NOT_FOUND", "Direct Chat was not found");
     }
-    const unreadCount = conversation.messages.filter((message) => {
-      if (message.senderUserId === actorUserId) {
-        return false;
-      }
-      if (!mine.lastReadMessageCreatedAt) {
-        return true;
-      }
-      return message.createdAt > mine.lastReadMessageCreatedAt;
-    }).length;
     const latest = conversation.messages[0];
     if (
       conversation.surface === null ||
@@ -693,7 +781,13 @@ const conversationInclude = {
       },
     },
   },
-  messages: { orderBy: { createdAt: "desc" as const }, take: 50 },
+  messages: {
+    orderBy: [
+      { createdAt: "desc" as const },
+      { id: "desc" as const },
+    ],
+    take: 50,
+  },
 } satisfies Prisma.DirectConversationInclude;
 
 type ConversationRecord = Prisma.DirectConversationGetPayload<{ include: typeof conversationInclude }>;

@@ -190,7 +190,7 @@ describe("AI chat integration", () => {
     });
     const listed = await app.inject({
       method: "GET",
-      url: "/v1/conversations",
+      url: "/v1/inbox?kind=AI_THREAD",
       headers: { origin },
       cookies: user.cookies,
     });
@@ -198,13 +198,14 @@ describe("AI chat integration", () => {
     expect(
       listed
         .json()
-        .conversations.find(
-          (item: { id: string }) =>
-            item.id === conversationId,
+        .items.find(
+          (item: { domainId: string }) =>
+            item.domainId === conversationId,
         ),
     ).toMatchObject({
       surfaceId,
       surfaceKind: "AI_THREAD",
+      domainId: conversationId,
     });
     expect(
       await prisma.communicationSurface.findUnique({

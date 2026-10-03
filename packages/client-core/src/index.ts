@@ -39,3 +39,8 @@ export {
   type SyncFailureKind,
   type SyncPageSource,
 } from "./sync-engine.js";
+
+export {
+  resolveInboxPreview,
+  type InboxLocalPlaintextRecord,
+} from "./inbox-preview.js";

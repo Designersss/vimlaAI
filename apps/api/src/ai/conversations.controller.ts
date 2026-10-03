@@ -19,13 +19,11 @@ import { isBillingError } from "@vimla/billing";
 import {
   conversationCreatedSchema,
   conversationDetailSchema,
-  conversationsResponseSchema,
   createConversationSchema,
   sendMessageSchema,
   updateConversationDefaultTargetSchema,
   type ConversationCreated,
   type ConversationDetail,
-  type ConversationsResponse,
 } from "@vimla/contracts";
 import { API_CONFIG, type ApiRuntimeConfig } from "../config/api-config.js";
 import { AuthGuard } from "../auth/auth.guard.js";
@@ -76,22 +74,6 @@ export class ConversationsController {
       title: conversation.title,
       defaultTarget: toDefaultTarget(conversation),
       updatedAt: conversation.updatedAt.toISOString(),
-    });
-  }
-
-  @Get()
-  async list(@AuthUser() user: AuthenticatedUser): Promise<ConversationsResponse> {
-    const conversations = await this.chat.listConversations(user.id);
-    return conversationsResponseSchema.parse({
-      conversations: conversations.map((conversation) => ({
-        id: conversation.id,
-        surfaceId: conversation.surface.id,
-        surfaceKind: conversation.surface.kind,
-        projectId: conversation.projectId,
-        title: conversation.title,
-        defaultTarget: toDefaultTarget(conversation),
-        updatedAt: conversation.updatedAt.toISOString(),
-      })),
     });
   }
 

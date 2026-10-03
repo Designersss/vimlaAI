@@ -339,6 +339,7 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
           onError: (code) => {
             failed = true;
             store.failAssistant(code);
+            workspace.requestInboxRefresh();
           },
         });
         if (!failed) {
@@ -347,6 +348,7 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
           store.setDefaultTarget(detail.defaultTarget);
           setTitle(detail.title);
           setWorkflowRefreshToken((value) => value + 1);
+          workspace.requestInboxRefresh();
         }
       } catch (error: unknown) {
         if (error instanceof AuthRequiredError) {
@@ -354,6 +356,7 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
           return;
         }
         store.failAssistant("internal_error");
+        workspace.requestInboxRefresh();
       }
       return;
     }
@@ -373,9 +376,13 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
             store.setDefaultTarget({ kind: "AI_MODEL", modelId });
           }
           setWorkflowRefreshToken((value) => value + 1);
+          workspace.requestInboxRefresh();
           void fetchUsage().then((usage) => workspace.setUsage(usage));
         },
-        onError: (code) => store.failAssistant(code),
+        onError: (code) => {
+          store.failAssistant(code);
+          workspace.requestInboxRefresh();
+        },
       });
     } catch (error: unknown) {
       if (error instanceof AuthRequiredError) {
@@ -383,6 +390,7 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
         return;
       }
       store.failAssistant("internal_error");
+      workspace.requestInboxRefresh();
     }
   }
 
@@ -426,7 +434,10 @@ export const ConversationWorkspace = observer(function ConversationWorkspace({
                     .catch((error: unknown) => {
                       store.failAssistant(error instanceof OperatorRequestError ? error.code : "internal_error");
                     })
-                    .finally(() => setOperatorBusy(false));
+                    .finally(() => {
+                      workspace.requestInboxRefresh();
+                      setOperatorBusy(false);
+                    });
                 }}
                 onCancel={() => {
                   const runId = message.operatorRun?.id;

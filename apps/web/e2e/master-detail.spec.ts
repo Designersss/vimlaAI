@@ -54,7 +54,7 @@ test("desktop preserves shell, list, search, filter, scroll and drafts while det
   await expect(master(page)).toBeVisible();
   await master(page).getByRole("radio", { name: /^(ии|ai)$/i }).check();
   await master(page).getByRole("searchbox").fill("Layout");
-  const first = master(page).getByRole("link", { name: "Layout 08", exact: true });
+  const first = master(page).getByRole("link", { name: "Layout 08" });
   await first.scrollIntoViewIfNeeded();
   const scroll = await master(page).evaluate((el) => el.scrollTop);
   expect(scroll).toBeGreaterThan(0);
@@ -65,7 +65,7 @@ test("desktop preserves shell, list, search, filter, scroll and drafts while det
   await expect(master(page)).toBeVisible();
   await expect(first).toHaveAttribute("aria-current", "page");
   await composer(page).fill("Черновик A — draft A");
-  await master(page).getByRole("link", { name: "Layout 09", exact: true }).click();
+  await master(page).getByRole("link", { name: "Layout 09" }).click();
   await expect(page).toHaveURL(`/app/${ids[9]}`);
   await expect(composer(page)).toHaveValue("");
   await expect(master(page).getByRole("searchbox")).toHaveValue("Layout");
@@ -105,12 +105,12 @@ test("mobile uses the same panes, deterministic back and browser history across 
     await expect(list).toBeVisible();
     if (viewport.width < 768) await expect(detail(page)).toBeHidden();
     if (viewport.width === 390) {
-      await list.getByRole("link", { name: title, exact: true }).waitFor({ state: "visible" });
+      await list.getByRole("link", { name: title }).waitFor({ state: "visible" });
       await hideNextJsPortal(page);
       await page.screenshot({ path: testInfo.outputPath("mobile-list.png") });
       await testInfo.attach("mobile-list", { path: testInfo.outputPath("mobile-list.png"), contentType: "image/png" });
     }
-    await list.getByRole("link", { name: title, exact: true }).click();
+    await list.getByRole("link", { name: title }).click();
     await expect(page).toHaveURL(`/app/${id}`);
     await expect(composer(page)).toBeVisible();
     await expect(detail(page)).toBeVisible();

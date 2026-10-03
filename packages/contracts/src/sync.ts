@@ -97,9 +97,34 @@ export const directMessageDeletedSyncDeltaSchema =
       "Direct message tombstone scope must match",
     );
 
+export const directReadUpdatedSyncDeltaSchema =
+  syncBaseDeltaSchema
+    .extend({
+      eventType: z.literal("DIRECT_READ_UPDATED"),
+      changeKind: z.literal("UPSERT_REF"),
+      scope: z
+        .object({
+          kind: z.literal("DIRECT_CHAT"),
+          id: z.uuid(),
+        })
+        .strict(),
+      payload: z
+        .object({
+          conversationId: z.uuid(),
+        })
+        .strict(),
+    })
+    .strict()
+    .refine(
+      (value) =>
+        value.scope.id === value.payload.conversationId,
+      "Direct read-state sync delta scope must match",
+    );
+
 export const syncDeltaSchema = z.union([
   directMessageCreatedSyncDeltaSchema,
   directMessageDeletedSyncDeltaSchema,
+  directReadUpdatedSyncDeltaSchema,
 ]);
 export type SyncDelta = z.infer<typeof syncDeltaSchema>;
 

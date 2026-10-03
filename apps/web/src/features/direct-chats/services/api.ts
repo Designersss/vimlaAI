@@ -2,9 +2,9 @@ import type {
   CreateDirectConversation,
   CryptoDeviceView,
   DirectConversationView,
-  DirectConversationsResponse,
   DirectMessageView,
   DirectMessagesResponse,
+  MarkDirectChatRead,
   PrekeyBundlesResponse,
   RegisterCryptoDevice,
   SendDirectMessage,
@@ -34,14 +34,6 @@ async function wipeAfterCurrentDeviceRevocation(
     await clearLocalE2eeData();
   }
   throw error;
-}
-
-export async function fetchDirectConversations(
-  fetchImpl: typeof fetch = fetch,
-): Promise<DirectConversationsResponse> {
-  return createWebClientApi(fetchImpl).directChats.fetchDirectConversations({
-    signal: timeoutSignal(),
-  });
 }
 
 export async function fetchDirectConversation(
@@ -78,10 +70,12 @@ export async function updateDirectChatPrivacy(
 
 export async function markDirectChatRead(
   id: string,
+  input: MarkDirectChatRead,
   fetchImpl: typeof fetch = fetch,
 ): Promise<DirectConversationView> {
   return createWebClientApi(fetchImpl).directChats.markDirectChatRead(
     id,
+    input,
     { signal: timeoutSignal() },
   );
 }

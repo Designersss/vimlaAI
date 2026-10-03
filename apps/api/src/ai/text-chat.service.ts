@@ -212,17 +212,6 @@ export class TextChatService {
     return requireAiThreadSurface(conversation);
   }
 
-  async listConversations(userId: string) {
-    const conversations =
-      await this.prisma.conversation.findMany({
-        where: { userId, kind: "CHAT" },
-        include: { surface: true },
-        orderBy: { updatedAt: "desc" },
-        take: 50,
-      });
-    return conversations.map(requireAiThreadSurface);
-  }
-
   async getConversation(userId: string, conversationId: string) {
     const conversation = await this.prisma.conversation.findFirst({
       where: { id: conversationId, userId },

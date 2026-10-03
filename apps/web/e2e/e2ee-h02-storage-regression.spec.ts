@@ -790,6 +790,50 @@ test.describe("E2EE H02 storage regressions", () => {
         await sentResponse
       ).json()) as { id: string };
 
+      await expect
+        .poll(
+          () =>
+            alicePage.evaluate(async (messageId) => {
+              const db =
+                await new Promise<IDBDatabase>(
+                  (resolve, reject) => {
+                    const request = indexedDB.open(
+                      "vimla-direct-e2ee",
+                    );
+                    request.onsuccess = () =>
+                      resolve(request.result);
+                    request.onerror = () =>
+                      reject(request.error);
+                  },
+                );
+              try {
+                return await new Promise<boolean>(
+                  (resolve, reject) => {
+                    const tx = db.transaction(
+                      "plaintexts",
+                      "readonly",
+                    );
+                    const request = tx
+                      .objectStore("plaintexts")
+                      .get(messageId);
+                    request.onsuccess = () =>
+                      resolve(Boolean(request.result));
+                    request.onerror = () =>
+                      reject(request.error);
+                  },
+                );
+              } finally {
+                db.close();
+              }
+            }, sent.id),
+          {
+            timeout: 10_000,
+            message:
+              "waiting for the sent plaintext to commit before seeding legacy storage",
+          },
+        )
+        .toBe(true);
+
       await alicePage.evaluate(
         async ({ messageId, plaintext }) => {
           const db =

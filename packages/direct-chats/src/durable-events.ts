@@ -1,6 +1,8 @@
+import { randomUUID } from "node:crypto";
 import {
   REALTIME_PROTOCOL_VERSION,
   directMessageCreatedRealtimeEventSchema,
+  directReadUpdatedRealtimeEventSchema,
 } from "@vimla/contracts";
 import type { Prisma } from "@vimla/database";
 
@@ -11,10 +13,20 @@ export interface DirectMessageCreatedEventInput {
   recipientUserIds: readonly string[];
 }
 
+export interface DirectReadUpdatedEventInput {
+  conversationId: string;
+  occurredAt: Date;
+  recipientUserId: string;
+}
+
 export interface DirectChatDurableEventWriter {
   directMessageCreated(
     tx: Prisma.TransactionClient,
     input: DirectMessageCreatedEventInput,
+  ): Promise<void>;
+  directReadUpdated(
+    tx: Prisma.TransactionClient,
+    input: DirectReadUpdatedEventInput,
   ): Promise<void>;
 }
 
@@ -94,6 +106,64 @@ export class PrismaDirectChatDurableEventWriter
               position,
             };
           }),
+        },
+        outbox: {
+          create: {},
+        },
+      },
+    });
+  }
+
+  async directReadUpdated(
+    tx: Prisma.TransactionClient,
+    input: DirectReadUpdatedEventInput,
+  ): Promise<void> {
+    const state = await tx.userSyncState.upsert({
+      where: { userId: input.recipientUserId },
+      create: {
+        userId: input.recipientUserId,
+        lastPosition: 1n,
+        minRetainedPosition: 0n,
+      },
+      update: {
+        lastPosition: { increment: 1n },
+      },
+      select: { lastPosition: true },
+    });
+
+    const event =
+      directReadUpdatedRealtimeEventSchema.parse({
+        protocolVersion: REALTIME_PROTOCOL_VERSION,
+        frameType: "EVENT",
+        eventId: randomUUID(),
+        eventType: "DIRECT_READ_UPDATED",
+        durability: "DURABLE_HINT",
+        scope: {
+          kind: "DIRECT_CHAT",
+          id: input.conversationId,
+        },
+        occurredAt: input.occurredAt.toISOString(),
+        payload: {
+          conversationId: input.conversationId,
+        },
+      });
+
+    await tx.durableEvent.create({
+      data: {
+        id: event.eventId,
+        protocolVersion: event.protocolVersion,
+        eventType: event.eventType,
+        durability: event.durability,
+        changeKind: "UPSERT_REF",
+        scopeKind: event.scope.kind,
+        scopeId: event.scope.id,
+        occurredAt: input.occurredAt,
+        payload: event.payload as Prisma.InputJsonValue,
+        recipients: {
+          create: {
+            userId: input.recipientUserId,
+            position: state.lastPosition,
+          },
         },
         outbox: {
           create: {},
