@@ -3,7 +3,6 @@ import {
   conversationCreatedSchema,
   conversationDefaultTargetSchema,
   conversationDetailSchema,
-  conversationsResponseSchema,
   mentionSuggestionsResponseSchema,
   type ConversationDefaultTarget,
   type ConversationDetail,
@@ -19,13 +18,6 @@ import {
 
 export function createChatClient(transport: ClientTransport) {
   return {
-    async fetchConversations(): Promise<ConversationSummary[]> {
-      const page = await transport.request("/v1/conversations", {
-        parse: (payload) => conversationsResponseSchema.parse(payload),
-      });
-      return page.conversations;
-    },
-
     createConversation(): Promise<ConversationSummary> {
       return transport.request("/v1/conversations", {
         init: jsonRequestInit("POST", {}),

@@ -391,13 +391,21 @@ describe("direct chats API", () => {
 
     const listed = await app.inject({
       method: "GET",
-      url: "/v1/direct-chats",
+      url: "/v1/inbox?kind=DIRECT",
       headers: { origin },
       cookies: nikita.cookies,
     });
-    expect(listed.json().items[0]?.unreadCount).toBeGreaterThan(0);
-    expect(listed.json().items[0]).toMatchObject({
-      id: chat.id,
+    const listedChat = listed
+      .json()
+      .items.find(
+        (item: { domainId: string }) =>
+          item.domainId === chat.id,
+      );
+    expect(
+      listedChat?.unreadCount,
+    ).toBeGreaterThan(0);
+    expect(listedChat).toMatchObject({
+      domainId: chat.id,
       surfaceId: chat.surfaceId,
       surfaceKind: "DIRECT",
     });
@@ -406,7 +414,9 @@ describe("direct chats API", () => {
       url: `/v1/direct-chats/${chat.id}/read`,
       headers: jsonHeaders(),
       cookies: nikita.cookies,
-      payload: {},
+      payload: {
+        seenMessageIds: [bobMessage.id],
+      },
     });
     const afterRead = await app.inject({
       method: "GET",
@@ -439,6 +449,192 @@ describe("direct chats API", () => {
     });
     expect(page.json().items).toHaveLength(1);
     expect(page.json().nextCursor).toBeTruthy();
+  });
+
+  it("counts unread across the full Direct history and clears it with a stable read position", async () => {
+    const reader = await registerVerifiedUser(
+      app,
+      "direct-unread-long-reader",
+    );
+    const peer = await registerVerifiedUser(
+      app,
+      "direct-unread-long-peer",
+    );
+    const db = app.get(PrismaService).client;
+    const conversation =
+      await db.directConversation.create({
+        data: {
+          pairKey: `direct-unread-long-${randomUUID()}`,
+          members: {
+            create: [
+              { userId: reader.id },
+              { userId: peer.id },
+            ],
+          },
+        },
+      });
+    const senderDevice =
+      await db.userCryptoDevice.create({
+        data: {
+          userId: peer.id,
+          identityEd25519Public:
+            "direct-unread-long-ed25519",
+          identityX25519Public:
+            "direct-unread-long-x25519",
+          signedPrekeyId: 1,
+          signedPrekeyPublic:
+            "direct-unread-long-signed-prekey",
+          signedPrekeySignature:
+            "direct-unread-long-signature",
+        },
+      });
+    const base = Date.now() - 120_000;
+    const messages = Array.from(
+      { length: 60 },
+      (_value, index) => ({
+        id: randomUUID(),
+        conversationId: conversation.id,
+        senderUserId: peer.id,
+        senderDeviceId: senderDevice.id,
+        clientMessageId: randomUUID(),
+        kind: "HUMAN",
+        createdAt: new Date(base + index),
+      }),
+    );
+    await db.directMessage.createMany({
+      data: messages,
+    });
+
+    const beforeRead = await app.inject({
+      method: "GET",
+      url: `/v1/direct-chats/${conversation.id}`,
+      headers: { origin },
+      cookies: reader.cookies,
+    });
+    expect(beforeRead.statusCode).toBe(200);
+    expect(beforeRead.json().unreadCount).toBe(60);
+
+    const latest =
+      await db.directMessage.findFirstOrThrow({
+        where: { conversationId: conversation.id },
+        orderBy: { sequence: "desc" },
+        select: { id: true },
+      });
+    const read = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/${conversation.id}/read`,
+      headers: {
+        origin,
+        "content-type": "application/json",
+      },
+      cookies: reader.cookies,
+      payload: {
+        seenMessageIds: [latest.id],
+      },
+    });
+    expect(read.statusCode).toBe(200);
+    expect(read.json().unreadCount).toBe(0);
+  });
+
+  it("does not skip an unseen peer message when a later own message is marked observed", async () => {
+    const reader = await registerVerifiedUser(
+      app,
+      "direct-unread-gap-reader",
+    );
+    const peer = await registerVerifiedUser(
+      app,
+      "direct-unread-gap-peer",
+    );
+    const db = app.get(PrismaService).client;
+    const conversation =
+      await db.directConversation.create({
+        data: {
+          pairKey: `direct-unread-gap-${randomUUID()}`,
+          members: {
+            create: [
+              { userId: reader.id },
+              { userId: peer.id },
+            ],
+          },
+        },
+      });
+    const readerDevice =
+      await db.userCryptoDevice.create({
+        data: {
+          userId: reader.id,
+          identityEd25519Public:
+            "direct-unread-gap-reader-ed25519",
+          identityX25519Public:
+            "direct-unread-gap-reader-x25519",
+          signedPrekeyId: 1,
+          signedPrekeyPublic:
+            "direct-unread-gap-reader-signed-prekey",
+          signedPrekeySignature:
+            "direct-unread-gap-reader-signature",
+        },
+      });
+    const peerDevice =
+      await db.userCryptoDevice.create({
+        data: {
+          userId: peer.id,
+          identityEd25519Public:
+            "direct-unread-gap-peer-ed25519",
+          identityX25519Public:
+            "direct-unread-gap-peer-x25519",
+          signedPrekeyId: 1,
+          signedPrekeyPublic:
+            "direct-unread-gap-peer-signed-prekey",
+          signedPrekeySignature:
+            "direct-unread-gap-peer-signature",
+        },
+      });
+
+    const firstPeerMessage = await db.directMessage.create({
+      data: {
+        conversationId: conversation.id,
+        senderUserId: peer.id,
+        senderDeviceId: peerDevice.id,
+        clientMessageId: randomUUID(),
+        kind: "HUMAN",
+      },
+    });
+    const ownMessage = await db.directMessage.create({
+      data: {
+        conversationId: conversation.id,
+        senderUserId: reader.id,
+        senderDeviceId: readerDevice.id,
+        clientMessageId: randomUUID(),
+        kind: "HUMAN",
+      },
+    });
+
+    const read = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/${conversation.id}/read`,
+      headers: {
+        origin,
+        "content-type": "application/json",
+      },
+      cookies: reader.cookies,
+      payload: {
+        seenMessageIds: [ownMessage.id],
+      },
+    });
+
+    expect(read.statusCode).toBe(200);
+    expect(read.json().unreadCount).toBe(1);
+
+    const stored = await db.directConversationMember.findUniqueOrThrow({
+      where: {
+        conversationId_userId: {
+          conversationId: conversation.id,
+          userId: reader.id,
+        },
+      },
+    });
+    expect(stored.lastReadMessageSequence?.toString()).toBe(
+      (BigInt(firstPeerMessage.sequence) - 1n).toString(),
+    );
   });
 
   it("binds structured mention routing to signatures and rejects forged Direct Chat targets", async () => {
@@ -1240,7 +1436,15 @@ describe("direct chats API", () => {
       where: { id: { in: [peerAllowed.id, allowed.source.id] } },
       include: { envelopes: true },
     });
-    expect(JSON.stringify(encryptedRows)).not.toContain("peer allowed history");
+    expect(
+      JSON.stringify(
+        encryptedRows,
+        (_key, value) =>
+          typeof value === "bigint"
+            ? value.toString()
+            : value,
+      ),
+    ).not.toContain("peer allowed history");
     expect(
       await db.semanticSource.count({
         where: { sourceId: { in: [peerAllowed.id, allowed.source.id] } },

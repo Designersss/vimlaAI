@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   REALTIME_PROTOCOL_VERSION,
   directMessageCreatedRealtimeEventSchema,
+  directReadUpdatedRealtimeEventSchema,
   realtimeClientFrameSchema,
   realtimeServerFrameSchema,
 } from "./realtime.js";
@@ -29,6 +30,32 @@ describe("realtime contracts", () => {
 
     expect(
       directMessageCreatedRealtimeEventSchema.parse(event),
+    ).toEqual(event);
+    expect(realtimeServerFrameSchema.parse(event)).toEqual(
+      event,
+    );
+  });
+
+  it("accepts a strict Direct read-state durable hint", () => {
+    const conversationId = randomUUID();
+    const event = {
+      protocolVersion: REALTIME_PROTOCOL_VERSION,
+      frameType: "EVENT",
+      eventId: randomUUID(),
+      eventType: "DIRECT_READ_UPDATED",
+      durability: "DURABLE_HINT",
+      scope: {
+        kind: "DIRECT_CHAT",
+        id: conversationId,
+      },
+      occurredAt: new Date().toISOString(),
+      payload: {
+        conversationId,
+      },
+    } as const;
+
+    expect(
+      directReadUpdatedRealtimeEventSchema.parse(event),
     ).toEqual(event);
     expect(realtimeServerFrameSchema.parse(event)).toEqual(
       event,

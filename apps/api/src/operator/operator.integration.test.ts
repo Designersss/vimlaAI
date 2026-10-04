@@ -137,12 +137,12 @@ describe("operator API", () => {
 
     const listed = await app.inject({
       method: "GET",
-      url: "/v1/conversations",
+      url: "/v1/inbox?kind=AI_THREAD",
       headers: { origin },
       cookies: user.cookies,
     });
     expect(listed.statusCode).toBe(200);
-    expect(listed.json().conversations).toEqual([]);
+    expect(listed.json().items).toEqual([]);
 
     const thread = await app.inject({
       method: "GET",

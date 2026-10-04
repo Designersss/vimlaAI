@@ -5,12 +5,6 @@ import type {
 } from "@vimla/contracts";
 import { createWebClientApi } from "../../../shared/api/client";
 
-export async function fetchConversations(
-  fetchImpl: typeof fetch = fetch,
-): Promise<ConversationSummary[]> {
-  return createWebClientApi(fetchImpl).chat.fetchConversations();
-}
-
 export async function createConversation(
   fetchImpl: typeof fetch = fetch,
 ): Promise<ConversationSummary> {

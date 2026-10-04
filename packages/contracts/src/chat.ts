@@ -70,10 +70,6 @@ export const conversationSummarySchema = z.object({
 });
 export type ConversationSummary = z.infer<typeof conversationSummarySchema>;
 
-export const conversationsResponseSchema = z.object({
-  conversations: z.array(conversationSummarySchema),
-});
-export type ConversationsResponse = z.infer<typeof conversationsResponseSchema>;
 
 export const conversationCreatedSchema = conversationSummarySchema;
 export type ConversationCreated = z.infer<typeof conversationCreatedSchema>;

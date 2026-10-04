@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactElement, type SetStateAction } from "react";
 import { useRouter } from "next/navigation";
 import { useLocale, useTranslations } from "next-intl";
+import { DIRECT_CHAT_LIMITS } from "@vimla/contracts";
 import type {
   DirectConversationView,
   DirectMessageKind,
@@ -101,6 +102,35 @@ type ActiveMentionQuery = {
   query: string;
 };
 
+async function markObservedDirectMessagesRead(
+  conversationId: string,
+  messageIds: readonly string[],
+  fallback: DirectConversationView,
+): Promise<DirectConversationView> {
+  const uniqueIds = [...new Set(messageIds)];
+  if (uniqueIds.length === 0) {
+    return fallback;
+  }
+
+  let current = fallback;
+  for (
+    let offset = 0;
+    offset < uniqueIds.length;
+    offset += DIRECT_CHAT_LIMITS.pageLimitMax
+  ) {
+    current = await markDirectChatRead(
+      conversationId,
+      {
+        seenMessageIds: uniqueIds.slice(
+          offset,
+          offset + DIRECT_CHAT_LIMITS.pageLimitMax,
+        ),
+      },
+    );
+  }
+  return current;
+}
+
 function findActiveMention(value: string): ActiveMentionQuery | null {
   const match = /(?:^|\s)@([a-zA-Z0-9._-]*)$/.exec(value);
   if (!match) return null;
@@ -172,6 +202,32 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
 
+  const applyOperatorDelivery = useCallback(
+    (
+      delivery: OperatorInvocationDeliveryResult,
+    ): void => {
+      setError(null);
+      setPendingRun(
+        operatorRunNeedsPanel(delivery.run)
+          ? delivery.run
+          : null,
+      );
+      if (delivery.latest) {
+        setConversation(delivery.latest);
+      }
+      if (delivery.rows.length > 0) {
+        updateRows((current) =>
+          mergeDecryptedRows(
+            current,
+            delivery.rows,
+          ),
+        );
+        workspace.requestInboxRefresh();
+      }
+    },
+    [updateRows, workspace],
+  );
+
   useEffect(() => {
     let cancelled = false;
     void (async () => {
@@ -190,10 +246,6 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         }
         await prepareDevice();
         const device = await ensureLocalDevice();
-        await recoverPendingSends({
-          conversationId,
-          localDevice: device,
-        });
         const detail = await fetchDirectConversation(conversationId);
         const page = await fetchLatestDecryptedPage(
           detail,
@@ -202,15 +254,118 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         if (cancelled) return;
         setUserId(currentUser.id);
         setConversation(detail);
-        updateRows(page.decrypted.reverse());
+        const visibleRows = [...page.decrypted].reverse();
+        updateRows(visibleRows);
         setNextCursor(page.nextCursor);
         setBoot("ready");
-        const read =
-          detail.unreadCount > 0
-            ? await markDirectChatRead(conversationId)
-            : detail;
-        if (!cancelled) {
-          workspace.updateDirectConversation(read);
+
+        // Pending outbox recovery must not gate the readable Direct detail.
+        // Recover once after the shell is usable, then re-decrypt the latest
+        // authoritative rows so a server-committed interrupted send can replace
+        // its local undecryptable placeholder. Do not overwrite conversation
+        // metadata or pagination here: sync/load-more may already have advanced
+        // them while this background recovery was running.
+        const recoverInitialState = async (
+          retryAfterLeaseLoss: boolean,
+        ): Promise<void> => {
+          try {
+            const result = await recoverPendingSends({
+              conversationId,
+              localDevice: device,
+            });
+            if (cancelled) return;
+            if (result === "LOCAL_DEVICE_INACTIVE") {
+              setError("direct_chat_device_revoked");
+              return;
+            }
+            if (result === "RECIPIENT_DEVICE_MISSING") {
+              setError(
+                "direct_chat_recipient_device_missing",
+              );
+              return;
+            }
+
+            const recoveredDetail =
+              await fetchDirectConversation(
+                conversationId,
+              );
+            const recoveredPage =
+              await fetchLatestDecryptedPage(
+                recoveredDetail,
+                device.deviceId,
+              );
+            if (cancelled) return;
+            updateRows((current) =>
+              mergeDecryptedRows(
+                current,
+                [...recoveredPage.decrypted].reverse(),
+              ),
+            );
+
+            const deliveries =
+              await recoverDirectOperatorInvocations({
+                conversationId,
+                actorUserId: currentUser.id,
+                recoverPending: false,
+              });
+            if (cancelled) return;
+            for (const delivery of deliveries) {
+              applyOperatorDelivery(delivery);
+            }
+            workspace.requestInboxRefresh();
+          } catch (recoveryError: unknown) {
+            if (cancelled) return;
+            if (
+              recoveryError instanceof
+              AuthRequiredError
+            ) {
+              router.replace("/sign-in");
+              return;
+            }
+            if (
+              recoveryError instanceof
+              RatchetLockLostError
+            ) {
+              if (retryAfterLeaseLoss) {
+                await recoverInitialState(false);
+              }
+              return;
+            }
+            setError(
+              recoveryError instanceof
+                  DirectChatsApiError ||
+                recoveryError instanceof
+                  OperatorRequestError
+                ? recoveryError.code
+                : "internal_error",
+            );
+          }
+        };
+        void recoverInitialState(true);
+
+        try {
+          const read =
+            detail.unreadCount > 0
+              ? await markObservedDirectMessagesRead(
+                  conversationId,
+                  page.decrypted
+                    .filter((row) => row.payload !== null)
+                    .map((row) => row.message.id),
+                  detail,
+                )
+              : detail;
+          workspace.setInboxUnreadCount(
+            read.surfaceId,
+            read.unreadCount,
+          );
+          workspace.requestInboxRefresh();
+        } catch (readError: unknown) {
+          if (
+            readError instanceof
+            AuthRequiredError
+          ) {
+            router.replace("/sign-in");
+          }
         }
       } catch (caught: unknown) {
         if (cancelled) return;
@@ -225,7 +380,16 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
     return () => {
       cancelled = true;
     };
-  }, [attempt, conversationId, locale, prepareDevice, router, updateRows, workspace]);
+  }, [
+    applyOperatorDelivery,
+    attempt,
+    conversationId,
+    locale,
+    prepareDevice,
+    router,
+    updateRows,
+    workspace,
+  ]);
 
   useEffect(() => {
     if (boot !== "ready") return;
@@ -255,12 +419,21 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         );
       }
       const read =
-        detail.unreadCount > 0
-          ? await markDirectChatRead(conversationId)
+        detail.unreadCount > 0 &&
+        decrypted.length > 0
+          ? await markObservedDirectMessagesRead(
+              conversationId,
+              decrypted
+                .filter((row) => row.payload !== null)
+                .map((row) => row.message.id),
+              detail,
+            )
           : detail;
-      if (!cancelled) {
-        workspace.updateDirectConversation(read);
-      }
+      workspace.setInboxUnreadCount(
+        read.surfaceId,
+        read.unreadCount,
+      );
+      workspace.requestInboxRefresh();
     };
 
     let refreshTail: Promise<void> =
@@ -565,6 +738,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
             );
           });
       }
+      workspace.requestInboxRefresh();
       return result.message;
     } catch (caught: unknown) {
       setError(
@@ -575,28 +749,6 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
       return null;
     } finally {
       setSending(false);
-    }
-  }
-
-  function applyOperatorDelivery(
-    delivery: OperatorInvocationDeliveryResult,
-  ): void {
-    setError(null);
-    setPendingRun(
-      operatorRunNeedsPanel(delivery.run)
-        ? delivery.run
-        : null,
-    );
-    if (delivery.latest) {
-      setConversation(delivery.latest);
-    }
-    if (delivery.rows.length > 0) {
-      updateRows((current) =>
-        mergeDecryptedRows(
-          current,
-          delivery.rows,
-        ),
-      );
     }
   }
 
@@ -690,52 +842,6 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
       setOperatorBusy(false);
     }
   }
-
-  useEffect(() => {
-    if (boot !== "ready" || !userId) return;
-    let cancelled = false;
-    void recoverDirectOperatorInvocations({
-      conversationId,
-      actorUserId: userId,
-    })
-      .then((deliveries) => {
-        if (cancelled) return;
-        for (const delivery of deliveries) {
-          setPendingRun(
-            operatorRunNeedsPanel(delivery.run)
-              ? delivery.run
-              : null,
-          );
-          if (delivery.latest) {
-            setConversation(delivery.latest);
-          }
-          if (delivery.rows.length > 0) {
-            updateRows((current) =>
-              mergeDecryptedRows(
-                current,
-                delivery.rows,
-              ),
-            );
-          }
-        }
-      })
-      .catch((caught: unknown) => {
-        if (cancelled) return;
-        if (caught instanceof AuthRequiredError) {
-          router.replace("/sign-in");
-          return;
-        }
-        setError(
-          caught instanceof OperatorRequestError ||
-            caught instanceof DirectChatsApiError
-            ? caught.code
-            : "internal_error",
-        );
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [boot, conversationId, router, updateRows, userId]);
 
   async function onLoadOlder(): Promise<void> {
     if (!nextCursor || !conversation) return;
@@ -1084,21 +1190,24 @@ async function recoverDirectOperatorInvocations(input: {
   actorUserId: string;
   pendingClientMessageId?: string;
   runId?: string;
+  recoverPending?: boolean;
 }): Promise<OperatorInvocationDeliveryResult[]> {
   const device = await ensureLocalDevice();
-  const recovery = await recoverPendingSends({
-    conversationId: input.conversationId,
-    localDevice: device,
-  });
-  if (recovery === "LOCAL_DEVICE_INACTIVE") {
-    throw new DirectChatsApiError(
-      "direct_chat_device_revoked",
-    );
-  }
-  if (recovery === "RECIPIENT_DEVICE_MISSING") {
-    throw new DirectChatsApiError(
-      "direct_chat_recipient_device_missing",
-    );
+  if (input.recoverPending !== false) {
+    const recovery = await recoverPendingSends({
+      conversationId: input.conversationId,
+      localDevice: device,
+    });
+    if (recovery === "LOCAL_DEVICE_INACTIVE") {
+      throw new DirectChatsApiError(
+        "direct_chat_device_revoked",
+      );
+    }
+    if (recovery === "RECIPIENT_DEVICE_MISSING") {
+      throw new DirectChatsApiError(
+        "direct_chat_recipient_device_missing",
+      );
+    }
   }
 
   const invocations =

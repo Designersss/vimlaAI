@@ -11,6 +11,9 @@ describe("navigationTargetSchema", () => {
     expect(
       navigationTargetSchema.parse({ version: 1, kind: "NOTE", id }),
     ).toEqual({ version: 1, kind: "NOTE", id });
+    expect(
+      navigationTargetSchema.parse({ version: 1, kind: "CHAT", id }),
+    ).toEqual({ version: 1, kind: "CHAT", id });
   });
 
   it("rejects unknown kinds, invalid ids, versions and URL-like authority fields", () => {

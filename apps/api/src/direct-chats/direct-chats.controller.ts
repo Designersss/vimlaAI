@@ -16,11 +16,10 @@ import {
   cryptoDevicesResponseSchema,
   cryptoDeviceViewSchema,
   directConversationViewSchema,
-  directConversationsResponseSchema,
   directMessageViewSchema,
   directMessagesResponseSchema,
-  listDirectConversationsQuerySchema,
   listDirectMessagesQuerySchema,
+  markDirectChatReadSchema,
   prekeyBundlesResponseSchema,
   registerCryptoDeviceSchema,
   rotatePrekeysSchema,
@@ -29,7 +28,6 @@ import {
   type CryptoDeviceView,
   type CryptoDevicesResponse,
   type DirectConversationView,
-  type DirectConversationsResponse,
   type DirectMessageView,
   type DirectMessagesResponse,
   type PrekeyBundlesResponse,
@@ -125,17 +123,6 @@ export class DirectChatsController {
     return directConversationViewSchema.parse(created);
   }
 
-  @Get()
-  async list(@AuthUser() user: AuthenticatedUser, @Query() query: unknown): Promise<DirectConversationsResponse> {
-    this.directChats.assertEnabled();
-    const parsed = parseRequest(listDirectConversationsQuerySchema, query, "Invalid Direct Chat query");
-    const page = await this.directChats.chats.list(this.directChats.actor(user), {
-      limit: parsed.limit,
-      cursor: parsed.cursor,
-    });
-    return directConversationsResponseSchema.parse(page);
-  }
-
   @Get(":id")
   async getOne(@AuthUser() user: AuthenticatedUser, @Param("id") id: string): Promise<DirectConversationView> {
     this.directChats.assertEnabled();
@@ -157,9 +144,22 @@ export class DirectChatsController {
 
   @Post(":id/read")
   @HttpCode(200)
-  async markRead(@AuthUser() user: AuthenticatedUser, @Param("id") id: string): Promise<DirectConversationView> {
+  async markRead(
+    @AuthUser() user: AuthenticatedUser,
+    @Param("id") id: string,
+    @Body() body: unknown,
+  ): Promise<DirectConversationView> {
     this.directChats.assertEnabled();
-    const updated = await this.directChats.chats.markRead(this.directChats.actor(user), id);
+    const input = parseRequest(
+      markDirectChatReadSchema,
+      body,
+      "Invalid Direct Chat read payload",
+    );
+    const updated = await this.directChats.chats.markRead(
+      this.directChats.actor(user),
+      id,
+      input,
+    );
     this.directChats.logMutation("conversation.read", user.id, id);
     return directConversationViewSchema.parse(updated);
   }

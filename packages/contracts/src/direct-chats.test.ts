@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   createDirectConversationSchema,
+  markDirectChatReadSchema,
   operatorContextBundleSchema,
   sendDirectMessageSchema,
   registerCryptoDeviceSchema,
@@ -43,6 +44,34 @@ describe("direct chat contracts", () => {
         signedPrekeySignature: "dddddddddddddddddddddddd==",
         oneTimePrekeys: [{ keyId: 1, publicKey: "eeeeeeeeeeeeeeeeeeeeee==" }],
         identitySecret: "nope",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("bounds and validates observed message ids for read advancement", () => {
+    const id =
+      "11111111-1111-4111-8111-111111111111";
+    expect(
+      markDirectChatReadSchema.parse({
+        seenMessageIds: [id],
+      }),
+    ).toEqual({
+      seenMessageIds: [id],
+    });
+    expect(
+      markDirectChatReadSchema.safeParse({
+        seenMessageIds: [id, id],
+      }).success,
+    ).toBe(false);
+    expect(
+      markDirectChatReadSchema.safeParse({
+        seenMessageIds: ["not-a-uuid"],
+      }).success,
+    ).toBe(false);
+    expect(
+      markDirectChatReadSchema.safeParse({
+        seenMessageIds: [],
+        unreadCount: 0,
       }).success,
     ).toBe(false);
   });
