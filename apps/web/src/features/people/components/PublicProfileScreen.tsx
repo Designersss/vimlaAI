@@ -33,12 +33,12 @@ import {
   fetchPublicProfile,
   updateMyPublicProfile,
 } from "../../chat/services/people";
-import {
-  createDirectConversation,
-} from "../../direct-chats/services/api";
+import { createDirectConversation } from "../../direct-chats/services/api";
 import { ensureLocalDevice } from "../../direct-chats/services/session";
 import { CONSUMER_FEATURES } from "../../../shared/config/consumer-features";
 import styles from "./PublicProfile.module.scss";
+
+type LoadState = "loading" | "ready" | "failed";
 
 export function PublicProfileScreen({
   handle,
@@ -48,9 +48,8 @@ export function PublicProfileScreen({
   const t = useTranslations();
   const router = useRouter();
   const [attempt, setAttempt] = useState(0);
-  const [boot, setBoot] = useState<
-    "loading" | "ready" | "failed"
-  >("loading");
+  const [boot, setBoot] = useState<LoadState>("loading");
+  const [loadedHandle, setLoadedHandle] = useState<string | null>(null);
   const [profile, setProfile] = useState<PublicProfile | null>(null);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
@@ -65,10 +64,6 @@ export function PublicProfileScreen({
 
   useEffect(() => {
     let cancelled = false;
-    setBoot("loading");
-    setSaveFailed(false);
-    setSaved(false);
-    setStartFailed(false);
 
     void Promise.all([
       fetchCurrentUser(),
@@ -84,6 +79,10 @@ export function PublicProfileScreen({
         setStatus(nextProfile.status ?? "");
         setBio(nextProfile.bio ?? "");
         setEditing(false);
+        setSaveFailed(false);
+        setSaved(false);
+        setStartFailed(false);
+        setLoadedHandle(handle);
         setBoot("ready");
       })
       .catch((error: unknown) => {
@@ -95,6 +94,7 @@ export function PublicProfileScreen({
           return;
         }
         setProfile(null);
+        setLoadedHandle(handle);
         setBoot("failed");
       });
 
@@ -109,6 +109,15 @@ export function PublicProfileScreen({
     setBio(nextProfile.bio ?? "");
     setSaveFailed(false);
     setSaved(false);
+  }
+
+  function retryLoad(): void {
+    setBoot("loading");
+    setLoadedHandle(null);
+    setSaveFailed(false);
+    setSaved(false);
+    setStartFailed(false);
+    setAttempt((value) => value + 1);
   }
 
   async function saveProfile(event: FormEvent): Promise<void> {
@@ -170,7 +179,7 @@ export function PublicProfileScreen({
     }
   }
 
-  if (boot === "loading") {
+  if (boot === "loading" || loadedHandle !== handle) {
     return (
       <section className={styles.page}>
         <p className={styles.statusRow}>
@@ -187,11 +196,7 @@ export function PublicProfileScreen({
           <ErrorState
             title={t("profile.unavailable")}
             action={
-              <Button
-                onClick={() =>
-                  setAttempt((value) => value + 1)
-                }
-              >
+              <Button onClick={retryLoad}>
                 {t("common.retry")}
               </Button>
             }

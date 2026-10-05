@@ -3,6 +3,7 @@
 import {
   useEffect,
   useState,
+  type ChangeEvent,
   type ReactElement,
 } from "react";
 import Link from "next/link";
@@ -38,7 +39,8 @@ export function PeopleDirectory(): ReactElement {
   const [userId, setUserId] = useState<string | null>(null);
   const [myHandle, setMyHandle] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const [identityFailed, setIdentityFailed] = useState(false);
+  const [searchFailed, setSearchFailed] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -58,7 +60,7 @@ export function PeopleDirectory(): ReactElement {
           router.replace("/sign-in");
           return;
         }
-        setFailed(true);
+        setIdentityFailed(true);
       });
 
     return () => {
@@ -69,16 +71,13 @@ export function PeopleDirectory(): ReactElement {
   useEffect(() => {
     const value = query.trim();
     if (value.length === 0 || value === "@") {
-      setResults([]);
-      setLoading(false);
-      setFailed(false);
       return;
     }
 
     let cancelled = false;
-    setLoading(true);
-    setFailed(false);
     const timer = window.setTimeout(() => {
+      setLoading(true);
+      setSearchFailed(false);
       void searchPeople(value)
         .then((response) => {
           if (cancelled) {
@@ -99,7 +98,7 @@ export function PeopleDirectory(): ReactElement {
             return;
           }
           setResults([]);
-          setFailed(true);
+          setSearchFailed(true);
         })
         .finally(() => {
           if (!cancelled) {
@@ -114,9 +113,18 @@ export function PeopleDirectory(): ReactElement {
     };
   }, [query, router, userId]);
 
+  function handleQueryChange(event: ChangeEvent<HTMLInputElement>): void {
+    const nextQuery = event.target.value;
+    setQuery(nextQuery);
+    setResults([]);
+    setLoading(false);
+    setSearchFailed(false);
+  }
+
   const normalizedQuery = query.trim();
   const hasSearch =
     normalizedQuery.length > 0 && normalizedQuery !== "@";
+  const failed = identityFailed || searchFailed;
 
   return (
     <section
@@ -154,7 +162,7 @@ export function PeopleDirectory(): ReactElement {
           aria-label={t("profile.search")}
           placeholder={t("profile.search")}
           value={query}
-          onChange={(event) => setQuery(event.target.value)}
+          onChange={handleQueryChange}
           autoComplete="off"
         />
 
@@ -184,7 +192,7 @@ export function PeopleDirectory(): ReactElement {
           <EmptyState title={t("profile.noResults")} />
         ) : null}
 
-        {results.length > 0 ? (
+        {hasSearch && results.length > 0 ? (
           <div
             className={styles.results}
             data-testid="people-directory-results"
