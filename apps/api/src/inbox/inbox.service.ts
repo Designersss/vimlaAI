@@ -349,6 +349,25 @@ export class InboxService {
       return [];
     }
 
+    const normalizedIdentity = identityQuery.toLowerCase();
+    const shortSearch = normalizedIdentity.length < 3;
+    const handlePattern = shortSearch
+      ? `${escapeLikePattern(normalizedIdentity)}%`
+      : `%${escapeLikePattern(normalizedIdentity)}%`;
+    const displayPattern = shortSearch
+      ? `${escapeLikePattern(normalizedIdentity)}%`
+      : `%${escapeLikePattern(identityQuery)}%`;
+    const matchPredicate = shortSearch
+      ? Prisma.sql`(
+          handle."normalized" LIKE ${handlePattern}
+          OR lower(profile."displayName") LIKE ${displayPattern}
+        )`
+      : Prisma.sql`(
+          handle."normalized" LIKE ${handlePattern}
+          OR profile."displayName" ILIKE ${displayPattern}
+        )`;
+    const handlePrefixPattern = `${escapeLikePattern(normalizedIdentity)}%`;
+
     const rows = await this.prisma.$queryRaw<
       Array<{ userId: string }>
     >(Prisma.sql`
@@ -360,14 +379,11 @@ export class InboxService {
         profile."userId" <> ${userId}
         AND handle."kind" = 'USER'
         AND handle."status" = 'ACTIVE'
-        AND (
-          strpos(lower(handle."normalized"), lower(${identityQuery})) > 0
-          OR strpos(lower(profile."displayName"), lower(${identityQuery})) > 0
-        )
+        AND ${matchPredicate}
       ORDER BY
         CASE
-          WHEN handle."normalized" = lower(${identityQuery}) THEN 0
-          WHEN strpos(lower(handle."normalized"), lower(${identityQuery})) = 1 THEN 1
+          WHEN handle."normalized" = ${normalizedIdentity} THEN 0
+          WHEN handle."normalized" LIKE ${handlePrefixPattern} THEN 1
           ELSE 2
         END,
         lower(profile."displayName") ASC,
@@ -617,6 +633,10 @@ function directPeerUserIds(
       ),
     ),
   ];
+}
+
+function escapeLikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, "\\$&");
 }
 
 function boundedInboxPeerName(

@@ -53,8 +53,10 @@ export class AuthGuard implements CanActivate {
       });
     }
 
-    await this.handles.activateVerified(session.user.id);
-    const handle = await this.handles.readForUser(session.user.id);
+    const handle = await this.handles.activateVerified(
+      session.user.id,
+      session.user.emailVerified,
+    );
     if (!handle || handle.status !== "ACTIVE") {
       throw new ForbiddenException({
         code: "handle_required",

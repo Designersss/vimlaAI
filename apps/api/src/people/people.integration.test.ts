@@ -12,6 +12,7 @@ import { seedVimlaPlans } from "@vimla/billing";
 import { loadApiConfig } from "@vimla/config/server";
 import { createPrismaClient } from "@vimla/database";
 import { createVimlaApiApp } from "../create-app.js";
+import { PrismaService } from "../persistence/prisma.service.js";
 import {
   PEOPLE_ACCESS_POLICY,
   type PeopleAccessPolicy,
@@ -131,6 +132,41 @@ describe("people public identity API", () => {
       ]),
     );
 
+    const shortPrefix = await app.inject({
+      method: "GET",
+      url: `/v1/people?q=${encodeURIComponent("Ни")}&limit=10`,
+      headers: { origin },
+      cookies: viewer.cookies,
+    });
+    expect(shortPrefix.statusCode).toBe(200);
+    expect(shortPrefix.json().items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ userId: target.id }),
+      ]),
+    );
+
+    const indexedContains = await app.inject({
+      method: "GET",
+      url: `/v1/people?q=${encodeURIComponent("кит")}&limit=10`,
+      headers: { origin },
+      cookies: viewer.cookies,
+    });
+    expect(indexedContains.statusCode).toBe(200);
+    expect(indexedContains.json().items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ userId: target.id }),
+      ]),
+    );
+
+    const wildcardLiteral = await app.inject({
+      method: "GET",
+      url: `/v1/people?q=${encodeURIComponent("%")}&limit=10`,
+      headers: { origin },
+      cookies: viewer.cookies,
+    });
+    expect(wildcardLiteral.statusCode).toBe(200);
+    expect(wildcardLiteral.json().items).toEqual([]);
+
     const emptyHandleSearch = await app.inject({
       method: "GET",
       url: "/v1/people?q=%40",
@@ -156,6 +192,81 @@ describe("people public identity API", () => {
     expect(reservedSystemIdentity.statusCode).toBe(404);
   });
 
+  it("keeps profile provisioning idempotent and enforces handle ownership in PostgreSQL", async () => {
+    const target = await registerVerifiedUser(
+      app,
+      "people-invariant-target",
+      "N".repeat(120),
+    );
+    const other = await registerVerifiedUser(app, "people-invariant-other");
+    const prisma = app.get(PrismaService).client;
+
+    const profileBefore = await prisma.publicProfile.findUnique({
+      where: { userId: target.id },
+      select: { handleId: true, displayName: true, updatedAt: true },
+    });
+    expect(profileBefore).not.toBeNull();
+    expect(profileBefore?.displayName).toBe(target.handle);
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const steadyState = await app.inject({
+      method: "GET",
+      url: "/v1/me",
+      headers: { origin },
+      cookies: target.cookies,
+    });
+    expect(steadyState.statusCode).toBe(200);
+
+    const profileAfter = await prisma.publicProfile.findUnique({
+      where: { userId: target.id },
+      select: { handleId: true, displayName: true, updatedAt: true },
+    });
+    expect(profileAfter?.updatedAt.getTime()).toBe(
+      profileBefore?.updatedAt.getTime(),
+    );
+
+    const otherHandle = await prisma.handle.findUnique({
+      where: { userId: other.id },
+      select: { id: true },
+    });
+    if (!profileBefore || !otherHandle) {
+      throw new Error("Expected public identity fixtures");
+    }
+
+    await expect(
+      prisma.publicProfile.update({
+        where: { userId: target.id },
+        data: { handleId: otherHandle.id },
+      }),
+    ).rejects.toMatchObject({ code: "P2003" });
+
+    const intact = await prisma.publicProfile.findUnique({
+      where: { userId: target.id },
+      select: { handleId: true },
+    });
+    expect(intact?.handleId).toBe(profileBefore.handleId);
+
+    const searchIndexes = await prisma.$queryRaw<Array<{ indexname: string }>>`
+      SELECT indexname
+      FROM pg_indexes
+      WHERE schemaname = current_schema()
+        AND indexname IN (
+          'handle_normalized_pattern_idx',
+          'handle_normalized_trgm_idx',
+          'public_profile_displayName_lower_pattern_idx',
+          'public_profile_displayName_trgm_idx'
+        )
+    `;
+    expect(new Set(searchIndexes.map((row) => row.indexname))).toEqual(
+      new Set([
+        "handle_normalized_pattern_idx",
+        "handle_normalized_trgm_idx",
+        "public_profile_displayName_lower_pattern_idx",
+        "public_profile_displayName_trgm_idx",
+      ]),
+    );
+  });
+
   it("allows only owner mutation and respects the TRUST-01 policy seam", async () => {
     const viewer = await registerVerifiedUser(app, "people-policy-viewer");
     const target = await registerVerifiedUser(app, "people-policy-target");
@@ -172,11 +283,9 @@ describe("people public identity API", () => {
     const policy = app.get<PeopleAccessPolicy>(
       PEOPLE_ACCESS_POLICY,
     );
-    const discover = vi
-      .spyOn(policy, "canDiscover")
-      .mockImplementation(async (_actorUserId, targetUserId) =>
-        targetUserId !== target.id,
-      );
+    const exclusions = vi
+      .spyOn(policy, "excludedDiscoveryUserIds")
+      .mockResolvedValue([target.id]);
     const startDirect = vi
       .spyOn(policy, "canStartDirectChat")
       .mockImplementation(async (_actorUserId, targetUserId) =>
@@ -204,6 +313,7 @@ describe("people public identity API", () => {
           expect.objectContaining({ userId: target.id }),
         ]),
       );
+      expect(exclusions).toHaveBeenCalledWith(viewer.id);
 
       const deniedDirect = await app.inject({
         method: "POST",
@@ -214,7 +324,7 @@ describe("people public identity API", () => {
       });
       expect(deniedDirect.statusCode).toBe(404);
     } finally {
-      discover.mockRestore();
+      exclusions.mockRestore();
       startDirect.mockRestore();
     }
   });

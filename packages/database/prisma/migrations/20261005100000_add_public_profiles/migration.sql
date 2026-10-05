@@ -1,3 +1,5 @@
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
 CREATE TABLE "public_profile" (
   "userId" TEXT NOT NULL,
   "handleId" TEXT NOT NULL,
@@ -11,15 +13,24 @@ CREATE TABLE "public_profile" (
 );
 
 CREATE UNIQUE INDEX "public_profile_handleId_key" ON "public_profile"("handleId");
-CREATE INDEX "public_profile_displayName_idx" ON "public_profile"("displayName");
+CREATE UNIQUE INDEX "handle_id_userId_key" ON "handle"("id", "userId");
+CREATE INDEX "handle_normalized_pattern_idx"
+  ON "handle"("normalized" text_pattern_ops);
+CREATE INDEX "handle_normalized_trgm_idx"
+  ON "handle" USING GIN ("normalized" gin_trgm_ops);
+CREATE INDEX "public_profile_displayName_lower_pattern_idx"
+  ON "public_profile"(lower("displayName") text_pattern_ops);
+CREATE INDEX "public_profile_displayName_trgm_idx"
+  ON "public_profile" USING GIN ("displayName" gin_trgm_ops);
 
 ALTER TABLE "public_profile"
   ADD CONSTRAINT "public_profile_userId_fkey"
   FOREIGN KEY ("userId") REFERENCES "user"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 
 ALTER TABLE "public_profile"
-  ADD CONSTRAINT "public_profile_handleId_fkey"
-  FOREIGN KEY ("handleId") REFERENCES "handle"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+  ADD CONSTRAINT "public_profile_handle_owner_fkey"
+  FOREIGN KEY ("handleId", "userId") REFERENCES "handle"("id", "userId")
+  ON DELETE CASCADE ON UPDATE CASCADE;
 
 ALTER TABLE "public_profile"
   ADD CONSTRAINT "public_profile_display_name_bounds_check"
@@ -50,7 +61,11 @@ INSERT INTO "public_profile" (
 SELECT
   handle."userId",
   handle."id",
-  "user"."name",
+  CASE
+    WHEN char_length(btrim("user"."name")) BETWEEN 1 AND 80
+      THEN btrim("user"."name")
+    ELSE handle."handle"
+  END,
   NULL,
   NULL,
   NULL,

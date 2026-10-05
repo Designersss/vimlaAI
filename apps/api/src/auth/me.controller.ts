@@ -35,10 +35,9 @@ export class MeController {
 
   @Get("me")
   async getMe(@AuthUser() user: AuthenticatedUser): Promise<CurrentUser> {
-    await this.handles.activateVerified(user.id);
     const [preference, handle] = await Promise.all([
       this.readPreference(user.id),
-      this.handles.readForUser(user.id),
+      this.handles.activateVerified(user.id, user.emailVerified),
     ]);
     return currentUserSchema.parse({
       id: user.id,

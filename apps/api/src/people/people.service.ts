@@ -47,7 +47,13 @@ export class PeopleService {
       LIMIT 1
     `);
     const row = rows[0];
-    if (!row || !(await this.accessPolicy.canDiscover(actorUserId, row.userId))) {
+    if (!row) {
+      return null;
+    }
+    const excluded = new Set(
+      await this.accessPolicy.excludedDiscoveryUserIds(actorUserId),
+    );
+    if (excluded.has(row.userId)) {
       return null;
     }
     return toPublicProfile(row);
@@ -55,8 +61,37 @@ export class PeopleService {
 
   async search(actorUserId: string, query: string, limit: number): Promise<PublicProfile[]> {
     const trimmed = query.trim();
-    const handleQuery = (trimmed.startsWith("@") ? trimmed.slice(1) : trimmed).toLowerCase();
-    const fetchLimit = Math.min(Math.max(limit * 3, limit), 90);
+    const handleOnly = trimmed.startsWith("@");
+    const identityQuery = handleOnly ? trimmed.slice(1).trim() : trimmed;
+    const handleQuery = identityQuery.toLowerCase();
+    const shortSearch = handleQuery.length < 3;
+    const handlePattern = shortSearch
+      ? `${escapeLikePattern(handleQuery)}%`
+      : `%${escapeLikePattern(handleQuery)}%`;
+    const handlePrefixPattern = `${escapeLikePattern(handleQuery)}%`;
+    const displayPattern = shortSearch
+      ? `${escapeLikePattern(trimmed.toLowerCase())}%`
+      : `%${escapeLikePattern(trimmed)}%`;
+    const searchPredicate = handleOnly
+      ? Prisma.sql`handle."normalized" LIKE ${handlePattern}`
+      : shortSearch
+        ? Prisma.sql`(
+            handle."normalized" LIKE ${handlePattern}
+            OR lower(profile."displayName") LIKE ${displayPattern}
+          )`
+        : Prisma.sql`(
+            handle."normalized" LIKE ${handlePattern}
+            OR profile."displayName" ILIKE ${displayPattern}
+          )`;
+    const excludedUserIds = [
+      ...new Set(
+        await this.accessPolicy.excludedDiscoveryUserIds(actorUserId),
+      ),
+    ];
+    const discoveryPredicate = excludedUserIds.length === 0
+      ? Prisma.sql`TRUE`
+      : Prisma.sql`profile."userId" NOT IN (${Prisma.join(excludedUserIds)})`;
+
     const rows = await this.prisma.client.$queryRaw<PublicProfileRow[]>(Prisma.sql`
       SELECT
         profile."userId" AS "userId",
@@ -70,32 +105,21 @@ export class PeopleService {
       WHERE
         handle."kind" = 'USER'
         AND handle."status" = 'ACTIVE'
-        AND (
-          strpos(lower(handle."normalized"), ${handleQuery}) > 0
-          OR strpos(lower(profile."displayName"), lower(${trimmed})) > 0
-        )
+        AND ${discoveryPredicate}
+        AND ${searchPredicate}
       ORDER BY
         CASE
           WHEN handle."normalized" = ${handleQuery} THEN 0
-          WHEN strpos(lower(handle."normalized"), ${handleQuery}) = 1 THEN 1
+          WHEN handle."normalized" LIKE ${handlePrefixPattern} THEN 1
           ELSE 2
         END,
         lower(profile."displayName") ASC,
         handle."normalized" ASC,
         profile."userId" ASC
-      LIMIT ${fetchLimit}
+      LIMIT ${limit}
     `);
 
-    const decisions = await Promise.all(
-      rows.map(async (row) => ({
-        row,
-        allowed: await this.accessPolicy.canDiscover(actorUserId, row.userId),
-      })),
-    );
-    return decisions
-      .filter((entry) => entry.allowed)
-      .slice(0, limit)
-      .map((entry) => toPublicProfile(entry.row));
+    return rows.map((row) => toPublicProfile(row));
   }
 
   async updateMine(
@@ -164,6 +188,10 @@ export class PeopleService {
     const row = rows[0];
     return row ? toPublicProfile(row) : null;
   }
+}
+
+function escapeLikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, "\\$&");
 }
 
 function toPublicProfile(row: PublicProfileRow): PublicProfile {

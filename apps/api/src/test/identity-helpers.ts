@@ -29,6 +29,7 @@ export function cookiesFromResponse(response: {
 export async function registerUnverifiedUser(
   app: NestFastifyApplication,
   label: string,
+  name = label,
 ): Promise<UnverifiedTestUser> {
   const email = `${label}-${randomUUID()}@example.com`.toLowerCase();
   const password = "correct-horse-battery";
@@ -36,7 +37,7 @@ export async function registerUnverifiedUser(
     method: "POST",
     url: "/api/auth/sign-up/email",
     headers: { origin, "content-type": "application/json" },
-    payload: { email, password, name: label },
+    payload: { email, password, name },
   });
   if (signUp.statusCode < 200 || signUp.statusCode >= 300) {
     throw new Error(`sign-up failed: ${signUp.statusCode} ${signUp.body}`);
@@ -86,8 +87,9 @@ export async function verifyEmailOtp(
 export async function registerVerifiedUser(
   app: NestFastifyApplication,
   label: string,
+  name = label,
 ): Promise<VerifiedTestUser> {
-  const created = await registerUnverifiedUser(app, label);
+  const created = await registerUnverifiedUser(app, label, name);
   const cookies = await verifyEmailOtp(app, created.email, created.cookies);
   const me = await app.inject({
     method: "GET",
