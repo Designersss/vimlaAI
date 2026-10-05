@@ -3,8 +3,8 @@ import { resolveDirectChatAssignee } from "./assignee.js";
 import { filterOperatorContextBundle } from "./consent.js";
 import { directPairKey } from "./pair-key.js";
 
-const alice = { userId: "a", name: "Alice", email: "alice@example.com" };
-const nikita = { userId: "n", name: "Nikita", email: "nikita@example.com" };
+const alice = { userId: "a", handle: "alice", name: "Alice" };
+const nikita = { userId: "n", handle: "nikita", name: "Nikita" };
 
 describe("direct chat identity helpers", () => {
   it("builds a stable pair key and rejects self-chat", () => {
@@ -16,6 +16,7 @@ describe("direct chat identity helpers", () => {
     expect(resolveDirectChatAssignee(undefined, "a", [alice, nikita])).toEqual({ type: "self" });
     expect(resolveDirectChatAssignee("me", "a", [alice, nikita])).toEqual({ type: "self" });
     expect(resolveDirectChatAssignee("Nikita", "a", [alice, nikita])).toEqual({ type: "peer", userId: "n" });
+    expect(resolveDirectChatAssignee("@nikita", "a", [alice, nikita])).toEqual({ type: "peer", userId: "n" });
     expect(resolveDirectChatAssignee("Никите", "a", [{ ...nikita, name: "Никита" }, alice])).toEqual({
       type: "peer",
       userId: "n",
