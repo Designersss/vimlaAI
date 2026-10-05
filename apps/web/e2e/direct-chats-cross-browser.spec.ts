@@ -16,7 +16,7 @@ test.describe("Direct Chat cross-browser coordination", () => {
     const password = "correct-horse-battery";
     const aliceEmail = uniqueEmail("e2e-direct-xbrowser-alice");
     const nikitaEmail = uniqueEmail("e2e-direct-xbrowser-nikita");
-    const nikitaHandle = uniqueHandle("nikitacr");
+    const nikitaHandle = uniqueHandle("xbpeer");
 
     const aliceContext = await browser.newContext();
     const nikitaContext = await browser.newContext();
