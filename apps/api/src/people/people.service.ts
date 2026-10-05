@@ -1,10 +1,10 @@
 import { Inject, Injectable } from "@nestjs/common";
+import { handleInputSchema } from "@vimla/contracts";
 import {
-  handleInputSchema,
   publicProfileSchema,
   type PublicProfile,
   type UpdatePublicProfile,
-} from "@vimla/contracts";
+} from "@vimla/contracts/public-profiles";
 import { Prisma } from "@vimla/database";
 import { PrismaService } from "../persistence/prisma.service.js";
 import {
