@@ -371,11 +371,11 @@ describe("people public identity API", () => {
     expect(legacyEmail.statusCode).toBe(400);
   });
 
-  it("rate-limits repeated discovery to reduce enumeration", async () => {
+  it("rate-limits GET and HEAD discovery together to reduce enumeration", async () => {
     const viewer = await registerVerifiedUser(app, "people-rate-viewer");
     const target = await registerVerifiedUser(app, "people-rate-target");
 
-    for (let index = 0; index < 60; index += 1) {
+    for (let index = 0; index < 59; index += 1) {
       const response = await app.inject({
         method: "GET",
         url: `/v1/people/${target.handle}`,
@@ -384,6 +384,14 @@ describe("people public identity API", () => {
       });
       expect(response.statusCode).toBe(200);
     }
+
+    const head = await app.inject({
+      method: "HEAD",
+      url: `/v1/people/${target.handle}`,
+      headers: { origin },
+      cookies: viewer.cookies,
+    });
+    expect(head.statusCode).toBe(200);
 
     const limited = await app.inject({
       method: "GET",
