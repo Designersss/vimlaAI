@@ -834,16 +834,14 @@ export const ConversationListPane = observer(
               </Alert>
             ) : null}
             <FormField
-              label={t("direct.peerSearch")}
+              label={t("direct.newChat")}
               htmlFor="direct-peer-search"
             >
               <Input
                 id="direct-peer-search"
                 type="search"
                 value={peerQuery}
-                placeholder={t(
-                  "direct.peerSearchPlaceholder",
-                )}
+                placeholder="@handle"
                 autoComplete="off"
                 onChange={(event) => {
                   setPeerQuery(
@@ -875,7 +873,7 @@ export const ConversationListPane = observer(
             !selectedPeer &&
             peopleResults.length === 0 ? (
               <p className={styles.peopleStatus}>
-                {t("direct.peopleNoResults")}
+                {t("errors.not_found")}
               </p>
             ) : null}
             {peopleResults.length > 0 ? (
