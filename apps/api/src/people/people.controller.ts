@@ -11,11 +11,11 @@ import {
 } from "@nestjs/common";
 import type { AuthenticatedUser } from "@vimla/auth";
 import {
+  peopleSearchQuerySchema,
+  peopleSearchResponseSchema,
   publicProfileHandleParamsSchema,
   publicProfileSchema,
-  publicProfileSearchQuerySchema,
-  publicProfileSearchResponseSchema,
-  updateOwnPublicProfileSchema,
+  updatePublicProfileSchema,
   type PublicProfile,
 } from "@vimla/contracts";
 import { AuthGuard } from "../auth/auth.guard.js";
@@ -36,8 +36,8 @@ export class PeopleController {
     @AuthUser() user: AuthenticatedUser,
     @Query() query: unknown,
   ): Promise<{ items: PublicProfile[] }> {
-    const input = publicProfileSearchQuerySchema.parse(query);
-    return publicProfileSearchResponseSchema.parse({
+    const input = peopleSearchQuerySchema.parse(query);
+    return peopleSearchResponseSchema.parse({
       items: await this.people.search(user.id, input.q, input.limit),
     });
   }
@@ -62,7 +62,7 @@ export class PeopleController {
     @AuthUser() user: AuthenticatedUser,
     @Body() body: unknown,
   ): Promise<PublicProfile> {
-    const input = updateOwnPublicProfileSchema.parse(body);
+    const input = updatePublicProfileSchema.parse(body);
     const profile = await this.people.updateMine(user.id, input);
     if (!profile) {
       throw new NotFoundException({ code: "not_found", message: "Profile was not found" });
