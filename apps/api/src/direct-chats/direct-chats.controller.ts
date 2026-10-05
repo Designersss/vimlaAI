@@ -118,7 +118,7 @@ export class DirectChatsController {
   async create(@AuthUser() user: AuthenticatedUser, @Body() body: unknown): Promise<DirectConversationView> {
     this.directChats.assertEnabled();
     const input = parseRequest(createDirectConversationSchema, body, "Invalid Direct Chat payload");
-    const created = await this.directChats.chats.create(this.directChats.actor(user), input);
+    const created = await this.directChats.create(user, input);
     this.directChats.logMutation("conversation.create", user.id, created.id);
     return directConversationViewSchema.parse(created);
   }
@@ -231,6 +231,4 @@ export class DirectChatsController {
     }
     return directMessageViewSchema.parse(created);
   }
-
-
 }
