@@ -73,11 +73,12 @@ test.describe("Public profile", () => {
       name: "Start chat",
     });
     await expect(startDirect).toBeDisabled();
-    await alicePage.getByPlaceholder("@handle").fill("Bobby Profile");
+    await alicePage.getByPlaceholder("@handle").fill(`@${bobHandle}`);
     await expect(startDirect).toBeDisabled();
     const bobDirectResult = alicePage
       .getByTestId("people-search-results")
-      .getByRole("button", { name: /Bobby Profile/ });
+      .getByRole("button")
+      .filter({ hasText: `@${bobHandle}` });
     await expect(bobDirectResult).toBeVisible({ timeout: 20_000 });
     await bobDirectResult.click();
     await expect(startDirect).toBeEnabled();
@@ -90,7 +91,10 @@ test.describe("Public profile", () => {
     await expect(results).toContainText(`@${bobHandle}`);
     await expect(results).not.toContainText(bobEmail);
 
-    await results.getByRole("link", { name: new RegExp("Bobby Profile") }).click();
+    await results
+      .getByRole("link")
+      .filter({ hasText: `@${bobHandle}` })
+      .click();
     await expect(alicePage).toHaveURL(
       new RegExp(`/app/profile/${bobHandle}$`),
     );
