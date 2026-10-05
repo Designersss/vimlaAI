@@ -33,7 +33,7 @@ test.describe("Direct Chat cross-browser coordination", () => {
       await purchasePro(alicePage);
 
       await signUp(nikitaPage, {
-        name: "Nikita Cross Browser",
+        name: "Cross Browser Peer",
         email: nikitaEmail,
         password,
         handle: nikitaHandle,
