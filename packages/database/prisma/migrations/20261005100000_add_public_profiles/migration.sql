@@ -35,7 +35,7 @@ ALTER TABLE "public_profile"
 
 ALTER TABLE "public_profile"
   ADD CONSTRAINT "public_profile_status_bounds_check"
-  CHECK ("status" IS NULL OR char_length("status") <= 120);
+  CHECK ("status" IS NULL OR char_length("status") <= 80);
 
 INSERT INTO "public_profile" (
   "userId",
