@@ -3,6 +3,7 @@ import {
   purchasePro,
   signUp,
   uniqueEmail,
+  uniqueHandle,
   verifyEmail,
 } from "./helpers";
 
@@ -15,6 +16,7 @@ test.describe("Direct Chat cross-browser coordination", () => {
     const password = "correct-horse-battery";
     const aliceEmail = uniqueEmail("e2e-direct-xbrowser-alice");
     const nikitaEmail = uniqueEmail("e2e-direct-xbrowser-nikita");
+    const nikitaHandle = uniqueHandle("nikitacr");
 
     const aliceContext = await browser.newContext();
     const nikitaContext = await browser.newContext();
@@ -34,6 +36,7 @@ test.describe("Direct Chat cross-browser coordination", () => {
         name: "Nikita Cross Browser",
         email: nikitaEmail,
         password,
+        handle: nikitaHandle,
       });
       await verifyEmail(nikitaPage, request, nikitaEmail);
       await purchasePro(nikitaPage);
@@ -45,8 +48,16 @@ test.describe("Direct Chat cross-browser coordination", () => {
         })
         .click();
       await alicePage
-        .getByLabel(/email участника|participant email/i)
-        .fill(nikitaEmail);
+        .getByPlaceholder("@handle")
+        .fill(`@${nikitaHandle}`);
+      const nikitaResult = alicePage
+        .getByTestId("people-search-results")
+        .getByRole("button")
+        .filter({ hasText: `@${nikitaHandle}` });
+      await expect(nikitaResult).toHaveCount(1, {
+        timeout: 20_000,
+      });
+      await nikitaResult.click();
       await alicePage
         .getByRole("button", {
           name: /начать чат|start chat/i,
