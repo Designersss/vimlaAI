@@ -29,7 +29,7 @@ export class HandleService {
       return await this.prisma.client.$transaction(async (tx) => {
         const account = await tx.user.findUnique({
           where: { id: userId },
-          select: { id: true, emailVerified: true },
+          select: { id: true, emailVerified: true, name: true },
         });
         if (!account) {
           throw new ConflictException({ code: "handle_claim_failed", message: "Handle claim failed" });
@@ -37,7 +37,7 @@ export class HandleService {
 
         const owned = await tx.handle.findUnique({
           where: { userId },
-          select: { handle: true, status: true },
+          select: { id: true, handle: true, status: true },
         });
         if (owned) {
           if (owned.handle !== handle) {
@@ -57,15 +57,19 @@ export class HandleService {
               },
             });
           }
+          if (status === "ACTIVE") {
+            await ensurePublicProfile(tx, account.id, owned.id, account.name);
+          }
           return { handle, status };
         }
 
         await this.releaseExpiredExactHandle(tx, handle, userId);
 
         const status = account.emailVerified ? "ACTIVE" : "PENDING";
+        const handleId = `user:${randomUUID()}`;
         await tx.handle.create({
           data: {
-            id: `user:${randomUUID()}`,
+            id: handleId,
             handle,
             normalized: handle,
             kind: "USER",
@@ -75,6 +79,9 @@ export class HandleService {
               status === "PENDING" ? new Date(Date.now() + PENDING_HANDLE_TTL_MS) : null,
           },
         });
+        if (status === "ACTIVE") {
+          await ensurePublicProfile(tx, account.id, handleId, account.name);
+        }
         return { handle, status };
       });
     } catch (error: unknown) {
@@ -100,16 +107,28 @@ export class HandleService {
   }
 
   async activateVerified(userId: string): Promise<void> {
-    const user = await this.prisma.client.user.findUnique({
-      where: { id: userId },
-      select: { emailVerified: true },
-    });
-    if (!user?.emailVerified) {
-      return;
-    }
-    await this.prisma.client.handle.updateMany({
-      where: { userId, kind: "USER", status: "PENDING" },
-      data: { status: "ACTIVE", reservationExpiresAt: null },
+    await this.prisma.client.$transaction(async (tx) => {
+      const user = await tx.user.findUnique({
+        where: { id: userId },
+        select: { id: true, emailVerified: true, name: true },
+      });
+      if (!user?.emailVerified) {
+        return;
+      }
+      const handle = await tx.handle.findUnique({
+        where: { userId },
+        select: { id: true, kind: true, status: true },
+      });
+      if (!handle || handle.kind !== "USER" || handle.status === "RETIRED") {
+        return;
+      }
+      if (handle.status === "PENDING") {
+        await tx.handle.update({
+          where: { id: handle.id },
+          data: { status: "ACTIVE", reservationExpiresAt: null },
+        });
+      }
+      await ensurePublicProfile(tx, user.id, handle.id, user.name);
     });
   }
 
@@ -148,4 +167,23 @@ export class HandleService {
     }
     throw new ConflictException({ code: "handle_unavailable", message: "Handle is unavailable" });
   }
+}
+
+async function ensurePublicProfile(
+  client: HandleClient,
+  userId: string,
+  handleId: string,
+  displayName: string,
+): Promise<void> {
+  await client.publicProfile.upsert({
+    where: { userId },
+    create: {
+      userId,
+      handleId,
+      displayName,
+    },
+    update: {
+      handleId,
+    },
+  });
 }
