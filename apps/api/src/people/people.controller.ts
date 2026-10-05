@@ -21,7 +21,7 @@ import {
 import { AuthGuard } from "../auth/auth.guard.js";
 import { AuthUser } from "../auth/current-user.decorator.js";
 import { OriginGuard } from "../auth/origin.guard.js";
-import { SensitiveArea } from "../auth/sensitive-area.js";
+import { SensitiveMutation } from "../auth/sensitive-area.js";
 import { SensitiveAreaGuard } from "../auth/sensitive-area.guard.js";
 import { PeopleRateLimitGuard } from "./people-rate-limit.guard.js";
 import { PeopleService } from "./people.service.js";
@@ -56,7 +56,7 @@ export class PeopleController {
   }
 
   @Patch("me")
-  @SensitiveArea()
+  @SensitiveMutation()
   @UseGuards(OriginGuard, SensitiveAreaGuard)
   async updateMine(
     @AuthUser() user: AuthenticatedUser,
