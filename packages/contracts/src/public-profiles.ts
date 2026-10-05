@@ -64,7 +64,14 @@ export type PublicProfileHandleParams = z.infer<
 
 export const peopleSearchQuerySchema = z
   .object({
-    q: z.string().trim().min(1).max(PUBLIC_PROFILE_LIMITS.searchQueryMax),
+    q: z
+      .string()
+      .trim()
+      .min(1)
+      .max(PUBLIC_PROFILE_LIMITS.searchQueryMax)
+      .refine((value) => !value.includes("\0"), {
+        message: "Search query contains an invalid character",
+      }),
     limit: z.coerce
       .number()
       .int()
