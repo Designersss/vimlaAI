@@ -1,6 +1,7 @@
 import type {
   PeopleSearchResponse,
   PublicProfile,
+  UpdatePublicProfile,
 } from "@vimla/contracts/public-profiles";
 import { createWebClientApi } from "../../../shared/api/client";
 
@@ -19,4 +20,11 @@ export function fetchPublicProfile(
   fetchImpl: typeof fetch = fetch,
 ): Promise<PublicProfile> {
   return createWebClientApi(fetchImpl).people.fetchProfile(handle);
+}
+
+export function updateMyPublicProfile(
+  input: UpdatePublicProfile,
+  fetchImpl: typeof fetch = fetch,
+): Promise<PublicProfile> {
+  return createWebClientApi(fetchImpl).people.updateMyProfile(input);
 }

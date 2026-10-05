@@ -15,9 +15,16 @@ export default getRequestConfig(async () => {
   const locale = cookieLocale
     ? parseVimlaLocale(cookieLocale, defaultLocale)
     : localeFromAcceptLanguage(headerStore.get("accept-language"), DEFAULT_VIMLA_LOCALE);
+  const [baseMessages, profileMessages] = await Promise.all([
+    import(`../../messages/${locale}.json`),
+    import(`../../messages/profile-${locale}.json`),
+  ]);
 
   return {
     locale,
-    messages: (await import(`../../messages/${locale}.json`)).default,
+    messages: {
+      ...baseMessages.default,
+      profile: profileMessages.default,
+    },
   };
 });

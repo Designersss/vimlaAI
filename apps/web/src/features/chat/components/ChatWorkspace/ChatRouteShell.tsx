@@ -15,15 +15,24 @@ export function ChatRouteShell({ children }: { children: ReactNode }): ReactElem
     segments[0] === "direct";
   const semanticChat =
     segments[0] === "chat";
+  const identity =
+    segments[0] === "people" ||
+    segments[0] === "profile";
+  const detailLabel =
+    segments[0] === "people"
+      ? t("profile.people")
+      : segments[0] === "profile"
+        ? t("profile.title")
+        : t("chat.detailPane");
   return (
     <MasterDetailLayout
       detailOpen={segments.length > 0}
       masterLabel={t("chat.listPane")}
-      detailLabel={t("chat.detailPane")}
+      detailLabel={detailLabel}
       master={
         <ConversationListPane
           aiId={
-            direct || semanticChat
+            direct || semanticChat || identity
               ? undefined
               : segments[0]
           }

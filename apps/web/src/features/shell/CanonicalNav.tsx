@@ -7,6 +7,7 @@ import { useTranslations } from "next-intl";
 import {
   BriefcaseIcon,
   CheckSquareIcon,
+  CircleUserIcon,
   FolderIcon,
   MessageSquareIcon,
   SettingsIcon,
@@ -19,7 +20,9 @@ import { CONSUMER_FEATURES } from "../../shared/config/consumer-features";
 export function CanonicalNav({ compact = false }: { compact?: boolean }): ReactElement {
   const t = useTranslations();
   const pathname = usePathname();
-  const messagesActive = pathname === "/app" || pathname.startsWith("/app/");
+  const peopleActive = pathname === "/app/people" || pathname.startsWith("/app/people/")
+    || pathname.startsWith("/app/profile/");
+  const messagesActive = (pathname === "/app" || pathname.startsWith("/app/")) && !peopleActive;
   const workActive = pathname === "/work" || pathname.startsWith("/work/");
   const settingsActive = pathname.startsWith("/settings");
 
@@ -29,6 +32,12 @@ export function CanonicalNav({ compact = false }: { compact?: boolean }): ReactE
       label: t("nav.messages"),
       active: messagesActive,
       icon: compact ? <MessageSquareIcon size={18} aria-hidden="true" /> : <MessageSquareIcon size={16} aria-hidden="true" />,
+    },
+    {
+      href: "/app/people",
+      label: t("profile.people"),
+      active: peopleActive,
+      icon: <CircleUserIcon size={compact ? 18 : 16} aria-hidden="true" />,
     },
     {
       href: "/work",
