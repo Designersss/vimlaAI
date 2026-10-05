@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -18,6 +19,7 @@ import {
   updatePublicProfileSchema,
   type PublicProfile,
 } from "@vimla/contracts/public-profiles";
+import type { ZodType } from "zod";
 import { AuthGuard } from "../auth/auth.guard.js";
 import { AuthUser } from "../auth/current-user.decorator.js";
 import { OriginGuard } from "../auth/origin.guard.js";
@@ -36,7 +38,11 @@ export class PeopleController {
     @AuthUser() user: AuthenticatedUser,
     @Query() query: unknown,
   ): Promise<{ items: PublicProfile[] }> {
-    const input = peopleSearchQuerySchema.parse(query);
+    const input = parsePeopleRequest(
+      peopleSearchQuerySchema,
+      query,
+      "Invalid People search query",
+    );
     return peopleSearchResponseSchema.parse({
       items: await this.people.search(user.id, input.q, input.limit),
     });
@@ -47,7 +53,11 @@ export class PeopleController {
     @AuthUser() user: AuthenticatedUser,
     @Param() params: unknown,
   ): Promise<PublicProfile> {
-    const { handle } = publicProfileHandleParamsSchema.parse(params);
+    const { handle } = parsePeopleRequest(
+      publicProfileHandleParamsSchema,
+      params,
+      "Invalid public profile handle",
+    );
     const profile = await this.people.getByHandle(user.id, handle);
     if (!profile) {
       throw new NotFoundException({ code: "not_found", message: "Profile was not found" });
@@ -62,11 +72,30 @@ export class PeopleController {
     @AuthUser() user: AuthenticatedUser,
     @Body() body: unknown,
   ): Promise<PublicProfile> {
-    const input = updatePublicProfileSchema.parse(body);
+    const input = parsePeopleRequest(
+      updatePublicProfileSchema,
+      body,
+      "Invalid public profile payload",
+    );
     const profile = await this.people.updateMine(user.id, input);
     if (!profile) {
       throw new NotFoundException({ code: "not_found", message: "Profile was not found" });
     }
     return publicProfileSchema.parse(profile);
   }
+}
+
+function parsePeopleRequest<T>(
+  schema: ZodType<T>,
+  value: unknown,
+  message: string,
+): T {
+  const parsed = schema.safeParse(value ?? {});
+  if (!parsed.success) {
+    throw new BadRequestException({
+      code: "invalid_request",
+      message,
+    });
+  }
+  return parsed.data;
 }
