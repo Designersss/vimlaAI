@@ -153,6 +153,9 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
+      - name: Build E2E runtime dependencies
+        run: pnpm build
+
       - name: Prepare E2E database
         run: |
           pnpm --filter @vimla/database ensure-test-db
@@ -230,6 +233,9 @@ jobs:
 
       - name: Install
         run: pnpm install --frozen-lockfile
+
+      - name: Build E2E runtime dependencies
+        run: pnpm build
 
       - name: Prepare E2E database
         run: |
