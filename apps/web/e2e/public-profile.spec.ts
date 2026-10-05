@@ -65,6 +65,24 @@ test.describe("Public profile", () => {
     );
     await verifyEmail(alicePage, request, aliceEmail);
 
+    await alicePage.goto("/app");
+    await alicePage
+      .getByRole("button", { name: "New direct chat" })
+      .click();
+    const startDirect = alicePage.getByRole("button", {
+      name: "Start chat",
+    });
+    await expect(startDirect).toBeDisabled();
+    await alicePage.getByPlaceholder("@handle").fill("Bobby Profile");
+    await expect(startDirect).toBeDisabled();
+    const bobDirectResult = alicePage
+      .getByTestId("people-search-results")
+      .getByRole("button", { name: /Bobby Profile/ });
+    await expect(bobDirectResult).toBeVisible({ timeout: 20_000 });
+    await bobDirectResult.click();
+    await expect(startDirect).toBeEnabled();
+    await alicePage.getByRole("button", { name: "Close" }).click();
+
     await alicePage.goto("/app/people");
     await alicePage.getByPlaceholder("Search people").fill(`@${bobHandle}`);
     const results = alicePage.getByTestId("people-directory-results");

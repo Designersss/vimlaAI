@@ -496,7 +496,8 @@ export const ConversationListPane = observer(
       event: FormEvent,
     ): Promise<void> {
       event.preventDefault();
-      if (directCreating) {
+      const peer = selectedPeer;
+      if (directCreating || !peer) {
         return;
       }
       setDirectCreating(true);
@@ -505,9 +506,7 @@ export const ConversationListPane = observer(
         await prepareDevice();
         const created =
           await createDirectConversation({
-            peerHandle:
-              selectedPeer?.handle ??
-              peerQuery.trim(),
+            peerHandle: peer.handle,
           });
         setDirectOpen(false);
         setPeerQuery("");
@@ -920,8 +919,7 @@ export const ConversationListPane = observer(
               type="submit"
               disabled={
                 directCreating ||
-                peerQuery.trim().length === 0 ||
-                peerQuery.trim() === "@"
+                selectedPeer === null
               }
             >
               {t("direct.start")}
