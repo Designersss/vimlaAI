@@ -230,7 +230,6 @@
     "failed": "Не удалось открыть личный чат.",
     "newChat": "Новый личный чат",
     "start": "Начать чат",
-    "peerEmail": "Email участника",
     "inbox": "Тип входящих",
     "tabAll": "Все",
     "tabAi": "AI",
@@ -261,7 +260,7 @@
     "confirm": "Подтвердить",
     "open": "Открыть",
     "completed": "Выполнено",
-    "needsConfirmation": "Нужно подтверждение",
+    "needsConfirmation": "Нужно уточнение",
     "failed": "Ошибка",
     "skipped": "Пропущено",
     "ops": {
