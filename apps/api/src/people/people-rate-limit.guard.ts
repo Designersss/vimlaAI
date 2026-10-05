@@ -24,11 +24,14 @@ export class PeopleRateLimitGuard implements CanActivate {
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<FastifyRequest>();
     const userId = request.vimlaUser?.id;
-    if (!userId || request.method === "HEAD" || request.method === "OPTIONS") {
+    if (!userId || request.method === "OPTIONS") {
       return true;
     }
 
-    const operation = request.method === "GET" ? "discover" : "mutate";
+    const operation =
+      request.method === "GET" || request.method === "HEAD"
+        ? "discover"
+        : "mutate";
     const allowed = await this.hit(
       `ratelimit:people:${operation}:user:${userId}`,
       PEOPLE_REQUESTS_PER_MINUTE,
