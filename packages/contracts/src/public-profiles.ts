@@ -69,6 +69,9 @@ export const peopleSearchQuerySchema = z
       .trim()
       .min(1)
       .max(PUBLIC_PROFILE_LIMITS.searchQueryMax)
+      .refine((value) => value !== "@", {
+        message: "Search query must contain identity text",
+      })
       .refine((value) => !value.includes("\0"), {
         message: "Search query contains an invalid character",
       }),
