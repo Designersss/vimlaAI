@@ -61,17 +61,18 @@ describe("inbox public identity search", () => {
       where: { userId: peer.id },
       data: { displayName: "Collision" },
     });
-    const direct = await db.directConversation.create({
-      data: {
-        pairKey: `inbox-scope-${randomUUID()}`,
-        members: {
-          create: [
-            { userId: owner.id },
-            { userId: peer.id },
-          ],
-        },
+    const createdDirect = await app.inject({
+      method: "POST",
+      url: "/v1/direct-chats",
+      headers: {
+        origin,
+        "content-type": "application/json",
       },
+      cookies: owner.cookies,
+      payload: { peerHandle: peer.handle },
     });
+    expect(createdDirect.statusCode).toBe(201);
+    const directId = (createdDirect.json() as { id: string }).id;
 
     const runToken = randomUUID().replaceAll("-", "").slice(0, 8);
     const decoys = Array.from({ length: 305 }, (_, index) => {
@@ -123,7 +124,7 @@ describe("inbox public identity search", () => {
       expect(response.json().items).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
-            domainId: direct.id,
+            domainId: directId,
             peer: expect.objectContaining({ userId: peer.id }),
           }),
         ]),
