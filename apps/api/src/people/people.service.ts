@@ -3,7 +3,7 @@ import {
   handleInputSchema,
   publicProfileSchema,
   type PublicProfile,
-  type UpdateOwnPublicProfileInput,
+  type UpdatePublicProfile,
 } from "@vimla/contracts";
 import { Prisma } from "@vimla/database";
 import { PrismaService } from "../persistence/prisma.service.js";
@@ -100,7 +100,7 @@ export class PeopleService {
 
   async updateMine(
     actorUserId: string,
-    input: UpdateOwnPublicProfileInput,
+    input: UpdatePublicProfile,
   ): Promise<PublicProfile | null> {
     const current = await this.findByUserId(actorUserId);
     if (!current) {
@@ -168,6 +168,7 @@ export class PeopleService {
 
 function toPublicProfile(row: PublicProfileRow): PublicProfile {
   return publicProfileSchema.parse({
+    userId: row.userId,
     handle: row.handle,
     displayName: row.displayName,
     avatarUrl: row.avatarUrl,
