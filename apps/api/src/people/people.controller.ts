@@ -17,7 +17,7 @@ import {
   publicProfileSchema,
   updatePublicProfileSchema,
   type PublicProfile,
-} from "@vimla/contracts";
+} from "@vimla/contracts/public-profiles";
 import { AuthGuard } from "../auth/auth.guard.js";
 import { AuthUser } from "../auth/current-user.decorator.js";
 import { OriginGuard } from "../auth/origin.guard.js";
