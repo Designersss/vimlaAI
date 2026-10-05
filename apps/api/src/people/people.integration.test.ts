@@ -233,6 +233,12 @@ describe("people public identity API", () => {
       throw new Error("Expected public identity fixtures");
     }
 
+    // Remove the other user's profile so the attempted reassignment is not
+    // rejected by the unique handleId index before PostgreSQL checks ownership.
+    await prisma.publicProfile.delete({
+      where: { userId: other.id },
+    });
+
     await expect(
       prisma.publicProfile.update({
         where: { userId: target.id },
