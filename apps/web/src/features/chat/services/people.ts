@@ -4,12 +4,6 @@ import type {
 } from "@vimla/contracts/public-profiles";
 import { createWebClientApi } from "../../../shared/api/client";
 
-const PEOPLE_REQUEST_TIMEOUT_MS = 15_000;
-
-function timeoutSignal(): AbortSignal {
-  return AbortSignal.timeout(PEOPLE_REQUEST_TIMEOUT_MS);
-}
-
 export function searchPeople(
   q: string,
   fetchImpl: typeof fetch = fetch,
@@ -24,6 +18,5 @@ export function fetchPublicProfile(
   handle: string,
   fetchImpl: typeof fetch = fetch,
 ): Promise<PublicProfile> {
-  void timeoutSignal();
   return createWebClientApi(fetchImpl).people.fetchProfile(handle);
 }
