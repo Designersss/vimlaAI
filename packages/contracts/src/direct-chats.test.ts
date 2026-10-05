@@ -8,7 +8,7 @@ import {
 } from "./direct-chats.js";
 
 describe("direct chat contracts", () => {
-  it("rejects plaintext, owner fields and extra authority on send", () => {
+  it("rejects plaintext, email addressing and extra authority on send", () => {
     expect(
       sendDirectMessageSchema.safeParse({
         clientMessageId: "11111111-1111-4111-8111-111111111111",
@@ -20,15 +20,29 @@ describe("direct chat contracts", () => {
     ).toBe(false);
 
     expect(
+      createDirectConversationSchema.parse({
+        peerHandle: "Nikita.User",
+      }),
+    ).toEqual({
+      peerHandle: "nikita.user",
+    });
+
+    expect(
       createDirectConversationSchema.safeParse({
         peerEmail: "nikita@example.com",
+      }).success,
+    ).toBe(false);
+
+    expect(
+      createDirectConversationSchema.safeParse({
+        peerHandle: "nikita.user",
         userId: "other",
       }).success,
     ).toBe(false);
 
     expect(
       createDirectConversationSchema.safeParse({
-        peerEmail: "nikita@example.com",
+        peerHandle: "nikita.user",
         surfaceId:
           "11111111-1111-4111-8111-111111111111",
       }).success,
