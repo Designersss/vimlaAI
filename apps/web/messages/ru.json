@@ -260,7 +260,7 @@
     "confirm": "Подтвердить",
     "open": "Открыть",
     "completed": "Выполнено",
-    "needsConfirmation": "Нужно уточнение",
+    "needsConfirmation": "Нужно подтверждение",
     "failed": "Ошибка",
     "skipped": "Пропущено",
     "ops": {
