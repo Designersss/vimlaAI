@@ -61,18 +61,13 @@ INSERT INTO "public_profile" (
 SELECT
   handle."userId",
   handle."id",
-  CASE
-    WHEN char_length(btrim("user"."name")) BETWEEN 1 AND 80
-      THEN btrim("user"."name")
-    ELSE handle."handle"
-  END,
+  handle."handle",
   NULL,
   NULL,
   NULL,
   CURRENT_TIMESTAMP,
   CURRENT_TIMESTAMP
 FROM "handle"
-JOIN "user" ON "user"."id" = handle."userId"
 WHERE
   handle."kind" = 'USER'
   AND handle."status" = 'ACTIVE'

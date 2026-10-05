@@ -1,6 +1,7 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { handleInputSchema } from "@vimla/contracts";
 import {
+  PUBLIC_PROFILE_LIMITS,
   publicProfileSchema,
   type PublicProfile,
   type UpdatePublicProfile,
@@ -64,25 +65,32 @@ export class PeopleService {
     const handleOnly = trimmed.startsWith("@");
     const identityQuery = handleOnly ? trimmed.slice(1).trim() : trimmed;
     const handleQuery = identityQuery.toLowerCase();
-    const shortSearch = handleQuery.length < 3;
-    const handlePattern = shortSearch
-      ? `${escapeLikePattern(handleQuery)}%`
-      : `%${escapeLikePattern(handleQuery)}%`;
+    const prefixSearch = handleQuery.length >= PUBLIC_PROFILE_LIMITS.searchPrefixMatchMin;
+    const containsSearch = handleQuery.length >= PUBLIC_PROFILE_LIMITS.searchContainsMatchMin;
     const handlePrefixPattern = `${escapeLikePattern(handleQuery)}%`;
-    const displayPattern = shortSearch
-      ? `${escapeLikePattern(trimmed.toLowerCase())}%`
-      : `%${escapeLikePattern(trimmed)}%`;
-    const searchPredicate = handleOnly
-      ? Prisma.sql`handle."normalized" LIKE ${handlePattern}`
-      : shortSearch
-        ? Prisma.sql`(
-            handle."normalized" LIKE ${handlePattern}
-            OR lower(profile."displayName") LIKE ${displayPattern}
-          )`
+    const displayPrefixPattern = `${escapeLikePattern(trimmed.toLowerCase())}%`;
+    const handleContainsPattern = `%${escapeLikePattern(handleQuery)}%`;
+    const displayContainsPattern = `%${escapeLikePattern(trimmed)}%`;
+    const searchPredicate = containsSearch
+      ? handleOnly
+        ? Prisma.sql`handle."normalized" LIKE ${handleContainsPattern}`
         : Prisma.sql`(
-            handle."normalized" LIKE ${handlePattern}
-            OR profile."displayName" ILIKE ${displayPattern}
-          )`;
+            handle."normalized" LIKE ${handleContainsPattern}
+            OR profile."displayName" ILIKE ${displayContainsPattern}
+          )`
+      : prefixSearch
+        ? handleOnly
+          ? Prisma.sql`handle."normalized" LIKE ${handlePrefixPattern}`
+          : Prisma.sql`(
+              handle."normalized" LIKE ${handlePrefixPattern}
+              OR lower(profile."displayName") LIKE ${displayPrefixPattern}
+            )`
+        : handleOnly
+          ? Prisma.sql`handle."normalized" = ${handleQuery}`
+          : Prisma.sql`(
+              handle."normalized" = ${handleQuery}
+              OR lower(profile."displayName") = lower(${trimmed})
+            )`;
     const excludedUserIds = [
       ...new Set(
         await this.accessPolicy.excludedDiscoveryUserIds(actorUserId),

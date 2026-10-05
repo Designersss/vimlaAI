@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  PUBLIC_PROFILE_LIMITS,
   peopleSearchQuerySchema,
   publicProfileSchema,
   updatePublicProfileSchema,
@@ -50,13 +51,39 @@ describe("public profile contracts", () => {
     ).toBe(false);
   });
 
+  it("rejects PostgreSQL-incompatible NUL in every mutable public text field", () => {
+    for (const payload of [
+      { displayName: "Nik\0ita" },
+      { bio: "bio\0text" },
+      { status: "on\0line" },
+    ]) {
+      expect(updatePublicProfileSchema.safeParse(payload).success).toBe(false);
+    }
+
+    expect(
+      publicProfileSchema.safeParse({
+        userId: "user-1",
+        handle: "nikita.user",
+        displayName: "Nikita",
+        avatarUrl: null,
+        bio: "bio\0text",
+        status: null,
+      }).success,
+    ).toBe(false);
+  });
+
   it("bounds discovery and rejects empty @ enumeration", () => {
+    expect(PUBLIC_PROFILE_LIMITS.searchPrefixMatchMin).toBe(2);
+    expect(PUBLIC_PROFILE_LIMITS.searchContainsMatchMin).toBe(3);
     expect(
       peopleSearchQuerySchema.parse({
         q: "  @Nikita  ",
         limit: "10",
       }),
     ).toEqual({ q: "@Nikita", limit: 10 });
+    expect(
+      peopleSearchQuerySchema.parse({ q: "李" }),
+    ).toEqual({ q: "李", limit: 20 });
     expect(
       peopleSearchQuerySchema.safeParse({ q: "@" }).success,
     ).toBe(false);

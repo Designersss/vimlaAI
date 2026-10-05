@@ -26,8 +26,6 @@ import { PrismaService } from "../persistence/prisma.service.js";
 const CURSOR_VERSION = 1 as const;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const DIRECT_SEARCH_CANDIDATE_LIMIT =
-  INBOX_LIMITS.pageMax * 3;
 
 type AiThreadInboxPreview = Extract<
   InboxItem,
@@ -366,30 +364,24 @@ export class InboxService {
           handle."normalized" LIKE ${handlePattern}
           OR profile."displayName" ILIKE ${displayPattern}
         )`;
-    const handlePrefixPattern = `${escapeLikePattern(normalizedIdentity)}%`;
 
     const rows = await this.prisma.$queryRaw<
       Array<{ userId: string }>
     >(Prisma.sql`
-      SELECT profile."userId" AS "userId"
-      FROM "public_profile" AS profile
+      SELECT DISTINCT peer."userId" AS "userId"
+      FROM "direct_conversation_member" AS mine
+      INNER JOIN "direct_conversation_member" AS peer
+        ON peer."conversationId" = mine."conversationId"
+        AND peer."userId" <> mine."userId"
+      INNER JOIN "public_profile" AS profile
+        ON profile."userId" = peer."userId"
       INNER JOIN "handle" AS handle
         ON handle."id" = profile."handleId"
       WHERE
-        profile."userId" <> ${userId}
+        mine."userId" = ${userId}
         AND handle."kind" = 'USER'
         AND handle."status" = 'ACTIVE'
         AND ${matchPredicate}
-      ORDER BY
-        CASE
-          WHEN handle."normalized" = ${normalizedIdentity} THEN 0
-          WHEN handle."normalized" LIKE ${handlePrefixPattern} THEN 1
-          ELSE 2
-        END,
-        lower(profile."displayName") ASC,
-        handle."normalized" ASC,
-        profile."userId" ASC
-      LIMIT ${DIRECT_SEARCH_CANDIDATE_LIMIT}
     `);
     return rows.map((row) => row.userId);
   }

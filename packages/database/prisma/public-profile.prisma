@@ -8,6 +8,5 @@ model PublicProfile {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  @@index([displayName])
   @@map("public_profile")
 }

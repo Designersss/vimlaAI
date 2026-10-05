@@ -7,15 +7,41 @@ export const PUBLIC_PROFILE_LIMITS = {
   statusMax: 80,
   avatarUrlMax: 2_048,
   searchQueryMax: 64,
+  searchPrefixMatchMin: 2,
+  searchContainsMatchMin: 3,
   searchLimitDefault: 20,
   searchLimitMax: 30,
 } as const;
+
+function hasNoNul(value: string): boolean {
+  return !value.includes("\0");
+}
+
+const boundedPublicText = (max: number) =>
+  z
+    .string()
+    .max(max)
+    .refine(hasNoNul, {
+      message: "Public profile text contains an invalid character",
+    });
+
+const displayNameSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(PUBLIC_PROFILE_LIMITS.displayNameMax)
+  .refine(hasNoNul, {
+    message: "Public profile text contains an invalid character",
+  });
 
 const nullableTrimmedText = (max: number) =>
   z
     .string()
     .trim()
     .max(max)
+    .refine(hasNoNul, {
+      message: "Public profile text contains an invalid character",
+    })
     .transform((value) => (value.length > 0 ? value : null))
     .nullable();
 
@@ -23,10 +49,10 @@ export const publicProfileSchema = z
   .object({
     userId: z.string().min(1),
     handle: handleSchema,
-    displayName: z.string().trim().min(1).max(PUBLIC_PROFILE_LIMITS.displayNameMax),
+    displayName: displayNameSchema,
     avatarUrl: z.string().url().max(PUBLIC_PROFILE_LIMITS.avatarUrlMax).nullable(),
-    bio: z.string().max(PUBLIC_PROFILE_LIMITS.bioMax).nullable(),
-    status: z.string().max(PUBLIC_PROFILE_LIMITS.statusMax).nullable(),
+    bio: boundedPublicText(PUBLIC_PROFILE_LIMITS.bioMax).nullable(),
+    status: boundedPublicText(PUBLIC_PROFILE_LIMITS.statusMax).nullable(),
   })
   .strict();
 export type PublicProfile = z.infer<typeof publicProfileSchema>;
@@ -38,12 +64,7 @@ export type PublicProfile = z.infer<typeof publicProfileSchema>;
  */
 export const updatePublicProfileSchema = z
   .object({
-    displayName: z
-      .string()
-      .trim()
-      .min(1)
-      .max(PUBLIC_PROFILE_LIMITS.displayNameMax)
-      .optional(),
+    displayName: displayNameSchema.optional(),
     bio: nullableTrimmedText(PUBLIC_PROFILE_LIMITS.bioMax).optional(),
     status: nullableTrimmedText(PUBLIC_PROFILE_LIMITS.statusMax).optional(),
   })
@@ -72,7 +93,7 @@ export const peopleSearchQuerySchema = z
       .refine((value) => value !== "@", {
         message: "Search query must contain identity text",
       })
-      .refine((value) => !value.includes("\0"), {
+      .refine(hasNoNul, {
         message: "Search query contains an invalid character",
       }),
     limit: z.coerce
