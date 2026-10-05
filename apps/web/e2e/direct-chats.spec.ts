@@ -31,7 +31,12 @@ test.describe("Secure Direct Chats", () => {
     await alicePage.goto("/app");
     await expect(alicePage.getByRole("heading", { name: /сообщения|messages/i })).toBeVisible();
     await alicePage.getByRole("button", { name: /новый личный чат|new direct chat/i }).click();
-    await alicePage.getByLabel(/email участника|participant email/i).fill(nikitaEmail);
+    await alicePage.getByPlaceholder("@handle").fill("Nikita");
+    const nikitaResult = alicePage
+      .getByTestId("people-search-results")
+      .getByRole("button", { name: /Nikita/i });
+    await expect(nikitaResult).toBeVisible({ timeout: 20_000 });
+    await nikitaResult.click();
     await alicePage.getByRole("button", { name: /начать чат|start chat/i }).click();
     await expect(alicePage.getByTestId("direct-chat-shell")).toBeVisible({ timeout: 20_000 });
 
@@ -771,9 +776,12 @@ test.describe("Secure Direct Chats", () => {
         name: /новый личный чат|new direct chat/i,
       })
       .click();
-    await alicePage
-      .getByLabel(/email участника|participant email/i)
-      .fill(nikitaEmail);
+    await alicePage.getByPlaceholder("@handle").fill("Nikita Recovery");
+    const nikitaRecoveryResult = alicePage
+      .getByTestId("people-search-results")
+      .getByRole("button", { name: /Nikita Recovery/i });
+    await expect(nikitaRecoveryResult).toBeVisible({ timeout: 20_000 });
+    await nikitaRecoveryResult.click();
     await alicePage
       .getByRole("button", {
         name: /начать чат|start chat/i,
@@ -3181,4 +3189,3 @@ async function seedExpiredRatchetLease(
     }
   }, input);
 }
-
