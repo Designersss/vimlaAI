@@ -65,6 +65,15 @@ describe("people public identity hardening", () => {
     const viewer = await registerVerifiedUser(app, "people-short-viewer");
     const target = await registerVerifiedUser(app, "people-short-target");
     const oneCharacter = await registerVerifiedUser(app, "people-short-one", "李");
+    const astralExact = await registerVerifiedUser(
+      app,
+      "people-short-astral-exact",
+      "🚀",
+    );
+    const astralPrefix = await registerVerifiedUser(
+      app,
+      "people-short-astral-prefix",
+    );
 
     const updated = await app.inject({
       method: "PATCH",
@@ -74,6 +83,33 @@ describe("people public identity hardening", () => {
       payload: { displayName: "Никита" },
     });
     expect(updated.statusCode).toBe(200);
+
+    const astralPrefixUpdated = await app.inject({
+      method: "PATCH",
+      url: "/v1/people/me",
+      headers: jsonHeaders(),
+      cookies: astralPrefix.cookies,
+      payload: { displayName: "🚀 Pilot" },
+    });
+    expect(astralPrefixUpdated.statusCode).toBe(200);
+
+    const unicodeBoundary = await app.inject({
+      method: "PATCH",
+      url: "/v1/people/me",
+      headers: jsonHeaders(),
+      cookies: astralExact.cookies,
+      payload: { displayName: "🚀".repeat(80) },
+    });
+    expect(unicodeBoundary.statusCode).toBe(200);
+
+    const astralExactReset = await app.inject({
+      method: "PATCH",
+      url: "/v1/people/me",
+      headers: jsonHeaders(),
+      cookies: astralExact.cookies,
+      payload: { displayName: "🚀" },
+    });
+    expect(astralExactReset.statusCode).toBe(200);
 
     const oneCharacterPrefix = await app.inject({
       method: "GET",
@@ -124,6 +160,24 @@ describe("people public identity hardening", () => {
     expect(exactShortName.json().items).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ userId: oneCharacter.id }),
+      ]),
+    );
+
+    const exactAstralName = await app.inject({
+      method: "GET",
+      url: `/v1/people?q=${encodeURIComponent("🚀")}&limit=10`,
+      headers: { origin },
+      cookies: viewer.cookies,
+    });
+    expect(exactAstralName.statusCode).toBe(200);
+    expect(exactAstralName.json().items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ userId: astralExact.id }),
+      ]),
+    );
+    expect(exactAstralName.json().items).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ userId: astralPrefix.id }),
       ]),
     );
   });

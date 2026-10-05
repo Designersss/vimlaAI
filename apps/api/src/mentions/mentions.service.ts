@@ -4,10 +4,19 @@ import type {
   MentionSuggestionsQuery,
   MentionSuggestionsResponse,
 } from "@vimla/contracts";
+import { Prisma } from "@vimla/database";
 import { PrismaService } from "../persistence/prisma.service.js";
 import { TextChatService } from "../ai/text-chat.service.js";
 
 type ContextPerson = { userId: string; role: string | null };
+
+type MentionProfileRow = {
+  userId: string;
+  handleId: string;
+  handle: string;
+  displayName: string;
+  avatarUrl: string | null;
+};
 
 @Injectable()
 export class MentionsService {
@@ -132,38 +141,42 @@ export class MentionsService {
   }
 
   private async peopleCandidates(people: ContextPerson[]): Promise<MentionCandidate[]> {
-    const unique = new Map(people.map((person) => [person.userId, person]));
+    const unique = new Map(
+      people.map((person) => [person.userId, person]),
+    );
     const userIds = [...unique.keys()];
     if (userIds.length === 0) return [];
 
-    const [handles, users] = await Promise.all([
-      this.prisma.client.handle.findMany({
-        where: { userId: { in: userIds }, kind: "USER", status: "ACTIVE" },
-        select: { id: true, handle: true, userId: true },
-      }),
-      this.prisma.client.user.findMany({
-        where: { id: { in: userIds } },
-        select: { id: true, name: true, image: true },
-      }),
-    ]);
-    const userById = new Map(users.map((user) => [user.id, user]));
+    const profiles =
+      await this.prisma.client.$queryRaw<
+        MentionProfileRow[]
+      >(Prisma.sql`
+        SELECT
+          profile."userId" AS "userId",
+          handle."id" AS "handleId",
+          handle."handle" AS "handle",
+          profile."displayName" AS "displayName",
+          profile."avatarUrl" AS "avatarUrl"
+        FROM "public_profile" AS profile
+        INNER JOIN "handle" AS handle
+          ON handle."id" = profile."handleId"
+        WHERE
+          profile."userId" IN (${Prisma.join(userIds)})
+          AND handle."kind" = 'USER'
+          AND handle."status" = 'ACTIVE'
+      `);
 
-    return handles.flatMap((handle) => {
-      if (!handle.userId) return [];
-      const user = userById.get(handle.userId);
-      if (!user) return [];
-      return [
-        {
-          id: handle.id,
-          kind: "USER" as const,
-          handle: handle.handle,
-          label: user.name,
-          description: null,
-          avatarUrl: user.image,
-          role: unique.get(handle.userId)?.role ?? null,
-        },
-      ];
-    });
+    return profiles.map((profile) => ({
+      id: profile.handleId,
+      kind: "USER" as const,
+      handle: profile.handle,
+      label: profile.displayName,
+      description: null,
+      avatarUrl: profile.avatarUrl,
+      role:
+        unique.get(profile.userId)?.role ??
+        null,
+    }));
   }
 
   private filterAndRank(

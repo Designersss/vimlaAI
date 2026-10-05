@@ -55,10 +55,16 @@ describe("inbox public identity search", () => {
   it("searches only the actor's Direct Chat peers before applying identity matching", async () => {
     const owner = await registerVerifiedUser(app, "inbox-scope-owner");
     const peer = await registerVerifiedUser(app, "inbox-scope-peer");
+    const secondPeer = await registerVerifiedUser(
+      app,
+      "inbox-scope-peer-two",
+    );
     const db = app.get(PrismaService).client;
 
-    await db.publicProfile.update({
-      where: { userId: peer.id },
+    await db.publicProfile.updateMany({
+      where: {
+        userId: { in: [peer.id, secondPeer.id] },
+      },
       data: { displayName: "Collision" },
     });
     const createdDirect = await app.inject({
@@ -73,6 +79,21 @@ describe("inbox public identity search", () => {
     });
     expect(createdDirect.statusCode).toBe(201);
     const directId = (createdDirect.json() as { id: string }).id;
+
+    const secondDirect = await app.inject({
+      method: "POST",
+      url: "/v1/direct-chats",
+      headers: {
+        origin,
+        "content-type": "application/json",
+      },
+      cookies: owner.cookies,
+      payload: { peerHandle: secondPeer.handle },
+    });
+    expect(secondDirect.statusCode).toBe(201);
+    const secondDirectId = (
+      secondDirect.json() as { id: string }
+    ).id;
 
     const runToken = randomUUID().replaceAll("-", "").slice(0, 8);
     const decoys = Array.from({ length: 305 }, (_, index) => {
@@ -129,6 +150,41 @@ describe("inbox public identity search", () => {
           }),
         ]),
       );
+
+      expect(response.json().items).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            domainId: secondDirectId,
+            peer: expect.objectContaining({
+              userId: secondPeer.id,
+            }),
+          }),
+        ]),
+      );
+
+      const firstPage = await app.inject({
+        method: "GET",
+        url: `/v1/inbox?kind=DIRECT&limit=1&q=${encodeURIComponent("Collision")}`,
+        headers: { origin },
+        cookies: owner.cookies,
+      });
+      expect(firstPage.statusCode).toBe(200);
+      expect(firstPage.json().items).toHaveLength(1);
+      expect(firstPage.json().nextCursor).toEqual(
+        expect.any(String),
+      );
+
+      const secondPage = await app.inject({
+        method: "GET",
+        url: `/v1/inbox?kind=DIRECT&limit=1&q=${encodeURIComponent("Collision")}&cursor=${encodeURIComponent(firstPage.json().nextCursor)}`,
+        headers: { origin },
+        cookies: owner.cookies,
+      });
+      expect(secondPage.statusCode).toBe(200);
+      expect(secondPage.json().items).toHaveLength(1);
+      expect(
+        secondPage.json().items[0].domainId,
+      ).not.toBe(firstPage.json().items[0].domainId);
     } finally {
       const userIds = decoys.map((decoy) => decoy.userId);
       const handleIds = decoys.map((decoy) => decoy.handleId);

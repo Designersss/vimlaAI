@@ -775,9 +775,7 @@ export const ConversationListPane = observer(
                   <DirectConversationRow
                     key={item.surfaceId}
                     name={item.title}
-                    preview={
-                      preview ?? undefined
-                    }
+                    preview={`@${item.peer.handle}${preview ? ` · ${preview}` : ""}`}
                     time={time}
                     unreadCount={
                       item.unreadCount

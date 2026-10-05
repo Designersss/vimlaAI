@@ -9,7 +9,10 @@ import {
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
-import type { PublicProfile } from "@vimla/contracts/public-profiles";
+import {
+  PUBLIC_PROFILE_LIMITS,
+  type PublicProfile,
+} from "@vimla/contracts/public-profiles";
 import { navigationTargetToWebPath } from "@vimla/web-navigation";
 import {
   Alert,
@@ -39,6 +42,13 @@ import { CONSUMER_FEATURES } from "../../../shared/config/consumer-features";
 import styles from "./PublicProfile.module.scss";
 
 type LoadState = "loading" | "ready" | "failed";
+
+function boundedPublicInput(
+  value: string,
+  max: number,
+): string {
+  return Array.from(value).slice(0, max).join("");
+}
 
 export function PublicProfileScreen({
   handle,
@@ -319,9 +329,13 @@ export function PublicProfileScreen({
                 <Input
                   id="profile-display-name"
                   value={displayName}
-                  maxLength={80}
                   onChange={(event) =>
-                    setDisplayName(event.target.value)
+                    setDisplayName(
+                      boundedPublicInput(
+                        event.target.value,
+                        PUBLIC_PROFILE_LIMITS.displayNameMax,
+                      ),
+                    )
                   }
                   required
                 />
@@ -333,9 +347,13 @@ export function PublicProfileScreen({
                 <Input
                   id="profile-status"
                   value={status}
-                  maxLength={80}
                   onChange={(event) =>
-                    setStatus(event.target.value)
+                    setStatus(
+                      boundedPublicInput(
+                        event.target.value,
+                        PUBLIC_PROFILE_LIMITS.statusMax,
+                      ),
+                    )
                   }
                 />
               </FormField>
@@ -346,10 +364,14 @@ export function PublicProfileScreen({
                 <Textarea
                   id="profile-bio"
                   value={bio}
-                  maxLength={280}
                   rows={5}
                   onChange={(event) =>
-                    setBio(event.target.value)
+                    setBio(
+                      boundedPublicInput(
+                        event.target.value,
+                        PUBLIC_PROFILE_LIMITS.bioMax,
+                      ),
+                    )
                   }
                 />
               </FormField>

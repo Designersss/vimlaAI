@@ -911,7 +911,10 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
 
   return (
     <div className={styles.workspace} data-testid="direct-chat-shell">
-      <ChatConversationHeader title={conversation.peer.name} subtitle={t("direct.e2eeSubtitle")} />
+      <ChatConversationHeader
+        title={conversation.peer.name}
+        subtitle={`@${conversation.peer.handle} · ${t("direct.e2eeSubtitle")}`}
+      />
       <div className={styles.thread}>
         <div className={styles.privacy}>
           <Switch

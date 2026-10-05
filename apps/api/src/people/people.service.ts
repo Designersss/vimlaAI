@@ -65,8 +65,13 @@ export class PeopleService {
     const handleOnly = trimmed.startsWith("@");
     const identityQuery = handleOnly ? trimmed.slice(1).trim() : trimmed;
     const handleQuery = identityQuery.toLowerCase();
-    const prefixSearch = handleQuery.length >= PUBLIC_PROFILE_LIMITS.searchPrefixMatchMin;
-    const containsSearch = handleQuery.length >= PUBLIC_PROFILE_LIMITS.searchContainsMatchMin;
+    const identityLength = Array.from(identityQuery).length;
+    const prefixSearch =
+      identityLength >=
+      PUBLIC_PROFILE_LIMITS.searchPrefixMatchMin;
+    const containsSearch =
+      identityLength >=
+      PUBLIC_PROFILE_LIMITS.searchContainsMatchMin;
     const handlePrefixPattern = `${escapeLikePattern(handleQuery)}%`;
     const displayPrefixPattern = `${escapeLikePattern(trimmed.toLowerCase())}%`;
     const handleContainsPattern = `%${escapeLikePattern(handleQuery)}%`;

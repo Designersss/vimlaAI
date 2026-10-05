@@ -30,11 +30,16 @@ ALTER TABLE "public_profile"
 ALTER TABLE "public_profile"
   ADD CONSTRAINT "public_profile_handle_owner_fkey"
   FOREIGN KEY ("handleId", "userId") REFERENCES "handle"("id", "userId")
-  ON DELETE CASCADE ON UPDATE CASCADE;
+  ON DELETE CASCADE ON UPDATE RESTRICT;
 
 ALTER TABLE "public_profile"
   ADD CONSTRAINT "public_profile_display_name_bounds_check"
-  CHECK (char_length(btrim("displayName")) BETWEEN 1 AND 80);
+  CHECK (
+    char_length("displayName") BETWEEN 1 AND 80
+    AND "displayName" ~ '[^[:space:]]'
+    AND "displayName" !~ '^[[:space:]]'
+    AND "displayName" !~ '[[:space:]]$'
+  );
 
 ALTER TABLE "public_profile"
   ADD CONSTRAINT "public_profile_avatar_url_bounds_check"

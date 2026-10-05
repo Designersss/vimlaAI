@@ -121,6 +121,20 @@ test.describe("Public profile", () => {
       alicePage.getByPlaceholder("Message this person"),
     ).toBeVisible({ timeout: 30_000 });
 
+    const directShell = alicePage.getByTestId(
+      "direct-chat-shell",
+    );
+    await expect(directShell).toContainText(
+      `@${bobHandle}`,
+    );
+
+    await alicePage.goto("/app");
+    await expect(
+      alicePage
+        .getByTestId("direct-conversation-row")
+        .filter({ hasText: `@${bobHandle}` }),
+    ).toBeVisible({ timeout: 20_000 });
+
     await bobContext.close();
     await aliceContext.close();
   });

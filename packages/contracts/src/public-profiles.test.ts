@@ -21,6 +21,23 @@ describe("public profile contracts", () => {
     expect(
       publicProfileSchema.safeParse({
         ...parsed,
+        displayName: "🚀".repeat(
+          PUBLIC_PROFILE_LIMITS.displayNameMax,
+        ),
+      }).success,
+    ).toBe(true);
+    expect(
+      publicProfileSchema.safeParse({
+        ...parsed,
+        displayName: "🚀".repeat(
+          PUBLIC_PROFILE_LIMITS.displayNameMax + 1,
+        ),
+      }).success,
+    ).toBe(false);
+
+    expect(
+      publicProfileSchema.safeParse({
+        ...parsed,
         displayName: "я".repeat(81),
       }).success,
     ).toBe(false);

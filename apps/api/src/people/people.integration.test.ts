@@ -252,6 +252,25 @@ describe("people public identity API", () => {
     });
     expect(intact?.handleId).toBe(profileBefore.handleId);
 
+    await prisma.handle.delete({
+      where: { id: otherHandle.id },
+    });
+    await expect(
+      prisma.handle.update({
+        where: { id: profileBefore.handleId },
+        data: { userId: other.id },
+      }),
+    ).rejects.toMatchObject({ code: "P2003" });
+
+    const ownershipStillIntact =
+      await prisma.publicProfile.findUnique({
+        where: { userId: target.id },
+        select: { handleId: true },
+      });
+    expect(ownershipStillIntact?.handleId).toBe(
+      profileBefore.handleId,
+    );
+
     const searchIndexes = await prisma.$queryRaw<Array<{ indexname: string }>>`
       SELECT indexname
       FROM pg_indexes

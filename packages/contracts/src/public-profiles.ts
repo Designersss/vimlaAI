@@ -17,10 +17,16 @@ function hasNoNul(value: string): boolean {
   return !value.includes("\0");
 }
 
+function hasAtMostCodePoints(value: string, max: number): boolean {
+  return Array.from(value).length <= max;
+}
+
 const boundedPublicText = (max: number) =>
   z
     .string()
-    .max(max)
+    .refine((value) => hasAtMostCodePoints(value, max), {
+      message: `Public profile text must contain at most ${max} characters`,
+    })
     .refine(hasNoNul, {
       message: "Public profile text contains an invalid character",
     });
@@ -29,7 +35,16 @@ const displayNameSchema = z
   .string()
   .trim()
   .min(1)
-  .max(PUBLIC_PROFILE_LIMITS.displayNameMax)
+  .refine(
+    (value) =>
+      hasAtMostCodePoints(
+        value,
+        PUBLIC_PROFILE_LIMITS.displayNameMax,
+      ),
+    {
+      message: `Display name must contain at most ${PUBLIC_PROFILE_LIMITS.displayNameMax} characters`,
+    },
+  )
   .refine(hasNoNul, {
     message: "Public profile text contains an invalid character",
   });
@@ -38,7 +53,9 @@ const nullableTrimmedText = (max: number) =>
   z
     .string()
     .trim()
-    .max(max)
+    .refine((value) => hasAtMostCodePoints(value, max), {
+      message: `Public profile text must contain at most ${max} characters`,
+    })
     .refine(hasNoNul, {
       message: "Public profile text contains an invalid character",
     })
