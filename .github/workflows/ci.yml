@@ -5,15 +5,55 @@ on:
     branches: [main]
   pull_request:
 
+# PR runs are untrusted. No write token or production credentials are needed.
 permissions:
   contents: read
 
+# Obsolete PR commits should not consume runners. Never cancel main push runs.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  NODE_ENV: test
+  APP_ENV: test
+  LOG_LEVEL: info
+  API_HOST: 127.0.0.1
+  API_PORT: 3001
+  WEB_ORIGIN: http://localhost:3000
+  DATABASE_URL: postgresql://vimla:vimla@localhost:5432/vimla
+  TEST_DATABASE_URL: postgresql://vimla:vimla@localhost:5432/vimla_test
+  REDIS_URL: redis://localhost:6379
+  NEXT_PUBLIC_API_BASE_URL: http://localhost:3001
+  NEXT_PUBLIC_ADMIN_API_BASE_URL: http://localhost:3001
+  ADMIN_ORIGIN: http://localhost:3002
+  ADMIN_REQUIRE_PASSKEY: "false"
+  BETTER_AUTH_SECRET: local-dev-only-change-me-use-32-chars-min
+  BETTER_AUTH_URL: http://localhost:3001
+
 jobs:
   quality:
-    name: lint-typecheck-test-build
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+    name: quality / ${{ matrix.check }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        check: [lint, typecheck, build]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
+      - name: Run ${{ matrix.check }}
+        run: pnpm ${{ matrix.check }}
 
+  unit:
+    name: unit tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     services:
       postgres:
         image: pgvector/pgvector:0.8.2-pg16
@@ -37,63 +77,20 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 10
-
-    env:
-      NODE_ENV: test
-      APP_ENV: test
-      LOG_LEVEL: info
-      API_HOST: 127.0.0.1
-      API_PORT: 3001
-      WEB_ORIGIN: http://localhost:3000
-      DATABASE_URL: postgresql://vimla:vimla@localhost:5432/vimla
-      REDIS_URL: redis://localhost:6379
-      NEXT_PUBLIC_API_BASE_URL: http://localhost:3001
-      NEXT_PUBLIC_ADMIN_API_BASE_URL: http://localhost:3001
-      ADMIN_ORIGIN: http://localhost:3002
-      ADMIN_REQUIRE_PASSKEY: false
-      BETTER_AUTH_SECRET: local-dev-only-change-me-use-32-chars-min
-      BETTER_AUTH_URL: http://localhost:3001
-      TEST_DATABASE_URL: postgresql://vimla:vimla@localhost:5432/vimla_test
-
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
+        uses: actions/checkout@v7
         with:
-          version: 10.17.0
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: pnpm
-
-      - name: Install
-        run: pnpm install --frozen-lockfile
-
-      - name: Lint
-        run: pnpm lint
-
-      - name: Typecheck
-        run: pnpm typecheck
-
-      - name: Test
+          persist-credentials: false
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
+      - name: Run all unit tests
         run: pnpm test
 
-      - name: Integration test
-        run: pnpm test:integration
-
-      - name: Build
-        run: pnpm build
-
-  web-e2e:
-    name: web-browser-e2e
-    needs: quality
-    runs-on: ubuntu-latest
-    timeout-minutes: 40
-
+  integration:
+    name: integration tests (PostgreSQL + Redis)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     services:
       postgres:
         image: pgvector/pgvector:0.8.2-pg16
@@ -117,64 +114,87 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 10
-
-    env:
-      NODE_ENV: test
-      APP_ENV: test
-      LOG_LEVEL: info
-      API_HOST: 127.0.0.1
-      API_PORT: 3001
-      WEB_ORIGIN: http://localhost:3000
-      DATABASE_URL: postgresql://vimla:vimla@localhost:5432/vimla
-      REDIS_URL: redis://localhost:6379
-      NEXT_PUBLIC_API_BASE_URL: http://localhost:3001
-      NEXT_PUBLIC_ADMIN_API_BASE_URL: http://localhost:3001
-      ADMIN_ORIGIN: http://localhost:3002
-      ADMIN_REQUIRE_PASSKEY: false
-      BETTER_AUTH_SECRET: local-dev-only-change-me-use-32-chars-min
-      BETTER_AUTH_URL: http://localhost:3001
-      TEST_DATABASE_URL: postgresql://vimla:vimla@localhost:5432/vimla_test
-
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
+        uses: actions/checkout@v7
         with:
-          version: 10.17.0
+          persist-credentials: false
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
+      - name: Run integration tests with test DB migration
+        run: pnpm test:integration
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+  web-e2e:
+    name: web-browser-e2e (${{ matrix.shard }}/2)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    services:
+      postgres:
+        image: pgvector/pgvector:0.8.2-pg16
+        env:
+          POSTGRES_USER: vimla
+          POSTGRES_PASSWORD: vimla
+          POSTGRES_DB: vimla
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U vimla -d vimla"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
         with:
-          node-version: 24
-          cache: pnpm
-
-      - name: Install
-        run: pnpm install --frozen-lockfile
-
-      - name: Build E2E runtime dependencies
-        run: pnpm build
-
-      - name: Prepare E2E database
+          persist-credentials: false
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
+      # Playwright uses Next dev and tsx API/Worker, not their production builds.
+      # All transitive workspace libraries still need to be compiled.
+      - name: Build Web/API/Worker runtime workspace dependencies
+        run: pnpm exec turbo run build --filter='@vimla/web^...' --filter='@vimla/api^...' --filter='@vimla/worker^...'
+      - name: Migrate and seed isolated E2E database
         run: |
           pnpm --filter @vimla/database ensure-test-db
           DATABASE_URL="$TEST_DATABASE_URL" pnpm --filter @vimla/billing seed
           DATABASE_URL="$TEST_DATABASE_URL" pnpm --filter @vimla/ai seed
-
-      - name: Install Playwright browsers
+      - name: Install browser engines
         run: pnpm --filter @vimla/web exec playwright install --with-deps chromium webkit firefox
-
-      - name: Web Browser E2E
-        timeout-minutes: 30
-        run: pnpm --filter @vimla/web test:e2e
+      - name: Web Playwright shard ${{ matrix.shard }}/2
+        id: browser-tests
+        timeout-minutes: 20
+        run: pnpm --filter @vimla/web test:e2e --shard=${{ matrix.shard }}/2
+      - name: Publish Web E2E summary
+        if: ${{ !cancelled() && steps.browser-tests.outcome != 'skipped' }}
+        run: node scripts/ci-playwright-summary.mjs apps/web/test-results/results.json "Web E2E shard ${{ matrix.shard }}/2"
+      - name: Upload Web E2E evidence
+        if: ${{ !cancelled() && steps.browser-tests.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: web-e2e-shard-${{ matrix.shard }}-${{ github.run_attempt }}
+          path: |
+            apps/web/test-results/
+            apps/web/playwright-report/
+          if-no-files-found: warn
+          retention-days: 7
 
   admin-e2e:
     name: admin-browser-e2e
-    needs: quality
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
     services:
       postgres:
         image: pgvector/pgvector:0.8.2-pg16
@@ -198,54 +218,68 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 10
-
-    env:
-      NODE_ENV: test
-      APP_ENV: test
-      LOG_LEVEL: info
-      API_HOST: 127.0.0.1
-      API_PORT: 3001
-      WEB_ORIGIN: http://localhost:3000
-      DATABASE_URL: postgresql://vimla:vimla@localhost:5432/vimla
-      REDIS_URL: redis://localhost:6379
-      NEXT_PUBLIC_API_BASE_URL: http://localhost:3001
-      NEXT_PUBLIC_ADMIN_API_BASE_URL: http://localhost:3001
-      ADMIN_ORIGIN: http://localhost:3002
-      ADMIN_REQUIRE_PASSKEY: false
-      BETTER_AUTH_SECRET: local-dev-only-change-me-use-32-chars-min
-      BETTER_AUTH_URL: http://localhost:3001
-      TEST_DATABASE_URL: postgresql://vimla:vimla@localhost:5432/vimla_test
-
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
+        uses: actions/checkout@v7
         with:
-          version: 10.17.0
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: pnpm
-
-      - name: Install
-        run: pnpm install --frozen-lockfile
-
-      - name: Build E2E runtime dependencies
-        run: pnpm build
-
-      - name: Prepare E2E database
+          persist-credentials: false
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
+      - name: Build Admin/API runtime workspace dependencies
+        run: pnpm exec turbo run build --filter='@vimla/admin-web^...' --filter='@vimla/api^...'
+      - name: Migrate and seed isolated E2E database
         run: |
           pnpm --filter @vimla/database ensure-test-db
           DATABASE_URL="$TEST_DATABASE_URL" pnpm --filter @vimla/billing seed
           DATABASE_URL="$TEST_DATABASE_URL" pnpm --filter @vimla/ai seed
-
-      - name: Install Playwright browsers
+      - name: Install browser engines
         run: pnpm --filter @vimla/admin-web exec playwright install --with-deps chromium webkit firefox
-
-      - name: Admin Browser E2E
-        timeout-minutes: 20
+      - name: Admin Playwright
+        id: browser-tests
+        timeout-minutes: 15
         run: pnpm --filter @vimla/admin-web test:e2e
+      - name: Publish Admin E2E summary
+        if: ${{ !cancelled() && steps.browser-tests.outcome != 'skipped' }}
+        run: node scripts/ci-playwright-summary.mjs apps/admin/test-results/results.json "Admin E2E"
+      - name: Upload Admin E2E evidence
+        if: ${{ !cancelled() && steps.browser-tests.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: admin-e2e-${{ github.run_attempt }}
+          path: |
+            apps/admin/test-results/
+            apps/admin/playwright-report/
+          if-no-files-found: warn
+          retention-days: 7
+
+  required:
+    name: CI required
+    if: always()
+    needs: [quality, unit, integration, web-e2e, admin-e2e]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      CHECKS_JSON: ${{ toJSON(needs) }}
+    steps:
+      - name: Verify every CI check and publish gate summary
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('node:fs');
+          const checks = Object.entries(JSON.parse(process.env.CHECKS_JSON));
+          const rows = [
+            '### Required CI gates',
+            '',
+            '| Gate | Result |',
+            '| --- | --- |',
+            ...checks.map(([name, value]) => `| ${name} | ${value.result} |`),
+            '',
+            'A failed, skipped, or cancelled dependency fails the required gate.',
+          ];
+          const summary = rows.join('\n') + '\n';
+          process.stdout.write(summary);
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary);
+          if (checks.length !== 5 || checks.some(([, value]) => value.result !== 'success')) {
+            process.exitCode = 1;
+          }
+          NODE
