@@ -136,6 +136,7 @@ export interface StoredPendingSend {
   clientMessageId: string;
   senderUserId: string;
   senderDeviceId: string;
+  interactionEpoch: number;
   peerUserId?: string;
   kind: DirectMessageKind;
   envelopes: WireEnvelopeDto[];
@@ -208,6 +209,7 @@ function ratchetStateAad(input: {
   conversationId: string;
   localDeviceId: string;
   peerDeviceId: string;
+  interactionEpoch: number;
   stateVersion: number;
 }): string {
   return [
@@ -215,6 +217,9 @@ function ratchetStateAad(input: {
     input.conversationId,
     input.localDeviceId,
     input.peerDeviceId,
+    ...(input.interactionEpoch === 0
+      ? []
+      : [`epoch-${input.interactionEpoch}`]),
     String(input.stateVersion),
   ].join(":");
 }
@@ -677,6 +682,7 @@ async function protectRatchetRecord(input: {
   conversationId: string;
   localDeviceId: string;
   peerDeviceId: string;
+  interactionEpoch: number;
   stateVersion: number;
   state: SerializedRatchetState;
   pendingX3dhInit: X3dhInitHeader | null;
@@ -699,6 +705,7 @@ async function decodePersistedRatchet(
     conversationId: string;
     localDeviceId: string;
     peerDeviceId: string;
+    interactionEpoch: number;
   },
 ): Promise<RatchetSnapshot | null> {
   if (!isProtectedRatchetRecord(value)) {
@@ -1761,6 +1768,7 @@ async function migrateLegacyRatchet(input: {
   conversationId: string;
   localDeviceId: string;
   peerDeviceId: string;
+  interactionEpoch: number;
   sourceKey: string;
   snapshot: RatchetSnapshot;
 }): Promise<void> {
@@ -1768,6 +1776,7 @@ async function migrateLegacyRatchet(input: {
     conversationId: input.conversationId,
     localDeviceId: input.localDeviceId,
     peerDeviceId: input.peerDeviceId,
+    interactionEpoch: input.interactionEpoch,
     stateVersion: input.snapshot.stateVersion,
     state: input.snapshot.state,
     pendingX3dhInit: input.snapshot.pendingX3dhInit,
@@ -1776,6 +1785,7 @@ async function migrateLegacyRatchet(input: {
     input.conversationId,
     input.localDeviceId,
     input.peerDeviceId,
+    input.interactionEpoch,
   );
   const db = await openDb();
   await new Promise<void>((resolve, reject) => {
@@ -1847,11 +1857,13 @@ export async function loadRatchet(
   conversationId: string,
   localDeviceId: string,
   peerDeviceId: string,
+  interactionEpoch: number,
 ): Promise<RatchetSnapshot | null> {
   const scopedKey = ratchetStorageKey(
     conversationId,
     localDeviceId,
     peerDeviceId,
+    interactionEpoch,
   );
   const scoped = await withStore<unknown>(
     "ratchets",
@@ -1865,6 +1877,7 @@ export async function loadRatchet(
         conversationId,
         localDeviceId,
         peerDeviceId,
+        interactionEpoch,
       },
     );
     if (
@@ -1875,11 +1888,15 @@ export async function loadRatchet(
         conversationId,
         localDeviceId,
         peerDeviceId,
+        interactionEpoch,
         sourceKey: scopedKey,
         snapshot,
       });
     }
     return snapshot;
+  }
+  if (interactionEpoch !== 0) {
+    return null;
   }
   const legacyKey = legacyRatchetStorageKey(
     conversationId,
@@ -1896,6 +1913,7 @@ export async function loadRatchet(
       conversationId,
       localDeviceId,
       peerDeviceId,
+      interactionEpoch,
     },
   );
   if (
@@ -1907,6 +1925,7 @@ export async function loadRatchet(
       conversationId,
       localDeviceId,
       peerDeviceId,
+      interactionEpoch,
       sourceKey: legacyKey,
       snapshot,
     });
@@ -1918,6 +1937,7 @@ export async function commitDecryptedRatchet(input: {
   conversationId: string;
   localDeviceId: string;
   peerDeviceId: string;
+  interactionEpoch: number;
   expectedVersion: number;
   state: SerializedRatchetState;
   pendingX3dhInit: X3dhInitHeader | null;
@@ -1929,6 +1949,7 @@ export async function commitDecryptedRatchet(input: {
 export async function commitOutboundRatchets(input: {
   conversationId: string;
   localDeviceId: string;
+  interactionEpoch: number;
   updates: OutboundRatchetUpdate[];
   pendingSend: StoredPendingSend;
   expectedPendingRevision: number | null;
@@ -1958,6 +1979,7 @@ export async function commitOutboundRatchets(input: {
           conversationId: input.conversationId,
           localDeviceId: input.localDeviceId,
           peerDeviceId: update.peerDeviceId,
+          interactionEpoch: input.interactionEpoch,
           stateVersion:
             update.expectedVersion + 1,
           state: update.state,
@@ -1998,11 +2020,15 @@ export async function commitOutboundRatchets(input: {
         input.conversationId,
         input.localDeviceId,
         update.peerDeviceId,
+        input.interactionEpoch,
       );
-      const legacyKey = legacyRatchetStorageKey(
-        input.conversationId,
-        update.peerDeviceId,
-      );
+      const legacyKey =
+        input.interactionEpoch === 0
+          ? legacyRatchetStorageKey(
+              input.conversationId,
+              update.peerDeviceId,
+            )
+          : key;
       return {
         update,
         key,
@@ -2188,12 +2214,14 @@ export async function acknowledgeRatchetHandshake(input: {
   conversationId: string;
   localDeviceId: string;
   peerDeviceId: string;
+  interactionEpoch: number;
 }): Promise<void> {
   await withRatchetSessionLock(input, async () => {
     const current = await loadRatchet(
       input.conversationId,
       input.localDeviceId,
       input.peerDeviceId,
+      input.interactionEpoch,
     );
     if (!current?.pendingX3dhInit) return;
     await commitRatchet({
@@ -2210,6 +2238,7 @@ export async function withRatchetSessionLock<T>(
     conversationId: string;
     localDeviceId: string;
     peerDeviceId: string;
+    interactionEpoch: number;
   },
   fn: () => Promise<T>,
 ): Promise<T> {
@@ -2225,6 +2254,7 @@ export async function withRatchetSessionLocks<T>(
     conversationId: string;
     localDeviceId: string;
     peerDeviceId: string;
+    interactionEpoch: number;
   }>,
   fn: () => Promise<T>,
 ): Promise<T> {
@@ -2481,6 +2511,7 @@ async function commitRatchet(input: {
   conversationId: string;
   localDeviceId: string;
   peerDeviceId: string;
+  interactionEpoch: number;
   expectedVersion: number;
   state: SerializedRatchetState;
   pendingX3dhInit: X3dhInitHeader | null;
@@ -2491,6 +2522,7 @@ async function commitRatchet(input: {
     conversationId: input.conversationId,
     localDeviceId: input.localDeviceId,
     peerDeviceId: input.peerDeviceId,
+    interactionEpoch: input.interactionEpoch,
     stateVersion: nextVersion,
     state: input.state,
     pendingX3dhInit: input.pendingX3dhInit,
@@ -2510,11 +2542,15 @@ async function commitRatchet(input: {
       input.conversationId,
       input.localDeviceId,
       input.peerDeviceId,
+      input.interactionEpoch,
     );
-    const legacyKey = legacyRatchetStorageKey(
-      input.conversationId,
-      input.peerDeviceId,
-    );
+    const legacyKey =
+      input.interactionEpoch === 0
+        ? legacyRatchetStorageKey(
+            input.conversationId,
+            input.peerDeviceId,
+          )
+        : key;
     const currentRequest = ratchets.get(key);
     const legacyRequest = ratchets.get(legacyKey);
     let currentReady = false;
@@ -3137,11 +3173,15 @@ function ratchetStorageKey(
   conversationId: string,
   localDeviceId: string,
   peerDeviceId: string,
+  interactionEpoch: number,
 ): string {
   return [
     conversationId,
     localDeviceId,
     peerDeviceId,
+    ...(interactionEpoch === 0
+      ? []
+      : [`epoch-${interactionEpoch}`]),
   ].join(":");
 }
 
@@ -3156,12 +3196,16 @@ function ratchetLockKey(input: {
   conversationId: string;
   localDeviceId: string;
   peerDeviceId: string;
+  interactionEpoch: number;
 }): string {
   return [
     "vimla-ratchet",
     input.conversationId,
     input.localDeviceId,
     input.peerDeviceId,
+    ...(input.interactionEpoch === 0
+      ? []
+      : [`epoch-${input.interactionEpoch}`]),
   ].join(":");
 }
 
