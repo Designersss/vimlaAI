@@ -149,10 +149,6 @@ export class DeviceService {
     return toDeviceView(updated);
   }
 
-  async prekeyBundlesForUser(userId: string): Promise<PrekeyBundle[]> {
-    return consumePrekeyBundlesForUser(this.db, userId);
-  }
-
   async requireOwnActiveDevice(userId: string, deviceId: string) {
     const device = await this.requireOwnDevice(userId, deviceId);
     if (device.revokedAt) {
