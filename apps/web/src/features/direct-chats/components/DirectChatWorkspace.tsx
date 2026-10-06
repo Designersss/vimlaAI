@@ -60,6 +60,7 @@ import {
   fetchDirectConversation,
   fetchDirectMessages,
   markDirectChatRead,
+  prepareDirectMessageSend,
   updateDirectChatPrivacy,
 } from "../services/api";
 import {
@@ -1249,11 +1250,18 @@ async function sendEncryptedDirectMessage(input: {
       );
     }
   }
+  const interaction = await prepareDirectMessageSend(
+    input.conversationId,
+    {
+      senderDeviceId: device.deviceId,
+    },
+  );
   const latest = await fetchDirectConversation(
     input.conversationId,
   );
   const pending = await encryptForDevices({
     conversationId: latest.id,
+    interactionEpoch: interaction.interactionEpoch,
     senderUserId: input.userId,
     peerUserId: latest.peer.userId,
     clientMessageId:
