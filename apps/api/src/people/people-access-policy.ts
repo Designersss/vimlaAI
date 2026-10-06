@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { Prisma } from "@vimla/database";
+import type { Prisma } from "@vimla/database";
 import {
   PrismaUserTrustPolicy,
   trustDiscoveryAllowedSql,
