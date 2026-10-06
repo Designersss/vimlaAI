@@ -1,0 +1,296 @@
+import { handleInputSchema } from "@vimla/contracts";
+import {
+  abuseReportReceiptSchema,
+  blockedUserSchema,
+  surfacePreferenceSchema,
+  type AbuseReportReceipt,
+  type BlockedUser,
+  type CreateAbuseReport,
+  type SurfacePreference,
+  type UpdateSurfacePreference,
+  type UserBlockState,
+} from "@vimla/contracts";
+import { Prisma, type PrismaClient } from "@vimla/database";
+import { TrustError } from "./errors.js";
+
+export interface SurfaceAccessPolicy {
+  canReadSurface(actorUserId: string, surfaceId: string): Promise<boolean>;
+}
+
+type ResolvedUser = {
+  userId: string;
+  handle: string;
+};
+
+type BlockedProfileRow = {
+  userId: string;
+  handle: string;
+  displayName: string;
+  avatarUrl: string | null;
+  createdAt: Date;
+};
+
+export class TrustService {
+  constructor(
+    private readonly db: PrismaClient,
+    private readonly surfaceAccess?: SurfaceAccessPolicy,
+  ) {}
+
+  async blockUser(
+    actorUserId: string,
+    handleInput: string,
+  ): Promise<UserBlockState> {
+    const target = await this.resolveUser(handleInput);
+    if (!target) {
+      throw new TrustError("NOT_FOUND", "User was not found");
+    }
+    if (target.userId === actorUserId) {
+      throw new TrustError("VALIDATION_ERROR", "You cannot block yourself");
+    }
+
+    await this.db.userBlock.upsert({
+      where: {
+        blockerUserId_blockedUserId: {
+          blockerUserId: actorUserId,
+          blockedUserId: target.userId,
+        },
+      },
+      update: {},
+      create: {
+        blockerUserId: actorUserId,
+        blockedUserId: target.userId,
+      },
+    });
+    return {
+      handle: target.handle,
+      blockedByMe: true,
+    };
+  }
+
+  async unblockUser(
+    actorUserId: string,
+    handleInput: string,
+  ): Promise<UserBlockState> {
+    const target = await this.resolveUser(handleInput);
+    if (!target) {
+      throw new TrustError("NOT_FOUND", "User was not found");
+    }
+    if (target.userId === actorUserId) {
+      throw new TrustError("VALIDATION_ERROR", "You cannot unblock yourself");
+    }
+
+    await this.db.userBlock.deleteMany({
+      where: {
+        blockerUserId: actorUserId,
+        blockedUserId: target.userId,
+      },
+    });
+    return {
+      handle: target.handle,
+      blockedByMe: false,
+    };
+  }
+
+  async listBlockedUsers(actorUserId: string): Promise<BlockedUser[]> {
+    const rows = await this.db.$queryRaw<BlockedProfileRow[]>(Prisma.sql`
+      SELECT
+        profile."userId" AS "userId",
+        handle."handle" AS "handle",
+        profile."displayName" AS "displayName",
+        profile."avatarUrl" AS "avatarUrl",
+        block."createdAt" AS "createdAt"
+      FROM "user_block" AS block
+      INNER JOIN "public_profile" AS profile
+        ON profile."userId" = block."blockedUserId"
+      INNER JOIN "handle" AS handle
+        ON handle."id" = profile."handleId"
+      WHERE
+        block."blockerUserId" = ${actorUserId}
+        AND handle."kind" = 'USER'
+        AND handle."status" = 'ACTIVE'
+      ORDER BY block."createdAt" DESC, profile."userId" ASC
+      LIMIT 500
+    `);
+
+    return rows.map((row) =>
+      blockedUserSchema.parse({
+        userId: row.userId,
+        handle: row.handle,
+        displayName: row.displayName,
+        avatarUrl: row.avatarUrl,
+        createdAt: row.createdAt.toISOString(),
+      }),
+    );
+  }
+
+  async createReport(
+    actorUserId: string,
+    input: CreateAbuseReport,
+  ): Promise<AbuseReportReceipt> {
+    const target = await this.resolveUser(input.targetHandle);
+    if (!target) {
+      throw new TrustError("NOT_FOUND", "User was not found");
+    }
+    if (target.userId === actorUserId) {
+      throw new TrustError("VALIDATION_ERROR", "You cannot report yourself");
+    }
+
+    let evidence:
+      | {
+          directConversationId: string;
+          directMessageId: string;
+          evidenceSenderUserId: string;
+          evidenceSenderDeviceId: string;
+          evidenceMessageKind: string;
+          evidenceMessageCreatedAt: Date;
+          evidenceText: string;
+        }
+      | undefined;
+
+    if (input.evidence) {
+      const row = await this.db.directMessage.findFirst({
+        where: {
+          id: input.evidence.messageId,
+          conversationId: input.evidence.conversationId,
+          senderUserId: target.userId,
+          kind: "HUMAN",
+          conversation: {
+            members: {
+              some: { userId: actorUserId },
+            },
+          },
+        },
+        select: {
+          id: true,
+          conversationId: true,
+          senderUserId: true,
+          senderDeviceId: true,
+          kind: true,
+          createdAt: true,
+        },
+      });
+      if (!row) {
+        throw new TrustError(
+          "EVIDENCE_INVALID",
+          "Selected Direct Chat evidence is unavailable",
+        );
+      }
+      evidence = {
+        directConversationId: row.conversationId,
+        directMessageId: row.id,
+        evidenceSenderUserId: row.senderUserId,
+        evidenceSenderDeviceId: row.senderDeviceId,
+        evidenceMessageKind: row.kind,
+        evidenceMessageCreatedAt: row.createdAt,
+        evidenceText: input.evidence.disclosedText,
+      };
+    }
+
+    const created = await this.db.abuseReport.create({
+      data: {
+        reporterUserId: actorUserId,
+        targetUserId: target.userId,
+        reason: input.reason,
+        details: input.details ?? null,
+        status: "SUBMITTED",
+        evidenceKind: evidence ? "DIRECT_MESSAGE" : "NONE",
+        ...(evidence ?? {}),
+      },
+      select: {
+        id: true,
+        status: true,
+        createdAt: true,
+      },
+    });
+
+    return abuseReportReceiptSchema.parse({
+      id: created.id,
+      status: created.status,
+      createdAt: created.createdAt.toISOString(),
+    });
+  }
+
+  async getSurfacePreference(
+    actorUserId: string,
+    surfaceId: string,
+  ): Promise<SurfacePreference> {
+    await this.assertSurfaceAccess(actorUserId, surfaceId);
+    const stored = await this.db.communicationSurfacePreference.findUnique({
+      where: {
+        surfaceId_userId: { surfaceId, userId: actorUserId },
+      },
+      select: {
+        muted: true,
+        updatedAt: true,
+      },
+    });
+    return surfacePreferenceSchema.parse({
+      surfaceId,
+      muted: stored?.muted ?? false,
+      updatedAt: stored?.updatedAt.toISOString() ?? null,
+    });
+  }
+
+  async updateSurfacePreference(
+    actorUserId: string,
+    surfaceId: string,
+    input: UpdateSurfacePreference,
+  ): Promise<SurfacePreference> {
+    await this.assertSurfaceAccess(actorUserId, surfaceId);
+    const stored = await this.db.communicationSurfacePreference.upsert({
+      where: {
+        surfaceId_userId: { surfaceId, userId: actorUserId },
+      },
+      update: { muted: input.muted },
+      create: {
+        surfaceId,
+        userId: actorUserId,
+        muted: input.muted,
+      },
+      select: {
+        muted: true,
+        updatedAt: true,
+      },
+    });
+    return surfacePreferenceSchema.parse({
+      surfaceId,
+      muted: stored.muted,
+      updatedAt: stored.updatedAt.toISOString(),
+    });
+  }
+
+  private async assertSurfaceAccess(
+    actorUserId: string,
+    surfaceId: string,
+  ): Promise<void> {
+    if (
+      !this.surfaceAccess ||
+      !(await this.surfaceAccess.canReadSurface(actorUserId, surfaceId))
+    ) {
+      throw new TrustError("NOT_FOUND", "Communication surface was not found");
+    }
+  }
+
+  private async resolveUser(handleInput: string): Promise<ResolvedUser | null> {
+    const normalized = handleInputSchema.parse(handleInput);
+    const handle = await this.db.handle.findFirst({
+      where: {
+        normalized,
+        kind: "USER",
+        status: "ACTIVE",
+        userId: { not: null },
+      },
+      select: {
+        handle: true,
+        userId: true,
+      },
+    });
+    if (!handle?.userId) {
+      return null;
+    }
+    return {
+      userId: handle.userId,
+      handle: handle.handle,
+    };
+  }
+}
