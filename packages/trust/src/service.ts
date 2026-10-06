@@ -117,23 +117,8 @@ export class TrustService {
     query: BlockedUsersQuery,
   ): Promise<BlockedUsersResponse> {
     const cursor = query.cursor
-      ? await this.db.userBlock.findFirst({
-          where: {
-            id: query.cursor,
-            blockerUserId: actorUserId,
-          },
-          select: {
-            id: true,
-            createdAt: true,
-          },
-        })
+      ? decodeBlockedUsersCursor(query.cursor)
       : null;
-    if (query.cursor && !cursor) {
-      throw new TrustError(
-        "VALIDATION_ERROR",
-        "Blocked user cursor is invalid",
-      );
-    }
 
     const cursorPredicate = cursor
       ? Prisma.sql`AND (
@@ -182,8 +167,8 @@ export class TrustService {
     return blockedUsersResponseSchema.parse({
       items,
       nextCursor:
-        rows.length > query.limit
-          ? page.at(-1)?.blockId ?? null
+        rows.length > query.limit && page.at(-1)
+          ? encodeBlockedUsersCursor(page.at(-1)!)
           : null,
     });
   }
@@ -383,5 +368,65 @@ export class TrustService {
       LIMIT 1
     `);
     return rows[0] ?? null;
+  }
+}
+
+
+const BLOCKED_USERS_CURSOR_VERSION = 1 as const;
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function encodeBlockedUsersCursor(
+  row: Pick<BlockedProfileRow, "blockId" | "createdAt">,
+): string {
+  return Buffer.from(
+    JSON.stringify({
+      v: BLOCKED_USERS_CURSOR_VERSION,
+      at: row.createdAt.toISOString(),
+      id: row.blockId,
+    }),
+    "utf8",
+  ).toString("base64url");
+}
+
+function decodeBlockedUsersCursor(
+  value: string,
+): { createdAt: Date; id: string } {
+  try {
+    const decoded = JSON.parse(
+      Buffer.from(value, "base64url").toString("utf8"),
+    ) as unknown;
+    if (
+      decoded === null ||
+      typeof decoded !== "object" ||
+      !("v" in decoded) ||
+      decoded.v !== BLOCKED_USERS_CURSOR_VERSION ||
+      !("at" in decoded) ||
+      typeof decoded.at !== "string" ||
+      !("id" in decoded) ||
+      typeof decoded.id !== "string" ||
+      !UUID_PATTERN.test(decoded.id)
+    ) {
+      throw new Error("invalid blocked users cursor");
+    }
+    const createdAt = new Date(decoded.at);
+    if (
+      Number.isNaN(createdAt.getTime()) ||
+      !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(
+        decoded.at,
+      ) ||
+      createdAt.toISOString() !== decoded.at
+    ) {
+      throw new Error("invalid blocked users cursor time");
+    }
+    return {
+      createdAt,
+      id: decoded.id,
+    };
+  } catch {
+    throw new TrustError(
+      "VALIDATION_ERROR",
+      "Blocked user cursor is invalid",
+    );
   }
 }
