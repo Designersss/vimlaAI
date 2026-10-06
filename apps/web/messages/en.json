@@ -568,6 +568,7 @@
     "reason_IMPERSONATION": "Impersonation",
     "reason_SEXUAL_CONTENT": "Sexual content",
     "reason_SELF_HARM": "Self-harm",
-    "reason_OTHER": "Other"
+    "reason_OTHER": "Other",
+    "reportDone": "Done"
   }
 }
