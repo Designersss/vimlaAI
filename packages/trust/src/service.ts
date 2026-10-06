@@ -59,19 +59,28 @@ export class TrustService {
         throw new TrustError("NOT_FOUND", "User was not found");
       }
 
-      await tx.userBlock.upsert({
+      const existing = await tx.userBlock.findUnique({
         where: {
           blockerUserId_blockedUserId: {
             blockerUserId: actorUserId,
             blockedUserId: target.userId,
           },
         },
-        update: {},
-        create: {
-          blockerUserId: actorUserId,
-          blockedUserId: target.userId,
-        },
+        select: { id: true },
       });
+      if (!existing) {
+        await tx.userBlock.create({
+          data: {
+            blockerUserId: actorUserId,
+            blockedUserId: target.userId,
+          },
+        });
+        await bumpDirectInteractionEpoch(
+          tx,
+          actorUserId,
+          target.userId,
+        );
+      }
       return {
         handle: target.handle,
         blockedByMe: true,
@@ -105,6 +114,11 @@ export class TrustService {
       if (deleted.count !== 1) {
         throw new TrustError("NOT_FOUND", "Blocked user was not found");
       }
+      await bumpDirectInteractionEpoch(
+        tx,
+        actorUserId,
+        target.userId,
+      );
       return {
         handle: target.handle,
         blockedByMe: false,
@@ -430,4 +444,30 @@ function decodeBlockedUsersCursor(
       "Blocked user cursor is invalid",
     );
   }
+}
+
+
+function directConversationPairKey(
+  leftUserId: string,
+  rightUserId: string,
+): string {
+  return [leftUserId, rightUserId].sort().join(":");
+}
+
+async function bumpDirectInteractionEpoch(
+  tx: Prisma.TransactionClient,
+  leftUserId: string,
+  rightUserId: string,
+): Promise<void> {
+  await tx.directConversation.updateMany({
+    where: {
+      pairKey: directConversationPairKey(
+        leftUserId,
+        rightUserId,
+      ),
+    },
+    data: {
+      interactionEpoch: { increment: 1 },
+    },
+  });
 }
