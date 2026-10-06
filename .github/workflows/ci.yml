@@ -47,6 +47,8 @@ jobs:
           persist-credentials: false
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
+        with:
+          turbo-cache-scope: quality-${{ matrix.check }}
       - name: Run ${{ matrix.check }}
         run: pnpm ${{ matrix.check }}
 
@@ -84,6 +86,8 @@ jobs:
           persist-credentials: false
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
+        with:
+          turbo-cache-scope: unit
       - name: Run all unit tests
         run: pnpm test
 
@@ -121,17 +125,19 @@ jobs:
           persist-credentials: false
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
+        with:
+          turbo-cache-scope: integration
       - name: Run integration tests with test DB migration
         run: pnpm test:integration
 
   web-e2e:
-    name: web-browser-e2e (${{ matrix.shard }}/2)
+    name: web-browser-e2e (${{ matrix.shard }}/3)
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
+        shard: [1, 2, 3]
     services:
       postgres:
         image: pgvector/pgvector:0.8.2-pg16
@@ -162,6 +168,8 @@ jobs:
           persist-credentials: false
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
+        with:
+          turbo-cache-scope: web-e2e-${{ matrix.shard }}
       # Playwright uses Next dev and tsx API/Worker, not their production builds.
       # All transitive workspace libraries still need to be compiled.
       - name: Build Web/API/Worker runtime workspace dependencies
@@ -173,22 +181,63 @@ jobs:
           DATABASE_URL="$TEST_DATABASE_URL" pnpm --filter @vimla/ai seed
       - name: Install browser engines
         run: pnpm --filter @vimla/web exec playwright install --with-deps chromium webkit firefox
-      - name: Web Playwright shard ${{ matrix.shard }}/2
+      - name: Web Playwright shard ${{ matrix.shard }}/3
         id: browser-tests
         timeout-minutes: 20
-        run: pnpm --filter @vimla/web test:e2e --shard=${{ matrix.shard }}/2
+        run: pnpm --filter @vimla/web test:e2e --shard=${{ matrix.shard }}/3
       - name: Publish Web E2E summary
         if: ${{ !cancelled() && steps.browser-tests.outcome != 'skipped' }}
-        run: node scripts/ci-playwright-summary.mjs apps/web/test-results/results.json "Web E2E shard ${{ matrix.shard }}/2"
+        run: node scripts/ci-playwright-summary.mjs apps/web/test-results/results.json "Web E2E shard ${{ matrix.shard }}/3"
       - name: Upload Web E2E evidence
-        if: ${{ !cancelled() && steps.browser-tests.outcome != 'skipped' }}
+        if: ${{ always() && !cancelled() }}
         uses: actions/upload-artifact@v6
         with:
           name: web-e2e-shard-${{ matrix.shard }}-${{ github.run_attempt }}
           path: |
             apps/web/test-results/
             apps/web/playwright-report/
+            apps/web/blob-report/
           if-no-files-found: warn
+          retention-days: 7
+
+  web-e2e-report:
+    name: web-browser-e2e merged report
+    if: ${{ always() && !cancelled() }}
+    needs: [web-e2e]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Setup workspace
+        uses: ./.github/actions/setup-workspace
+        with:
+          turbo-cache-scope: web-e2e-report
+      - name: Download Web E2E shard artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: web-e2e-shard-*
+          path: web-e2e-artifacts
+          merge-multiple: true
+      - name: Collect blob reports
+        shell: bash
+        run: |
+          mkdir -p apps/web/all-blob-reports
+          find web-e2e-artifacts -type f -path '*/blob-report/*.zip' -exec cp {} apps/web/all-blob-reports/ \;
+          count="$(find apps/web/all-blob-reports -maxdepth 1 -type f -name '*.zip' | wc -l)"
+          echo "Collected ${count} Web blob report(s)."
+          test "${count}" -eq 3
+      - name: Merge Web Playwright shards
+        run: pnpm --dir apps/web exec playwright merge-reports --reporter html ./all-blob-reports
+      - name: Upload merged Web E2E report
+        if: ${{ always() && !cancelled() }}
+        uses: actions/upload-artifact@v6
+        with:
+          name: web-e2e-merged-${{ github.run_attempt }}
+          path: apps/web/playwright-report/
+          if-no-files-found: error
           retention-days: 7
 
   admin-e2e:
@@ -225,6 +274,8 @@ jobs:
           persist-credentials: false
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
+        with:
+          turbo-cache-scope: admin-e2e
       - name: Build Admin/API runtime workspace dependencies
         run: pnpm exec turbo run build --filter='@vimla/admin-web^...' --filter='@vimla/api^...'
       - name: Migrate and seed isolated E2E database
@@ -242,20 +293,21 @@ jobs:
         if: ${{ !cancelled() && steps.browser-tests.outcome != 'skipped' }}
         run: node scripts/ci-playwright-summary.mjs apps/admin/test-results/results.json "Admin E2E"
       - name: Upload Admin E2E evidence
-        if: ${{ !cancelled() && steps.browser-tests.outcome != 'skipped' }}
+        if: ${{ always() && !cancelled() }}
         uses: actions/upload-artifact@v6
         with:
           name: admin-e2e-${{ github.run_attempt }}
           path: |
             apps/admin/test-results/
             apps/admin/playwright-report/
+            apps/admin/blob-report/
           if-no-files-found: warn
           retention-days: 7
 
   required:
     name: CI required
     if: always()
-    needs: [quality, unit, integration, web-e2e, admin-e2e]
+    needs: [quality, unit, integration, web-e2e, web-e2e-report, admin-e2e]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     env:
@@ -279,7 +331,7 @@ jobs:
           const summary = rows.join('\n') + '\n';
           process.stdout.write(summary);
           fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary);
-          if (checks.length !== 5 || checks.some(([, value]) => value.result !== 'success')) {
+          if (checks.length !== 6 || checks.some(([, value]) => value.result !== 'success')) {
             process.exitCode = 1;
           }
           NODE

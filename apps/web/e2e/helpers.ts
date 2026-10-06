@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { expect, type APIRequestContext, type Locator, type Page } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Locator, type Page } from "@playwright/test";
 
 export const webOrigin = process.env.WEB_ORIGIN ?? "http://localhost:3100";
 export const apiBase = process.env.BETTER_AUTH_URL ?? "http://localhost:3101";
@@ -102,29 +102,35 @@ export async function signUp(
   input: { name: string; email: string; password: string; handle?: string },
   locale: "ru" | "en" = "ru",
 ): Promise<void> {
-  await seedLocale(page, locale);
-  await page.goto("/sign-up");
-  await fillInput(page, "#auth-name", input.name);
-  await fillInput(page, "#auth-handle", input.handle ?? uniqueHandle(input.name));
-  await fillInput(page, "#auth-email", input.email);
-  await fillInput(page, "#auth-password", input.password);
-  await page.getByRole("button", { name: /создать аккаунт|create account/i }).click();
-  await expect(page).toHaveURL(/verify-email/, { timeout: 30_000 });
+  await test.step("Create account through sign-up UI", async () => {
+    await seedLocale(page, locale);
+    await page.goto("/sign-up");
+    await fillInput(page, "#auth-name", input.name);
+    await fillInput(page, "#auth-handle", input.handle ?? uniqueHandle(input.name));
+    await fillInput(page, "#auth-email", input.email);
+    await fillInput(page, "#auth-password", input.password);
+    await page.getByRole("button", { name: /создать аккаунт|create account/i }).click();
+    await expect(page).toHaveURL(/verify-email/, { timeout: 30_000 });
+  });
 }
 
 export async function verifyEmail(page: Page, request: APIRequestContext, email: string): Promise<void> {
-  const delivery = await latestDelivery(request, "email", email);
-  expect(delivery.otp).toHaveLength(6);
-  await fillOtp(page, delivery.otp ?? "");
-  await confirmCodeButton(page).click();
-  await expect(page).toHaveURL(/\/app/);
+  await test.step("Verify email and enter the application", async () => {
+    const delivery = await latestDelivery(request, "email", email);
+    expect(delivery.otp).toHaveLength(6);
+    await fillOtp(page, delivery.otp ?? "");
+    await confirmCodeButton(page).click();
+    await expect(page).toHaveURL(/\/app/);
+  });
 }
 
 export async function signInEmail(page: Page, email: string, password: string): Promise<void> {
-  await page.goto("/sign-in");
-  await page.getByLabel(/email/i).fill(email);
-  await page.locator("#auth-password").fill(password);
-  await page.getByRole("button", { name: /войти|sign in/i }).click();
+  await test.step("Sign in with email", async () => {
+    await page.goto("/sign-in");
+    await page.getByLabel(/email/i).fill(email);
+    await page.locator("#auth-password").fill(password);
+    await page.getByRole("button", { name: /войти|sign in/i }).click();
+  });
 }
 
 export async function createDueReminder(
@@ -132,21 +138,24 @@ export async function createDueReminder(
   title: string,
   options?: { timezone?: string; dueMsAgo?: number },
 ): Promise<void> {
-  const scheduledAt = new Date(Date.now() - (options?.dueMsAgo ?? 60_000)).toISOString();
-  const response = await page.request.post(`${apiBase}/v1/workspace/reminders`, {
-    data: {
-      title,
-      scheduledAt,
-      timezone: options?.timezone ?? "Europe/Moscow",
-    },
-    headers: { origin: webOrigin, "content-type": "application/json" },
+  await test.step("Create due reminder through API", async () => {
+    const scheduledAt = new Date(Date.now() - (options?.dueMsAgo ?? 60_000)).toISOString();
+    const response = await page.request.post(`${apiBase}/v1/workspace/reminders`, {
+      data: {
+        title,
+        scheduledAt,
+        timezone: options?.timezone ?? "Europe/Moscow",
+      },
+      headers: { origin: webOrigin, "content-type": "application/json" },
+    });
+    expect(response.status()).toBe(201);
   });
-  expect(response.status()).toBe(201);
 }
 
 export async function waitForRegisteredDirectChatDevice(page: Page): Promise<void> {
-  await expect
-    .poll(
+  await test.step("Wait for Direct Chat crypto device registration", async () => {
+    await expect
+      .poll(
       async () => {
         const response = await page.request.get(
           `${apiBase}/v1/direct-chats/devices`,
@@ -168,18 +177,21 @@ export async function waitForRegisteredDirectChatDevice(page: Page): Promise<voi
         timeout: 20_000,
         message: "waiting for Direct Chat crypto device registration",
       },
-    )
-    .toBeGreaterThan(0);
+      )
+      .toBeGreaterThan(0);
+  });
 }
 
 export async function purchasePro(page: Page): Promise<void> {
-  const response = await page.request.post(`${apiBase}/dev/mock-purchases/subscription`, {
-    data: { planCode: "PRO" },
-    headers: { origin: webOrigin },
+  await test.step("Provision PRO entitlement", async () => {
+    const response = await page.request.post(`${apiBase}/dev/mock-purchases/subscription`, {
+      data: { planCode: "PRO" },
+      headers: { origin: webOrigin },
+    });
+    expect(response.status()).toBe(201);
+    const body = (await response.json()) as { subscriptionId: string | null };
+    expect(body.subscriptionId).toBeTruthy();
   });
-  expect(response.status()).toBe(201);
-  const body = (await response.json()) as { subscriptionId: string | null };
-  expect(body.subscriptionId).toBeTruthy();
 }
 
 export function pageHeading(page: Page, name: RegExp): Locator {
@@ -187,8 +199,10 @@ export function pageHeading(page: Page, name: RegExp): Locator {
 }
 
 export async function startNewConversation(page: Page): Promise<void> {
-  await page.goto("/app");
-  await expect(pageHeading(page, /сообщения|messages/i)).toBeVisible();
-  await page.getByRole("button", { name: /новый разговор|new conversation/i }).click();
-  await expect(page.getByPlaceholder(/сообщение для vimla|message vimla/i)).toBeVisible();
+  await test.step("Open a new Vimla conversation", async () => {
+    await page.goto("/app");
+    await expect(pageHeading(page, /сообщения|messages/i)).toBeVisible();
+    await page.getByRole("button", { name: /новый разговор|new conversation/i }).click();
+    await expect(page.getByPlaceholder(/сообщение для vimla|message vimla/i)).toBeVisible();
+  });
 }
