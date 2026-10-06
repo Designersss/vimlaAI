@@ -196,6 +196,9 @@ describe("admin control plane", () => {
       evidenceKind: "NONE",
     });
     expect(listed).not.toHaveProperty("evidenceText");
+    expect(listed).not.toHaveProperty("details");
+    expect(listed.hasDetails).toBe(true);
+    expect(list.body).not.toContain("Moderation-only report details");
     expect(list.body).not.toContain(reporter.email);
     expect(list.body).not.toContain(target.email);
 
@@ -230,7 +233,8 @@ describe("admin control plane", () => {
     expect(evidence.json()).toMatchObject({
       id: report.id,
       evidenceKind: "NONE",
-      evidenceText: null,
+      details: "Moderation-only report details",
+      evidence: null,
     });
     expect(
       await prisma.adminAuditLog.count({
