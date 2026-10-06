@@ -22,13 +22,13 @@ model AbuseReport {
   details                  String?
   status                   String              @default("SUBMITTED")
   evidenceKind             String              @default("NONE")
-  directConversationId     String?             @db.Uuid
+  directConversationId     String?
   directConversation       DirectConversation? @relation(fields: [directConversationId], references: [id], onDelete: Restrict)
-  directMessageId          String?             @db.Uuid
+  directMessageId          String?
   directMessage            DirectMessage?      @relation(fields: [directMessageId], references: [id], onDelete: Restrict)
   evidenceSenderUserId     String?
   evidenceSender           User?               @relation("AbuseReportEvidenceSender", fields: [evidenceSenderUserId], references: [id], onDelete: Restrict)
-  evidenceSenderDeviceId   String?             @db.Uuid
+  evidenceSenderDeviceId   String?
   evidenceSenderDevice     UserCryptoDevice?   @relation(fields: [evidenceSenderDeviceId], references: [id], onDelete: Restrict)
   evidenceMessageKind      String?
   evidenceMessageCreatedAt DateTime?
