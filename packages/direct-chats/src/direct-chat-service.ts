@@ -6,6 +6,7 @@ import {
   type DirectConversationView,
   type DirectEnvelopeView,
   type DirectMessageView,
+  type DirectMessageSendPreflight,
   type DirectParticipant,
   type MarkDirectChatRead,
   type MessageMentionView,
@@ -287,6 +288,97 @@ export class DirectChatService {
     };
   }
 
+  async prepareSend(
+    actor: ActorContext,
+    conversationId: string,
+    senderDeviceId: string,
+  ): Promise<DirectMessageSendPreflight> {
+    return this.db.$transaction(async (tx) => {
+      const conversation =
+        await tx.directConversation.findFirst({
+          where: {
+            id: conversationId,
+            members: {
+              some: { userId: actor.userId },
+            },
+          },
+          select: {
+            members: {
+              select: { userId: true },
+            },
+          },
+        });
+      if (!conversation) {
+        throw new DirectChatError(
+          "NOT_FOUND",
+          "Direct Chat was not found",
+        );
+      }
+      const peerUserId = conversation.members.find(
+        (member) => member.userId !== actor.userId,
+      )?.userId;
+      if (!peerUserId) {
+        throw new DirectChatError(
+          "FORBIDDEN",
+          "Direct Chat interaction is unavailable",
+        );
+      }
+
+      const device = await tx.userCryptoDevice.findFirst({
+        where: {
+          id: senderDeviceId,
+          userId: actor.userId,
+        },
+        select: { revokedAt: true },
+      });
+      if (!device) {
+        throw new DirectChatError(
+          "NOT_FOUND",
+          "Device was not found",
+        );
+      }
+      if (device.revokedAt) {
+        throw new DirectChatError(
+          "DEVICE_REVOKED",
+          "This device was revoked",
+        );
+      }
+
+      const usersExist = await lockTrustUserPair(
+        tx,
+        actor.userId,
+        peerUserId,
+      );
+      const allowed =
+        usersExist &&
+        (await new PrismaUserTrustPolicy(tx).canInteract(
+          actor.userId,
+          peerUserId,
+        ));
+      if (!allowed) {
+        throw new DirectChatError(
+          "FORBIDDEN",
+          "Direct Chat interaction is unavailable",
+        );
+      }
+
+      const current =
+        await tx.directConversation.findUnique({
+          where: { id: conversationId },
+          select: { interactionEpoch: true },
+        });
+      if (!current) {
+        throw new DirectChatError(
+          "NOT_FOUND",
+          "Direct Chat was not found",
+        );
+      }
+      return {
+        interactionEpoch: current.interactionEpoch,
+      };
+    });
+  }
+
   async preflightSend(
     actor: ActorContext,
     conversationId: string,
@@ -375,6 +467,7 @@ export class DirectChatService {
         senderUserId: actor.userId,
         senderDeviceId: senderDevice.id,
         kind: input.kind,
+        interactionEpoch: input.interactionEpoch,
         routingContext,
       });
     }
@@ -428,6 +521,22 @@ export class DirectChatService {
           );
         }
 
+        const currentConversation =
+          await tx.directConversation.findUnique({
+            where: { id: conversationId },
+            select: { interactionEpoch: true },
+          });
+        if (
+          !currentConversation ||
+          currentConversation.interactionEpoch !==
+            input.interactionEpoch
+        ) {
+          throw new DirectChatError(
+            "CONFLICT",
+            "Direct Chat interaction state changed",
+          );
+        }
+
         const message = await tx.directMessage.create({
           data: {
             conversationId,
@@ -435,6 +544,7 @@ export class DirectChatService {
             senderDeviceId: senderDevice.id,
             clientMessageId: input.clientMessageId,
             kind: input.kind,
+            interactionEpoch: input.interactionEpoch,
             envelopes: {
               create: input.envelopes.map((envelope) => ({
                 recipientDeviceId: envelope.recipientDeviceId,
@@ -698,6 +808,7 @@ export class DirectChatService {
     const existingMentions = mentions.get(existing.id) ?? [];
     if (
       existing.kind !== input.kind ||
+      existing.interactionEpoch !== input.interactionEpoch ||
       !sameReplayEnvelopes(
         existing.envelopes,
         input.envelopes,
@@ -755,6 +866,7 @@ export class DirectChatService {
       senderUserId: string;
       senderDeviceId: string;
       kind: SendDirectMessage["kind"];
+      interactionEpoch: number;
       routingContext?: string;
     },
   ): void {
@@ -771,6 +883,7 @@ export class DirectChatService {
       senderDeviceId: ad.senderDeviceId,
       recipientDeviceId: envelope.recipientDeviceId,
       kind: ad.kind,
+      interactionEpoch: ad.interactionEpoch,
       routingContext: ad.routingContext,
     });
     const header = b64ToBytes(envelope.headerB64);
@@ -944,6 +1057,7 @@ export class DirectChatService {
       lastKind: isKind(latest?.kind) ? latest.kind : null,
       lastSenderUserId: latest?.senderUserId ?? null,
       createdAt: conversation.createdAt.toISOString(),
+      interactionEpoch: conversation.interactionEpoch,
       blockedByMe,
       privacy: toPrivacy(mine, peer),
     };
@@ -1003,6 +1117,7 @@ function toMessageView(
     senderDeviceId: string;
     clientMessageId: string;
     kind: string;
+    interactionEpoch: number;
     createdAt: Date;
     envelopes: Array<{
       recipientDeviceId: string;
@@ -1029,6 +1144,7 @@ function toMessageView(
     senderDeviceId: row.senderDeviceId,
     clientMessageId: row.clientMessageId,
     kind: isKind(row.kind) ? row.kind : "HUMAN",
+    interactionEpoch: row.interactionEpoch,
     createdAt: row.createdAt.toISOString(),
     envelope: envelope ? toEnvelopeView(envelope) : null,
     mentions,
