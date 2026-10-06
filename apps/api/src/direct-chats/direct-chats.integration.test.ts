@@ -35,6 +35,7 @@ import type { DirectConversationView, MessageMentionInput } from "@vimla/contrac
 import { seedVimlaPlans } from "@vimla/billing";
 import { loadApiConfig } from "@vimla/config/server";
 import { createPrismaClient } from "@vimla/database";
+import { lockTrustUserPair } from "@vimla/trust";
 import { createVimlaApiApp } from "../create-app.js";
 import { PrismaService } from "../persistence/prisma.service.js";
 import { DirectMentionRoutingService } from "./direct-mention-routing.service.js";
@@ -1199,6 +1200,104 @@ describe("direct chats API", () => {
     expect(validInvoke.statusCode).toBe(201);
     expect(validInvoke.json().mentions).toHaveLength(1);
     expect(validInvoke.json().mentions[0]?.targetId).toBe("VIMLA");
+  });
+
+  it("serializes a queued block ahead of a concurrent Direct Chat send", async () => {
+    const alice = await readyUser(
+      app,
+      "dc-block-race-alice",
+      "Block Race Alice",
+    );
+    const nikita = await readyUser(
+      app,
+      "dc-block-race-nikita",
+      "Block Race Nikita",
+    );
+    const aliceDevice = await registerHarness(app, alice);
+    await registerHarness(app, nikita);
+    const chat = await createChat(
+      app,
+      alice.cookies,
+      nikita.handle,
+    );
+
+    const envelopes = [];
+    for (const device of chat.devices) {
+      envelopes.push(
+        await encryptTo(
+          app,
+          alice,
+          aliceDevice,
+          device,
+          chat.id,
+          "HUMAN",
+          "must not pass a completed block",
+        ),
+      );
+    }
+
+    const db = app.get(PrismaService).client;
+    let releasePairLock: (() => void) | null = null;
+    let pairLocked: (() => void) | null = null;
+    const pairLockedPromise = new Promise<void>((resolve) => {
+      pairLocked = resolve;
+    });
+    const releasePairLockPromise = new Promise<void>((resolve) => {
+      releasePairLock = resolve;
+    });
+    const gate = db.$transaction(async (tx) => {
+      expect(
+        await lockTrustUserPair(tx, alice.id, nikita.id),
+      ).toBe(true);
+      pairLocked?.();
+      await releasePairLockPromise;
+    });
+    await pairLockedPromise;
+
+    let blockSettled = false;
+    const blockPromise = app.inject({
+      method: "POST",
+      url: "/v1/trust/blocks",
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: { handle: nikita.handle },
+    }).then((response) => {
+      blockSettled = true;
+      return response;
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(blockSettled).toBe(false);
+
+    const sendPromise = app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/${chat.id}/messages`,
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: {
+        clientMessageId: randomUUID(),
+        senderDeviceId: aliceDevice.deviceId,
+        kind: "HUMAN",
+        envelopes,
+        mentions: [],
+      },
+    });
+
+    releasePairLock?.();
+    await gate;
+
+    const block = await blockPromise;
+    const send = await sendPromise;
+    expect(block.statusCode).toBe(200);
+    expect(send.statusCode).toBe(403);
+    expect(
+      await db.directMessage.count({
+        where: {
+          conversationId: chat.id,
+          senderUserId: alice.id,
+        },
+      }),
+    ).toBe(0);
   });
 
   it("lets @Vimla answer in-thread, freezes consented E2EE context, and rejects spoofed provenance", async () => {
