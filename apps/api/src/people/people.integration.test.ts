@@ -10,7 +10,7 @@ import type { NestFastifyApplication } from "@nestjs/platform-fastify";
 import { seedVimlaAiModels } from "@vimla/ai";
 import { seedVimlaPlans } from "@vimla/billing";
 import { loadApiConfig } from "@vimla/config/server";
-import { createPrismaClient } from "@vimla/database";
+import { Prisma, createPrismaClient } from "@vimla/database";
 import { createVimlaApiApp } from "../create-app.js";
 import { PrismaService } from "../persistence/prisma.service.js";
 import {
@@ -308,9 +308,12 @@ describe("people public identity API", () => {
     const policy = app.get<PeopleAccessPolicy>(
       PEOPLE_ACCESS_POLICY,
     );
-    const exclusions = vi
-      .spyOn(policy, "excludedDiscoveryUserIds")
-      .mockResolvedValue([target.id]);
+    const discoverExact = vi
+      .spyOn(policy, "canDiscover")
+      .mockResolvedValue(false);
+    const discoverSearch = vi
+      .spyOn(policy, "discoveryAllowedSql")
+      .mockReturnValue(Prisma.sql`FALSE`);
     const startDirect = vi
       .spyOn(policy, "canStartDirectChat")
       .mockImplementation(async (_actorUserId, targetUserId) =>
@@ -338,7 +341,14 @@ describe("people public identity API", () => {
           expect.objectContaining({ userId: target.id }),
         ]),
       );
-      expect(exclusions).toHaveBeenCalledWith(viewer.id);
+      expect(discoverExact).toHaveBeenCalledWith(
+        viewer.id,
+        target.id,
+      );
+      expect(discoverSearch).toHaveBeenCalledWith(
+        viewer.id,
+        expect.anything(),
+      );
 
       const deniedDirect = await app.inject({
         method: "POST",
@@ -349,7 +359,8 @@ describe("people public identity API", () => {
       });
       expect(deniedDirect.statusCode).toBe(404);
     } finally {
-      exclusions.mockRestore();
+      discoverExact.mockRestore();
+      discoverSearch.mockRestore();
       startDirect.mockRestore();
     }
   });
