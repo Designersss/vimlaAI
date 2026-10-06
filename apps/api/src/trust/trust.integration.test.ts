@@ -262,6 +262,17 @@ describe("trust safety API", () => {
     expect(first.json().items).toHaveLength(2);
     expect(first.json().nextCursor).toBeTruthy();
 
+    const cursorItem = first.json().items.at(-1) as {
+      handle: string;
+    };
+    const removeCursorRow = await app.inject({
+      method: "DELETE",
+      url: `/v1/trust/blocks/${cursorItem.handle}`,
+      headers: { origin },
+      cookies: actor.cookies,
+    });
+    expect(removeCursorRow.statusCode).toBe(200);
+
     const second = await app.inject({
       method: "GET",
       url: `/v1/trust/blocks?limit=2&cursor=${first.json().nextCursor}`,
