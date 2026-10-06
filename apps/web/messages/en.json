@@ -24,7 +24,8 @@
     "vimla": "Vimla",
     "primary": "Vimla",
     "account": "Account",
-    "notifications": "Notifications"
+    "notifications": "Notifications",
+    "safety": "Safety"
   },
   "home": {
     "eyebrow": "Vimla",
@@ -146,7 +147,8 @@
     "changeEmailConfirmCurrent": "Confirm current email",
     "changeEmailConfirmNew": "Confirm new email",
     "changeEmailSuccess": "Email updated",
-    "unknownDevice": "Unknown device"
+    "unknownDevice": "Unknown device",
+    "safetyTitle": "Safety"
   },
   "appearance": {
     "theme": "Theme",
@@ -535,5 +537,37 @@
     "evaluationPass": "Pass",
     "evaluationFail": "Needs changes",
     "evaluationResult": "Evaluation: {outcome} · confidence {confidence}%"
+  },
+  "trust": {
+    "block": "Block",
+    "blockConfirmTitle": "Block @{handle}?",
+    "blockConfirmDescription": "You will no longer be able to start or continue new interaction with this person. Existing Direct Chat history stays readable.",
+    "blockSuccess": "User blocked.",
+    "unblock": "Unblock",
+    "blockedUsers": "Blocked users",
+    "blockedUsersDescription": "People you blocked cannot start or continue new interaction with you. You can unblock them here.",
+    "noBlockedUsers": "You have not blocked anyone.",
+    "loadMore": "Load more",
+    "report": "Report",
+    "reportMessage": "Report message",
+    "reportTitle": "Report @{handle}",
+    "reportDescription": "Reports go to authorized Vimla moderation. Do not include secrets unless they are necessary for the report.",
+    "submitReport": "Submit report",
+    "reportSubmitted": "Report submitted.",
+    "reason": "Reason",
+    "details": "Additional details (optional)",
+    "selectedEvidence": "Selected message evidence",
+    "evidenceDisclosure": "This report will explicitly disclose the selected decrypted message text to authorized moderation. Vimla verifies the message metadata and sender, but the disclosed plaintext is supplied by your client and is not cryptographically verified by the server.",
+    "mute": "Mute this chat",
+    "muted": "Chat muted.",
+    "unmuted": "Chat unmuted.",
+    "reason_HARASSMENT": "Harassment",
+    "reason_HATE": "Hate",
+    "reason_THREATS": "Threats",
+    "reason_SPAM": "Spam",
+    "reason_IMPERSONATION": "Impersonation",
+    "reason_SEXUAL_CONTENT": "Sexual content",
+    "reason_SELF_HARM": "Self-harm",
+    "reason_OTHER": "Other"
   }
 }
