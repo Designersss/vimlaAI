@@ -351,6 +351,32 @@ export {
   type WireEnvelopeDto,
 } from "./direct-chats.js";
 export {
+  TRUST_LIMITS,
+  abuseReportReasonSchema,
+  abuseReportReceiptSchema,
+  abuseReportStatusSchema,
+  blockUserSchema,
+  blockedUserSchema,
+  blockedUsersResponseSchema,
+  createAbuseReportSchema,
+  directMessageReportEvidenceSchema,
+  surfacePreferenceSchema,
+  updateSurfacePreferenceSchema,
+  userBlockStateSchema,
+  type AbuseReportReason,
+  type AbuseReportReceipt,
+  type AbuseReportStatus,
+  type BlockUser,
+  type BlockedUser,
+  type BlockedUsersResponse,
+  type CreateAbuseReport,
+  type DirectMessageReportEvidence,
+  type SurfacePreference,
+  type UpdateSurfacePreference,
+  type UserBlockState,
+} from "./trust.js";
+
+export {
   PROJECT_LIMITS,
   acceptProjectInviteSchema,
   createProjectInviteSchema,
