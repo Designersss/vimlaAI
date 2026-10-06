@@ -255,7 +255,7 @@ jobs:
       - name: Download Web E2E suite artifacts
         uses: actions/download-artifact@v8
         with:
-          pattern: web-e2e-*
+          pattern: web-e2e-*-${{ github.run_attempt }}
           path: web-e2e-artifacts
           merge-multiple: true
       - name: Collect and verify semantic blob reports
