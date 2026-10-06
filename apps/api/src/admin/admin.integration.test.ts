@@ -202,6 +202,16 @@ describe("admin control plane", () => {
     expect(list.body).not.toContain(reporter.email);
     expect(list.body).not.toContain(target.email);
 
+    const invalidList = await app.inject({
+      method: "GET",
+      url: "/admin/v1/moderation/reports?status=NOT_A_STATUS",
+      headers: { origin: adminOrigin },
+      cookies: {
+        [ADMIN_COOKIE_NAME]: readerSession.token,
+      },
+    });
+    expect(invalidList.statusCode).toBe(400);
+
     const deniedEvidence = await app.inject({
       method: "GET",
       url: `/admin/v1/moderation/reports/${report.id}/evidence`,
@@ -221,6 +231,16 @@ describe("admin control plane", () => {
       await control.createSession({
         userId: owner.id,
       });
+    const invalidEvidenceId = await app.inject({
+      method: "GET",
+      url: "/admin/v1/moderation/reports/not-a-uuid/evidence",
+      headers: { origin: adminOrigin },
+      cookies: {
+        [ADMIN_COOKIE_NAME]: ownerSession.token,
+      },
+    });
+    expect(invalidEvidenceId.statusCode).toBe(400);
+
     const evidence = await app.inject({
       method: "GET",
       url: `/admin/v1/moderation/reports/${report.id}/evidence`,
