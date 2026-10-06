@@ -153,13 +153,12 @@ export class MentionsService {
     const unique = new Map(
       people.map((person) => [person.userId, person]),
     );
-    const excluded = new Set(
-      await this.peopleAccess.excludedDiscoveryUserIds(actorUserId),
-    );
-    const userIds = [...unique.keys()].filter(
-      (userId) =>
-        userId === actorUserId || !excluded.has(userId),
-    );
+    const userIds = [
+      ...(await this.peopleAccess.filterDiscoverableUserIds(
+        actorUserId,
+        [...unique.keys()],
+      )),
+    ];
     if (userIds.length === 0) return [];
 
     const profiles =
