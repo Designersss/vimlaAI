@@ -104,6 +104,12 @@ test.describe("Public profile", () => {
     await expect(profile).toContainText("Available for a chat");
     await expect(profile).toContainText("Public bio visible to discoverable people.");
     await expect(profile).not.toContainText(bobEmail);
+    await expect(
+      profile.getByRole("button", { name: "Report" }),
+    ).toBeVisible();
+    await expect(
+      profile.getByRole("button", { name: "Block" }),
+    ).toBeVisible();
 
     await alicePage.setViewportSize({ width: 390, height: 844 });
     await expect(profile).toBeVisible();
@@ -129,11 +135,70 @@ test.describe("Public profile", () => {
     );
 
     await alicePage.goto("/app");
+    const directRow = alicePage
+      .getByTestId("direct-conversation-row")
+      .filter({ hasText: `@${bobHandle}` });
+    await expect(directRow).toBeVisible({ timeout: 20_000 });
+    await directRow.click();
     await expect(
-      alicePage
-        .getByTestId("direct-conversation-row")
-        .filter({ hasText: `@${bobHandle}` }),
+      alicePage.getByTestId("direct-chat-shell"),
     ).toBeVisible({ timeout: 20_000 });
+
+    const mute = alicePage.getByRole("switch", {
+      name: "Mute this chat",
+    });
+    await expect(mute).toBeVisible();
+    await mute.check();
+    await expect(mute).toBeChecked();
+
+    await alicePage
+      .getByTestId("direct-chat-shell")
+      .getByRole("button", { name: "Report", exact: true })
+      .click();
+    const reportDialog = alicePage.getByRole("dialog", {
+      name: `Report @${bobHandle}`,
+    });
+    await expect(reportDialog).toBeVisible();
+    await reportDialog
+      .getByRole("button", { name: "Submit report" })
+      .click();
+    await expect(
+      reportDialog.getByText("Report submitted."),
+    ).toBeVisible();
+    await reportDialog
+      .getByRole("button", { name: "Close" })
+      .click();
+
+    await alicePage
+      .getByTestId("direct-chat-shell")
+      .getByRole("button", { name: "Block", exact: true })
+      .click();
+    const blockDialog = alicePage.getByRole("dialog", {
+      name: `Block @${bobHandle}?`,
+    });
+    await expect(blockDialog).toBeVisible();
+    await blockDialog
+      .getByRole("button", { name: "Block", exact: true })
+      .click();
+    await expect(
+      alicePage.getByPlaceholder("Message this person"),
+    ).toBeDisabled();
+
+    await alicePage.goto("/settings/safety");
+    await expect(
+      alicePage.getByRole("heading", { name: "Safety" }),
+    ).toBeVisible();
+    const blockedCard = alicePage
+      .getByText(`@${bobHandle}`)
+      .locator("..")
+      .locator("..");
+    await expect(blockedCard).toContainText("Bobby Profile");
+    await blockedCard
+      .getByRole("button", { name: "Unblock" })
+      .click();
+    await expect(
+      alicePage.getByText(`@${bobHandle}`),
+    ).toHaveCount(0);
 
     await bobContext.close();
     await aliceContext.close();
