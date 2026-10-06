@@ -130,6 +130,119 @@ describe("admin control plane", () => {
     expect(users.statusCode).toBe(200);
   });
 
+  it("keeps moderation reports and evidence behind separate Admin permissions", async () => {
+    const reporter = await registerVerifiedUser(
+      app,
+      "moderation-reporter",
+    );
+    const target = await registerVerifiedUser(
+      app,
+      "moderation-target",
+    );
+    const report = await prisma.abuseReport.create({
+      data: {
+        reporterUserId: reporter.id,
+        targetUserId: target.id,
+        reason: "HARASSMENT",
+        details: "Moderation-only report details",
+        evidenceKind: "NONE",
+      },
+    });
+
+    const reader = await registerVerifiedUser(
+      app,
+      "moderation-reader",
+    );
+    const readerRole = await prisma.adminRole.create({
+      data: {
+        code: `MODERATION-READER-${reader.id.slice(0, 8)}`,
+        permissions: ["moderation.read"],
+      },
+    });
+    await prisma.adminPrincipal.create({
+      data: {
+        userId: reader.id,
+        status: "ACTIVE",
+        roles: {
+          create: { roleId: readerRole.id },
+        },
+      },
+    });
+    const readerSession =
+      await control.createSession({
+        userId: reader.id,
+      });
+
+    const list = await app.inject({
+      method: "GET",
+      url: "/admin/v1/moderation/reports",
+      headers: { origin: adminOrigin },
+      cookies: {
+        [ADMIN_COOKIE_NAME]: readerSession.token,
+      },
+    });
+    expect(list.statusCode).toBe(200);
+    const listed = list
+      .json()
+      .items.find(
+        (item: { id: string }) =>
+          item.id === report.id,
+      );
+    expect(listed).toMatchObject({
+      id: report.id,
+      reporterUserId: reporter.id,
+      targetUserId: target.id,
+      reason: "HARASSMENT",
+      evidenceKind: "NONE",
+    });
+    expect(listed).not.toHaveProperty("evidenceText");
+    expect(list.body).not.toContain(reporter.email);
+    expect(list.body).not.toContain(target.email);
+
+    const deniedEvidence = await app.inject({
+      method: "GET",
+      url: `/admin/v1/moderation/reports/${report.id}/evidence`,
+      headers: { origin: adminOrigin },
+      cookies: {
+        [ADMIN_COOKIE_NAME]: readerSession.token,
+      },
+    });
+    expect(deniedEvidence.statusCode).toBe(403);
+
+    const owner = await registerVerifiedUser(
+      app,
+      "moderation-owner",
+    );
+    await control.bootstrapOwner(owner.id);
+    const ownerSession =
+      await control.createSession({
+        userId: owner.id,
+      });
+    const evidence = await app.inject({
+      method: "GET",
+      url: `/admin/v1/moderation/reports/${report.id}/evidence`,
+      headers: { origin: adminOrigin },
+      cookies: {
+        [ADMIN_COOKIE_NAME]: ownerSession.token,
+      },
+    });
+    expect(evidence.statusCode).toBe(200);
+    expect(evidence.json()).toMatchObject({
+      id: report.id,
+      evidenceKind: "NONE",
+      evidenceText: null,
+    });
+    expect(
+      await prisma.adminAuditLog.count({
+        where: {
+          adminUserId: owner.id,
+          action: "MODERATION_EVIDENCE_VIEWED",
+          resourceId: report.id,
+        },
+      }),
+    ).toBe(1);
+  });
+
   it("denies a disabled AdminPrincipal", async () => {
     const user = await registerVerifiedUser(app, "disabled");
     await control.bootstrapOwner(user.id);
