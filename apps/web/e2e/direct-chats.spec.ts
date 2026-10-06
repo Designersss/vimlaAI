@@ -840,11 +840,15 @@ test.describe("Secure Direct Chats", () => {
 
     let signalSendHeld!: () => void;
     let releaseSend!: () => void;
+    let signalSendForwarded!: () => void;
     const sendHeld = new Promise<void>((resolve) => {
       signalSendHeld = resolve;
     });
     const sendRelease = new Promise<void>((resolve) => {
       releaseSend = resolve;
+    });
+    const sendForwarded = new Promise<void>((resolve) => {
+      signalSendForwarded = resolve;
     });
     let held = false;
     await alicePage.route(
@@ -858,6 +862,7 @@ test.describe("Secure Direct Chats", () => {
           signalSendHeld();
           await sendRelease;
           await route.continue();
+          signalSendForwarded();
           return;
         }
         await route.continue();
@@ -888,6 +893,7 @@ test.describe("Secure Direct Chats", () => {
     expect(block.ok()).toBe(true);
 
     releaseSend();
+    await sendForwarded;
     await alicePage.unroute(
       "**/v1/direct-chats/*/messages",
     );
