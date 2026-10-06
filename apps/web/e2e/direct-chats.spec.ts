@@ -181,7 +181,7 @@ test.describe("Secure Direct Chats", () => {
       /жалоба отправлена|report submitted/i,
     );
     await evidenceDialog
-      .getByRole("button", { name: /закрыть|close/i })
+      .getByRole("button", { name: /готово|done/i })
       .click();
 
     let abortBeforeServer = true;
