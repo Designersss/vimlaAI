@@ -1269,6 +1269,131 @@ describe("direct chats API", () => {
     ).toBe(0);
   });
 
+  it("keeps the trust lock pair-scoped when one user talks to different peers", async () => {
+    const alice = await readyUser(
+      app,
+      "dc-pair-lock-alice",
+      "Pair Lock Alice",
+    );
+    const bob = await readyUser(
+      app,
+      "dc-pair-lock-bob",
+      "Pair Lock Bob",
+    );
+    const charlie = await readyUser(
+      app,
+      "dc-pair-lock-charlie",
+      "Pair Lock Charlie",
+    );
+    const db = app.get(PrismaService).client;
+
+    let releasePairLock!: () => void;
+    let notifyPairLocked!: () => void;
+    const pairLockedPromise = new Promise<void>((resolve) => {
+      notifyPairLocked = () => resolve();
+    });
+    const releasePairLockPromise = new Promise<void>((resolve) => {
+      releasePairLock = () => resolve();
+    });
+    const gate = db.$transaction(async (tx) => {
+      expect(
+        await lockTrustUserPair(tx, alice.id, bob.id),
+      ).toBe(true);
+      notifyPairLocked();
+      await releasePairLockPromise;
+    });
+    await pairLockedPromise;
+
+    const createPromise = app.inject({
+      method: "POST",
+      url: "/v1/direct-chats",
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: { peerHandle: charlie.handle },
+    });
+    const settled = await Promise.race([
+      createPromise.then(() => true),
+      new Promise<boolean>((resolve) =>
+        setTimeout(() => resolve(false), 5_000),
+      ),
+    ]);
+
+    releasePairLock();
+    await gate;
+    expect(settled).toBe(true);
+    expect((await createPromise).statusCode).toBe(201);
+  });
+
+  it("returns an exact committed replay after a later block", async () => {
+    const alice = await readyUser(
+      app,
+      "dc-block-replay-alice",
+      "Block Replay Alice",
+    );
+    const bob = await readyUser(
+      app,
+      "dc-block-replay-bob",
+      "Block Replay Bob",
+    );
+    const aliceDevice = await registerHarness(app, alice);
+    await registerHarness(app, bob);
+    const chat = await createChat(
+      app,
+      alice.cookies,
+      bob.handle,
+    );
+
+    const envelopes = [];
+    for (const device of chat.devices) {
+      envelopes.push(
+        await encryptTo(
+          app,
+          alice,
+          aliceDevice,
+          device,
+          chat.id,
+          "HUMAN",
+          "committed before block",
+        ),
+      );
+    }
+    const payload = {
+      clientMessageId: randomUUID(),
+      senderDeviceId: aliceDevice.deviceId,
+      kind: "HUMAN" as const,
+      envelopes,
+      mentions: [],
+    };
+
+    const first = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/${chat.id}/messages`,
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload,
+    });
+    expect(first.statusCode).toBe(201);
+
+    const block = await app.inject({
+      method: "POST",
+      url: "/v1/trust/blocks",
+      headers: jsonHeaders(),
+      cookies: bob.cookies,
+      payload: { handle: alice.handle },
+    });
+    expect(block.statusCode).toBe(200);
+
+    const replay = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/${chat.id}/messages`,
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload,
+    });
+    expect(replay.statusCode).toBe(201);
+    expect(replay.json().id).toBe(first.json().id);
+  });
+
   it("serializes a queued block ahead of a concurrent Direct Chat send", async () => {
     const alice = await readyUser(
       app,
