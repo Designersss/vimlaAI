@@ -164,11 +164,12 @@ export class TrustService {
         createdAt: row.createdAt.toISOString(),
       }),
     );
+    const last = page.at(-1);
     return blockedUsersResponseSchema.parse({
       items,
       nextCursor:
-        rows.length > query.limit && page.at(-1)
-          ? encodeBlockedUsersCursor(page.at(-1)!)
+        rows.length > query.limit && last
+          ? encodeBlockedUsersCursor(last)
           : null,
     });
   }
