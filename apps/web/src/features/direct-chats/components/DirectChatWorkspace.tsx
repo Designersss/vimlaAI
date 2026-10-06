@@ -7,6 +7,7 @@ import { DIRECT_CHAT_LIMITS } from "@vimla/contracts";
 import type {
   DirectConversationView,
   DirectMessageKind,
+  DirectMessageReportEvidence,
   DirectMessageView,
   MentionSuggestionsResponse,
   MessageMentionInput,
@@ -19,6 +20,7 @@ import {
   Button,
   Card,
   ChatComposer,
+  Dialog,
   EmptyState,
   MentionPicker,
   Switch,
@@ -44,6 +46,12 @@ import {
   type ComposerMention,
 } from "../../chat/services/composer-mentions";
 import { CONSUMER_FEATURES } from "../../../shared/config/consumer-features";
+import { ReportUserDialog } from "../../trust/components/ReportUserDialog";
+import {
+  blockUser,
+  fetchSurfacePreference,
+  updateSurfacePreference,
+} from "../../trust/services/api";
 import { apiErrorMessageKey } from "../../../shared/errors/error-keys";
 import { tx } from "../../../shared/i18n/translate";
 import { readLocaleCookie, syncAuthenticatedLocale } from "../../../shared/i18n/persist-locale";
@@ -201,6 +209,14 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
   const [pendingRun, setPendingRun] = useState<OperatorRunView | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
+  const [muted, setMuted] = useState(false);
+  const [muteBusy, setMuteBusy] = useState(false);
+  const [blockedByMe, setBlockedByMe] = useState(false);
+  const [blockOpen, setBlockOpen] = useState(false);
+  const [blockBusy, setBlockBusy] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportEvidence, setReportEvidence] =
+    useState<DirectMessageReportEvidence | undefined>(undefined);
 
   const applyOperatorDelivery = useCallback(
     (
@@ -254,6 +270,17 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         if (cancelled) return;
         setUserId(currentUser.id);
         setConversation(detail);
+        try {
+          const preference =
+            await fetchSurfacePreference(detail.surfaceId);
+          if (!cancelled) {
+            setMuted(preference.muted);
+          }
+        } catch {
+          if (!cancelled) {
+            setMuted(false);
+          }
+        }
         const visibleRows = [...page.decrypted].reverse();
         updateRows(visibleRows);
         setNextCursor(page.nextCursor);
@@ -843,6 +870,52 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
     }
   }
 
+  async function toggleMute(nextMuted: boolean): Promise<void> {
+    if (!conversation || muteBusy) return;
+    setMuteBusy(true);
+    try {
+      const preference = await updateSurfacePreference(
+        conversation.surfaceId,
+        { muted: nextMuted },
+      );
+      setMuted(preference.muted);
+    } catch {
+      setError("internal_error");
+    } finally {
+      setMuteBusy(false);
+    }
+  }
+
+  async function confirmBlock(): Promise<void> {
+    if (!conversation || blockBusy) return;
+    setBlockBusy(true);
+    try {
+      await blockUser(conversation.peer.handle);
+      setBlockedByMe(true);
+      draftRef.current = "";
+      setDraft("");
+      setComposerMentions([]);
+      setPendingRun(null);
+      setBlockOpen(false);
+    } catch {
+      setError("internal_error");
+    } finally {
+      setBlockBusy(false);
+    }
+  }
+
+  function openGenericReport(): void {
+    setReportEvidence(undefined);
+    setReportOpen(true);
+  }
+
+  function openMessageReport(
+    evidence: DirectMessageReportEvidence,
+  ): void {
+    setReportEvidence(evidence);
+    setReportOpen(true);
+  }
+
   async function onLoadOlder(): Promise<void> {
     if (!nextCursor || !conversation) return;
     setError(null);
@@ -914,9 +987,36 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
       <ChatConversationHeader
         title={conversation.peer.name}
         subtitle={`@${conversation.peer.handle} · ${t("direct.e2eeSubtitle")}`}
+        trailing={
+          <div className={styles.headerActions}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={openGenericReport}
+            >
+              {t("trust.report")}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={blockedByMe}
+              onClick={() => setBlockOpen(true)}
+            >
+              {t("trust.block")}
+            </Button>
+          </div>
+        }
       />
       <div className={styles.thread}>
         <div className={styles.privacy}>
+          <Switch
+            label={t("trust.mute")}
+            checked={muted}
+            disabled={muteBusy}
+            onChange={(event) => {
+              void toggleMute(event.currentTarget.checked);
+            }}
+          />
           <Switch
             label={t("direct.shareOwn")}
             checked={conversation.privacy.shareOwnHistoryWithVimla}
@@ -948,7 +1048,14 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
           {error ? <Alert variant="error">{tx(t, apiErrorMessageKey(error))}</Alert> : null}
           {rows.length === 0 ? <EmptyState title={t("direct.empty")} /> : null}
           {rows.map((row) => (
-            <DirectRow key={row.message.id} row={row} self={row.message.senderUserId === userId} youLabel={t("chat.you")} peerName={conversation.peer.name} />
+            <DirectRow
+              key={row.message.id}
+              row={row}
+              self={row.message.senderUserId === userId}
+              youLabel={t("chat.you")}
+              peerName={conversation.peer.name}
+              onReport={openMessageReport}
+            />
           ))}
           {pendingRun ? (
             <OperatorRunPanel
@@ -1050,10 +1157,36 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
           onSubmit={() => void onSend()}
           placeholder={t("direct.placeholder")}
           sendLabel={t("chat.send")}
+          disabled={blockedByMe}
           sending={sending || operatorBusy}
           highlights={composerMentions}
         />
       </div>
+      <ReportUserDialog
+        open={reportOpen}
+        onOpenChange={setReportOpen}
+        targetHandle={conversation.peer.handle}
+        evidence={reportEvidence}
+      />
+      <Dialog
+        open={blockOpen}
+        onOpenChange={setBlockOpen}
+        title={t("trust.blockConfirmTitle", {
+          handle: conversation.peer.handle,
+        })}
+        description={t("trust.blockConfirmDescription")}
+        closeLabel={t("common.close")}
+        actions={
+          <>
+            <Button variant="ghost" onClick={() => setBlockOpen(false)}>
+              {t("common.cancel")}
+            </Button>
+            <Button disabled={blockBusy} onClick={() => void confirmBlock()}>
+              {t("trust.block")}
+            </Button>
+          </>
+        }
+      />
     </div>
   );
 }
@@ -1774,7 +1907,19 @@ function directActionStatusLabel(
   return tx(t, "operator.completed");
 }
 
-function DirectRow({ row, self, youLabel, peerName }: { row: DecryptedRow; self: boolean; youLabel: string; peerName: string }): ReactElement {
+function DirectRow({
+  row,
+  self,
+  youLabel,
+  peerName,
+  onReport,
+}: {
+  row: DecryptedRow;
+  self: boolean;
+  youLabel: string;
+  peerName: string;
+  onReport: (evidence: DirectMessageReportEvidence) => void;
+}): ReactElement {
   const t = useTranslations();
   const label = self ? youLabel : peerName;
   if (!row.payload) {
@@ -1784,7 +1929,30 @@ function DirectRow({ row, self, youLabel, peerName }: { row: DecryptedRow; self:
     return self ? (
       <UserMessage label={label}><span data-testid="direct-message-human">{row.payload.text}</span></UserMessage>
     ) : (
-      <AssistantMessage label={label}><span data-testid="direct-message-human">{row.payload.text}</span></AssistantMessage>
+      <AssistantMessage label={label}>
+        <span data-testid="direct-message-human">{row.payload.text}</span>
+        {row.message.kind === "HUMAN" ? (
+          <>
+            <br />
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() =>
+                onReport({
+                  kind: "DIRECT_MESSAGE",
+                  conversationId: row.message.conversationId,
+                  messageId: row.message.id,
+                  disclosedText: row.payload!.type === "human"
+                    ? row.payload!.text
+                    : "",
+                })
+              }
+            >
+              {t("trust.reportMessage")}
+            </Button>
+          </>
+        ) : null}
+      </AssistantMessage>
     );
   }
   if (row.payload.type === "invoke") {
