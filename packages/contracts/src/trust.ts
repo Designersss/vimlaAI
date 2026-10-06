@@ -49,6 +49,12 @@ export const blockedUserSchema = z
   .strict();
 export type BlockedUser = z.infer<typeof blockedUserSchema>;
 
+const blockedUsersCursorSchema = z
+  .string()
+  .min(1)
+  .max(512)
+  .regex(/^[A-Za-z0-9_-]+$/);
+
 export const blockedUsersQuerySchema = z
   .object({
     limit: z.coerce
@@ -57,7 +63,7 @@ export const blockedUsersQuerySchema = z
       .min(1)
       .max(TRUST_LIMITS.blockedUsersPageMax)
       .default(TRUST_LIMITS.blockedUsersPageDefault),
-    cursor: z.string().uuid().optional(),
+    cursor: blockedUsersCursorSchema.optional(),
   })
   .strict();
 export type BlockedUsersQuery = z.infer<typeof blockedUsersQuerySchema>;
@@ -65,7 +71,7 @@ export type BlockedUsersQuery = z.infer<typeof blockedUsersQuerySchema>;
 export const blockedUsersResponseSchema = z
   .object({
     items: z.array(blockedUserSchema).max(TRUST_LIMITS.blockedUsersPageMax),
-    nextCursor: z.string().uuid().nullable(),
+    nextCursor: blockedUsersCursorSchema.nullable(),
   })
   .strict();
 export type BlockedUsersResponse = z.infer<typeof blockedUsersResponseSchema>;
