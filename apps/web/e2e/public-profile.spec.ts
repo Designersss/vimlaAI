@@ -189,9 +189,8 @@ test.describe("Public profile", () => {
       alicePage.getByRole("heading", { name: "Safety" }),
     ).toBeVisible();
     const blockedCard = alicePage
-      .getByText(`@${bobHandle}`)
-      .locator("..")
-      .locator("..");
+      .getByTestId("blocked-user-row")
+      .filter({ hasText: `@${bobHandle}` });
     await expect(blockedCard).toContainText("Bobby Profile");
     await blockedCard
       .getByRole("button", { name: "Unblock" })
