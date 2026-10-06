@@ -39,6 +39,10 @@ export {
 export { createInstallationsClient } from "./installations.js";
 
 export {
+  TrustApiError,
+  createTrustClient,
+} from "./trust.js";
+export {
   createSyncClient,
   type SyncRequestOptions,
 } from "./sync.js";
