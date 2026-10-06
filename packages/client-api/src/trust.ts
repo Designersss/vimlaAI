@@ -1,5 +1,6 @@
 import {
   abuseReportReceiptSchema,
+  blockedUsersQuerySchema,
   blockedUsersResponseSchema,
   blockUserSchema,
   createAbuseReportSchema,
@@ -7,6 +8,7 @@ import {
   updateSurfacePreferenceSchema,
   userBlockStateSchema,
   type AbuseReportReceipt,
+  type BlockedUsersQuery,
   type BlockedUsersResponse,
   type CreateAbuseReport,
   type SurfacePreference,
@@ -33,12 +35,24 @@ export function createTrustClient(
     new TrustApiError(code, status);
 
   return {
-    listBlockedUsers(): Promise<BlockedUsersResponse> {
-      return transport.request("/v1/trust/blocks", {
-        parse: (payload) =>
-          blockedUsersResponseSchema.parse(payload),
-        errorFactory,
+    listBlockedUsers(
+      query: Partial<BlockedUsersQuery> = {},
+    ): Promise<BlockedUsersResponse> {
+      const parsed = blockedUsersQuerySchema.parse(query);
+      const params = new URLSearchParams({
+        limit: String(parsed.limit),
       });
+      if (parsed.cursor) {
+        params.set("cursor", parsed.cursor);
+      }
+      return transport.request(
+        `/v1/trust/blocks?${params.toString()}`,
+        {
+          parse: (payload) =>
+            blockedUsersResponseSchema.parse(payload),
+          errorFactory,
+        },
+      );
     },
 
     blockUser(handle: string): Promise<UserBlockState> {
