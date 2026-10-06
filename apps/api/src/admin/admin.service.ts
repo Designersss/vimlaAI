@@ -663,11 +663,6 @@ export class AdminFacade {
             status: true,
             details: true,
             evidenceKind: true,
-            directConversationId: true,
-            directMessageId: true,
-            evidenceSenderUserId: true,
-            evidenceMessageKind: true,
-            evidenceMessageCreatedAt: true,
             createdAt: true,
             updatedAt: true,
           },
@@ -686,9 +681,6 @@ export class AdminFacade {
       items: items.map(({ details, ...item }) => ({
         ...item,
         hasDetails: details !== null,
-        evidenceMessageCreatedAt:
-          item.evidenceMessageCreatedAt?.toISOString() ??
-          null,
         createdAt: item.createdAt.toISOString(),
         updatedAt: item.updatedAt.toISOString(),
       })),
