@@ -51,10 +51,12 @@ export class PeopleService {
     if (!row) {
       return null;
     }
-    const excluded = new Set(
-      await this.accessPolicy.excludedDiscoveryUserIds(actorUserId),
-    );
-    if (excluded.has(row.userId)) {
+    if (
+      !(await this.accessPolicy.canDiscover(
+        actorUserId,
+        row.userId,
+      ))
+    ) {
       return null;
     }
     return toPublicProfile(row);
@@ -96,14 +98,11 @@ export class PeopleService {
               handle."normalized" = ${handleQuery}
               OR lower(profile."displayName") = lower(${trimmed})
             )`;
-    const excludedUserIds = [
-      ...new Set(
-        await this.accessPolicy.excludedDiscoveryUserIds(actorUserId),
-      ),
-    ];
-    const discoveryPredicate = excludedUserIds.length === 0
-      ? Prisma.sql`TRUE`
-      : Prisma.sql`profile."userId" NOT IN (${Prisma.join(excludedUserIds)})`;
+    const discoveryPredicate =
+      this.accessPolicy.discoveryAllowedSql(
+        actorUserId,
+        Prisma.sql`profile."userId"`,
+      );
 
     const rows = await this.prisma.client.$queryRaw<PublicProfileRow[]>(Prisma.sql`
       SELECT
