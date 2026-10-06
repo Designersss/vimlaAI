@@ -6,6 +6,8 @@ export {
 } from "./errors.js";
 export {
   PrismaUserTrustPolicy,
+  lockTrustUserPair,
+  type TrustPolicyDb,
   type UserTrustPolicy,
 } from "./policy.js";
 export {
