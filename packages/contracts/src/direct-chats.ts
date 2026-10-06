@@ -205,6 +205,7 @@ export const directConversationSummarySchema = z.object({
   lastKind: directMessageKindSchema.nullable(),
   lastSenderUserId: z.string().nullable(),
   createdAt: z.string(),
+  blockedByMe: z.boolean(),
   privacy: directConversationPrivacySchema,
 });
 export type DirectConversationSummary = z.infer<typeof directConversationSummarySchema>;
