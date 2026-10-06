@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactElement } from "react";
+import { useState, type ReactElement } from "react";
 import { useTranslations } from "next-intl";
 import {
   TRUST_LIMITS,
@@ -47,12 +47,14 @@ export function ReportUserDialog({
   const [submitting, setSubmitting] = useState(false);
   const [state, setState] = useState<"idle" | "success" | "error">("idle");
 
-  useEffect(() => {
-    if (!open) return;
-    setReason("HARASSMENT");
-    setDetails("");
-    setState("idle");
-  }, [open]);
+  function handleOpenChange(nextOpen: boolean): void {
+    if (!nextOpen) {
+      setReason("HARASSMENT");
+      setDetails("");
+      setState("idle");
+    }
+    onOpenChange(nextOpen);
+  }
 
   async function submit(): Promise<void> {
     if (submitting) return;
@@ -76,13 +78,13 @@ export function ReportUserDialog({
   return (
     <Dialog
       open={open}
-      onOpenChange={onOpenChange}
+      onOpenChange={handleOpenChange}
       title={t("trust.reportTitle", { handle: targetHandle })}
       description={t("trust.reportDescription")}
       closeLabel={t("common.close")}
       actions={
         <>
-          <Button variant="ghost" onClick={() => onOpenChange(false)}>
+          <Button variant="ghost" onClick={() => handleOpenChange(false)}>
             {state === "success" ? t("common.close") : t("common.cancel")}
           </Button>
           {state !== "success" ? (
