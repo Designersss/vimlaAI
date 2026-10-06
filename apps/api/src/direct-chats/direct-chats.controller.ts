@@ -18,9 +18,11 @@ import {
   directConversationViewSchema,
   directMessageViewSchema,
   directMessagesResponseSchema,
+  directMessageSendPreflightSchema,
   listDirectMessagesQuerySchema,
   markDirectChatReadSchema,
   prekeyBundlesResponseSchema,
+  prepareDirectMessageSendSchema,
   registerCryptoDeviceSchema,
   rotatePrekeysSchema,
   sendDirectMessageSchema,
@@ -30,6 +32,7 @@ import {
   type DirectConversationView,
   type DirectMessageView,
   type DirectMessagesResponse,
+  type DirectMessageSendPreflight,
   type PrekeyBundlesResponse,
 } from "@vimla/contracts";
 import { AuthGuard } from "../auth/auth.guard.js";
@@ -164,6 +167,28 @@ export class DirectChatsController {
     );
     this.directChats.logMutation("conversation.read", user.id, id);
     return directConversationViewSchema.parse(updated);
+  }
+
+  @Post(":id/send-preflight")
+  @HttpCode(200)
+  async sendPreflight(
+    @AuthUser() user: AuthenticatedUser,
+    @Param("id") id: string,
+    @Body() body: unknown,
+  ): Promise<DirectMessageSendPreflight> {
+    this.directChats.assertEnabled();
+    const input = parseRequest(
+      prepareDirectMessageSendSchema,
+      body,
+      "Invalid Direct Chat send preflight payload",
+    );
+    return directMessageSendPreflightSchema.parse(
+      await this.directChats.chats.prepareSend(
+        this.directChats.actor(user),
+        id,
+        input.senderDeviceId,
+      ),
+    );
   }
 
   @Get(":id/messages")
