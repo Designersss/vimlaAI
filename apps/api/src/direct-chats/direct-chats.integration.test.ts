@@ -1240,10 +1240,10 @@ describe("direct chats API", () => {
     let releasePairLock: (() => void) | null = null;
     let pairLocked: (() => void) | null = null;
     const pairLockedPromise = new Promise<void>((resolve) => {
-      pairLocked = resolve;
+      pairLocked = () => resolve();
     });
     const releasePairLockPromise = new Promise<void>((resolve) => {
-      releasePairLock = resolve;
+      releasePairLock = () => resolve();
     });
     const gate = db.$transaction(async (tx) => {
       expect(
