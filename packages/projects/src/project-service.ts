@@ -1,4 +1,4 @@
-import type { Prisma, PrismaClient } from "@vimla/database";
+import { Prisma, type PrismaClient } from "@vimla/database";
 import {
   isWithinCountLimit,
   projectEntitlementLimits,
@@ -38,7 +38,13 @@ type MemberRow = {
   role: string;
   lastOpenedAt: Date | null;
   createdAt: Date;
-  user: { id: string; email: string; name: string };
+};
+
+type ProjectMemberProfileRow = {
+  userId: string;
+  handle: string;
+  displayName: string;
+  avatarUrl: string | null;
 };
 
 type ProjectRow = {
@@ -209,9 +215,25 @@ export class ProjectService {
       access.project.members.map(toRankableMember),
       access.ownerLimits.membersPerOwnedProjectMax,
     );
-    return access.project.members.map((member) =>
-      toMemberView(member, memberAccessState(access, member.userId, member.role as ProjectMemberRole, activeMembers)),
+    const profiles = await this.readMemberProfiles(
+      access.project.members.map((member) => member.userId),
     );
+    return access.project.members.map((member) => {
+      const profile = profiles.get(member.userId);
+      if (!profile) {
+        throw new Error("Project member public profile invariant violated");
+      }
+      return toMemberView(
+        member,
+        memberAccessState(
+          access,
+          member.userId,
+          member.role as ProjectMemberRole,
+          activeMembers,
+        ),
+        profile,
+      );
+    });
   }
 
   async invite(
@@ -229,10 +251,7 @@ export class ProjectService {
     if (email === normalizeInviteEmail(actor.email) && access.actorMember.role === "OWNER") {
       throw new ProjectError("CONFLICT", "The owner is already a member");
     }
-    const existingMember = access.project.members.find(
-      (member) => normalizeInviteEmail(member.user.email) === email,
-    );
-    if (existingMember) {
+    if (await this.hasMemberWithEmail(access.project.members, email)) {
       throw new ProjectError("CONFLICT", "User is already a project member");
     }
     const activeMembers = activeMemberUserIds(
@@ -425,6 +444,45 @@ export class ProjectService {
     });
   }
 
+  private async readMemberProfiles(
+    userIds: string[],
+  ): Promise<Map<string, ProjectMemberProfileRow>> {
+    if (userIds.length === 0) {
+      return new Map();
+    }
+    const rows = await this.db.$queryRaw<ProjectMemberProfileRow[]>(Prisma.sql`
+      SELECT
+        profile."userId" AS "userId",
+        handle."handle" AS "handle",
+        profile."displayName" AS "displayName",
+        profile."avatarUrl" AS "avatarUrl"
+      FROM "public_profile" AS profile
+      INNER JOIN "handle" AS handle
+        ON handle."id" = profile."handleId"
+      WHERE
+        profile."userId" IN (${Prisma.join(userIds)})
+        AND handle."kind" = 'USER'
+        AND handle."status" = 'ACTIVE'
+    `);
+    return new Map(rows.map((row) => [row.userId, row]));
+  }
+
+  private async hasMemberWithEmail(
+    members: MemberRow[],
+    normalizedEmail: string,
+  ): Promise<boolean> {
+    if (members.length === 0) {
+      return false;
+    }
+    const users = await this.db.user.findMany({
+      where: { id: { in: members.map((member) => member.userId) } },
+      select: { email: true },
+    });
+    return users.some(
+      (user) => normalizeInviteEmail(user.email) === normalizedEmail,
+    );
+  }
+
   private assertMutable(access: AccessSnapshot): void {
     if (access.projectState === "PLAN_LOCKED") {
       throw new ProjectError("PLAN_LOCKED", "Project is locked by the owner plan");
@@ -594,11 +652,7 @@ export class ProjectService {
 }
 
 const memberInclude = {
-  members: {
-    include: {
-      user: { select: { id: true, email: true, name: true } },
-    },
-  },
+  members: true,
 } satisfies Prisma.ProjectInclude;
 
 function toRankableMember(member: MemberRow) {
@@ -641,11 +695,16 @@ function memberAccessState(
   return "ACTIVE";
 }
 
-function toMemberView(member: MemberRow, accessState: ProjectAccessState): ProjectMemberView {
+function toMemberView(
+  member: MemberRow,
+  accessState: ProjectAccessState,
+  profile: ProjectMemberProfileRow,
+): ProjectMemberView {
   return {
     userId: member.userId,
-    email: member.user.email,
-    name: member.user.name,
+    handle: profile.handle,
+    displayName: profile.displayName,
+    avatarUrl: profile.avatarUrl,
     role: member.role as ProjectMemberRole,
     accessState,
     lastOpenedAt: member.lastOpenedAt ? member.lastOpenedAt.toISOString() : null,

@@ -307,9 +307,9 @@ export class RealtimeGatewayService
       };
     }
 
-    await this.handles.activateVerified(session.user.id);
-    const handle = await this.handles.readForUser(
+    const handle = await this.handles.activateVerified(
       session.user.id,
+      session.user.emailVerified,
     );
     if (!handle || handle.status !== "ACTIVE") {
       return {

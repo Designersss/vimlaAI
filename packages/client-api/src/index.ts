@@ -19,6 +19,10 @@ export {
   type InboxRequest,
 } from "./inbox.js";
 export {
+  createPeopleClient,
+  type PeopleSearchRequest,
+} from "./people.js";
+export {
   DirectChatsApiError,
   createDirectChatsClient,
   type DirectChatRequestOptions,

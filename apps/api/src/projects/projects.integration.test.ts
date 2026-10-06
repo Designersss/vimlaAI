@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { NestFastifyApplication } from "@nestjs/platform-fastify";
 import { seedVimlaPlans } from "@vimla/billing";
 import { loadApiConfig } from "@vimla/config/server";
+import { projectMembersResponseSchema } from "@vimla/contracts";
 import { createPrismaClient } from "@vimla/database";
 import { createVimlaApiApp } from "../create-app.js";
 import { PrismaService } from "../persistence/prisma.service.js";
@@ -344,6 +345,65 @@ describe("projects API", () => {
       cookies: guest.cookies,
     });
     expect(restored.json().viewerState).toBe("ACTIVE");
+  });
+
+  it("projects accepted member identity through PublicProfile without credential leakage", async () => {
+    const owner = await registerVerifiedUser(app, "proj-public-owner");
+    const member = await registerVerifiedUser(app, "proj-public-member");
+    await buyPro(app, owner.cookies);
+    const project = await createProject(app, owner.cookies, "Public roster");
+
+    const invite = await inviteMember(
+      app,
+      owner.cookies,
+      project.id,
+      member.email,
+      "MEMBER",
+    );
+    await acceptInvite(app, member.cookies, invite.inviteUrl);
+
+    const displayName = "🚀".repeat(80);
+    const avatarUrl = "https://public.example/project-member.png";
+    const prisma = app.get(PrismaService).client;
+    await Promise.all([
+      prisma.user.update({
+        where: { id: member.id },
+        data: { name: "Legacy Project Member" },
+      }),
+      prisma.publicProfile.update({
+        where: { userId: member.id },
+        data: { displayName, avatarUrl },
+      }),
+    ]);
+
+    const listed = await app.inject({
+      method: "GET",
+      url: `/v1/projects/${project.id}/members`,
+      headers: { origin },
+      cookies: member.cookies,
+    });
+    expect(listed.statusCode).toBe(200);
+    const roster = projectMembersResponseSchema.parse(listed.json());
+    expect(
+      roster.items.find((item) => item.userId === member.id),
+    ).toMatchObject({
+      userId: member.id,
+      handle: member.handle,
+      displayName,
+      avatarUrl,
+    });
+    expect(listed.body).not.toContain(member.email);
+    expect(listed.body).not.toContain(owner.email);
+    expect(listed.body).not.toContain("Legacy Project Member");
+
+    const duplicateInvite = await app.inject({
+      method: "POST",
+      url: `/v1/projects/${project.id}/invites`,
+      headers: jsonHeaders(),
+      cookies: owner.cookies,
+      payload: { email: member.email, role: "MEMBER" },
+    });
+    expect(duplicateInvite.statusCode).toBe(409);
   });
 
   it("enforces owner/admin/member roles for invite, leave and ownership", async () => {

@@ -21,6 +21,41 @@
   min-width: 0;
 }
 
+.peopleResults {
+  display: flex;
+  max-height: 16rem;
+  flex-direction: column;
+  gap: var(--vimla-space-1);
+  overflow-y: auto;
+  margin-block: var(--vimla-space-2) var(--vimla-space-3);
+}
+
+.peopleOption {
+  width: 100%;
+  min-width: 0;
+  justify-content: flex-start;
+  text-align: start;
+}
+
+.peopleIdentity {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--vimla-space-1);
+  overflow-wrap: anywhere;
+}
+
+.peopleHandle,
+.peopleStatus {
+  color: var(--vimla-text-secondary);
+}
+
+.peopleStatus {
+  margin-block: var(--vimla-space-2);
+  overflow-wrap: anywhere;
+}
+
 .workspace {
   flex: 1;
   min-width: 0;

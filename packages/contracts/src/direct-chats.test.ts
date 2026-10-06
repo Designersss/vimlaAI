@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   createDirectConversationSchema,
+  directParticipantSchema,
   markDirectChatReadSchema,
   operatorContextBundleSchema,
   sendDirectMessageSchema,
@@ -8,7 +9,7 @@ import {
 } from "./direct-chats.js";
 
 describe("direct chat contracts", () => {
-  it("rejects plaintext, owner fields and extra authority on send", () => {
+  it("rejects plaintext, email addressing and extra authority on send", () => {
     expect(
       sendDirectMessageSchema.safeParse({
         clientMessageId: "11111111-1111-4111-8111-111111111111",
@@ -20,15 +21,29 @@ describe("direct chat contracts", () => {
     ).toBe(false);
 
     expect(
+      createDirectConversationSchema.parse({
+        peerHandle: "Nikita.User",
+      }),
+    ).toEqual({
+      peerHandle: "nikita.user",
+    });
+
+    expect(
       createDirectConversationSchema.safeParse({
         peerEmail: "nikita@example.com",
+      }).success,
+    ).toBe(false);
+
+    expect(
+      createDirectConversationSchema.safeParse({
+        peerHandle: "nikita.user",
         userId: "other",
       }).success,
     ).toBe(false);
 
     expect(
       createDirectConversationSchema.safeParse({
-        peerEmail: "nikita@example.com",
+        peerHandle: "nikita.user",
         surfaceId:
           "11111111-1111-4111-8111-111111111111",
       }).success,
@@ -44,6 +59,26 @@ describe("direct chat contracts", () => {
         signedPrekeySignature: "dddddddddddddddddddddddd==",
         oneTimePrekeys: [{ keyId: 1, publicKey: "eeeeeeeeeeeeeeeeeeeeee==" }],
         identitySecret: "nope",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("uses PublicProfile code-point bounds for participant display names", () => {
+    const displayName = "🚀".repeat(80);
+    expect(
+      directParticipantSchema.parse({
+        userId: "user-1",
+        handle: "nikita.user",
+        name: displayName,
+        avatarUrl: null,
+      }).name,
+    ).toBe(displayName);
+    expect(
+      directParticipantSchema.safeParse({
+        userId: "user-1",
+        handle: "nikita.user",
+        name: "🚀".repeat(81),
+        avatarUrl: null,
       }).success,
     ).toBe(false);
   });

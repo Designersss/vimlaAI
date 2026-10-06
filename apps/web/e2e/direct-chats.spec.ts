@@ -1,5 +1,13 @@
 import { expect, test, type Page } from "@playwright/test";
-import { purchasePro, signUp, uniqueEmail, verifyEmail, webOrigin, apiBase } from "./helpers";
+import {
+  apiBase,
+  purchasePro,
+  signUp,
+  uniqueEmail,
+  uniqueHandle,
+  verifyEmail,
+  webOrigin,
+} from "./helpers";
 import { assertNoDocumentOverflow, assertReachable } from "./responsive-helpers";
 
 test.describe("Secure Direct Chats", () => {
@@ -8,6 +16,7 @@ test.describe("Secure Direct Chats", () => {
     const password = "correct-horse-battery";
     const aliceEmail = uniqueEmail("e2e-direct-alice");
     const nikitaEmail = uniqueEmail("e2e-direct-nikita");
+    const nikitaHandle = uniqueHandle("nikita");
 
     const aliceContext = await browser.newContext();
     const nikitaContext = await browser.newContext();
@@ -22,7 +31,12 @@ test.describe("Secure Direct Chats", () => {
       headers: { origin: webOrigin, "content-type": "application/json" },
     });
 
-    await signUp(nikitaPage, { name: "Nikita", email: nikitaEmail, password });
+    await signUp(nikitaPage, {
+      name: "Nikita",
+      email: nikitaEmail,
+      password,
+      handle: nikitaHandle,
+    });
     await verifyEmail(nikitaPage, request, nikitaEmail);
     await purchasePro(nikitaPage);
     await nikitaPage.goto("/app");
@@ -31,7 +45,13 @@ test.describe("Secure Direct Chats", () => {
     await alicePage.goto("/app");
     await expect(alicePage.getByRole("heading", { name: /сообщения|messages/i })).toBeVisible();
     await alicePage.getByRole("button", { name: /новый личный чат|new direct chat/i }).click();
-    await alicePage.getByLabel(/email участника|participant email/i).fill(nikitaEmail);
+    await alicePage.getByPlaceholder("@handle").fill(`@${nikitaHandle}`);
+    const nikitaResult = alicePage
+      .getByTestId("people-search-results")
+      .getByRole("button")
+      .filter({ hasText: `@${nikitaHandle}` });
+    await expect(nikitaResult).toBeVisible({ timeout: 20_000 });
+    await nikitaResult.click();
     await alicePage.getByRole("button", { name: /начать чат|start chat/i }).click();
     await expect(alicePage.getByTestId("direct-chat-shell")).toBeVisible({ timeout: 20_000 });
 
@@ -47,7 +67,7 @@ test.describe("Secure Direct Chats", () => {
     await expect(mentionPicker.getByRole("option", { name: /@vimla/i })).toBeVisible();
     await expect(mentionPicker.getByRole("option", { name: /@auto/i })).toBeVisible();
     await mentionPicker.getByRole("option", { name: /Nikita/i }).click();
-    await expect(composer).toHaveValue(/^@nikita_[a-z0-9]+ $/i);
+    await expect(composer).toHaveValue(`@${nikitaHandle} `);
     await expect(composer).toBeFocused();
 
     await composer.fill("@a");
@@ -733,6 +753,7 @@ test.describe("Secure Direct Chats", () => {
     const password = "correct-horse-battery";
     const aliceEmail = uniqueEmail("e2e-direct-recovery-alice");
     const nikitaEmail = uniqueEmail("e2e-direct-recovery-nikita");
+    const nikitaHandle = uniqueHandle("nikitarec");
 
     const aliceContext = await browser.newContext();
     const nikitaContext = await browser.newContext();
@@ -761,6 +782,7 @@ test.describe("Secure Direct Chats", () => {
       name: "Nikita Recovery",
       email: nikitaEmail,
       password,
+      handle: nikitaHandle,
     });
     await verifyEmail(nikitaPage, request, nikitaEmail);
     await purchasePro(nikitaPage);
@@ -771,9 +793,13 @@ test.describe("Secure Direct Chats", () => {
         name: /новый личный чат|new direct chat/i,
       })
       .click();
-    await alicePage
-      .getByLabel(/email участника|participant email/i)
-      .fill(nikitaEmail);
+    await alicePage.getByPlaceholder("@handle").fill(`@${nikitaHandle}`);
+    const nikitaRecoveryResult = alicePage
+      .getByTestId("people-search-results")
+      .getByRole("button")
+      .filter({ hasText: `@${nikitaHandle}` });
+    await expect(nikitaRecoveryResult).toBeVisible({ timeout: 20_000 });
+    await nikitaRecoveryResult.click();
     await alicePage
       .getByRole("button", {
         name: /начать чат|start chat/i,
@@ -3181,4 +3207,3 @@ async function seedExpiredRatchetLease(
     }
   }, input);
 }
-

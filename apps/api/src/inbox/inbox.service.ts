@@ -9,9 +9,11 @@ import {
   directMessageKindSchema,
   type CommunicationSurfaceKind,
   type InboxItem,
+  type InboxPeerSummary,
   type InboxResponse,
   type ListInboxQuery,
 } from "@vimla/contracts";
+import { PUBLIC_PROFILE_LIMITS } from "@vimla/contracts/public-profiles";
 import {
   Prisma,
   type PrismaClient,
@@ -30,6 +32,13 @@ type AiThreadInboxPreview = Extract<
   InboxItem,
   { surfaceKind: "AI_THREAD" }
 >["preview"];
+
+type PublicProfileRow = {
+  userId: string;
+  handle: string;
+  displayName: string;
+  avatarUrl: string | null;
+};
 
 function toServerPreviewRole(
   role: string,
@@ -55,16 +64,7 @@ const surfaceInclude = {
   },
   directConversation: {
     include: {
-      members: {
-        include: {
-          user: {
-            select: {
-              id: true,
-              name: true,
-            },
-          },
-        },
-      },
+      members: true,
       messages: {
         orderBy: [
           { createdAt: "desc" as const },
@@ -117,11 +117,23 @@ export class InboxService {
     const cursor = query.cursor
       ? decodeCursor(query.cursor, filterKey)
       : null;
+    const matchingDirectSurfaceIds =
+      normalizedSearch &&
+      this.config.directChatsEnabled &&
+      (!query.kind || query.kind === "DIRECT")
+        ? await this.findMatchingDirectSurfaceIds(
+            userId,
+            normalizedSearch,
+            cursor,
+            query.limit + 1,
+          )
+        : null;
     const authorityBranches =
       this.authorityBranches(
         userId,
         query.kind,
         normalizedSearch,
+        matchingDirectSurfaceIds,
       );
 
     if (authorityBranches.length === 0) {
@@ -182,11 +194,16 @@ export class InboxService {
         userId,
         directConversationIds(page),
       );
+    const publicProfiles =
+      await this.readPublicProfiles(
+        directPeerUserIds(page, userId),
+      );
     const items = page.map((row) =>
       this.toItem(
         userId,
         row,
         unreadCounts,
+        publicProfiles,
       ),
     );
 
@@ -213,6 +230,7 @@ export class InboxService {
         userId,
         undefined,
         null,
+        null,
       );
     if (authorityBranches.length === 0) {
       return null;
@@ -236,10 +254,15 @@ export class InboxService {
         userId,
         directConversationIds([row]),
       );
+    const publicProfiles =
+      await this.readPublicProfiles(
+        directPeerUserIds([row], userId),
+      );
     return this.toItem(
       userId,
       row,
       unreadCounts,
+      publicProfiles,
     );
   }
 
@@ -247,6 +270,7 @@ export class InboxService {
     userId: string,
     kind: CommunicationSurfaceKind | undefined,
     normalizedSearch: string | null,
+    matchingDirectSurfaceIds: readonly string[] | null,
   ): Prisma.CommunicationSurfaceWhereInput[] {
     const branches:
       Prisma.CommunicationSurfaceWhereInput[] =
@@ -272,52 +296,29 @@ export class InboxService {
       });
     }
 
+    const directSearchHasMatches =
+      !normalizedSearch ||
+      (matchingDirectSurfaceIds !== null &&
+        matchingDirectSurfaceIds.length > 0);
     if (
       this.config.directChatsEnabled &&
-      (!kind || kind === "DIRECT")
+      (!kind || kind === "DIRECT") &&
+      directSearchHasMatches
     ) {
       branches.push({
         kind: "DIRECT",
+        ...(normalizedSearch && matchingDirectSurfaceIds
+          ? {
+              id: {
+                in: [...matchingDirectSurfaceIds],
+              },
+            }
+          : {}),
         directConversation: {
           is: {
-            AND: [
-              {
-                members: {
-                  some: { userId },
-                },
-              },
-              ...(normalizedSearch
-                ? [
-                    {
-                      members: {
-                        some: {
-                          userId: {
-                            not: userId,
-                          },
-                          user: {
-                            OR: [
-                              {
-                                name: {
-                                  contains:
-                                    normalizedSearch,
-                                  mode: "insensitive" as const,
-                                },
-                              },
-                              {
-                                email: {
-                                  contains:
-                                    normalizedSearch,
-                                  mode: "insensitive" as const,
-                                },
-                              },
-                            ],
-                          },
-                        },
-                      },
-                    },
-                  ]
-                : []),
-            ],
+            members: {
+              some: { userId },
+            },
           },
         },
       });
@@ -326,10 +327,137 @@ export class InboxService {
     return branches;
   }
 
+  private async findMatchingDirectSurfaceIds(
+    userId: string,
+    search: string,
+    cursor: DecodedCursor | null,
+    limit: number,
+  ): Promise<string[]> {
+    const identityQuery = search.startsWith("@")
+      ? search.slice(1).trim()
+      : search;
+    if (!identityQuery) {
+      return [];
+    }
+
+    const normalizedIdentity = identityQuery.toLowerCase();
+    const identityLength = Array.from(identityQuery).length;
+    const prefixSearch =
+      identityLength >=
+      PUBLIC_PROFILE_LIMITS.searchPrefixMatchMin;
+    const containsSearch =
+      identityLength >=
+      PUBLIC_PROFILE_LIMITS.searchContainsMatchMin;
+    const handlePrefixPattern =
+      `${escapeLikePattern(normalizedIdentity)}%`;
+    const displayPrefixPattern =
+      `${escapeLikePattern(normalizedIdentity)}%`;
+    const handleContainsPattern =
+      `%${escapeLikePattern(normalizedIdentity)}%`;
+    const displayContainsPattern =
+      `%${escapeLikePattern(identityQuery)}%`;
+    const matchPredicate = containsSearch
+      ? Prisma.sql`(
+          handle."normalized" LIKE ${handleContainsPattern}
+          OR profile."displayName" ILIKE ${displayContainsPattern}
+        )`
+      : prefixSearch
+        ? Prisma.sql`(
+            handle."normalized" LIKE ${handlePrefixPattern}
+            OR lower(profile."displayName") LIKE ${displayPrefixPattern}
+          )`
+        : Prisma.sql`(
+            handle."normalized" = ${normalizedIdentity}
+            OR lower(profile."displayName") = lower(${identityQuery})
+          )`;
+    const cursorPredicate = cursor
+      ? Prisma.sql`AND (
+          surface."lastActivityAt" < ${cursor.at}
+          OR (
+            surface."lastActivityAt" = ${cursor.at}
+            AND surface."id" < ${cursor.id}::uuid
+          )
+        )`
+      : Prisma.sql``;
+
+    const rows = await this.prisma.$queryRaw<
+      Array<{ surfaceId: string }>
+    >(Prisma.sql`
+      SELECT surface."id" AS "surfaceId"
+      FROM "communication_surface" AS surface
+      INNER JOIN "direct_conversation_member" AS mine
+        ON mine."conversationId" = surface."directConversationId"
+      INNER JOIN "direct_conversation_member" AS peer
+        ON peer."conversationId" = mine."conversationId"
+        AND peer."userId" <> mine."userId"
+      INNER JOIN "public_profile" AS profile
+        ON profile."userId" = peer."userId"
+      INNER JOIN "handle" AS handle
+        ON handle."id" = profile."handleId"
+      WHERE
+        surface."kind" = 'DIRECT'
+        AND surface."status" = 'ACTIVE'
+        AND mine."userId" = ${userId}
+        AND handle."kind" = 'USER'
+        AND handle."status" = 'ACTIVE'
+        AND ${matchPredicate}
+        ${cursorPredicate}
+      GROUP BY
+        surface."id",
+        surface."lastActivityAt"
+      ORDER BY
+        surface."lastActivityAt" DESC,
+        surface."id" DESC
+      LIMIT ${limit}
+    `);
+    return rows.map((row) => row.surfaceId);
+  }
+
+  private async readPublicProfiles(
+    userIds: string[],
+  ): Promise<Map<string, InboxPeerSummary>> {
+    if (userIds.length === 0) {
+      return new Map();
+    }
+    const rows = await this.prisma.$queryRaw<
+      PublicProfileRow[]
+    >(Prisma.sql`
+      SELECT
+        profile."userId" AS "userId",
+        handle."handle" AS "handle",
+        profile."displayName" AS "displayName",
+        profile."avatarUrl" AS "avatarUrl"
+      FROM "public_profile" AS profile
+      INNER JOIN "handle" AS handle
+        ON handle."id" = profile."handleId"
+      WHERE
+        profile."userId" IN (${Prisma.join(userIds)})
+        AND handle."kind" = 'USER'
+        AND handle."status" = 'ACTIVE'
+    `);
+    return new Map(
+      rows.map((row) => [
+        row.userId,
+        {
+          userId: row.userId,
+          handle: row.handle,
+          name: boundedInboxPeerName(
+            row.displayName,
+          ),
+          avatarUrl: row.avatarUrl,
+        },
+      ]),
+    );
+  }
+
   private toItem(
     userId: string,
     row: InboxSurfaceRow,
     unreadCounts: ReadonlyMap<string, number>,
+    publicProfiles: ReadonlyMap<
+      string,
+      InboxPeerSummary
+    >,
   ): InboxItem {
     if (row.kind === "AI_THREAD") {
       const conversation = row.conversation;
@@ -401,9 +529,14 @@ export class InboxService {
           "Direct inbox membership is invalid",
         );
       }
+      const peerProfile =
+        publicProfiles.get(peer.userId);
+      if (!peerProfile) {
+        throw new Error(
+          "Direct inbox public identity is invalid",
+        );
+      }
 
-      const peerName =
-        boundedInboxPeerName(peer.user.name);
       const latest =
         conversation.messages[0];
       const parsedKind = latest
@@ -429,12 +562,8 @@ export class InboxService {
         surfaceId: row.id,
         surfaceKind: "DIRECT",
         domainId: conversation.id,
-        title: peerName,
-        peer: {
-          userId: peer.user.id,
-          name: peerName,
-          avatarUrl: null,
-        },
+        title: peerProfile.name,
+        peer: peerProfile,
         lastActivityAt:
           row.lastActivityAt.toISOString(),
         unreadCount:
@@ -505,6 +634,28 @@ function directConversationIds(
     .filter(
       (id): id is string => id !== null,
     );
+}
+
+function directPeerUserIds(
+  rows: readonly InboxSurfaceRow[],
+  userId: string,
+): string[] {
+  return [
+    ...new Set(
+      rows.flatMap((row) =>
+        row.directConversation?.members
+          .filter(
+            (member) =>
+              member.userId !== userId,
+          )
+          .map((member) => member.userId) ?? [],
+      ),
+    ),
+  ];
+}
+
+function escapeLikePattern(value: string): string {
+  return value.replace(/[\\%_]/g, "\\$&");
 }
 
 function boundedInboxPeerName(

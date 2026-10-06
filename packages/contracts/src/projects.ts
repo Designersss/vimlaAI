@@ -1,4 +1,9 @@
 import { z } from "zod";
+import { handleSchema } from "./handles.js";
+import {
+  publicProfileAvatarUrlSchema,
+  publicProfileDisplayNameSchema,
+} from "./public-profiles.js";
 
 export const PROJECT_LIMITS = {
   nameMin: 1,
@@ -37,15 +42,18 @@ export type ProjectCapabilities = z.infer<typeof projectCapabilitiesSchema>;
 
 const isoDateTime = z.string().datetime({ offset: true });
 
-export const projectMemberViewSchema = z.object({
-  userId: z.string().min(1),
-  email: z.string().email(),
-  name: z.string(),
-  role: projectMemberRoleSchema,
-  accessState: projectAccessStateSchema,
-  lastOpenedAt: isoDateTime.nullable(),
-  createdAt: isoDateTime,
-});
+export const projectMemberViewSchema = z
+  .object({
+    userId: z.string().min(1),
+    handle: handleSchema,
+    displayName: publicProfileDisplayNameSchema,
+    avatarUrl: publicProfileAvatarUrlSchema,
+    role: projectMemberRoleSchema,
+    accessState: projectAccessStateSchema,
+    lastOpenedAt: isoDateTime.nullable(),
+    createdAt: isoDateTime,
+  })
+  .strict();
 export type ProjectMemberView = z.infer<typeof projectMemberViewSchema>;
 
 export const projectSummarySchema = z.object({

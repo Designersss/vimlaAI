@@ -61,6 +61,24 @@ describe("contextual mention resolver", () => {
     expect(bobHandle).toBeTruthy();
     expect(strangerHandle).toBeTruthy();
 
+    const boundaryDisplayName = "🚀".repeat(80);
+    await prisma.$transaction([
+      prisma.user.update({
+        where: { id: bob.id },
+        data: {
+          name: "Legacy Account Bob",
+          image: "https://account.example/bob.png",
+        },
+      }),
+      prisma.publicProfile.update({
+        where: { userId: bob.id },
+        data: {
+          displayName: boundaryDisplayName,
+          avatarUrl: "https://public.example/bob.png",
+        },
+      }),
+    ]);
+
     const conversation = await prisma.conversation.create({
       data: { userId: alice.id, title: "Mentions" },
     });
@@ -106,6 +124,21 @@ describe("contextual mention resolver", () => {
     );
     expect(projectSuggestions.people.map((candidate) => candidate.handle)).not.toContain(strangerHandle);
 
+    expect(
+      projectSuggestions.people.find(
+        (candidate) => candidate.handle === bobHandle,
+      ),
+    ).toMatchObject({
+      label: boundaryDisplayName,
+      avatarUrl: "https://public.example/bob.png",
+    });
+    expect(
+      JSON.stringify(projectSuggestions),
+    ).not.toContain("Legacy Account Bob");
+    expect(
+      JSON.stringify(projectSuggestions),
+    ).not.toContain("account.example");
+
     const filteredResponse = await app.inject({
       method: "GET",
       url: `/v1/mentions?projectId=${project.id}&q=${encodeURIComponent(bobHandle ?? "")}`,
@@ -128,6 +161,15 @@ describe("contextual mention resolver", () => {
       new Set([aliceHandle, bobHandle]),
     );
     expect(directSuggestions.people.map((candidate) => candidate.handle)).not.toContain(strangerHandle);
+
+    expect(
+      directSuggestions.people.find(
+        (candidate) => candidate.handle === bobHandle,
+      ),
+    ).toMatchObject({
+      label: boundaryDisplayName,
+      avatarUrl: "https://public.example/bob.png",
+    });
 
     const strangerResponse = await app.inject({
       method: "GET",

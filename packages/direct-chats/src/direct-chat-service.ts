@@ -1,7 +1,6 @@
 import { Prisma } from "@vimla/database";
 import {
   DIRECT_CHAT_LIMITS,
-  type CreateDirectConversation,
   type DirectConversationPrivacy,
   type DirectConversationSummary,
   type DirectConversationView,
@@ -41,6 +40,13 @@ const DEFAULTS: DirectChatServiceOptions = {
   maxEnvelopes: DIRECT_CHAT_LIMITS.envelopesMax,
 };
 
+type ParticipantProfileRow = {
+  userId: string;
+  handle: string;
+  displayName: string;
+  avatarUrl: string | null;
+};
+
 export class DirectChatService {
   private readonly options: DirectChatServiceOptions;
 
@@ -53,16 +59,16 @@ export class DirectChatService {
     this.options = { ...DEFAULTS, ...options };
   }
 
-  async create(actor: ActorContext, input: CreateDirectConversation): Promise<DirectConversationView> {
-    const email = input.peerEmail.trim().toLowerCase();
-    const peer = await this.db.user.findFirst({
-      where: { email: { equals: email, mode: "insensitive" }, emailVerified: true },
-      select: { id: true, name: true, email: true, emailVerified: true },
-    });
-    if (!peer || peer.id === actor.userId) {
+  async create(actor: ActorContext, peerUserId: string): Promise<DirectConversationView> {
+    if (peerUserId === actor.userId) {
       throw new DirectChatError("NOT_FOUND", "User was not found");
     }
-    const pairKey = directPairKey(actor.userId, peer.id);
+    const peerProfiles = await this.readParticipantProfiles([peerUserId]);
+    if (!peerProfiles.has(peerUserId)) {
+      throw new DirectChatError("NOT_FOUND", "User was not found");
+    }
+
+    const pairKey = directPairKey(actor.userId, peerUserId);
     const existing = await this.db.directConversation.findUnique({
       where: { pairKey },
       include: conversationInclude,
@@ -75,7 +81,7 @@ export class DirectChatService {
         data: {
           pairKey,
           members: {
-            create: [{ userId: actor.userId }, { userId: peer.id }],
+            create: [{ userId: actor.userId }, { userId: peerUserId }],
           },
         },
         include: conversationInclude,
@@ -524,11 +530,17 @@ export class DirectChatService {
 
   async participants(actorUserId: string, conversationId: string): Promise<DirectChatParticipant[]> {
     const conversation = await this.requireMemberConversation(actorUserId, conversationId);
-    return conversation.members.map((member) => ({
-      userId: member.user.id,
-      name: member.user.name,
-      email: member.user.email,
-    }));
+    const profiles = await this.readParticipantProfiles(
+      conversation.members.map((member) => member.userId),
+    );
+    return conversation.members.map((member) => {
+      const participant = requireParticipant(profiles, member.userId);
+      return {
+        userId: participant.userId,
+        handle: participant.handle,
+        name: participant.name,
+      };
+    });
   }
 
   async assertCanFetchPrekeys(actorUserId: string, targetUserId: string): Promise<void> {
@@ -692,6 +704,39 @@ export class DirectChatService {
     return device;
   }
 
+  private async readParticipantProfiles(
+    userIds: string[],
+  ): Promise<Map<string, DirectParticipant>> {
+    if (userIds.length === 0) {
+      return new Map();
+    }
+    const rows = await this.db.$queryRaw<ParticipantProfileRow[]>(Prisma.sql`
+      SELECT
+        profile."userId" AS "userId",
+        handle."handle" AS "handle",
+        profile."displayName" AS "displayName",
+        profile."avatarUrl" AS "avatarUrl"
+      FROM "public_profile" AS profile
+      INNER JOIN "handle" AS handle
+        ON handle."id" = profile."handleId"
+      WHERE
+        profile."userId" IN (${Prisma.join(userIds)})
+        AND handle."kind" = 'USER'
+        AND handle."status" = 'ACTIVE'
+    `);
+    return new Map(
+      rows.map((row) => [
+        row.userId,
+        {
+          userId: row.userId,
+          handle: row.handle,
+          name: row.displayName,
+          avatarUrl: row.avatarUrl,
+        },
+      ]),
+    );
+  }
+
   private async toView(
     conversation: ConversationRecord,
     actorUserId: string,
@@ -700,17 +745,23 @@ export class DirectChatService {
       actorUserId,
       conversation.id,
     );
+    const profiles = await this.readParticipantProfiles(
+      conversation.members.map((member) => member.userId),
+    );
     const summary = this.toSummary(
       conversation,
       actorUserId,
       unreadCount,
+      profiles,
     );
     const devices = conversation.members.flatMap((member) =>
       member.user.cryptoDevices.filter((device) => device.revokedAt === null).map(toDeviceView),
     );
     return {
       ...summary,
-      members: conversation.members.map((member) => toParticipant(member.user)),
+      members: conversation.members.map((member) =>
+        requireParticipant(profiles, member.userId),
+      ),
       devices,
     };
   }
@@ -742,6 +793,7 @@ export class DirectChatService {
     conversation: ConversationRecord,
     actorUserId: string,
     unreadCount: number,
+    profiles: ReadonlyMap<string, DirectParticipant>,
   ): DirectConversationSummary {
     const mine = conversation.members.find((member) => member.userId === actorUserId);
     const peer = conversation.members.find((member) => member.userId !== actorUserId);
@@ -761,7 +813,7 @@ export class DirectChatService {
       id: conversation.id,
       surfaceId: conversation.surface.id,
       surfaceKind: "DIRECT",
-      peer: toParticipant(peer.user),
+      peer: requireParticipant(profiles, peer.userId),
       lastMessageAt: conversation.lastMessageAt.toISOString(),
       unreadCount,
       lastKind: isKind(latest?.kind) ? latest.kind : null,
@@ -777,7 +829,10 @@ const conversationInclude = {
   members: {
     include: {
       user: {
-        include: { cryptoDevices: true },
+        select: {
+          id: true,
+          cryptoDevices: true,
+        },
       },
     },
   },
@@ -792,8 +847,15 @@ const conversationInclude = {
 
 type ConversationRecord = Prisma.DirectConversationGetPayload<{ include: typeof conversationInclude }>;
 
-function toParticipant(user: { id: string; name: string; email: string }): DirectParticipant {
-  return { userId: user.id, name: user.name, email: user.email };
+function requireParticipant(
+  profiles: ReadonlyMap<string, DirectParticipant>,
+  userId: string,
+): DirectParticipant {
+  const participant = profiles.get(userId);
+  if (!participant) {
+    throw new Error("Direct Chat participant public identity is invalid");
+  }
+  return participant;
 }
 
 function toPrivacy(
@@ -983,7 +1045,6 @@ function sameReplayMentions(
       value === incomingCanonical[index],
   );
 }
-
 
 function isUnique(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && error.code === "P2002";

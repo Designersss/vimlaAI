@@ -7,6 +7,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./public-profiles": {
+      "types": "./dist/public-profiles.d.ts",
+      "import": "./dist/public-profiles.js"
     }
   },
   "files": ["dist"],

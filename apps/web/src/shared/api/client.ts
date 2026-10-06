@@ -7,6 +7,7 @@ import {
   createInboxClient,
   createNotificationsClient,
   createOperatorClient,
+  createPeopleClient,
   createSyncClient,
 } from "@vimla/client-api";
 import { publicWebConfig } from "../config/public-env";
@@ -31,6 +32,7 @@ export function createWebClientApi(
     inbox: createInboxClient(transport),
     notifications: createNotificationsClient(transport),
     operator: createOperatorClient(transport),
+    people: createPeopleClient(transport),
     sync: createSyncClient(transport),
   };
 }

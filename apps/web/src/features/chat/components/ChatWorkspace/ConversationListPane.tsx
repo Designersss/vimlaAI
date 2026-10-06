@@ -21,6 +21,7 @@ import type {
   CommunicationSurfaceKind,
   InboxItem,
 } from "@vimla/contracts";
+import type { PublicProfile } from "@vimla/contracts/public-profiles";
 import {
   AIConversationRow,
   Alert,
@@ -50,6 +51,7 @@ import {
   fetchInbox,
   resolveWebInboxPreview,
 } from "../../services/inbox";
+import { searchPeople } from "../../services/people";
 import {
   useChatSyncHub,
   useChatWorkspace,
@@ -114,8 +116,18 @@ export const ConversationListPane = observer(
       useState<InboxTab>("all");
     const [directOpen, setDirectOpen] =
       useState(false);
-    const [peerEmail, setPeerEmail] =
+    const [peerQuery, setPeerQuery] =
       useState("");
+    const [selectedPeer, setSelectedPeer] =
+      useState<PublicProfile | null>(null);
+    const [peopleResults, setPeopleResults] =
+      useState<PublicProfile[]>([]);
+    const [peopleLoading, setPeopleLoading] =
+      useState(false);
+    const [peopleError, setPeopleError] =
+      useState(false);
+    const [directCreating, setDirectCreating] =
+      useState(false);
     const [directError, setDirectError] =
       useState<string | null>(null);
     const [listError, setListError] =
@@ -359,6 +371,77 @@ export const ConversationListPane = observer(
       userId,
     ]);
 
+    useEffect(() => {
+      if (!directOpen) {
+        setPeopleResults([]);
+        setPeopleLoading(false);
+        setPeopleError(false);
+        return;
+      }
+
+      const value = peerQuery.trim();
+      const selectedValue = selectedPeer
+        ? `@${selectedPeer.handle}`
+        : null;
+      if (
+        value.length === 0 ||
+        value === "@" ||
+        value === selectedValue
+      ) {
+        setPeopleResults([]);
+        setPeopleLoading(false);
+        setPeopleError(false);
+        return;
+      }
+
+      let cancelled = false;
+      setPeopleLoading(true);
+      setPeopleError(false);
+      const timer = window.setTimeout(() => {
+        void searchPeople(value)
+          .then((response) => {
+            if (cancelled) {
+              return;
+            }
+            setPeopleResults(
+              response.items.filter(
+                (profile) =>
+                  profile.userId !== userId,
+              ),
+            );
+          })
+          .catch((error: unknown) => {
+            if (cancelled) {
+              return;
+            }
+            if (
+              error instanceof AuthRequiredError
+            ) {
+              router.replace("/sign-in");
+              return;
+            }
+            setPeopleResults([]);
+            setPeopleError(true);
+          })
+          .finally(() => {
+            if (!cancelled) {
+              setPeopleLoading(false);
+            }
+          });
+      }, 200);
+
+      return () => {
+        cancelled = true;
+        window.clearTimeout(timer);
+      };
+    }, [
+      directOpen,
+      peerQuery,
+      router,
+      selectedPeer,
+      userId,
+    ]);
+
     async function onNewChat(): Promise<void> {
       if (creating) {
         return;
@@ -392,19 +475,43 @@ export const ConversationListPane = observer(
       }
     }
 
+    function openDirectDialog(): void {
+      setPeerQuery("");
+      setSelectedPeer(null);
+      setPeopleResults([]);
+      setPeopleError(false);
+      setDirectError(null);
+      setDirectOpen(true);
+    }
+
+    function choosePeer(profile: PublicProfile): void {
+      setSelectedPeer(profile);
+      setPeerQuery(`@${profile.handle}`);
+      setPeopleResults([]);
+      setPeopleError(false);
+      setDirectError(null);
+    }
+
     async function onCreateDirect(
       event: FormEvent,
     ): Promise<void> {
       event.preventDefault();
+      const peer = selectedPeer;
+      if (directCreating || !peer) {
+        return;
+      }
+      setDirectCreating(true);
       setDirectError(null);
       try {
         await prepareDevice();
         const created =
           await createDirectConversation({
-            peerEmail,
+            peerHandle: peer.handle,
           });
         setDirectOpen(false);
-        setPeerEmail("");
+        setPeerQuery("");
+        setSelectedPeer(null);
+        setPeopleResults([]);
         setQuery("");
         setTab("all");
         store.requestInboxRefresh();
@@ -427,6 +534,8 @@ export const ConversationListPane = observer(
             ? caught.code
             : "internal_error",
         );
+      } finally {
+        setDirectCreating(false);
       }
     }
 
@@ -520,9 +629,7 @@ export const ConversationListPane = observer(
                 {CONSUMER_FEATURES.directChats ? (
                   <Button
                     variant="secondary"
-                    onClick={() =>
-                      setDirectOpen(true)
-                    }
+                    onClick={openDirectDialog}
                   >
                     {t("direct.newChat")}
                   </Button>
@@ -668,9 +775,7 @@ export const ConversationListPane = observer(
                   <DirectConversationRow
                     key={item.surfaceId}
                     name={item.title}
-                    preview={
-                      preview ?? undefined
-                    }
+                    preview={`@${item.peer.handle}${preview ? ` · ${preview}` : ""}`}
                     time={time}
                     unreadCount={
                       item.unreadCount
@@ -726,22 +831,95 @@ export const ConversationListPane = observer(
               </Alert>
             ) : null}
             <FormField
-              label={t("direct.peerEmail")}
-              htmlFor="direct-peer-email"
+              label={t("direct.newChat")}
+              htmlFor="direct-peer-search"
             >
               <Input
-                id="direct-peer-email"
-                type="email"
-                value={peerEmail}
-                onChange={(event) =>
-                  setPeerEmail(
+                id="direct-peer-search"
+                type="search"
+                value={peerQuery}
+                placeholder="@handle"
+                autoComplete="off"
+                onChange={(event) => {
+                  setPeerQuery(
                     event.target.value,
-                  )
-                }
+                  );
+                  setSelectedPeer(null);
+                  setDirectError(null);
+                }}
                 required
               />
             </FormField>
-            <Button type="submit">
+
+            {peopleLoading ? (
+              <p className={styles.peopleStatus}>
+                <Spinner
+                  label={t("common.loading")}
+                />
+              </p>
+            ) : null}
+            {peopleError ? (
+              <Alert variant="error">
+                {t("common.genericError")}
+              </Alert>
+            ) : null}
+            {!peopleLoading &&
+            !peopleError &&
+            peerQuery.trim().length > 0 &&
+            peerQuery.trim() !== "@" &&
+            !selectedPeer &&
+            peopleResults.length === 0 ? (
+              <p className={styles.peopleStatus}>
+                {t("errors.not_found")}
+              </p>
+            ) : null}
+            {peopleResults.length > 0 ? (
+              <div
+                className={styles.peopleResults}
+                data-testid="people-search-results"
+              >
+                {peopleResults.map((profile) => (
+                  <Button
+                    key={profile.userId}
+                    type="button"
+                    variant="ghost"
+                    className={styles.peopleOption}
+                    onClick={() =>
+                      choosePeer(profile)
+                    }
+                  >
+                    <span
+                      className={
+                        styles.peopleIdentity
+                      }
+                    >
+                      <span>
+                        {profile.displayName}
+                      </span>
+                      <span
+                        className={
+                          styles.peopleHandle
+                        }
+                      >
+                        @{profile.handle}
+                      </span>
+                    </span>
+                  </Button>
+                ))}
+              </div>
+            ) : null}
+            {selectedPeer ? (
+              <p className={styles.peopleStatus}>
+                {selectedPeer.displayName} · @{selectedPeer.handle}
+              </p>
+            ) : null}
+            <Button
+              type="submit"
+              disabled={
+                directCreating ||
+                selectedPeer === null
+              }
+            >
               {t("direct.start")}
             </Button>
           </form>

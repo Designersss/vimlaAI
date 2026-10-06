@@ -5,6 +5,7 @@ import {
   webOrigin,
   signUp,
   uniqueEmail,
+  uniqueHandle,
   verifyEmail,
   waitForRegisteredDirectChatDevice,
 } from "./helpers";
@@ -13,7 +14,7 @@ const PROTECTED_PREFIX = "vimla-protected:v1:";
 
 async function openDirectChat(
   alicePage: Page,
-  nikitaEmail: string,
+  peerHandle: string,
 ): Promise<string> {
   await alicePage.goto("/app");
   await expect(
@@ -27,8 +28,16 @@ async function openDirectChat(
     })
     .click();
   await alicePage
-    .getByLabel(/email участника|participant email/i)
-    .fill(nikitaEmail);
+    .getByPlaceholder("@handle")
+    .fill(`@${peerHandle}`);
+  const peerResult = alicePage
+    .getByTestId("people-search-results")
+    .getByRole("button")
+    .filter({ hasText: `@${peerHandle}` });
+  await expect(peerResult).toHaveCount(1, {
+    timeout: 20_000,
+  });
+  await peerResult.click();
   await alicePage
     .getByRole("button", {
       name: /начать чат|start chat/i,
@@ -275,6 +284,7 @@ test.describe("E2EE H02 browser hardening", () => {
     const nikitaEmail = uniqueEmail(
       "h02-nikita",
     );
+    const nikitaHandle = uniqueHandle("h02nikita");
     const aliceContext =
       await browser.newContext();
     const nikitaContext =
@@ -300,6 +310,7 @@ test.describe("E2EE H02 browser hardening", () => {
       name: "Nikita",
       email: nikitaEmail,
       password,
+      handle: nikitaHandle,
     });
     await verifyEmail(
       nikitaPage,
@@ -312,7 +323,7 @@ test.describe("E2EE H02 browser hardening", () => {
 
     await openDirectChat(
       alicePage,
-      nikitaEmail,
+      nikitaHandle,
     );
     const composer =
       alicePage.getByPlaceholder(
@@ -454,6 +465,7 @@ test.describe("E2EE H02 browser hardening", () => {
     const nikitaEmail = uniqueEmail(
       "h02-revoke-nikita",
     );
+    const nikitaHandle = uniqueHandle("h02revoke");
     const aliceContext =
       await browser.newContext();
     const nikitaContext =
@@ -479,6 +491,7 @@ test.describe("E2EE H02 browser hardening", () => {
       name: "Nikita",
       email: nikitaEmail,
       password,
+      handle: nikitaHandle,
     });
     await verifyEmail(
       nikitaPage,
@@ -491,7 +504,7 @@ test.describe("E2EE H02 browser hardening", () => {
 
     await openDirectChat(
       alicePage,
-      nikitaEmail,
+      nikitaHandle,
     );
     const localDeviceId =
       await alicePage.evaluate(async () => {

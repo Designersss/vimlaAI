@@ -39,7 +39,10 @@ export function ConsumerShell({ children }: { children: ReactNode }): ReactEleme
   const title = pathname.startsWith("/work") ? t("nav.work")
     : pathname.startsWith("/projects") ? t("nav.projects")
     : pathname.startsWith("/settings") ? t("nav.settings")
-    : pathname.startsWith("/vimla") ? t("nav.vimla") : t("nav.messages");
+    : pathname.startsWith("/vimla") ? t("nav.vimla")
+    : pathname === "/app/people" || pathname.startsWith("/app/people/") ? t("profile.people")
+    : pathname.startsWith("/app/profile/") ? t("profile.title")
+    : t("nav.messages");
   const viewport = pathname === "/app" || pathname.startsWith("/app/")
     || pathname === "/projects" || pathname.startsWith("/projects/")
     || pathname === "/settings" || pathname.startsWith("/settings/")
@@ -135,6 +138,15 @@ export function ConsumerShell({ children }: { children: ReactNode }): ReactEleme
               }
               variant="ghost"
             >
+              {user.handle ? (
+                <DropdownMenuItem
+                  onSelect={() =>
+                    router.push(`/app/profile/${encodeURIComponent(user.handle ?? "")}`)
+                  }
+                >
+                  {t("profile.myProfile")}
+                </DropdownMenuItem>
+              ) : null}
               <DropdownMenuItem onSelect={() => router.push("/settings/account")}>
                 {t("nav.settings")}
               </DropdownMenuItem>

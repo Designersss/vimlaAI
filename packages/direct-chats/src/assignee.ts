@@ -1,7 +1,7 @@
 export interface DirectChatParticipant {
   userId: string;
+  handle: string;
   name: string;
-  email: string;
 }
 
 export type AssigneeResolution =
@@ -41,13 +41,13 @@ export function resolveDirectChatAssignee(
 
 function identityMatches(participant: DirectChatParticipant, hint: string): boolean {
   const name = normalizeIdentity(participant.name);
-  const email = normalizeIdentity(participant.email);
-  const local = email.split("@")[0] ?? "";
-  if (name === hint || email === hint || local === hint) {
+  const handle = normalizeIdentity(participant.handle.startsWith("@") ? participant.handle.slice(1) : participant.handle);
+  const normalizedHint = hint.startsWith("@") ? hint.slice(1) : hint;
+  if (name === normalizedHint || handle === normalizedHint) {
     return true;
   }
-  const stemLength = Math.min(5, name.length, hint.length);
-  return stemLength >= 4 && name.slice(0, stemLength) === hint.slice(0, stemLength);
+  const stemLength = Math.min(5, name.length, normalizedHint.length);
+  return stemLength >= 4 && name.slice(0, stemLength) === normalizedHint.slice(0, stemLength);
 }
 
 function normalizeIdentity(value: string): string {

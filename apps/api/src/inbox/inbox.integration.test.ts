@@ -458,7 +458,7 @@ describe("unified inbox API", () => {
     });
   });
 
-  it("bounds malformed persisted peer names instead of failing the whole inbox", async () => {
+  it("normalizes persisted public peer names without falling back to account identity", async () => {
     const owner = await registerVerifiedUser(
       app,
       "inbox-peer-owner",
@@ -484,74 +484,54 @@ describe("unified inbox API", () => {
 
     await db.user.update({
       where: { id: peer.id },
-      data: { name: "" },
+      data: { name: "Legacy Account Name" },
     });
-    const emptyNameResponse = await app.inject({
+    await db.publicProfile.update({
+      where: { userId: peer.id },
+      data: { displayName: "Inbox\n\tPeer" },
+    });
+
+    const normalizedResponse = await app.inject({
       method: "GET",
       url: "/v1/inbox?kind=DIRECT",
       headers: { origin },
       cookies: owner.cookies,
     });
-    expect(emptyNameResponse.statusCode).toBe(200);
-    expect(
-      emptyNameResponse
-        .json()
-        .items.find(
-          (item: { domainId: string }) =>
-            item.domainId === direct.id,
-        ),
-    ).toMatchObject({
-      title: "User",
-      peer: { name: "User" },
-    });
-
-    await db.user.update({
-      where: { id: peer.id },
-      data: { name: "Inbox\n\tPeer" },
-    });
-    const multilineNameResponse =
-      await app.inject({
-        method: "GET",
-        url: "/v1/inbox?kind=DIRECT",
-        headers: { origin },
-        cookies: owner.cookies,
-      });
-    expect(
-      multilineNameResponse
-        .json()
-        .items.find(
-          (item: { domainId: string }) =>
-            item.domainId === direct.id,
-        ),
-    ).toMatchObject({
-      title: "Inbox Peer",
-      peer: { name: "Inbox Peer" },
-    });
-
-    const longName = "x".repeat(250);
-    await db.user.update({
-      where: { id: peer.id },
-      data: { name: longName },
-    });
-    const longNameResponse = await app.inject({
-      method: "GET",
-      url: "/v1/inbox?kind=DIRECT",
-      headers: { origin },
-      cookies: owner.cookies,
-    });
-    expect(longNameResponse.statusCode).toBe(200);
-    const projected = longNameResponse
+    expect(normalizedResponse.statusCode).toBe(200);
+    const normalized = normalizedResponse
       .json()
       .items.find(
         (item: { domainId: string }) =>
           item.domainId === direct.id,
       );
-    expect(projected.title).toBe(
-      "x".repeat(200),
+    expect(normalized).toMatchObject({
+      title: "Inbox Peer",
+      peer: { name: "Inbox Peer" },
+    });
+    expect(normalizedResponse.body).not.toContain(
+      "Legacy Account Name",
     );
-    expect(projected.peer.name).toBe(
-      "x".repeat(200),
-    );
+
+    const boundaryName = "界".repeat(80);
+    await db.publicProfile.update({
+      where: { userId: peer.id },
+      data: { displayName: boundaryName },
+    });
+    const boundaryResponse = await app.inject({
+      method: "GET",
+      url: "/v1/inbox?kind=DIRECT",
+      headers: { origin },
+      cookies: owner.cookies,
+    });
+    expect(boundaryResponse.statusCode).toBe(200);
+    const projected = boundaryResponse
+      .json()
+      .items.find(
+        (item: { domainId: string }) =>
+          item.domainId === direct.id,
+      );
+    expect(projected.title).toBe(boundaryName);
+    expect(projected.peer.name).toBe(boundaryName);
   });
 
   it("keeps server-issued cursors within bounds for maximum Unicode search", async () => {

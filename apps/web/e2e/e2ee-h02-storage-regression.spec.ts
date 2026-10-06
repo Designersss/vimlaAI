@@ -4,6 +4,7 @@ import {
   purchasePro,
   signUp,
   uniqueEmail,
+  uniqueHandle,
   verifyEmail,
   waitForRegisteredDirectChatDevice,
   webOrigin,
@@ -15,7 +16,7 @@ const REVOCATION_LATCH_KEY =
 
 async function openDirectChat(
   page: Page,
-  peerEmail: string,
+  peerHandle: string,
 ): Promise<string> {
   await page.goto("/app");
   await page
@@ -24,8 +25,16 @@ async function openDirectChat(
     })
     .click();
   await page
-    .getByLabel(/email участника|participant email/i)
-    .fill(peerEmail);
+    .getByPlaceholder("@handle")
+    .fill(`@${peerHandle}`);
+  const peerResult = page
+    .getByTestId("people-search-results")
+    .getByRole("button")
+    .filter({ hasText: `@${peerHandle}` });
+  await expect(peerResult).toHaveCount(1, {
+    timeout: 20_000,
+  });
+  await peerResult.click();
   await page
     .getByRole("button", {
       name: /начать чат|start chat/i,
@@ -120,6 +129,7 @@ test.describe("E2EE H02 storage regressions", () => {
     const nikitaEmail = uniqueEmail(
       "h02-storage-nikita",
     );
+    const nikitaHandle = uniqueHandle("h02storage");
     const aliceContext =
       await browser.newContext();
     const nikitaContext =
@@ -143,9 +153,10 @@ test.describe("E2EE H02 storage regressions", () => {
       await purchasePro(alicePage);
 
       await signUp(nikitaPage, {
-        name: "Nikita",
+        name: "Storage Peer",
         email: nikitaEmail,
         password,
+        handle: nikitaHandle,
       });
       await verifyEmail(
         nikitaPage,
@@ -158,7 +169,7 @@ test.describe("E2EE H02 storage regressions", () => {
 
       const directUrl = await openDirectChat(
         alicePage,
-        nikitaEmail,
+        nikitaHandle,
       );
       const composer =
         alicePage.getByPlaceholder(
@@ -201,45 +212,46 @@ test.describe("E2EE H02 storage regressions", () => {
           }),
       ).toBeVisible({ timeout: 20_000 });
 
-      const stored = await alicePage.evaluate(
-        async () => {
-          const db =
-            await new Promise<IDBDatabase>(
-              (resolve, reject) => {
-                const request = indexedDB.open(
-                  "vimla-direct-e2ee",
+      const stored =
+        await alicePage.evaluate(
+          async () => {
+            const db =
+              await new Promise<IDBDatabase>(
+                (resolve, reject) => {
+                  const request = indexedDB.open(
+                    "vimla-direct-e2ee",
+                  );
+                  request.onsuccess = () =>
+                    resolve(request.result);
+                  request.onerror = () =>
+                    reject(request.error);
+                },
+              );
+            try {
+              return await new Promise<
+                Array<{
+                  messageId: string;
+                  text: string;
+                  protectionVersion?: number;
+                }>
+              >((resolve, reject) => {
+                const tx = db.transaction(
+                  "plaintexts",
+                  "readonly",
                 );
+                const request = tx
+                  .objectStore("plaintexts")
+                  .getAll();
                 request.onsuccess = () =>
                   resolve(request.result);
                 request.onerror = () =>
                   reject(request.error);
-              },
-            );
-          try {
-            return await new Promise<
-              Array<{
-                messageId: string;
-                text: string;
-                protectionVersion?: number;
-              }>
-            >((resolve, reject) => {
-              const tx = db.transaction(
-                "plaintexts",
-                "readonly",
-              );
-              const request = tx
-                .objectStore("plaintexts")
-                .getAll();
-              request.onsuccess = () =>
-                resolve(request.result);
-              request.onerror = () =>
-                reject(request.error);
-            });
-          } finally {
-            db.close();
-          }
-        },
-      );
+              });
+            } finally {
+              db.close();
+            }
+          },
+        );
       expect(stored.length).toBeGreaterThanOrEqual(2);
       expect(
         stored.every(
@@ -314,11 +326,13 @@ test.describe("E2EE H02 storage regressions", () => {
       );
       await alicePage.goto(directUrl);
       await expect(
-        alicePage.getByRole("region", {
-          name: /разговор|conversation/i,
-        }).getByRole("button", {
-          name: /повторить|retry/i,
-        }),
+        alicePage
+          .getByRole("region", {
+            name: /разговор|conversation/i,
+          })
+          .getByRole("button", {
+            name: /повторить|retry/i,
+          }),
       ).toBeVisible({ timeout: 20_000 });
 
       await alicePage.evaluate(
@@ -732,6 +746,7 @@ test.describe("E2EE H02 storage regressions", () => {
     const nikitaEmail = uniqueEmail(
       "h02-legacy-nikita",
     );
+    const nikitaHandle = uniqueHandle("h02legacy");
     const aliceContext =
       await browser.newContext();
     const nikitaContext =
@@ -754,9 +769,10 @@ test.describe("E2EE H02 storage regressions", () => {
       );
       await purchasePro(alicePage);
       await signUp(nikitaPage, {
-        name: "Nikita",
+        name: "Legacy Storage Peer",
         email: nikitaEmail,
         password,
+        handle: nikitaHandle,
       });
       await verifyEmail(
         nikitaPage,
@@ -767,7 +783,7 @@ test.describe("E2EE H02 storage regressions", () => {
       await nikitaPage.goto("/app");
       await waitForRegisteredDirectChatDevice(nikitaPage);
 
-      await openDirectChat(alicePage, nikitaEmail);
+      await openDirectChat(alicePage, nikitaHandle);
       const composer =
         alicePage.getByPlaceholder(
           /сообщение этому человеку|message this person/i,
@@ -1068,6 +1084,7 @@ test.describe("E2EE H02 storage regressions", () => {
     const nikitaEmail = uniqueEmail(
       "h02-tabs-nikita",
     );
+    const nikitaHandle = uniqueHandle("h02tabs");
     const aliceContext =
       await browser.newContext();
     const nikitaContext =
@@ -1091,9 +1108,10 @@ test.describe("E2EE H02 storage regressions", () => {
       await purchasePro(alicePage);
 
       await signUp(nikitaPage, {
-        name: "Nikita",
+        name: "Revocation Peer",
         email: nikitaEmail,
         password,
+        handle: nikitaHandle,
       });
       await verifyEmail(
         nikitaPage,
@@ -1106,7 +1124,7 @@ test.describe("E2EE H02 storage regressions", () => {
 
       const directUrl = await openDirectChat(
         alicePage,
-        nikitaEmail,
+        nikitaHandle,
       );
       const secondPage =
         await aliceContext.newPage();

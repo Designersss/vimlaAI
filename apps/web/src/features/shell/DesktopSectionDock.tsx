@@ -4,20 +4,29 @@ import type { ReactElement } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTranslations } from "next-intl";
-import { CheckSquareIcon, FolderIcon, MessageSquareIcon, SettingsIcon, VimlaMark } from "@vimla/ui";
+import { CheckSquareIcon, CircleUserIcon, FolderIcon, MessageSquareIcon, SettingsIcon, VimlaMark } from "@vimla/ui";
 import { CONSUMER_FEATURES } from "../../shared/config/consumer-features";
 import styles from "./DesktopSectionDock.module.scss";
 
 export function DesktopSectionDock(): ReactElement {
   const pathname = usePathname();
   const t = useTranslations();
+  const peopleActive = pathname === "/app/people" || pathname.startsWith("/app/people/")
+    || pathname.startsWith("/app/profile/");
+  const messagesActive = (pathname === "/app" || pathname.startsWith("/app/")) && !peopleActive;
 
   const items = [
     {
       href: "/app",
       label: t("nav.messages"),
-      active: pathname === "/app" || pathname.startsWith("/app/"),
+      active: messagesActive,
       icon: <MessageSquareIcon size={18} aria-hidden="true" />,
+    },
+    {
+      href: "/app/people",
+      label: t("profile.people"),
+      active: peopleActive,
+      icon: <CircleUserIcon size={18} aria-hidden="true" />,
     },
     ...(CONSUMER_FEATURES.projects
       ? [{

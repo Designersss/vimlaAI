@@ -1,5 +1,10 @@
 import { z } from "zod";
+import { handleInputSchema, handleSchema } from "./handles.js";
 import { messageMentionInputSchema, messageMentionViewSchema } from "./mentions.js";
+import {
+  publicProfileAvatarUrlSchema,
+  publicProfileDisplayNameSchema,
+} from "./public-profiles.js";
 
 export const DIRECT_CHAT_LIMITS = {
   ciphertextMax: 65_536,
@@ -14,7 +19,6 @@ export const DIRECT_CHAT_LIMITS = {
   contextCharsMax: 32_000,
   prekeysMax: 32,
   deviceLabelMax: 80,
-  peerEmailMax: 254,
 } as const;
 
 export const directMessageKindSchema = z.enum([
@@ -97,7 +101,7 @@ export type RotatePrekeys = z.infer<typeof rotatePrekeysSchema>;
 
 export const createDirectConversationSchema = z
   .object({
-    peerEmail: z.string().trim().email().max(DIRECT_CHAT_LIMITS.peerEmailMax),
+    peerHandle: handleInputSchema,
   })
   .strict();
 export type CreateDirectConversation = z.infer<typeof createDirectConversationSchema>;
@@ -178,8 +182,9 @@ export type PrekeyBundlesResponse = z.infer<typeof prekeyBundlesResponseSchema>;
 
 export const directParticipantSchema = z.object({
   userId: z.string(),
-  name: z.string(),
-  email: z.string().email(),
+  handle: handleSchema,
+  name: publicProfileDisplayNameSchema,
+  avatarUrl: publicProfileAvatarUrlSchema,
 });
 export type DirectParticipant = z.infer<typeof directParticipantSchema>;
 
@@ -203,7 +208,6 @@ export const directConversationSummarySchema = z.object({
   privacy: directConversationPrivacySchema,
 });
 export type DirectConversationSummary = z.infer<typeof directConversationSummarySchema>;
-
 
 export const directConversationViewSchema = directConversationSummarySchema.extend({
   members: z.array(directParticipantSchema),

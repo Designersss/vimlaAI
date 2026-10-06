@@ -1,0 +1,12 @@
+model PublicProfile {
+  userId      String   @id
+  handleId    String   @unique
+  displayName String
+  avatarUrl   String?
+  bio         String?
+  status      String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("public_profile")
+}

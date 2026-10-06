@@ -7,6 +7,7 @@ import {
   purchasePro,
   signUp,
   uniqueEmail,
+  uniqueHandle,
   verifyEmail,
   webOrigin,
 } from "./helpers";
@@ -22,8 +23,14 @@ test.describe("Unified Inbox", () => {
     const bobEmail = uniqueEmail(
       "e2e-inbox-bob",
     );
+    const bobHandle = uniqueHandle(
+      "inboxbob",
+    );
     const aliceEmail = uniqueEmail(
       "e2e-inbox-alice",
+    );
+    const aliceHandle = uniqueHandle(
+      "inboxalice",
     );
 
     const bobContext =
@@ -39,6 +46,7 @@ test.describe("Unified Inbox", () => {
       name: "Inbox Bob",
       email: bobEmail,
       password,
+      handle: bobHandle,
     });
     await verifyEmail(
       bobPage,
@@ -149,6 +157,7 @@ test.describe("Unified Inbox", () => {
       name: "Inbox Alice",
       email: aliceEmail,
       password,
+      handle: aliceHandle,
     });
     await verifyEmail(
       alicePage,
@@ -168,10 +177,22 @@ test.describe("Unified Inbox", () => {
       })
       .click();
     await alicePage
-      .getByLabel(
-        /email участника|participant email/i,
-      )
-      .fill(bobEmail);
+      .getByPlaceholder("@handle")
+      .fill(`@${bobHandle}`);
+    const peopleResults = alicePage.getByTestId(
+      "people-search-results",
+    );
+    await expect(peopleResults).toContainText(
+      "Inbox Bob",
+      { timeout: 20_000 },
+    );
+    await expect(peopleResults).toContainText(
+      `@${bobHandle}`,
+    );
+    await peopleResults
+      .getByRole("button")
+      .filter({ hasText: `@${bobHandle}` })
+      .click();
     await alicePage
       .getByRole("button", {
         name: /начать чат|start chat/i,

@@ -1,5 +1,9 @@
 import { z } from "zod";
 import { handleSchema, normalizeHandleInput } from "./handles.js";
+import {
+  publicProfileAvatarUrlSchema,
+  publicProfileDisplayNameSchema,
+} from "./public-profiles.js";
 
 const MODEL_HANDLE_MAX_LENGTH = 128;
 const MODEL_HANDLE_CHARACTERS = /^[a-z0-9._-]+$/;
@@ -27,8 +31,14 @@ const mentionCandidatePresentationSchema = z.object({
   role: z.string().max(80).nullable().default(null),
 });
 
+const userMentionCandidatePresentationSchema =
+  mentionCandidatePresentationSchema.extend({
+    label: publicProfileDisplayNameSchema,
+    avatarUrl: publicProfileAvatarUrlSchema.default(null),
+  });
+
 export const mentionCandidateSchema = z.discriminatedUnion("kind", [
-  mentionCandidatePresentationSchema.extend({ kind: z.literal("USER"), handle: handleSchema }).strict(),
+  userMentionCandidatePresentationSchema.extend({ kind: z.literal("USER"), handle: handleSchema }).strict(),
   mentionCandidatePresentationSchema.extend({ kind: z.literal("SYSTEM_AGENT"), handle: handleSchema }).strict(),
   mentionCandidatePresentationSchema.extend({ kind: z.literal("AI_AUTO"), handle: handleSchema }).strict(),
   mentionCandidatePresentationSchema.extend({ kind: z.literal("AI_MODEL"), handle: aiModelHandleSchema }).strict(),

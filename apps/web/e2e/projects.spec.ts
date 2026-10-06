@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { purchasePro, signUp, uniqueEmail, verifyEmail } from "./helpers";
+import { purchasePro, signUp, uniqueEmail, uniqueHandle, verifyEmail } from "./helpers";
 import { assertNoDocumentOverflow, assertReachable } from "./responsive-helpers";
 
 const master = (page: Page) => page.getByRole("region", { name: /^(проекты|projects)$/i, includeHidden: true });
@@ -25,7 +25,13 @@ test.describe("projects", () => {
     test.setTimeout(120_000);
     await page.setViewportSize({ width: 1440, height: 900 });
     const email = uniqueEmail("e2e-projects");
-    await signUp(page, { name: "Ada", email, password: "correct-horse-battery" });
+    const handle = uniqueHandle("e2eproj");
+    await signUp(page, {
+      name: "Ada",
+      email,
+      password: "correct-horse-battery",
+      handle,
+    });
     await verifyEmail(page, request, email);
     await purchasePro(page);
 
@@ -53,7 +59,10 @@ test.describe("projects", () => {
     await detail(page).getByRole("link", { name: /участники|members/i }).click();
     await expect(page).toHaveURL(`${firstHref}/members`);
     await expect(page.getByRole("heading", { name: /участники|members/i })).toBeVisible();
-    await expect(page.getByTestId("project-detail-shell").getByText(email)).toBeVisible();
+    const projectDetail = page.getByTestId("project-detail-shell");
+    await expect(projectDetail.getByText("Ada", { exact: true })).toBeVisible();
+    await expect(projectDetail.getByText(`@${handle}`, { exact: true })).toBeVisible();
+    await expect(projectDetail.getByText(email, { exact: true })).toHaveCount(0);
     expect(await masterHandle?.evaluate((element) => element.isConnected)).toBe(true);
     await assertNoDocumentOverflow(page);
   });

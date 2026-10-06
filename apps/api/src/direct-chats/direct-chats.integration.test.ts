@@ -310,6 +310,11 @@ describe("direct chats API", () => {
     const aliceDevice = await registerHarness(app, alice);
     const nikitaDevice = await registerHarness(app, nikita);
     await registerHarness(app, stranger);
+    const unicodeDisplayName = "🚀".repeat(80);
+    await app.get(PrismaService).client.publicProfile.update({
+      where: { userId: nikita.id },
+      data: { displayName: unicodeDisplayName },
+    });
 
     const created = await app.inject({
       method: "POST",
@@ -320,12 +325,16 @@ describe("direct chats API", () => {
     });
     expect(created.statusCode).toBe(400);
 
-    const chat = await createChat(app, alice.cookies, nikita.email);
+    const chat = await createChat(app, alice.cookies, nikita.handle);
+    expect(chat.peer.name).toBe(unicodeDisplayName);
+    expect(chat.members.find((member) => member.userId === nikita.id)?.name).toBe(
+      unicodeDisplayName,
+    );
     expect(chat.surfaceKind).toBe("DIRECT");
     expect(String(chat.surfaceId)).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
     );
-    const replay = await createChat(app, nikita.cookies, alice.email);
+    const replay = await createChat(app, nikita.cookies, alice.handle);
     expect(replay.id).toBe(chat.id);
     expect(replay.surfaceId).toBe(chat.surfaceId);
     expect(replay.surfaceKind).toBe("DIRECT");
@@ -643,7 +652,7 @@ describe("direct chats API", () => {
     const oscar = await readyUser(app, "dc-mentions-oscar", "Oscar");
     const aliceDevice = await registerHarness(app, alice);
     await registerHarness(app, nikita);
-    const chat = await createChat(app, alice.cookies, nikita.email);
+    const chat = await createChat(app, alice.cookies, nikita.handle);
 
     const prisma = app.get(PrismaService).client;
     const vimlaHandle = await prisma.handle.findUnique({ where: { systemKey: "VIMLA" } });
@@ -783,7 +792,7 @@ describe("direct chats API", () => {
     const nikita = await readyUser(app, "dc-replay-nikita", "Nikita");
     const aliceDevice = await registerHarness(app, alice);
     const nikitaDevice = await registerHarness(app, nikita);
-    const chat = await createChat(app, alice.cookies, nikita.email);
+    const chat = await createChat(app, alice.cookies, nikita.handle);
 
     const devices = chat.devices;
     const envelopes = [];
@@ -1012,7 +1021,7 @@ describe("direct chats API", () => {
     const chat = await createChat(
       app,
       alice.cookies,
-      nikita.email,
+      nikita.handle,
     );
 
     const revoked = await app.inject({
@@ -1051,7 +1060,7 @@ describe("direct chats API", () => {
     const chat = await createChat(
       app,
       alice.cookies,
-      nikita.email,
+      nikita.handle,
     );
     const envelopes = [];
     for (const device of chat.devices) {
@@ -1140,7 +1149,7 @@ describe("direct chats API", () => {
     const nikita = await readyUser(app, "dc-routing-nikita", "Nikita");
     const aliceDevice = await registerHarness(app, alice);
     await registerHarness(app, nikita);
-    const chat = await createChat(app, alice.cookies, nikita.email);
+    const chat = await createChat(app, alice.cookies, nikita.handle);
 
     const legacyInvoke = await sendPlain(
       app,
@@ -1199,7 +1208,7 @@ describe("direct chats API", () => {
     const aliceDevice = await registerHarness(app, alice);
     const nikitaDevice = await registerHarness(app, nikita);
     const oscarDevice = await registerHarness(app, oscar);
-    const chat = await createChat(app, alice.cookies, nikita.email);
+    const chat = await createChat(app, alice.cookies, nikita.handle);
     const db = app.get(PrismaService).client;
     const vimlaHandle = await db.handle.findUnique({
       where: { systemKey: "VIMLA" },
@@ -1602,7 +1611,7 @@ describe("direct chats API", () => {
     });
     expect(equalTimeClaim.statusCode).toBe(400);
 
-    const otherChat = await createChat(app, alice.cookies, oscar.email);
+    const otherChat = await createChat(app, alice.cookies, oscar.handle);
     const otherHistoryResponse = await sendPlain(
       app,
       oscar,
@@ -2154,7 +2163,17 @@ interface Harness {
 async function readyUser(app: NestFastifyApplication, label: string, displayName?: string) {
   const user = await registerVerifiedUser(app, label);
   if (displayName) {
-    await app.get(PrismaService).client.user.update({ where: { id: user.id }, data: { name: displayName } });
+    const db = app.get(PrismaService).client;
+    await db.$transaction([
+      db.user.update({
+        where: { id: user.id },
+        data: { name: displayName },
+      }),
+      db.publicProfile.update({
+        where: { userId: user.id },
+        data: { displayName },
+      }),
+    ]);
   }
   const purchased = await app.inject({
     method: "POST",
@@ -2212,14 +2231,14 @@ async function registerHarness(
 async function createChat(
   app: NestFastifyApplication,
   cookies: Record<string, string>,
-  peerEmail: string,
+  peerHandle: string,
 ): Promise<DirectConversationView> {
   const created = await app.inject({
     method: "POST",
     url: "/v1/direct-chats",
     headers: jsonHeaders(),
     cookies,
-    payload: { peerEmail },
+    payload: { peerHandle },
   });
   expect(created.statusCode).toBe(201);
   return created.json();

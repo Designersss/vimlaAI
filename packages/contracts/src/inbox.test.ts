@@ -42,6 +42,7 @@ describe("inbox contracts", () => {
         title: "Nikita",
         peer: {
           userId: "peer",
+          handle: "nikita",
           name: "Nikita",
           avatarUrl: null,
         },
@@ -70,7 +71,12 @@ describe("inbox contracts", () => {
         surfaceKind: "DIRECT",
         domainId: "33333333-3333-4333-8333-333333333333",
         title: "Peer",
-        peer: { userId: "peer", name: "Peer", avatarUrl: null },
+        peer: {
+          userId: "peer",
+          handle: "peer",
+          name: "Peer",
+          avatarUrl: null,
+        },
         lastActivityAt: "2026-10-02T04:01:00.000Z",
         unreadCount: 0,
         preview: {

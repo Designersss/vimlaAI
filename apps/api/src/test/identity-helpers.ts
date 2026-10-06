@@ -5,6 +5,17 @@ import { Redis } from "ioredis";
 
 const origin = "http://localhost:3000";
 
+type UnverifiedTestUser = {
+  cookies: Record<string, string>;
+  id: string;
+  email: string;
+  password: string;
+};
+
+export type VerifiedTestUser = UnverifiedTestUser & {
+  handle: string;
+};
+
 export function cookiesFromResponse(response: {
   cookies: Array<{ name: string; value: string }>;
 }): Record<string, string> {
@@ -18,14 +29,15 @@ export function cookiesFromResponse(response: {
 export async function registerUnverifiedUser(
   app: NestFastifyApplication,
   label: string,
-): Promise<{ cookies: Record<string, string>; id: string; email: string; password: string }> {
+  name = label,
+): Promise<UnverifiedTestUser> {
   const email = `${label}-${randomUUID()}@example.com`.toLowerCase();
   const password = "correct-horse-battery";
   const signUp = await app.inject({
     method: "POST",
     url: "/api/auth/sign-up/email",
     headers: { origin, "content-type": "application/json" },
-    payload: { email, password, name: label },
+    payload: { email, password, name },
   });
   if (signUp.statusCode < 200 || signUp.statusCode >= 300) {
     throw new Error(`sign-up failed: ${signUp.statusCode} ${signUp.body}`);
@@ -75,8 +87,9 @@ export async function verifyEmailOtp(
 export async function registerVerifiedUser(
   app: NestFastifyApplication,
   label: string,
-): Promise<{ cookies: Record<string, string>; id: string; email: string; password: string }> {
-  const created = await registerUnverifiedUser(app, label);
+  name = label,
+): Promise<VerifiedTestUser> {
+  const created = await registerUnverifiedUser(app, label, name);
   const cookies = await verifyEmailOtp(app, created.email, created.cookies);
   const me = await app.inject({
     method: "GET",
@@ -122,7 +135,7 @@ export async function registerVerifiedUser(
     throw new Error(`expected active handle after verification: ${ready.statusCode} ${ready.body}`);
   }
 
-  return { ...created, cookies };
+  return { ...created, cookies, handle };
 }
 
 export async function waitForEmailOtp(email: string, attempts = 40): Promise<string> {

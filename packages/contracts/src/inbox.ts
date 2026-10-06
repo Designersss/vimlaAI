@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { communicationSurfaceKindSchema } from "./communication-surfaces.js";
 import { directMessageKindSchema } from "./direct-chats.js";
+import { handleSchema } from "./handles.js";
 import { NAVIGATION_TARGET_VERSION } from "./navigation.js";
 
 export const INBOX_LIMITS = {
@@ -54,6 +55,7 @@ export const inboxNavigationTargetSchema = z
 export const inboxPeerSummarySchema = z
   .object({
     userId: z.string().min(1).max(128),
+    handle: handleSchema,
     name: z.string().min(1).max(INBOX_LIMITS.peerNameMax),
     avatarUrl: z.string().max(INBOX_LIMITS.avatarUrlMax).nullable(),
   })
