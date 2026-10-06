@@ -126,6 +126,7 @@ test.describe("Public profile", () => {
     await expect(
       alicePage.getByPlaceholder("Message this person"),
     ).toBeVisible({ timeout: 30_000 });
+    const directUrl = alicePage.url();
 
     const directShell = alicePage.getByTestId(
       "direct-chat-shell",
@@ -168,6 +169,34 @@ test.describe("Public profile", () => {
     await reportDialog
       .getByRole("button", { name: "Done" })
       .click();
+
+    let abortPendingSend = true;
+    await alicePage.route(
+      "**/v1/direct-chats/*/messages",
+      async (route) => {
+        if (
+          abortPendingSend &&
+          route.request().method() === "POST"
+        ) {
+          abortPendingSend = false;
+          await route.abort("failed");
+          return;
+        }
+        await route.continue();
+      },
+    );
+    const pendingBeforeOwnBlock =
+      "pending must not survive own block";
+    await alicePage
+      .getByPlaceholder("Message this person")
+      .fill(pendingBeforeOwnBlock);
+    await alicePage
+      .getByTestId("chat-composer-send")
+      .click();
+    await expect.poll(() => abortPendingSend).toBe(false);
+    await alicePage.unroute(
+      "**/v1/direct-chats/*/messages",
+    );
 
     await alicePage
       .getByTestId("direct-chat-shell")
@@ -213,6 +242,22 @@ test.describe("Public profile", () => {
       .click();
     await expect(
       alicePage.getByText(`@${bobHandle}`),
+    ).toHaveCount(0);
+
+    await alicePage.goto(directUrl);
+    await expect(
+      alicePage.getByTestId("direct-chat-shell"),
+    ).toBeVisible({ timeout: 20_000 });
+    await expect(
+      alicePage
+        .getByTestId("direct-message-human")
+        .filter({ hasText: pendingBeforeOwnBlock }),
+    ).toHaveCount(0);
+    await alicePage.waitForTimeout(1_000);
+    await expect(
+      alicePage
+        .getByTestId("direct-message-human")
+        .filter({ hasText: pendingBeforeOwnBlock }),
     ).toHaveCount(0);
 
     await bobContext.close();
