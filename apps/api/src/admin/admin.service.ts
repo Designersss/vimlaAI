@@ -660,8 +660,8 @@ export class AdminFacade {
             reporterUserId: true,
             targetUserId: true,
             reason: true,
-            details: true,
             status: true,
+            details: true,
             evidenceKind: true,
             directConversationId: true,
             directMessageId: true,
@@ -683,8 +683,9 @@ export class AdminFacade {
         }),
       ]);
     return {
-      items: items.map((item) => ({
+      items: items.map(({ details, ...item }) => ({
         ...item,
+        hasDetails: details !== null,
         evidenceMessageCreatedAt:
           item.evidenceMessageCreatedAt?.toISOString() ??
           null,
@@ -711,6 +712,7 @@ export class AdminFacade {
           targetUserId: true,
           reason: true,
           status: true,
+          details: true,
           evidenceKind: true,
           directConversationId: true,
           directMessageId: true,
@@ -737,14 +739,40 @@ export class AdminFacade {
       afterSnapshot: {
         evidenceKind: report.evidenceKind,
         directMessageId: report.directMessageId,
+        hasDetails: report.details !== null,
       },
     });
 
+    const {
+      evidenceText,
+      evidenceMessageCreatedAt,
+      ...metadata
+    } = report;
     return {
-      ...report,
-      evidenceMessageCreatedAt:
-        report.evidenceMessageCreatedAt?.toISOString() ??
-        null,
+      ...metadata,
+      details: report.details,
+      evidence:
+        report.evidenceKind === "DIRECT_MESSAGE"
+          ? {
+              kind: "DIRECT_MESSAGE" as const,
+              directConversationId:
+                report.directConversationId,
+              directMessageId: report.directMessageId,
+              senderUserId: report.evidenceSenderUserId,
+              senderDeviceId:
+                report.evidenceSenderDeviceId,
+              messageKind:
+                report.evidenceMessageKind,
+              messageCreatedAt:
+                evidenceMessageCreatedAt?.toISOString() ??
+                null,
+              disclosedText: evidenceText,
+              textAuthenticity:
+                "REPORTER_DISCLOSED_NOT_SERVER_VERIFIED" as const,
+              provenance:
+                "SERVER_VERIFIED_MESSAGE_METADATA" as const,
+            }
+          : null,
       createdAt: report.createdAt.toISOString(),
     };
   }
