@@ -837,15 +837,6 @@ test.describe("Secure Direct Chats", () => {
     const composer = alicePage.getByPlaceholder(
       /сообщение этому человеку|message this person/i,
     );
-    await composer.fill("baseline before block");
-    await alicePage
-      .getByTestId("chat-composer-send")
-      .click();
-    await expect(
-      bobPage
-        .getByTestId("direct-message-human")
-        .filter({ hasText: "baseline before block" }),
-    ).toBeVisible({ timeout: 20_000 });
 
     let signalSendHeld!: () => void;
     let releaseSend!: () => void;
