@@ -1154,6 +1154,7 @@ model DirectConversation {
   updatedAt     DateTime @updatedAt
   lastMessageAt       DateTime @default(now())
   lastMessageSequence  BigInt   @default(0)
+  interactionEpoch     Int      @default(0)
   members             DirectConversationMember[]
   messages      DirectMessage[]
   operatorRuns  OperatorRun[]
@@ -1191,6 +1192,7 @@ model DirectMessage {
   senderDevice   UserCryptoDevice   @relation(fields: [senderDeviceId], references: [id], onDelete: Restrict)
   clientMessageId String
   kind           String
+  interactionEpoch Int              @default(0)
   sequence       BigInt             @default(0)
   createdAt      DateTime           @default(now())
   envelopes      DirectMessageEnvelope[]
