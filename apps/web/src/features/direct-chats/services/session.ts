@@ -419,9 +419,12 @@ export async function recoverPendingSends(input: {
       for (const stored of pending) {
         let row = stored;
         if (
-          row.operatorIntent &&
-          row.committedMessageId &&
-          row.committedCreatedAt
+          row.trustCancelledAt ||
+          (
+            row.operatorIntent &&
+            row.committedMessageId &&
+            row.committedCreatedAt
+          )
         ) {
           continue;
         }
@@ -582,6 +585,7 @@ export async function loadPendingOperatorInvocations(input: {
     input.localDeviceId,
   );
   return rows.flatMap((row) =>
+    !row.trustCancelledAt &&
     row.operatorIntent &&
     row.committedMessageId &&
     row.committedCreatedAt
