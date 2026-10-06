@@ -148,6 +148,22 @@ describe("admin control plane", () => {
         evidenceKind: "NONE",
       },
     });
+    await prisma.abuseReport.createMany({
+      data: [
+        {
+          reporterUserId: reporter.id,
+          targetUserId: target.id,
+          reason: "SPAM",
+          evidenceKind: "NONE",
+        },
+        {
+          reporterUserId: reporter.id,
+          targetUserId: target.id,
+          reason: "HATE",
+          evidenceKind: "NONE",
+        },
+      ],
+    });
 
     const reader = await registerVerifiedUser(
       app,
@@ -201,6 +217,46 @@ describe("admin control plane", () => {
     expect(list.body).not.toContain("Moderation-only report details");
     expect(list.body).not.toContain(reporter.email);
     expect(list.body).not.toContain(target.email);
+
+    const firstPage = await app.inject({
+      method: "GET",
+      url: "/admin/v1/moderation/reports?limit=1",
+      headers: { origin: adminOrigin },
+      cookies: {
+        [ADMIN_COOKIE_NAME]: readerSession.token,
+      },
+    });
+    expect(firstPage.statusCode).toBe(200);
+    expect(firstPage.json().items).toHaveLength(1);
+    expect(firstPage.json().nextCursor).toEqual(
+      expect.any(String),
+    );
+    const secondPage = await app.inject({
+      method: "GET",
+      url: `/admin/v1/moderation/reports?limit=1&cursor=${encodeURIComponent(
+        firstPage.json().nextCursor,
+      )}`,
+      headers: { origin: adminOrigin },
+      cookies: {
+        [ADMIN_COOKIE_NAME]: readerSession.token,
+      },
+    });
+    expect(secondPage.statusCode).toBe(200);
+    expect(secondPage.json().items).toHaveLength(1);
+    expect(secondPage.json().items[0]?.id).not.toBe(
+      firstPage.json().items[0]?.id,
+    );
+    const mismatchedCursor = await app.inject({
+      method: "GET",
+      url: `/admin/v1/moderation/reports?limit=1&status=RESOLVED&cursor=${encodeURIComponent(
+        firstPage.json().nextCursor,
+      )}`,
+      headers: { origin: adminOrigin },
+      cookies: {
+        [ADMIN_COOKIE_NAME]: readerSession.token,
+      },
+    });
+    expect(mismatchedCursor.statusCode).toBe(400);
 
     const invalidList = await app.inject({
       method: "GET",
