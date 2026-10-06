@@ -22,6 +22,7 @@ function ad(kind: EnvelopeAssociatedData["kind"] = "HUMAN"): EnvelopeAssociatedD
     senderDeviceId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
     recipientDeviceId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
     kind,
+    interactionEpoch: 0,
   };
 }
 
