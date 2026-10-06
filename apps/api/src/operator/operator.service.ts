@@ -38,6 +38,10 @@ import {
   resolveDirectChatAssignee,
 } from "@vimla/direct-chats";
 import {
+  PrismaUserTrustPolicy,
+  lockTrustUserPair,
+} from "@vimla/trust";
+import {
   ListService,
   NoteService,
   ReminderService,
@@ -1690,6 +1694,24 @@ export class OperatorService {
       );
     }
 
+    const usersExist = await lockTrustUserPair(
+      tx,
+      actorUserId,
+      peer.userId,
+    );
+    const interactionAllowed =
+      usersExist &&
+      (await new PrismaUserTrustPolicy(tx).canInteract(
+        actorUserId,
+        peer.userId,
+      ));
+    if (!interactionAllowed) {
+      throw new OperatorError(
+        "CONTEXT_REVOKED",
+        "Direct Chat interaction is no longer available",
+      );
+    }
+
     for (const message of messages) {
       if (message.senderUserId === actorUserId) {
         if (!mine.shareOwnHistoryWithVimla) {
@@ -1848,6 +1870,11 @@ export class OperatorService {
       );
     }
     if (run.status === "EXECUTING") {
+      const contextFailure =
+        await this.failIfDirectChatContextRevoked(run);
+      if (contextFailure) {
+        return contextFailure;
+      }
       const context = await this.toolContext(run);
       const executed = await this.executePersistedSteps(run.id, context, correlationId);
       if (executed.status === "CLARIFY") {
