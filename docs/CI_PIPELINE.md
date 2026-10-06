@@ -79,10 +79,7 @@ pnpm build
 pnpm --filter @vimla/database ensure-test-db
 DATABASE_URL="$TEST_DATABASE_URL" pnpm --filter @vimla/billing seed
 DATABASE_URL="$TEST_DATABASE_URL" pnpm --filter @vimla/ai seed
-node scripts/ci-web-e2e-suite.mjs --validate
-node scripts/ci-web-e2e-suite.mjs --browsers messaging-ai 1
 pnpm --filter @vimla/web exec playwright install --with-deps chromium webkit firefox
-
 node scripts/ci-web-e2e-suite.mjs --validate
 node scripts/ci-web-e2e-suite.mjs direct-chats-e2ee 1
 node scripts/ci-web-e2e-suite.mjs direct-chats-e2ee 2
@@ -94,7 +91,7 @@ node scripts/ci-web-e2e-suite.mjs ui-release 1
 pnpm --filter @vimla/admin-web test:e2e
 ```
 
-The Web commands above use the exact CI partitioner but are **illustrative sequential local execution**. In CI the lanes run on different hosts with separate databases, so do not execute them simultaneously against one local database without explicit isolation. `pnpm codex:validate` remains a sequential developer command; this task changes only CI scheduling, not its coverage.
+The Web commands above use the exact CI partitioner but are **illustrative sequential local execution**. For a single-lane reproduction, `node scripts/ci-web-e2e-suite.mjs --browsers <suite> <shard>` prints the minimal engine set that CI installs for that lane. In CI the lanes run on different hosts with separate databases, so do not execute them simultaneously against one local database without explicit isolation. `pnpm codex:validate` remains a sequential developer command; this task changes only CI scheduling, not its coverage.
 
 ## Metrics, limitations and rollout
 
