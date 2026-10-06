@@ -773,6 +773,179 @@ test.describe("Secure Direct Chats", () => {
     await nikitaContext.close();
   });
 
+  test("does not resurrect a trust-rejected pending message after unblock", async ({
+    browser,
+    request,
+  }) => {
+    test.setTimeout(150_000);
+    const password = "correct-horse-battery";
+    const aliceEmail = uniqueEmail("e2e-block-pending-alice");
+    const bobEmail = uniqueEmail("e2e-block-pending-bob");
+    const aliceHandle = uniqueHandle("blockpendingalice");
+    const bobHandle = uniqueHandle("blockpendingbob");
+
+    const aliceContext = await browser.newContext();
+    const bobContext = await browser.newContext();
+    const alicePage = await aliceContext.newPage();
+    const bobPage = await bobContext.newPage();
+
+    await signUp(alicePage, {
+      name: "Pending Alice",
+      email: aliceEmail,
+      password,
+      handle: aliceHandle,
+    });
+    await verifyEmail(alicePage, request, aliceEmail);
+    await purchasePro(alicePage);
+
+    await signUp(bobPage, {
+      name: "Pending Bob",
+      email: bobEmail,
+      password,
+      handle: bobHandle,
+    });
+    await verifyEmail(bobPage, request, bobEmail);
+    await purchasePro(bobPage);
+
+    const created = await alicePage.request.post(
+      `${apiBase}/v1/direct-chats`,
+      {
+        data: { peerHandle: bobHandle },
+        headers: {
+          origin: webOrigin,
+          "content-type": "application/json",
+        },
+      },
+    );
+    expect(created.ok()).toBe(true);
+    const conversationId = String(
+      (await created.json()).id,
+    );
+    const directUrl = `/app/direct/${conversationId}`;
+
+    await Promise.all([
+      alicePage.goto(directUrl),
+      bobPage.goto(directUrl),
+    ]);
+    await expect(
+      alicePage.getByTestId("direct-chat-shell"),
+    ).toBeVisible({ timeout: 20_000 });
+    await expect(
+      bobPage.getByTestId("direct-chat-shell"),
+    ).toBeVisible({ timeout: 20_000 });
+
+    const composer = alicePage.getByPlaceholder(
+      /сообщение этому человеку|message this person/i,
+    );
+    await composer.fill("baseline before block");
+    await alicePage
+      .getByTestId("chat-composer-send")
+      .click();
+    await expect(
+      bobPage
+        .getByTestId("direct-message-human")
+        .filter({ hasText: "baseline before block" }),
+    ).toBeVisible({ timeout: 20_000 });
+
+    let signalSendHeld!: () => void;
+    let releaseSend!: () => void;
+    const sendHeld = new Promise<void>((resolve) => {
+      signalSendHeld = resolve;
+    });
+    const sendRelease = new Promise<void>((resolve) => {
+      releaseSend = resolve;
+    });
+    let held = false;
+    await alicePage.route(
+      "**/v1/direct-chats/*/messages",
+      async (route) => {
+        if (
+          !held &&
+          route.request().method() === "POST"
+        ) {
+          held = true;
+          signalSendHeld();
+          await sendRelease;
+          await route.continue();
+          return;
+        }
+        await route.continue();
+      },
+    );
+
+    const rejectedText =
+      "must stay cancelled after unblock";
+    await composer.fill(rejectedText);
+    await alicePage
+      .getByTestId("chat-composer-send")
+      .click();
+    await sendHeld;
+    await expect
+      .poll(() => readPendingSendCount(alicePage))
+      .toBe(1);
+
+    const block = await bobPage.request.post(
+      `${apiBase}/v1/trust/blocks`,
+      {
+        data: { handle: aliceHandle },
+        headers: {
+          origin: webOrigin,
+          "content-type": "application/json",
+        },
+      },
+    );
+    expect(block.ok()).toBe(true);
+
+    releaseSend();
+    await alicePage.unroute(
+      "**/v1/direct-chats/*/messages",
+    );
+    await expect
+      .poll(() => readPendingSendCount(alicePage), {
+        timeout: 20_000,
+      })
+      .toBe(0);
+
+    const unblock = await bobPage.request.delete(
+      `${apiBase}/v1/trust/blocks/${aliceHandle}`,
+      { headers: { origin: webOrigin } },
+    );
+    expect(unblock.ok()).toBe(true);
+
+    await alicePage.reload();
+    await expect(
+      alicePage.getByTestId("direct-chat-shell"),
+    ).toBeVisible({ timeout: 20_000 });
+    await expect(
+      alicePage
+        .getByTestId("direct-message-human")
+        .filter({ hasText: rejectedText }),
+    ).toHaveCount(0);
+
+    const freshText = "fresh after explicit unblock";
+    await alicePage
+      .getByPlaceholder(
+        /сообщение этому человеку|message this person/i,
+      )
+      .fill(freshText);
+    await alicePage
+      .getByTestId("chat-composer-send")
+      .click();
+    await expect(
+      bobPage
+        .getByTestId("direct-message-human")
+        .filter({ hasText: freshText }),
+    ).toBeVisible({ timeout: 20_000 });
+    await expect(
+      bobPage
+        .getByTestId("direct-message-human")
+        .filter({ hasText: rejectedText }),
+    ).toHaveCount(0);
+
+    await aliceContext.close();
+    await bobContext.close();
+  });
+
   test("recovers operator intent and fails closed on IndexedDB commit abort", async ({ browser, request }) => {
     test.setTimeout(180_000);
     const password = "correct-horse-battery";
@@ -2019,6 +2192,53 @@ async function restoreIndexedDbPut(
       __vimlaRestoreIndexedDbPut?: () => void;
     };
     state.__vimlaRestoreIndexedDbPut?.();
+  });
+}
+
+async function readPendingSendCount(
+  page: Page,
+): Promise<number> {
+  return page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>(
+      (resolve, reject) => {
+        const request = indexedDB.open(
+          "vimla-direct-e2ee",
+        );
+        request.onsuccess = () =>
+          resolve(request.result);
+        request.onerror = () =>
+          reject(
+            request.error ??
+              new Error(
+                "Pending send database read failed",
+              ),
+          );
+      },
+    );
+    try {
+      return await new Promise<number>(
+        (resolve, reject) => {
+          const tx = db.transaction(
+            "pendingSends",
+            "readonly",
+          );
+          const request = tx
+            .objectStore("pendingSends")
+            .count();
+          request.onsuccess = () =>
+            resolve(request.result);
+          request.onerror = () =>
+            reject(
+              request.error ??
+                new Error(
+                  "Pending send count failed",
+                ),
+            );
+        },
+      );
+    } finally {
+      db.close();
+    }
   });
 }
 
