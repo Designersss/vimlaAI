@@ -2,9 +2,11 @@ import { handleInputSchema } from "@vimla/contracts";
 import {
   abuseReportReceiptSchema,
   blockedUserSchema,
+  blockedUsersResponseSchema,
   surfacePreferenceSchema,
   type AbuseReportReceipt,
-  type BlockedUser,
+  type BlockedUsersQuery,
+  type BlockedUsersResponse,
   type CreateAbuseReport,
   type SurfacePreference,
   type UpdateSurfacePreference,
@@ -12,6 +14,10 @@ import {
 } from "@vimla/contracts";
 import { Prisma, type PrismaClient } from "@vimla/database";
 import { TrustError } from "./errors.js";
+import {
+  lockTrustUserPair,
+  type TrustPolicyDb,
+} from "./policy.js";
 
 export interface SurfaceAccessPolicy {
   canReadSurface(actorUserId: string, surfaceId: string): Promise<boolean>;
@@ -23,6 +29,7 @@ type ResolvedUser = {
 };
 
 type BlockedProfileRow = {
+  blockId: string;
   userId: string;
   handle: string;
   displayName: string;
@@ -40,60 +47,107 @@ export class TrustService {
     actorUserId: string,
     handleInput: string,
   ): Promise<UserBlockState> {
-    const target = await this.resolveUser(handleInput);
-    if (!target) {
-      throw new TrustError("NOT_FOUND", "User was not found");
-    }
-    if (target.userId === actorUserId) {
-      throw new TrustError("VALIDATION_ERROR", "You cannot block yourself");
-    }
+    return this.db.$transaction(async (tx) => {
+      const target = await this.resolveUser(handleInput, tx);
+      if (!target) {
+        throw new TrustError("NOT_FOUND", "User was not found");
+      }
+      if (target.userId === actorUserId) {
+        throw new TrustError("VALIDATION_ERROR", "You cannot block yourself");
+      }
+      if (!(await lockTrustUserPair(tx, actorUserId, target.userId))) {
+        throw new TrustError("NOT_FOUND", "User was not found");
+      }
 
-    await this.db.userBlock.upsert({
-      where: {
-        blockerUserId_blockedUserId: {
+      await tx.userBlock.upsert({
+        where: {
+          blockerUserId_blockedUserId: {
+            blockerUserId: actorUserId,
+            blockedUserId: target.userId,
+          },
+        },
+        update: {},
+        create: {
           blockerUserId: actorUserId,
           blockedUserId: target.userId,
         },
-      },
-      update: {},
-      create: {
-        blockerUserId: actorUserId,
-        blockedUserId: target.userId,
-      },
+      });
+      return {
+        handle: target.handle,
+        blockedByMe: true,
+      };
     });
-    return {
-      handle: target.handle,
-      blockedByMe: true,
-    };
   }
 
   async unblockUser(
     actorUserId: string,
     handleInput: string,
   ): Promise<UserBlockState> {
-    const target = await this.resolveUser(handleInput);
-    if (!target) {
-      throw new TrustError("NOT_FOUND", "User was not found");
-    }
-    if (target.userId === actorUserId) {
-      throw new TrustError("VALIDATION_ERROR", "You cannot unblock yourself");
-    }
+    return this.db.$transaction(async (tx) => {
+      const target = await this.resolveBlockedUser(
+        actorUserId,
+        handleInput,
+        tx,
+      );
+      if (!target) {
+        throw new TrustError("NOT_FOUND", "Blocked user was not found");
+      }
+      if (!(await lockTrustUserPair(tx, actorUserId, target.userId))) {
+        throw new TrustError("NOT_FOUND", "Blocked user was not found");
+      }
 
-    await this.db.userBlock.deleteMany({
-      where: {
-        blockerUserId: actorUserId,
-        blockedUserId: target.userId,
-      },
+      const deleted = await tx.userBlock.deleteMany({
+        where: {
+          blockerUserId: actorUserId,
+          blockedUserId: target.userId,
+        },
+      });
+      if (deleted.count !== 1) {
+        throw new TrustError("NOT_FOUND", "Blocked user was not found");
+      }
+      return {
+        handle: target.handle,
+        blockedByMe: false,
+      };
     });
-    return {
-      handle: target.handle,
-      blockedByMe: false,
-    };
   }
 
-  async listBlockedUsers(actorUserId: string): Promise<BlockedUser[]> {
+  async listBlockedUsers(
+    actorUserId: string,
+    query: BlockedUsersQuery,
+  ): Promise<BlockedUsersResponse> {
+    const cursor = query.cursor
+      ? await this.db.userBlock.findFirst({
+          where: {
+            id: query.cursor,
+            blockerUserId: actorUserId,
+          },
+          select: {
+            id: true,
+            createdAt: true,
+          },
+        })
+      : null;
+    if (query.cursor && !cursor) {
+      throw new TrustError(
+        "VALIDATION_ERROR",
+        "Blocked user cursor is invalid",
+      );
+    }
+
+    const cursorPredicate = cursor
+      ? Prisma.sql`AND (
+          block."createdAt" < ${cursor.createdAt}
+          OR (
+            block."createdAt" = ${cursor.createdAt}
+            AND block."id" < ${cursor.id}::uuid
+          )
+        )`
+      : Prisma.sql``;
+
     const rows = await this.db.$queryRaw<BlockedProfileRow[]>(Prisma.sql`
       SELECT
+        block."id" AS "blockId",
         profile."userId" AS "userId",
         handle."handle" AS "handle",
         profile."displayName" AS "displayName",
@@ -108,11 +162,15 @@ export class TrustService {
         block."blockerUserId" = ${actorUserId}
         AND handle."kind" = 'USER'
         AND handle."status" = 'ACTIVE'
-      ORDER BY block."createdAt" DESC, profile."userId" ASC
-      LIMIT 500
+        ${cursorPredicate}
+      ORDER BY
+        block."createdAt" DESC,
+        block."id" DESC
+      LIMIT ${query.limit + 1}
     `);
 
-    return rows.map((row) =>
+    const page = rows.slice(0, query.limit);
+    const items = page.map((row) =>
       blockedUserSchema.parse({
         userId: row.userId,
         handle: row.handle,
@@ -121,6 +179,13 @@ export class TrustService {
         createdAt: row.createdAt.toISOString(),
       }),
     );
+    return blockedUsersResponseSchema.parse({
+      items,
+      nextCursor:
+        rows.length > query.limit
+          ? page.at(-1)?.blockId ?? null
+          : null,
+    });
   }
 
   async createReport(
@@ -271,9 +336,12 @@ export class TrustService {
     }
   }
 
-  private async resolveUser(handleInput: string): Promise<ResolvedUser | null> {
+  private async resolveUser(
+    handleInput: string,
+    db: TrustPolicyDb = this.db,
+  ): Promise<ResolvedUser | null> {
     const normalized = handleInputSchema.parse(handleInput);
-    const handle = await this.db.handle.findFirst({
+    const handle = await db.handle.findFirst({
       where: {
         normalized,
         kind: "USER",
@@ -292,5 +360,28 @@ export class TrustService {
       userId: handle.userId,
       handle: handle.handle,
     };
+  }
+
+  private async resolveBlockedUser(
+    actorUserId: string,
+    handleInput: string,
+    db: TrustPolicyDb,
+  ): Promise<ResolvedUser | null> {
+    const normalized = handleInputSchema.parse(handleInput);
+    const rows = await db.$queryRaw<ResolvedUser[]>(Prisma.sql`
+      SELECT
+        handle."userId" AS "userId",
+        handle."handle" AS "handle"
+      FROM "user_block" AS block
+      INNER JOIN "handle" AS handle
+        ON handle."userId" = block."blockedUserId"
+      WHERE
+        block."blockerUserId" = ${actorUserId}
+        AND handle."normalized" = ${normalized}
+        AND handle."kind" = 'USER'
+        AND handle."status" = 'ACTIVE'
+      LIMIT 1
+    `);
+    return rows[0] ?? null;
   }
 }
