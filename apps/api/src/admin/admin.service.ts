@@ -638,20 +638,40 @@ export class AdminFacade {
     };
   }
 
-  async listAbuseReports(
-    query: Record<string, unknown>,
-  ) {
-    const take = boundLimit(query.limit);
-    const skip = boundOffset(query.offset);
-    const status =
-      query.status === "SUBMITTED" ||
-      query.status === "REVIEWING" ||
-      query.status === "RESOLVED" ||
-      query.status === "DISMISSED"
-        ? query.status
-        : undefined;
-    const where = status ? { status } : {};
-    const [items, total] =
+  async listAbuseReports(query: {
+    limit: number;
+    cursor?: string;
+    status?:
+      | "SUBMITTED"
+      | "REVIEWING"
+      | "RESOLVED"
+      | "DISMISSED";
+  }) {
+    const cursor = query.cursor
+      ? decodeModerationCursor(
+          query.cursor,
+          query.status ?? null,
+        )
+      : null;
+    const statusWhere = query.status
+      ? { status: query.status }
+      : {};
+    const pageWhere = cursor
+      ? {
+          OR: [
+            { createdAt: { lt: cursor.createdAt } },
+            {
+              createdAt: cursor.createdAt,
+              id: { lt: cursor.id },
+            },
+          ],
+        }
+      : {};
+    const where = {
+      ...statusWhere,
+      ...pageWhere,
+    };
+    const [rows, total] =
       await this.prismaService.client.$transaction([
         this.prismaService.client.abuseReport.findMany({
           where,
@@ -670,23 +690,31 @@ export class AdminFacade {
             { createdAt: "desc" },
             { id: "desc" },
           ],
-          take,
-          skip,
+          take: query.limit + 1,
         }),
         this.prismaService.client.abuseReport.count({
-          where,
+          where: statusWhere,
         }),
       ]);
+    const page = rows.slice(0, query.limit);
+    const last = page.at(-1);
     return {
-      items: items.map(({ details, ...item }) => ({
+      items: page.map(({ details, ...item }) => ({
         ...item,
         hasDetails: details !== null,
         createdAt: item.createdAt.toISOString(),
         updatedAt: item.updatedAt.toISOString(),
       })),
       total,
-      take,
-      skip,
+      limit: query.limit,
+      nextCursor:
+        rows.length > query.limit && last
+          ? encodeModerationCursor(
+              last.createdAt,
+              last.id,
+              query.status ?? null,
+            )
+          : null,
     };
   }
 
@@ -791,4 +819,64 @@ function boundOffset(value: unknown): number {
     return 0;
   }
   return Math.min(Math.trunc(parsed), 10_000);
+}
+
+
+const MODERATION_CURSOR_VERSION = 1 as const;
+const MODERATION_UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function encodeModerationCursor(
+  createdAt: Date,
+  id: string,
+  status: string | null,
+): string {
+  return Buffer.from(
+    JSON.stringify({
+      v: MODERATION_CURSOR_VERSION,
+      at: createdAt.toISOString(),
+      id,
+      status,
+    }),
+    "utf8",
+  ).toString("base64url");
+}
+
+function decodeModerationCursor(
+  value: string,
+  expectedStatus: string | null,
+): { createdAt: Date; id: string } {
+  try {
+    const decoded = JSON.parse(
+      Buffer.from(value, "base64url").toString("utf8"),
+    ) as unknown;
+    if (
+      decoded === null ||
+      typeof decoded !== "object" ||
+      !("v" in decoded) ||
+      decoded.v !== MODERATION_CURSOR_VERSION ||
+      !("at" in decoded) ||
+      typeof decoded.at !== "string" ||
+      !("id" in decoded) ||
+      typeof decoded.id !== "string" ||
+      !MODERATION_UUID_PATTERN.test(decoded.id) ||
+      !("status" in decoded) ||
+      decoded.status !== expectedStatus
+    ) {
+      throw new Error("invalid moderation cursor");
+    }
+    const createdAt = new Date(decoded.at);
+    if (
+      Number.isNaN(createdAt.getTime()) ||
+      !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(
+        decoded.at,
+      ) ||
+      createdAt.toISOString() !== decoded.at
+    ) {
+      throw new Error("invalid moderation cursor time");
+    }
+    return { createdAt, id: decoded.id };
+  } catch {
+    throw new Error("Invalid moderation cursor");
+  }
 }
