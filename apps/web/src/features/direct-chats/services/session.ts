@@ -29,6 +29,7 @@ import {
   DirectChatsApiError,
   fetchDirectConversation,
   fetchPrekeyBundles,
+  prepareDirectMessageSend,
   registerCryptoDevice,
   sendDirectMessage,
 } from "./api";
@@ -204,6 +205,7 @@ async function registerStoredDevice(
 
 export async function encryptForDevices(input: {
   conversationId: string;
+  interactionEpoch: number;
   senderUserId: string;
   peerUserId?: string;
   clientMessageId: string;
@@ -228,6 +230,7 @@ export async function encryptForDevices(input: {
     conversationId: input.conversationId,
     localDeviceId: material.deviceId,
     peerDeviceId: device.id,
+    interactionEpoch: input.interactionEpoch,
   }));
   const bundleRequests = new Map<
     string,
@@ -247,6 +250,7 @@ export async function encryptForDevices(input: {
         input.conversationId,
         material.deviceId,
         device.id,
+        input.interactionEpoch,
       );
       let x3dhInit: WireEnvelope["x3dhInit"] =
         existing?.pendingX3dhInit ?? null;
@@ -287,6 +291,7 @@ export async function encryptForDevices(input: {
           senderDeviceId: material.deviceId,
           recipientDeviceId: device.id,
           kind: input.kind,
+          interactionEpoch: input.interactionEpoch,
           routingContext,
         },
         x3dhInit,
@@ -320,6 +325,7 @@ export async function encryptForDevices(input: {
       clientMessageId: input.clientMessageId,
       senderUserId: input.senderUserId,
       senderDeviceId: material.deviceId,
+      interactionEpoch: input.interactionEpoch,
       ...(input.peerUserId
         ? { peerUserId: input.peerUserId }
         : {}),
@@ -339,6 +345,7 @@ export async function encryptForDevices(input: {
       await commitOutboundRatchets({
         conversationId: input.conversationId,
         localDeviceId: material.deviceId,
+        interactionEpoch: input.interactionEpoch,
         updates,
         pendingSend: pending,
         expectedPendingRevision,
@@ -357,6 +364,7 @@ export async function encryptForDevices(input: {
           conversationId: input.conversationId,
           senderUserId: input.senderUserId,
           senderDeviceId: material.deviceId,
+          interactionEpoch: input.interactionEpoch,
           kind: input.kind,
           plaintext: input.plaintext,
           mentions: input.mentions ?? [],
@@ -393,6 +401,7 @@ export async function finalizePendingSend(
   void acknowledgeSentRatchets({
     conversationId: pending.conversationId,
     localDeviceId: pending.senderDeviceId,
+    interactionEpoch: pending.interactionEpoch,
     envelopes: pending.envelopes,
   });
 }
@@ -447,7 +456,10 @@ export async function recoverPendingSends(input: {
           ) {
             return "LOCAL_DEVICE_INACTIVE";
           }
-          if (error.code === "forbidden") {
+          if (
+            error.code === "forbidden" ||
+            error.code === "direct_chat_interaction_stale"
+          ) {
             // sendPendingDirectMessage already removed the terminally
             // rejected outbox row. Do not let a later unblock resurrect it.
             continue;
@@ -507,10 +519,44 @@ export async function recoverPendingSends(input: {
             continue;
           }
 
+          let interaction;
+          try {
+            interaction =
+              await prepareDirectMessageSend(
+                row.conversationId,
+                {
+                  senderDeviceId:
+                    row.senderDeviceId,
+                },
+              );
+          } catch (caught: unknown) {
+            if (
+              caught instanceof DirectChatsApiError &&
+              caught.code === "forbidden"
+            ) {
+              await discardPendingSendForUnavailableInteraction(
+                row,
+              );
+              continue;
+            }
+            throw caught;
+          }
+          if (
+            interaction.interactionEpoch !==
+            row.interactionEpoch
+          ) {
+            await discardPendingSendForUnavailableInteraction(
+              row,
+            );
+            continue;
+          }
+
           try {
             row = await encryptForDevices({
               conversationId:
                 row.conversationId,
+              interactionEpoch:
+                row.interactionEpoch,
               senderUserId: row.senderUserId,
               ...(row.peerUserId
                 ? { peerUserId: row.peerUserId }
@@ -653,12 +699,14 @@ export async function withPendingOperatorInvocationLock<T>(
 export async function sendPendingDirectMessage(
   row: StoredPendingSend,
 ): Promise<DirectMessageView> {
+  await assertPendingInteractionCurrent(row);
   try {
     return await sendDirectMessage(
       row.conversationId,
       {
         clientMessageId: row.clientMessageId,
         senderDeviceId: row.senderDeviceId,
+        interactionEpoch: row.interactionEpoch,
         kind: row.kind,
         envelopes: row.envelopes,
         mentions: row.mentions,
@@ -672,9 +720,50 @@ export async function sendPendingDirectMessage(
       await discardPendingSendForUnavailableInteraction(
         row,
       );
+      throw error;
+    }
+    if (
+      error instanceof DirectChatsApiError &&
+      error.code === "conflict"
+    ) {
+      await assertPendingInteractionCurrent(row);
     }
     throw error;
   }
+}
+
+async function assertPendingInteractionCurrent(
+  row: StoredPendingSend,
+): Promise<void> {
+  let prepared;
+  try {
+    prepared = await prepareDirectMessageSend(
+      row.conversationId,
+      {
+        senderDeviceId: row.senderDeviceId,
+      },
+    );
+  } catch (error: unknown) {
+    if (
+      error instanceof DirectChatsApiError &&
+      error.code === "forbidden"
+    ) {
+      await discardPendingSendForUnavailableInteraction(
+        row,
+      );
+    }
+    throw error;
+  }
+  if (
+    prepared.interactionEpoch === row.interactionEpoch
+  ) {
+    return;
+  }
+  await discardPendingSendForUnavailableInteraction(row);
+  throw new DirectChatsApiError(
+    "direct_chat_interaction_stale",
+    409,
+  );
 }
 
 export interface DecryptMessageResult {
@@ -753,6 +842,8 @@ export async function decryptMessageWithStatus(input: {
         conversationId: input.conversationId,
         localDeviceId: material.deviceId,
         peerDeviceId: input.message.senderDeviceId,
+        interactionEpoch:
+          input.message.interactionEpoch,
       },
       async () => {
         const committed = await loadPlaintext(input.message.id);
@@ -770,6 +861,7 @@ export async function decryptMessageWithStatus(input: {
           input.conversationId,
           material.deviceId,
           input.message.senderDeviceId,
+          input.message.interactionEpoch,
         );
         let state = stateRecord
           ? deserializeRatchet(stateRecord.state)
@@ -827,6 +919,8 @@ export async function decryptMessageWithStatus(input: {
             senderDeviceId: input.message.senderDeviceId,
             recipientDeviceId: envelope.recipientDeviceId,
             kind: input.message.kind,
+            interactionEpoch:
+              input.message.interactionEpoch,
             routingContext,
           },
         });
@@ -843,6 +937,8 @@ export async function decryptMessageWithStatus(input: {
           conversationId: input.conversationId,
           localDeviceId: material.deviceId,
           peerDeviceId: input.message.senderDeviceId,
+          interactionEpoch:
+            input.message.interactionEpoch,
           expectedVersion: stateRecord?.stateVersion ?? 0,
           state: serializeRatchet(state),
           pendingX3dhInit:
@@ -866,6 +962,7 @@ export async function decryptMessageWithStatus(input: {
 export async function acknowledgeSentRatchets(input: {
   conversationId: string;
   localDeviceId: string;
+  interactionEpoch: number;
   envelopes: readonly WireEnvelopeDto[];
 }): Promise<void> {
   const pendingRecipients = input.envelopes
@@ -876,6 +973,7 @@ export async function acknowledgeSentRatchets(input: {
       conversationId: input.conversationId,
       localDeviceId: input.localDeviceId,
       peerDeviceId,
+      interactionEpoch: input.interactionEpoch,
     }).catch(() => undefined);
   }
 }
@@ -886,6 +984,7 @@ type RatchetLockScope = {
   conversationId: string;
   localDeviceId: string;
   peerDeviceId: string;
+  interactionEpoch: number;
 };
 
 async function withRatchetRetryScopes<T>(
@@ -950,6 +1049,7 @@ function pendingSendMatchesCommittedMessage(
     pending.clientMessageId !== message.clientMessageId ||
     pending.senderUserId !== message.senderUserId ||
     pending.senderDeviceId !== message.senderDeviceId ||
+    pending.interactionEpoch !== message.interactionEpoch ||
     pending.kind !== message.kind
   ) {
     return false;
@@ -980,6 +1080,7 @@ function pendingSendMatchesInput(
     conversationId: string;
     senderUserId: string;
     senderDeviceId: string;
+    interactionEpoch: number;
     kind: DirectMessageKind;
     plaintext: string;
     mentions: MessageMentionInput[];
@@ -991,6 +1092,7 @@ function pendingSendMatchesInput(
     pending.conversationId === input.conversationId &&
     pending.senderUserId === input.senderUserId &&
     pending.senderDeviceId === input.senderDeviceId &&
+    pending.interactionEpoch === input.interactionEpoch &&
     pending.kind === input.kind &&
     pending.plaintext === input.plaintext &&
     JSON.stringify(pending.mentions) ===
