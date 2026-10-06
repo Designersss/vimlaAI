@@ -87,7 +87,11 @@ export function TrustSettings(): ReactElement {
         ) : (
           <div className={styles.blockedList}>
             {items.map((item) => (
-              <div key={item.userId} className={styles.blockedRow}>
+              <div
+                key={item.userId}
+                className={styles.blockedRow}
+                data-testid="blocked-user-row"
+              >
                 <div className={styles.blockedIdentity}>
                   <Avatar name={item.displayName} src={item.avatarUrl} />
                   <div className={styles.blockedText}>
