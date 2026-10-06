@@ -1,4 +1,10 @@
-import { ForbiddenException, Inject, Injectable, UnauthorizedException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ForbiddenException,
+  Inject,
+  Injectable,
+  UnauthorizedException,
+} from "@nestjs/common";
 import { fromNodeHeaders } from "better-auth/node";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import {
@@ -877,6 +883,8 @@ function decodeModerationCursor(
     }
     return { createdAt, id: decoded.id };
   } catch {
-    throw new Error("Invalid moderation cursor");
+    throw new BadRequestException(
+      "Invalid moderation cursor",
+    );
   }
 }
