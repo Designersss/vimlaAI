@@ -28,7 +28,7 @@ env:
   NEXT_PUBLIC_ADMIN_API_BASE_URL: http://localhost:3001
   ADMIN_ORIGIN: http://localhost:3002
   ADMIN_REQUIRE_PASSKEY: "false"
-  BETTER_AUTH_SECRET: local-dev-only-change-me-use-32-chars-min
+  BETTER_AUTH_SECRET: ci-${{ github.sha }}-public-test-only
   BETTER_AUTH_URL: http://localhost:3001
 
 jobs:
@@ -130,14 +130,48 @@ jobs:
       - name: Run integration tests with test DB migration
         run: pnpm test:integration
 
+  web-e2e-contract:
+    name: web-browser-e2e / suite contract
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+      - name: Validate semantic Web E2E ownership
+        run: node scripts/ci-web-e2e-suite.mjs --validate
+
   web-e2e:
-    name: web-browser-e2e (${{ matrix.shard }}/3)
+    name: web-browser-e2e / ${{ matrix.label }}
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3]
+        include:
+          - suite: direct-chats-e2ee
+            shard: 1
+            label: direct-chats-e2ee (1/2)
+          - suite: direct-chats-e2ee
+            shard: 2
+            label: direct-chats-e2ee (2/2)
+          - suite: messaging-ai
+            shard: 1
+            label: messaging-ai
+          - suite: identity-account
+            shard: 1
+            label: identity-account
+          - suite: work-projects
+            shard: 1
+            label: work-projects
+          - suite: ui-release
+            shard: 1
+            label: ui-release
     services:
       postgres:
         image: pgvector/pgvector:0.8.2-pg16
@@ -169,7 +203,7 @@ jobs:
       - name: Setup workspace
         uses: ./.github/actions/setup-workspace
         with:
-          turbo-cache-scope: web-e2e-${{ matrix.shard }}
+          turbo-cache-scope: web-e2e-${{ matrix.suite }}-${{ matrix.shard }}
       # Playwright uses Next dev and tsx API/Worker, not their production builds.
       # All transitive workspace libraries still need to be compiled.
       - name: Build Web/API/Worker runtime workspace dependencies
@@ -181,20 +215,20 @@ jobs:
           DATABASE_URL="$TEST_DATABASE_URL" pnpm --filter @vimla/ai seed
       - name: Install browser engines
         run: pnpm --filter @vimla/web exec playwright install --with-deps chromium webkit firefox
-      - name: Web Playwright weighted shard ${{ matrix.shard }}/3
+      - name: Web Playwright / ${{ matrix.label }}
         id: browser-tests
         timeout-minutes: 20
         env:
-          PLAYWRIGHT_BLOB_OUTPUT_NAME: report-${{ matrix.shard }}.zip
-        run: node scripts/ci-web-e2e-shard.mjs ${{ matrix.shard }} 3
+          PLAYWRIGHT_BLOB_OUTPUT_NAME: report-${{ matrix.suite }}-${{ matrix.shard }}.zip
+        run: node scripts/ci-web-e2e-suite.mjs ${{ matrix.suite }} ${{ matrix.shard }}
       - name: Publish Web E2E summary
         if: ${{ !cancelled() && steps.browser-tests.outcome != 'skipped' }}
-        run: node scripts/ci-playwright-summary.mjs apps/web/test-results/results.json "Web E2E shard ${{ matrix.shard }}/3"
+        run: node scripts/ci-playwright-summary.mjs apps/web/test-results/results.json "Web E2E / ${{ matrix.label }}"
       - name: Upload Web E2E evidence
         if: ${{ always() && !cancelled() }}
         uses: actions/upload-artifact@v6
         with:
-          name: web-e2e-shard-${{ matrix.shard }}-${{ github.run_attempt }}
+          name: web-e2e-${{ matrix.suite }}-${{ matrix.shard }}-${{ github.run_attempt }}
           path: |
             apps/web/test-results/
             apps/web/playwright-report/
@@ -203,7 +237,7 @@ jobs:
           retention-days: 7
 
   web-e2e-report:
-    name: web-browser-e2e merged report
+    name: web-browser-e2e / merged report
     if: ${{ always() && !cancelled() }}
     needs: [web-e2e]
     runs-on: ubuntu-24.04
@@ -218,21 +252,19 @@ jobs:
         with:
           turbo-cache-scope: web-e2e-report
           turbo-cache-enabled: "false"
-      - name: Download Web E2E shard artifacts
+      - name: Download Web E2E suite artifacts
         uses: actions/download-artifact@v8
         with:
-          pattern: web-e2e-shard-*
+          pattern: web-e2e-*
           path: web-e2e-artifacts
           merge-multiple: true
-      - name: Collect blob reports
+      - name: Collect and verify semantic blob reports
         shell: bash
         run: |
           mkdir -p apps/web/all-blob-reports
           find web-e2e-artifacts -type f -path '*/blob-report/*.zip' -exec cp {} apps/web/all-blob-reports/ \;
-          count="$(find apps/web/all-blob-reports -maxdepth 1 -type f -name '*.zip' | wc -l)"
-          echo "Collected ${count} Web blob report(s)."
-          test "${count}" -eq 3
-      - name: Merge Web Playwright shards
+          node scripts/ci-web-e2e-suite.mjs --verify-reports apps/web/all-blob-reports
+      - name: Merge Web Playwright suite reports
         run: pnpm --dir apps/web exec playwright merge-reports --reporter html ./all-blob-reports
       - name: Upload merged Web E2E report
         if: ${{ always() && !cancelled() }}
@@ -310,7 +342,7 @@ jobs:
   required:
     name: CI required
     if: always()
-    needs: [quality, unit, integration, web-e2e, web-e2e-report, admin-e2e]
+    needs: [quality, unit, integration, web-e2e-contract, web-e2e, web-e2e-report, admin-e2e]
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     env:
@@ -334,7 +366,7 @@ jobs:
           const summary = rows.join('\n') + '\n';
           process.stdout.write(summary);
           fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, summary);
-          if (checks.length !== 6 || checks.some(([, value]) => value.result !== 'success')) {
+          if (checks.length !== 7 || checks.some(([, value]) => value.result !== 'success')) {
             process.exitCode = 1;
           }
           NODE
