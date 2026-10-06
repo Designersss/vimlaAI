@@ -5,7 +5,8 @@ import { publicProfileAvatarUrlSchema, publicProfileDisplayNameSchema } from "./
 export const TRUST_LIMITS = {
   reportDetailsMax: 1_000,
   evidenceTextMax: 4_000,
-  blockedUsersMax: 500,
+  blockedUsersPageDefault: 50,
+  blockedUsersPageMax: 100,
   moderationPageDefault: 50,
   moderationPageMax: 100,
 } as const;
@@ -48,9 +49,23 @@ export const blockedUserSchema = z
   .strict();
 export type BlockedUser = z.infer<typeof blockedUserSchema>;
 
+export const blockedUsersQuerySchema = z
+  .object({
+    limit: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(TRUST_LIMITS.blockedUsersPageMax)
+      .default(TRUST_LIMITS.blockedUsersPageDefault),
+    cursor: z.string().uuid().optional(),
+  })
+  .strict();
+export type BlockedUsersQuery = z.infer<typeof blockedUsersQuerySchema>;
+
 export const blockedUsersResponseSchema = z
   .object({
-    items: z.array(blockedUserSchema).max(TRUST_LIMITS.blockedUsersMax),
+    items: z.array(blockedUserSchema).max(TRUST_LIMITS.blockedUsersPageMax),
+    nextCursor: z.string().uuid().nullable(),
   })
   .strict();
 export type BlockedUsersResponse = z.infer<typeof blockedUsersResponseSchema>;
@@ -70,9 +85,9 @@ export const directMessageReportEvidenceSchema = z
     messageId: z.string().uuid(),
     disclosedText: z
       .string()
-      .trim()
       .min(1)
       .max(TRUST_LIMITS.evidenceTextMax)
+      .refine((value) => value.trim().length > 0, "Evidence cannot be blank")
       .refine((value) => !value.includes("\u0000"), "Evidence cannot contain NUL"),
   })
   .strict();
