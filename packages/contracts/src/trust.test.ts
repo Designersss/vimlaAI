@@ -36,6 +36,14 @@ describe("trust contracts", () => {
         details: "x".repeat(TRUST_LIMITS.reportDetailsMax + 1),
       }),
     ).toThrow();
+
+    expect(() =>
+      createAbuseReportSchema.parse({
+        targetHandle: "peer",
+        reason: "OTHER",
+        details: "hidden\u0000tail",
+      }),
+    ).toThrow();
   });
 
   it("requires explicit bounded plaintext for E2EE Direct Chat evidence", () => {
@@ -82,6 +90,16 @@ describe("trust contracts", () => {
     expect(
       blockedUsersQuerySchema.parse({ limit: "25" }),
     ).toEqual({ limit: 25 });
+    expect(
+      blockedUsersQuerySchema.parse({
+        cursor: "eyJ2IjoxLCJhdCI6IjIwMjYtMDEtMDFUMDAwMDAwLjAwMFoifQ",
+      }).cursor,
+    ).toBeTruthy();
+    expect(() =>
+      blockedUsersQuerySchema.parse({
+        cursor: "not a base64url cursor",
+      }),
+    ).toThrow();
     expect(() =>
       blockedUsersQuerySchema.parse({
         limit: TRUST_LIMITS.blockedUsersPageMax + 1,
