@@ -3,7 +3,7 @@ import type { PrismaClient } from "@vimla/database";
 import { PrismaUserTrustPolicy } from "./policy.js";
 
 describe("PrismaUserTrustPolicy", () => {
-  it("excludes both directions of a block from discovery", async () => {
+  it("filters only the bounded discovery candidates in both block directions", async () => {
     const findMany = vi.fn().mockResolvedValue([
       {
         blockerUserId: "actor",
@@ -13,10 +13,6 @@ describe("PrismaUserTrustPolicy", () => {
         blockerUserId: "blocker",
         blockedUserId: "actor",
       },
-      {
-        blockerUserId: "actor",
-        blockedUserId: "blocked",
-      },
     ]);
     const db = {
       userBlock: { findMany },
@@ -24,13 +20,29 @@ describe("PrismaUserTrustPolicy", () => {
     const policy = new PrismaUserTrustPolicy(db);
 
     await expect(
-      policy.excludedDiscoveryUserIds("actor"),
-    ).resolves.toEqual(["blocked", "blocker"]);
+      policy.filterDiscoverableUserIds("actor", [
+        "actor",
+        "allowed",
+        "blocked",
+        "blocker",
+        "allowed",
+      ]),
+    ).resolves.toEqual(["actor", "allowed"]);
     expect(findMany).toHaveBeenCalledWith({
       where: {
         OR: [
-          { blockerUserId: "actor" },
-          { blockedUserId: "actor" },
+          {
+            blockerUserId: "actor",
+            blockedUserId: {
+              in: ["allowed", "blocked", "blocker"],
+            },
+          },
+          {
+            blockedUserId: "actor",
+            blockerUserId: {
+              in: ["allowed", "blocked", "blocker"],
+            },
+          },
         ],
       },
       select: {
@@ -40,10 +52,12 @@ describe("PrismaUserTrustPolicy", () => {
     });
   });
 
-  it("allows self operations but denies peer interaction when either direction is blocked", async () => {
+  it("keeps discovery and interaction bidirectionally blocked without treating self as blocked", async () => {
     const findFirst = vi
       .fn()
       .mockResolvedValueOnce({ id: "block-id" })
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: "owned-block" })
       .mockResolvedValueOnce(null);
     const db = {
       userBlock: { findFirst },
@@ -51,31 +65,22 @@ describe("PrismaUserTrustPolicy", () => {
     const policy = new PrismaUserTrustPolicy(db);
 
     await expect(
-      policy.canInteract("actor", "actor"),
-    ).resolves.toBe(true);
-    expect(findFirst).not.toHaveBeenCalled();
-
-    await expect(
-      policy.canInteract("actor", "peer"),
+      policy.canDiscover("actor", "peer"),
     ).resolves.toBe(false);
     await expect(
       policy.canInteract("actor", "other"),
     ).resolves.toBe(true);
-
-    expect(findFirst).toHaveBeenNthCalledWith(1, {
-      where: {
-        OR: [
-          {
-            blockerUserId: "actor",
-            blockedUserId: "peer",
-          },
-          {
-            blockerUserId: "peer",
-            blockedUserId: "actor",
-          },
-        ],
-      },
-      select: { id: true },
-    });
+    await expect(
+      policy.hasBlocked("actor", "peer"),
+    ).resolves.toBe(true);
+    await expect(
+      policy.hasBlocked("actor", "other"),
+    ).resolves.toBe(false);
+    await expect(
+      policy.canInteract("actor", "actor"),
+    ).resolves.toBe(true);
+    await expect(
+      policy.hasBlocked("actor", "actor"),
+    ).resolves.toBe(false);
   });
 });
