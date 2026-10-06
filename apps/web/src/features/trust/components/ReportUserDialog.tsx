@@ -85,7 +85,7 @@ export function ReportUserDialog({
       actions={
         <>
           <Button variant="ghost" onClick={() => handleOpenChange(false)}>
-            {state === "success" ? t("common.close") : t("common.cancel")}
+            {state === "success" ? t("trust.reportDone") : t("common.cancel")}
           </Button>
           {state !== "success" ? (
             <Button disabled={submitting} onClick={() => void submit()}>
