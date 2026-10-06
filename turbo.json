@@ -2,6 +2,9 @@
   "$schema": "https://turbo.build/schema.json",
   "ui": "tui",
   "concurrency": "15",
+  "globalDependencies": [
+    ".node-version"
+  ],
   "tasks": {
     "build": {
       "dependsOn": [
@@ -30,11 +33,7 @@
         "^build"
       ]
     },
-    "lint": {
-      "dependsOn": [
-        "^build"
-      ]
-    },
+    "lint": {},
     "typecheck": {
       "dependsOn": [
         "^build"
@@ -44,6 +43,7 @@
       "dependsOn": [
         "^build"
       ],
+      "cache": false,
       "env": [
         "NODE_ENV",
         "APP_ENV",

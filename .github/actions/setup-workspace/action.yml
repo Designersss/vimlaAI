@@ -1,0 +1,35 @@
+name: Set up Vimla workspace
+description: Install pinned pnpm, Node 24 and frozen monorepo dependencies with scoped Turborepo cache
+inputs:
+  turbo-cache-scope:
+    description: Stable lane name used to isolate the local Turborepo cache archive
+    required: false
+    default: shared
+  turbo-cache-enabled:
+    description: Whether this job executes Turborepo tasks and should restore/save .turbo
+    required: false
+    default: "true"
+runs:
+  using: composite
+  steps:
+    - name: Install pnpm
+      uses: pnpm/action-setup@v6
+      with:
+        version: 10.17.0
+    - name: Set up Node.js with pnpm store cache
+      uses: actions/setup-node@v7
+      with:
+        node-version-file: .node-version
+        cache: pnpm
+        cache-dependency-path: pnpm-lock.yaml
+    - name: Restore Turborepo task cache
+      if: inputs.turbo-cache-enabled == 'true'
+      uses: actions/cache@v6
+      with:
+        path: .turbo
+        key: turbo-${{ runner.os }}-${{ inputs.turbo-cache-scope }}-${{ hashFiles('.node-version', 'pnpm-lock.yaml', 'turbo.json') }}-${{ github.sha }}
+        restore-keys: |
+          turbo-${{ runner.os }}-${{ inputs.turbo-cache-scope }}-${{ hashFiles('.node-version', 'pnpm-lock.yaml', 'turbo.json') }}-
+    - name: Install dependencies from lockfile
+      shell: bash
+      run: pnpm install --frozen-lockfile

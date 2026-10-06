@@ -70,10 +70,19 @@ export default defineConfig({
   timeout: 90_000,
   expect: { timeout: 15_000 },
   retries: process.env.CI ? 1 : 0,
-  reporter: process.env.CI ? [["github"], ["list"]] : "list",
+  forbidOnly: Boolean(process.env.CI),
+  reporter: process.env.CI
+    ? [
+        ["github"],
+        ["list"],
+        ["json", { outputFile: "test-results/results.json" }],
+        ["blob", { outputDir: "blob-report" }],
+        ["html", { open: "never", outputFolder: "playwright-report" }],
+      ]
+    : "list",
   use: {
     baseURL: webOrigin,
-    trace: "on-first-retry",
+    trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },
   projects: [
@@ -93,26 +102,35 @@ export default defineConfig({
   ],
   webServer: [
     {
+      name: "API",
       command: "pnpm exec tsx src/main.ts",
       cwd: apiRoot,
       url: `${apiBase}/health`,
       reuseExistingServer: false,
+      stdout: process.env.CI ? "pipe" : "ignore",
+      stderr: "pipe",
       timeout: 180_000,
       env: e2eEnv,
     },
     {
+      name: "Worker",
       command: "pnpm exec tsx src/main.ts",
       cwd: workerRoot,
       url: "http://127.0.0.1:3102/health",
       reuseExistingServer: false,
+      stdout: process.env.CI ? "pipe" : "ignore",
+      stderr: "pipe",
       timeout: 180_000,
       env: e2eEnv,
     },
     {
+      name: "Web",
       command: "pnpm exec next dev --port 3100",
       cwd: webRoot,
       url: webOrigin,
       reuseExistingServer: false,
+      stdout: process.env.CI ? "pipe" : "ignore",
+      stderr: "pipe",
       timeout: 180_000,
       env: {
         ...e2eEnv,

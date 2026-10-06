@@ -64,10 +64,19 @@ export default defineConfig({
   timeout: 90_000,
   expect: { timeout: 15_000 },
   retries: process.env.CI ? 1 : 0,
-  reporter: process.env.CI ? [["github"], ["list"]] : "list",
+  forbidOnly: Boolean(process.env.CI),
+  reporter: process.env.CI
+    ? [
+        ["github"],
+        ["list"],
+        ["json", { outputFile: "test-results/results.json" }],
+        ["blob", { outputDir: "blob-report" }],
+        ["html", { open: "never", outputFolder: "playwright-report" }],
+      ]
+    : "list",
   use: {
     baseURL: adminOrigin,
-    trace: "on-first-retry",
+    trace: "retain-on-failure",
     screenshot: "only-on-failure",
   },
   projects: [
@@ -85,18 +94,24 @@ export default defineConfig({
   ],
   webServer: [
     {
+      name: "API",
       command: "pnpm exec tsx src/main.ts",
       cwd: apiRoot,
       url: `${apiBase}/health`,
       reuseExistingServer: false,
+      stdout: process.env.CI ? "pipe" : "ignore",
+      stderr: "pipe",
       timeout: 180_000,
       env: e2eEnv,
     },
     {
+      name: "Admin Web",
       command: "pnpm exec next dev --port 3202",
       cwd: adminRoot,
       url: adminOrigin,
       reuseExistingServer: false,
+      stdout: process.env.CI ? "pipe" : "ignore",
+      stderr: "pipe",
       timeout: 180_000,
       env: {
         ...e2eEnv,
