@@ -1,4 +1,5 @@
 import type { PrismaClient } from "@vimla/database";
+import { PrismaUserTrustPolicy } from "@vimla/trust";
 import type {
   ResolveSurfaceAuthorityInput,
   ResolvedSurfaceAuthority,
@@ -10,7 +11,11 @@ export class DirectChatSurfaceAuthorityAdapter
 {
   readonly kind = "DIRECT" as const;
 
-  constructor(private readonly db: PrismaClient) {}
+  private readonly trust: PrismaUserTrustPolicy;
+
+  constructor(private readonly db: PrismaClient) {
+    this.trust = new PrismaUserTrustPolicy(db);
+  }
 
   async resolve(
     input: ResolveSurfaceAuthorityInput,
@@ -43,6 +48,16 @@ export class DirectChatSurfaceAuthorityAdapter
       );
     const canRead =
       audienceUserIds.includes(input.actorUserId);
+    const peerUserId = audienceUserIds.find(
+      (userId) => userId !== input.actorUserId,
+    );
+    const canContribute =
+      canRead &&
+      peerUserId !== undefined &&
+      (await this.trust.canInteract(
+        input.actorUserId,
+        peerUserId,
+      ));
 
     return {
       surfaceId: input.surfaceId,
@@ -50,7 +65,7 @@ export class DirectChatSurfaceAuthorityAdapter
       domainId: conversation.id,
       actorUserId: input.actorUserId,
       canRead,
-      canContribute: canRead,
+      canContribute,
       audienceUserIds: canRead
         ? audienceUserIds
         : [],
@@ -66,7 +81,7 @@ export class DirectChatSurfaceAuthorityAdapter
             },
           ]
         : [],
-      eligibleWriteScopes: canRead
+      eligibleWriteScopes: canContribute
         ? [
             {
               kind: "DIRECT_CHAT",
@@ -83,9 +98,13 @@ export class DirectChatSurfaceAuthorityAdapter
       capabilities: canRead
         ? [
             "CONTEXT_READ",
-            "CONTEXT_CONTRIBUTE",
-            "AI_INVOKE",
-            "ACTION_INVOKE",
+            ...(canContribute
+              ? [
+                  "CONTEXT_CONTRIBUTE" as const,
+                  "AI_INVOKE" as const,
+                  "ACTION_INVOKE" as const,
+                ]
+              : []),
           ]
         : [],
     };
