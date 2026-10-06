@@ -60,7 +60,6 @@ import {
   fetchDirectConversation,
   fetchDirectMessages,
   markDirectChatRead,
-  sendDirectMessage,
   updateDirectChatPrivacy,
 } from "../services/api";
 import {
@@ -87,6 +86,7 @@ import {
   finalizePendingSend,
   loadPendingOperatorInvocations,
   recoverPendingSends,
+  sendPendingDirectMessage,
   stagePendingOperatorInvocationDelivery,
   withPendingOperatorInvocationLock,
   type PendingOperatorInvocation,
@@ -211,7 +211,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
   const [userId, setUserId] = useState<string | null>(null);
   const [muted, setMuted] = useState(false);
   const [muteBusy, setMuteBusy] = useState(false);
-  const [blockedByMe, setBlockedByMe] = useState(false);
+  const blockedByMe = conversation?.blockedByMe ?? false;
   const [blockOpen, setBlockOpen] = useState(false);
   const [blockBusy, setBlockBusy] = useState(false);
   const [reportOpen, setReportOpen] = useState(false);
@@ -894,7 +894,11 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
     setBlockBusy(true);
     try {
       await blockUser(conversation.peer.handle);
-      setBlockedByMe(true);
+      setConversation((current) =>
+        current
+          ? { ...current, blockedByMe: true }
+          : current,
+      );
       draftRef.current = "";
       setDraft("");
       setComposerMentions([]);
@@ -1245,13 +1249,8 @@ async function sendEncryptedDirectMessage(input: {
       ? { operatorOutput: input.operatorOutput }
       : {}),
   });
-  const message = await sendDirectMessage(latest.id, {
-    clientMessageId: pending.clientMessageId,
-    senderDeviceId: pending.senderDeviceId,
-    kind: pending.kind,
-    envelopes: pending.envelopes,
-    mentions: pending.mentions,
-  });
+  const message =
+    await sendPendingDirectMessage(pending);
   await finalizePendingSend(pending, message);
   return { message, latest };
 }
