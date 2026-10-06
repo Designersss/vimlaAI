@@ -29,7 +29,7 @@ test.describe("settings persistent layout", () => {
     await expect(page.getByRole("heading", { level: 1, name: /^(appearance|оформление)$/i })).toBeVisible();
     expect(await navigationHandle?.evaluate((element) => element.isConnected)).toBe(true);
 
-    await navigation.getByRole("link", { name: /security|безопасность/i }).click();
+    await navigation.getByRole("link", { name: /^(security|безопасность)$/i }).click();
     await expect(page).toHaveURL("/settings/security");
     await expect(page.getByRole("heading", { level: 1, name: /^(security|безопасность)$/i })).toBeVisible();
     expect(await navigationHandle?.evaluate((element) => element.isConnected)).toBe(true);
