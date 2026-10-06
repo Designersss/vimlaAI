@@ -11,9 +11,6 @@ import { API_CONFIG, type ApiRuntimeConfig } from "../config/api-config.js";
 import { RedisService } from "../persistence/redis.service.js";
 import { redisFixedWindowHit } from "../persistence/rate-limit.js";
 
-const TRUST_READS_PER_MINUTE = 120;
-const TRUST_MUTATIONS_PER_MINUTE = 60;
-const REPORTS_PER_MINUTE = 6;
 const memoryHits = new Map<
   string,
   { count: number; resetAt: number }
@@ -50,16 +47,20 @@ export class TrustRateLimitGuard implements CanActivate {
         ? "read"
         : "mutate";
     const max = isReport
-      ? REPORTS_PER_MINUTE
+      ? this.config.trustReportLimitPerMinute
       : read
-        ? TRUST_READS_PER_MINUTE
-        : TRUST_MUTATIONS_PER_MINUTE;
+        ? this.config.trustReadLimitPerMinute
+        : this.config.trustMutationLimitPerMinute;
 
     const allowed = await this.hit(
       `ratelimit:trust:${operation}:user:${userId}`,
       max,
     );
-    if (!allowed) {
+    const ipAllowed = !isReport || await this.hit(
+      `ratelimit:trust:report:ip:${request.ip}`,
+      this.config.trustReportIpLimitPerMinute,
+    );
+    if (!allowed || !ipAllowed) {
       throw new HttpException(
         {
           code: "rate_limited",
