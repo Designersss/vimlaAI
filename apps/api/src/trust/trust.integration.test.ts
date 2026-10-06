@@ -545,12 +545,16 @@ describe("trust safety API", () => {
       }
     }
 
+    const limitedReporter = reporters[2];
+    if (!limitedReporter) {
+      throw new Error("Expected a third shared-IP reporter");
+    }
     const limited = await app.inject({
       method: "POST",
       url: "/v1/trust/reports",
       remoteAddress,
       headers: jsonHeaders(),
-      cookies: reporters[2]!.cookies,
+      cookies: limitedReporter.cookies,
       payload: {
         targetHandle: target.handle,
         reason: "SPAM",
