@@ -41,6 +41,7 @@ describe("trust safety API", () => {
       process.env.BETTER_AUTH_URL ??
       "http://localhost:3001";
     process.env.DIRECT_CHATS_ENABLED = "true";
+    process.env.TRUST_REPORT_IP_LIMIT_PER_MINUTE = "12";
 
     const prisma =
       createPrismaClient(testDatabaseUrl);
@@ -503,6 +504,59 @@ describe("trust safety API", () => {
     expect(
       stored.evidenceMessageCreatedAt?.toISOString(),
     ).toBe(message.createdAt.toISOString());
+  });
+
+  it("rate-limits abuse reports across different users sharing one IP", async () => {
+    const target = await registerVerifiedUser(
+      app,
+      "trust-ip-rate-target",
+    );
+    const reporters = await Promise.all([
+      registerVerifiedUser(
+        app,
+        "trust-ip-rate-reporter-a",
+      ),
+      registerVerifiedUser(
+        app,
+        "trust-ip-rate-reporter-b",
+      ),
+      registerVerifiedUser(
+        app,
+        "trust-ip-rate-reporter-c",
+      ),
+    ]);
+    const remoteAddress = "203.0.113.77";
+
+    for (const reporter of reporters.slice(0, 2)) {
+      for (let index = 0; index < 6; index += 1) {
+        const response = await app.inject({
+          method: "POST",
+          url: "/v1/trust/reports",
+          remoteAddress,
+          headers: jsonHeaders(),
+          cookies: reporter.cookies,
+          payload: {
+            targetHandle: target.handle,
+            reason: "SPAM",
+            details: `Shared IP occurrence ${index}`,
+          },
+        });
+        expect(response.statusCode).toBe(201);
+      }
+    }
+
+    const limited = await app.inject({
+      method: "POST",
+      url: "/v1/trust/reports",
+      remoteAddress,
+      headers: jsonHeaders(),
+      cookies: reporters[2]!.cookies,
+      payload: {
+        targetHandle: target.handle,
+        reason: "SPAM",
+      },
+    });
+    expect(limited.statusCode).toBe(429);
   });
 
   it("rate-limits report abuse independently from ordinary safety reads", async () => {
