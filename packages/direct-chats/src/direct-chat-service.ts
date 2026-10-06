@@ -304,12 +304,6 @@ export class DirectChatService {
       conversationId,
       input,
     );
-    if (!replay) {
-      await this.assertInteractionAllowed(
-        actor.userId,
-        conversation.members.map((member) => member.userId),
-      );
-    }
     return { replay };
   }
 
@@ -354,11 +348,6 @@ export class DirectChatService {
     if (replay) {
       return { message: replay, replayed: true };
     }
-    await this.assertInteractionAllowed(
-      actor.userId,
-      memberIds,
-    );
-
     const senderDevice = await this.requireActiveDevice(actor.userId, input.senderDeviceId);
     if (input.envelopes.length > this.options.maxEnvelopes) {
       throw new DirectChatError("VALIDATION_ERROR", "Too many envelopes");
@@ -794,24 +783,6 @@ export class DirectChatService {
     );
     if (!ok) {
       throw new DirectChatError("TAMPERED", "Envelope signature is invalid");
-    }
-  }
-
-  private async assertInteractionAllowed(
-    actorUserId: string,
-    memberIds: readonly string[],
-  ): Promise<void> {
-    const peerUserId = memberIds.find(
-      (userId) => userId !== actorUserId,
-    );
-    if (
-      !peerUserId ||
-      !(await this.trust.canInteract(actorUserId, peerUserId))
-    ) {
-      throw new DirectChatError(
-        "FORBIDDEN",
-        "Direct Chat interaction is unavailable",
-      );
     }
   }
 
