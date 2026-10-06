@@ -1202,6 +1202,73 @@ describe("direct chats API", () => {
     expect(validInvoke.json().mentions[0]?.targetId).toBe("VIMLA");
   });
 
+  it("serializes a queued block ahead of concurrent Direct Chat creation", async () => {
+    const alice = await readyUser(
+      app,
+      "dc-block-create-race-alice",
+      "Block Create Race Alice",
+    );
+    const nikita = await readyUser(
+      app,
+      "dc-block-create-race-nikita",
+      "Block Create Race Nikita",
+    );
+    const db = app.get(PrismaService).client;
+
+    let releasePairLock!: () => void;
+    let notifyPairLocked!: () => void;
+    const pairLockedPromise = new Promise<void>((resolve) => {
+      notifyPairLocked = () => resolve();
+    });
+    const releasePairLockPromise = new Promise<void>((resolve) => {
+      releasePairLock = () => resolve();
+    });
+    const gate = db.$transaction(async (tx) => {
+      expect(
+        await lockTrustUserPair(tx, alice.id, nikita.id),
+      ).toBe(true);
+      notifyPairLocked();
+      await releasePairLockPromise;
+    });
+    await pairLockedPromise;
+
+    let blockSettled = false;
+    const blockPromise = app.inject({
+      method: "POST",
+      url: "/v1/trust/blocks",
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: { handle: nikita.handle },
+    }).then((response) => {
+      blockSettled = true;
+      return response;
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(blockSettled).toBe(false);
+
+    const createPromise = app.inject({
+      method: "POST",
+      url: "/v1/direct-chats",
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: { peerHandle: nikita.handle },
+    });
+
+    releasePairLock();
+    await gate;
+
+    const block = await blockPromise;
+    const created = await createPromise;
+    expect(block.statusCode).toBe(200);
+    expect(created.statusCode).toBe(404);
+    expect(
+      await db.directConversationMember.count({
+        where: { userId: { in: [alice.id, nikita.id] } },
+      }),
+    ).toBe(0);
+  });
+
   it("serializes a queued block ahead of a concurrent Direct Chat send", async () => {
     const alice = await readyUser(
       app,
