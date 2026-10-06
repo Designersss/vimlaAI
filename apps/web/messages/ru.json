@@ -568,6 +568,7 @@
     "reason_IMPERSONATION": "Выдача себя за другого",
     "reason_SEXUAL_CONTENT": "Сексуальный контент",
     "reason_SELF_HARM": "Самоповреждение",
-    "reason_OTHER": "Другое"
+    "reason_OTHER": "Другое",
+    "reportDone": "Готово"
   }
 }
