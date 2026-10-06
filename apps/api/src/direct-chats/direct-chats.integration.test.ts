@@ -1237,10 +1237,10 @@ describe("direct chats API", () => {
     }
 
     const db = app.get(PrismaService).client;
-    let releasePairLock: (() => void) | null = null;
-    let pairLocked: (() => void) | null = null;
+    let releasePairLock!: () => void;
+    let notifyPairLocked!: () => void;
     const pairLockedPromise = new Promise<void>((resolve) => {
-      pairLocked = () => resolve();
+      notifyPairLocked = () => resolve();
     });
     const releasePairLockPromise = new Promise<void>((resolve) => {
       releasePairLock = () => resolve();
@@ -1249,7 +1249,7 @@ describe("direct chats API", () => {
       expect(
         await lockTrustUserPair(tx, alice.id, nikita.id),
       ).toBe(true);
-      pairLocked?.();
+      notifyPairLocked();
       await releasePairLockPromise;
     });
     await pairLockedPromise;
@@ -1283,7 +1283,7 @@ describe("direct chats API", () => {
       },
     });
 
-    releasePairLock?.();
+    releasePairLock();
     await gate;
 
     const block = await blockPromise;
