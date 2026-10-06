@@ -7,6 +7,7 @@ export {
 export {
   PrismaUserTrustPolicy,
   lockTrustUserPair,
+  trustDiscoveryAllowedSql,
   type TrustPolicyDb,
   type UserTrustPolicy,
 } from "./policy.js";
