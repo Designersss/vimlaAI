@@ -9,6 +9,7 @@ import {
   type DirectParticipant,
   type MarkDirectChatRead,
   type MessageMentionView,
+  type PrekeyBundle,
   type SendDirectMessage,
   type UpdateDirectChatPrivacy,
   type WireEnvelopeDto,
@@ -31,7 +32,10 @@ import {
   filterOperatorContextBundle,
   type ContextMessageClaim,
 } from "./consent.js";
-import { toDeviceView } from "./device-service.js";
+import {
+  consumePrekeyBundlesForUser,
+  toDeviceView,
+} from "./device-service.js";
 import {
   PrismaDirectChatDurableEventWriter,
   type DirectChatDurableEventWriter,
@@ -573,18 +577,45 @@ export class DirectChatService {
     });
   }
 
-  async assertCanFetchPrekeys(actorUserId: string, targetUserId: string): Promise<void> {
-    if (actorUserId === targetUserId) {
-      return;
-    }
-    const pairKey = directPairKey(actorUserId, targetUserId);
-    const shared = await this.db.directConversation.findUnique({ where: { pairKey } });
-    if (
-      !shared ||
-      !(await this.trust.canInteract(actorUserId, targetUserId))
-    ) {
-      throw new DirectChatError("NOT_FOUND", "User was not found");
-    }
+  async prekeyBundles(
+    actorUserId: string,
+    targetUserId: string,
+  ): Promise<PrekeyBundle[]> {
+    return this.db.$transaction(async (tx) => {
+      if (actorUserId !== targetUserId) {
+        const usersExist = await lockTrustUserPair(
+          tx,
+          actorUserId,
+          targetUserId,
+        );
+        const pairKey = directPairKey(
+          actorUserId,
+          targetUserId,
+        );
+        const shared =
+          await tx.directConversation.findUnique({
+            where: { pairKey },
+            select: { id: true },
+          });
+        const allowed =
+          usersExist &&
+          shared !== null &&
+          (await new PrismaUserTrustPolicy(tx).canInteract(
+            actorUserId,
+            targetUserId,
+          ));
+        if (!allowed) {
+          throw new DirectChatError(
+            "NOT_FOUND",
+            "User was not found",
+          );
+        }
+      }
+      return consumePrekeyBundlesForUser(
+        tx,
+        targetUserId,
+      );
+    });
   }
 
   async consent(actorUserId: string, conversationId: string) {
