@@ -24,9 +24,23 @@ if (
 
 const repoRoot = resolve(import.meta.dirname, "..");
 const e2eDir = resolve(repoRoot, "apps/web/e2e");
-const specs = readdirSync(e2eDir)
-  .filter((name) => name.endsWith(".spec.ts"))
-  .sort();
+
+function discoverSpecs(directory, prefix = "") {
+  const discovered = [];
+  for (const entry of readdirSync(directory, { withFileTypes: true })) {
+    const relativePath = prefix ? `${prefix}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) {
+      discovered.push(...discoverSpecs(resolve(directory, entry.name), relativePath));
+      continue;
+    }
+    if (entry.isFile() && entry.name.endsWith(".spec.ts")) {
+      discovered.push(relativePath);
+    }
+  }
+  return discovered;
+}
+
+const specs = discoverSpecs(e2eDir).sort();
 
 if (specs.length === 0) {
   console.error("No Web Playwright spec files were discovered.");
