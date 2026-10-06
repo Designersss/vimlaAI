@@ -205,6 +205,64 @@ describe("trust safety API", () => {
     expect(restored.json().id).toBe(direct.id);
   });
 
+  it("keeps unblock actor-owned and paginates blocked users", async () => {
+    const actor = await registerVerifiedUser(
+      app,
+      "trust-block-list-actor",
+    );
+    const targets = await Promise.all(
+      ["a", "b", "c"].map((suffix) =>
+        registerVerifiedUser(
+          app,
+          `trust-block-list-${suffix}`,
+        ),
+      ),
+    );
+    const stranger = await registerVerifiedUser(
+      app,
+      "trust-block-list-stranger",
+    );
+
+    for (const target of targets) {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/trust/blocks",
+        headers: jsonHeaders(),
+        cookies: actor.cookies,
+        payload: { handle: target.handle },
+      });
+      expect(response.statusCode).toBe(200);
+    }
+
+    const first = await app.inject({
+      method: "GET",
+      url: "/v1/trust/blocks?limit=2",
+      headers: { origin },
+      cookies: actor.cookies,
+    });
+    expect(first.statusCode).toBe(200);
+    expect(first.json().items).toHaveLength(2);
+    expect(first.json().nextCursor).toBeTruthy();
+
+    const second = await app.inject({
+      method: "GET",
+      url: `/v1/trust/blocks?limit=2&cursor=${first.json().nextCursor}`,
+      headers: { origin },
+      cookies: actor.cookies,
+    });
+    expect(second.statusCode).toBe(200);
+    expect(second.json().items).toHaveLength(1);
+    expect(second.json().nextCursor).toBeNull();
+
+    const notMine = await app.inject({
+      method: "DELETE",
+      url: `/v1/trust/blocks/${stranger.handle}`,
+      headers: { origin },
+      cookies: actor.cookies,
+    });
+    expect(notMine.statusCode).toBe(404);
+  });
+
   it("persists mute only for authorized communication-surface members", async () => {
     const alice = await registerVerifiedUser(
       app,
@@ -376,7 +434,7 @@ describe("trust safety API", () => {
     expect(foreignEvidence.statusCode).toBe(400);
 
     const disclosedText =
-      "Explicitly selected decrypted message";
+      "  Explicitly selected decrypted message\n";
     const accepted = await app.inject({
       method: "POST",
       url: "/v1/trust/reports",
