@@ -39,7 +39,7 @@ The fail-closed contract in `scripts/ci-web-e2e-suite.mjs` recursively discovers
 
 Within a multi-shard domain, files are assigned with deterministic longest-processing-time balancing using measured CI duration hints. Unknown-but-assigned files use a conservative 30-second seed until remeasured. This preserves semantic ownership while still balancing heavy domains. The Web suite intentionally retains `workers: 1` and `fullyParallel: false`; host-level partitioning never opts tests into a different in-file isolation model.
 
-Each semantic lane owns its own runner, PostgreSQL and Redis containers and migrated/seeded test database. Admin E2E also has isolated services. All configured Playwright projects are preserved, including the targeted Firefox/WebKit coverage selected by the existing `testMatch` rules.
+Each semantic lane owns its own runner, PostgreSQL and Redis containers and migrated/seeded test database. Admin E2E also has isolated services. All configured Playwright projects are preserved, including the targeted Firefox/WebKit coverage selected by the existing `testMatch` rules. Web lanes install Chromium by default and add WebKit/Firefox only when their selected file set contains a `*-cross-browser.spec.ts` target. This changes setup cost only: if Playwright schedules a project whose engine is not installed, the lane fails rather than silently skipping coverage.
 
 ## Setup, build and cache boundaries
 
@@ -79,6 +79,8 @@ pnpm build
 pnpm --filter @vimla/database ensure-test-db
 DATABASE_URL="$TEST_DATABASE_URL" pnpm --filter @vimla/billing seed
 DATABASE_URL="$TEST_DATABASE_URL" pnpm --filter @vimla/ai seed
+node scripts/ci-web-e2e-suite.mjs --validate
+node scripts/ci-web-e2e-suite.mjs --browsers messaging-ai 1
 pnpm --filter @vimla/web exec playwright install --with-deps chromium webkit firefox
 
 node scripts/ci-web-e2e-suite.mjs --validate
