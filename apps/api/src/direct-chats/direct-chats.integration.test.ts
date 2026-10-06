@@ -1903,6 +1903,77 @@ describe("direct chats API", () => {
       cookies: nikita.cookies,
       payload: { shareOwnHistoryWithVimla: true },
     });
+    const blockRecovery = await runDirect(
+      "@Vimla block recovery",
+      {
+        messages: [
+          {
+            messageId: peerAllowed.id,
+            senderUserId: nikita.id,
+            sentAt: peerAllowed.createdAt,
+            text: "peer allowed history",
+          },
+        ],
+      },
+    );
+    await db.operatorRun.update({
+      where: { id: blockRecovery.response.json().id },
+      data: { status: "EXECUTING", errorCode: null },
+    });
+    await db.operatorRunStep.deleteMany({
+      where: { runId: blockRecovery.response.json().id },
+    });
+    await db.operatorRunStep.create({
+      data: {
+        runId: blockRecovery.response.json().id,
+        sequence: 0,
+        toolName: "tasks.create",
+        status: "PENDING",
+        inputJson: { title: "MUST NOT EXECUTE AFTER BLOCK" },
+        publicKind: "task",
+        publicTitle: "MUST NOT EXECUTE AFTER BLOCK",
+        publicDetail: null,
+        publicNavigationTarget: { version: 1, kind: "TASKS" },
+        idempotencyKey: "block-revoked-direct-context",
+      },
+    });
+    const blockBeforeResume = await app.inject({
+      method: "POST",
+      url: "/v1/trust/blocks",
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: { handle: nikita.handle },
+    });
+    expect(blockBeforeResume.statusCode).toBe(200);
+    const blockedResume = await app.inject({
+      method: "POST",
+      url: "/v1/operator/runs",
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: blockRecovery.payload,
+    });
+    expect(blockedResume.statusCode).toBe(201);
+    expect(blockedResume.json().status).toBe("FAILED");
+    expect(blockedResume.json().errorCode).toBe(
+      "direct_chat_context_revoked",
+    );
+    const tasksAfterBlock = await app.inject({
+      method: "GET",
+      url: "/v1/workspace/tasks",
+      headers: { origin },
+      cookies: alice.cookies,
+    });
+    expect(JSON.stringify(tasksAfterBlock.json())).not.toContain(
+      "MUST NOT EXECUTE AFTER BLOCK",
+    );
+    const unblockBeforeContinuing = await app.inject({
+      method: "DELETE",
+      url: `/v1/trust/blocks/${nikita.handle}`,
+      headers: { origin },
+      cookies: alice.cookies,
+    });
+    expect(unblockBeforeContinuing.statusCode).toBe(200);
+
     const actorPeerRecovery = await runDirect(
       "@Vimla actor peer consent recovery",
       {
