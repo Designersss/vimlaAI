@@ -1,0 +1,48 @@
+model UserBlock {
+  id            String   @id @default(uuid()) @db.Uuid
+  blockerUserId String
+  blockedUserId String
+  createdAt     DateTime @default(now())
+
+  @@unique([blockerUserId, blockedUserId])
+  @@index([blockedUserId, createdAt])
+  @@index([blockerUserId, createdAt])
+  @@map("user_block")
+}
+
+model AbuseReport {
+  id                       String   @id @default(uuid()) @db.Uuid
+  reporterUserId           String
+  targetUserId             String
+  reason                   String
+  details                  String?
+  status                   String   @default("SUBMITTED")
+  evidenceKind             String   @default("NONE")
+  directConversationId     String?  @db.Uuid
+  directMessageId          String?  @db.Uuid
+  evidenceSenderUserId     String?
+  evidenceSenderDeviceId   String?  @db.Uuid
+  evidenceMessageKind      String?
+  evidenceMessageCreatedAt DateTime?
+  evidenceText             String?
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  @@index([reporterUserId, createdAt])
+  @@index([targetUserId, createdAt])
+  @@index([status, createdAt])
+  @@index([directMessageId])
+  @@map("abuse_report")
+}
+
+model CommunicationSurfacePreference {
+  surfaceId String   @db.Uuid
+  userId    String
+  muted     Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@id([surfaceId, userId])
+  @@index([userId, muted, updatedAt])
+  @@map("communication_surface_preference")
+}
