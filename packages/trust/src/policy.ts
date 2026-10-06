@@ -1,8 +1,9 @@
 import { Prisma, type PrismaClient } from "@vimla/database";
 
-export type TrustPolicyDb =
-  | PrismaClient
-  | Prisma.TransactionClient;
+export type TrustPolicyDb = Pick<
+  PrismaClient,
+  "$queryRaw" | "handle" | "userBlock"
+>;
 
 export interface UserTrustPolicy {
   excludedDiscoveryUserIds(actorUserId: string): Promise<readonly string[]>;
