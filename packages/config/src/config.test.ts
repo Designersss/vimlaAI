@@ -55,6 +55,7 @@ describe("loadApiConfig", () => {
 
     expect(config.port).toBe(3001);
     expect(config.adminOrigin).toBe("http://localhost:3002");
+    expect(config.trustedProxyRanges).toEqual([]);
     expect(config.adminRequireTotp).toBe(true);
     expect(config.adminRequirePasskey).toBe(false);
     expect(config.adminReportingTimezone).toBe("Europe/Moscow");
@@ -113,6 +114,32 @@ describe("loadApiConfig", () => {
     expect(config.realtimeHandshakeLimitPerMinute).toBe(120);
     expect(config.realtimeClientFramesPerMinute).toBe(60);
     expect(config.syncReadLimitPerMinute).toBe(120);
+  });
+
+  it("parses only explicit trusted proxy IP and CIDR ranges", () => {
+    const config = loadApiConfig({
+      ...validSharedEnv,
+      TRUSTED_PROXY_RANGES:
+        "127.0.0.1,10.20.0.0/16,2001:db8::/32",
+    });
+    expect(config.trustedProxyRanges).toEqual([
+      "127.0.0.1",
+      "10.20.0.0/16",
+      "2001:db8::/32",
+    ]);
+
+    expect(() =>
+      loadApiConfig({
+        ...validSharedEnv,
+        TRUSTED_PROXY_RANGES: "not-a-proxy",
+      }),
+    ).toThrow(/TRUSTED_PROXY_RANGES/);
+    expect(() =>
+      loadApiConfig({
+        ...validSharedEnv,
+        TRUSTED_PROXY_RANGES: "10.0.0.0/99",
+      }),
+    ).toThrow(/TRUSTED_PROXY_RANGES/);
   });
 
   it("requires realtime heartbeat timeout to exceed its interval", () => {
