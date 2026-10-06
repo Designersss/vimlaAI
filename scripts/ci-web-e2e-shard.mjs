@@ -118,14 +118,13 @@ const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const child = spawn(
   pnpm,
   [
-    "--filter",
-    "@vimla/web",
-    "test:e2e",
-    "--",
+    "exec",
+    "playwright",
+    "test",
     ...selected.files.map((file) => `e2e/${file}`),
   ],
   {
-    cwd: repoRoot,
+    cwd: resolve(repoRoot, "apps/web"),
     env: process.env,
     stdio: "inherit",
   },
