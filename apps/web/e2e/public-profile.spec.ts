@@ -184,6 +184,22 @@ test.describe("Public profile", () => {
       alicePage.getByPlaceholder("Message this person"),
     ).toBeDisabled();
 
+    await alicePage.reload();
+    await expect(
+      alicePage.getByTestId("direct-chat-shell"),
+    ).toBeVisible({ timeout: 20_000 });
+    await expect(
+      alicePage.getByPlaceholder("Message this person"),
+    ).toBeDisabled();
+    await expect(
+      alicePage
+        .getByTestId("direct-chat-shell")
+        .getByRole("button", {
+          name: "Block",
+          exact: true,
+        }),
+    ).toBeDisabled();
+
     await alicePage.goto("/settings/safety");
     await expect(
       alicePage.getByRole("heading", { name: "Safety" }),
