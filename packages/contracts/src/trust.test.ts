@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  blockedUsersQuerySchema,
   createAbuseReportSchema,
   directMessageReportEvidenceSchema,
   TRUST_LIMITS,
@@ -45,6 +46,21 @@ describe("trust contracts", () => {
       disclosedText: "Selected plaintext supplied by the reporting client",
     };
     expect(directMessageReportEvidenceSchema.parse(evidence)).toEqual(evidence);
+    const whitespacePreserved = {
+      ...evidence,
+      disclosedText: "  selected text\n",
+    };
+    expect(
+      directMessageReportEvidenceSchema.parse(
+        whitespacePreserved,
+      ).disclosedText,
+    ).toBe("  selected text\n");
+    expect(() =>
+      directMessageReportEvidenceSchema.parse({
+        ...evidence,
+        disclosedText: "   ",
+      }),
+    ).toThrow();
     expect(() =>
       directMessageReportEvidenceSchema.parse({
         ...evidence,
@@ -55,6 +71,20 @@ describe("trust contracts", () => {
       directMessageReportEvidenceSchema.parse({
         ...evidence,
         disclosedText: "x".repeat(TRUST_LIMITS.evidenceTextMax + 1),
+      }),
+    ).toThrow();
+  });
+
+  it("bounds blocked-user pagination", () => {
+    expect(blockedUsersQuerySchema.parse({})).toEqual({
+      limit: TRUST_LIMITS.blockedUsersPageDefault,
+    });
+    expect(
+      blockedUsersQuerySchema.parse({ limit: "25" }),
+    ).toEqual({ limit: 25 });
+    expect(() =>
+      blockedUsersQuerySchema.parse({
+        limit: TRUST_LIMITS.blockedUsersPageMax + 1,
       }),
     ).toThrow();
   });
