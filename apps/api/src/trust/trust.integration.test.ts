@@ -42,6 +42,7 @@ describe("trust safety API", () => {
       "http://localhost:3001";
     process.env.DIRECT_CHATS_ENABLED = "true";
     process.env.TRUST_REPORT_IP_LIMIT_PER_MINUTE = "12";
+    process.env.TRUSTED_PROXY_RANGES = "127.0.0.1/32";
 
     const prisma =
       createPrismaClient(testDatabaseUrl);
@@ -561,6 +562,121 @@ describe("trust safety API", () => {
       },
     });
     expect(limited.statusCode).toBe(429);
+  });
+
+  it("trusts forwarded report IPs only from configured ingress proxies", async () => {
+    const target = await registerVerifiedUser(
+      app,
+      "trust-proxy-rate-target",
+    );
+    const reporters = await Promise.all(
+      ["a", "b", "c", "d", "e", "f"].map((suffix) =>
+        registerVerifiedUser(
+          app,
+          `trust-proxy-rate-reporter-${suffix}`,
+        ),
+      ),
+    );
+    const trustedProxyAddress = "127.0.0.1";
+    const firstClientIp = "198.51.100.31";
+    const secondClientIp = "198.51.100.32";
+
+    for (const reporter of reporters.slice(0, 2)) {
+      for (let index = 0; index < 6; index += 1) {
+        const response = await app.inject({
+          method: "POST",
+          url: "/v1/trust/reports",
+          remoteAddress: trustedProxyAddress,
+          headers: {
+            ...jsonHeaders(),
+            "x-forwarded-for": firstClientIp,
+          },
+          cookies: reporter.cookies,
+          payload: {
+            targetHandle: target.handle,
+            reason: "SPAM",
+          },
+        });
+        expect(response.statusCode).toBe(201);
+      }
+    }
+
+    const thirdReporter = reporters[2];
+    if (!thirdReporter) {
+      throw new Error("Expected trusted-proxy reporter");
+    }
+    const firstClientLimited = await app.inject({
+      method: "POST",
+      url: "/v1/trust/reports",
+      remoteAddress: trustedProxyAddress,
+      headers: {
+        ...jsonHeaders(),
+        "x-forwarded-for": firstClientIp,
+      },
+      cookies: thirdReporter.cookies,
+      payload: {
+        targetHandle: target.handle,
+        reason: "SPAM",
+      },
+    });
+    expect(firstClientLimited.statusCode).toBe(429);
+
+    const secondClientAllowed = await app.inject({
+      method: "POST",
+      url: "/v1/trust/reports",
+      remoteAddress: trustedProxyAddress,
+      headers: {
+        ...jsonHeaders(),
+        "x-forwarded-for": secondClientIp,
+      },
+      cookies: thirdReporter.cookies,
+      payload: {
+        targetHandle: target.handle,
+        reason: "SPAM",
+      },
+    });
+    expect(secondClientAllowed.statusCode).toBe(201);
+
+    const untrustedRemote = "203.0.113.88";
+    for (const reporter of reporters.slice(3, 5)) {
+      for (let index = 0; index < 6; index += 1) {
+        const response = await app.inject({
+          method: "POST",
+          url: "/v1/trust/reports",
+          remoteAddress: untrustedRemote,
+          headers: {
+            ...jsonHeaders(),
+            "x-forwarded-for": `192.0.2.${index + 1}`,
+          },
+          cookies: reporter.cookies,
+          payload: {
+            targetHandle: target.handle,
+            reason: "SPAM",
+          },
+        });
+        expect(response.statusCode).toBe(201);
+      }
+    }
+
+    const spoofReporter = reporters[5];
+    if (!spoofReporter) {
+      throw new Error("Expected untrusted-proxy reporter");
+    }
+    const spoofed = await app.inject({
+      method: "POST",
+      url: "/v1/trust/reports",
+      remoteAddress: untrustedRemote,
+      headers: {
+        ...jsonHeaders(),
+        "x-forwarded-for": "192.0.2.250",
+      },
+      cookies: spoofReporter.cookies,
+      payload: {
+        targetHandle: target.handle,
+        reason: "SPAM",
+      },
+    });
+    expect(spoofed.statusCode).toBe(429);
   });
 
   it("rate-limits report abuse independently from ordinary safety reads", async () => {
