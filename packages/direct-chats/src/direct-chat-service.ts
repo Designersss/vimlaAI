@@ -21,6 +21,7 @@ import {
   signaturePayload,
   verifyDirectMessage,
 } from "@vimla/e2ee";
+import { PrismaUserTrustPolicy, type UserTrustPolicy } from "@vimla/trust";
 import type { DirectChatParticipant } from "./assignee.js";
 import {
   filterOperatorContextBundle,
@@ -55,12 +56,17 @@ export class DirectChatService {
     options?: Partial<DirectChatServiceOptions>,
     private readonly durableEvents: DirectChatDurableEventWriter =
       new PrismaDirectChatDurableEventWriter(),
+    private readonly trust: UserTrustPolicy =
+      new PrismaUserTrustPolicy(db),
   ) {
     this.options = { ...DEFAULTS, ...options };
   }
 
   async create(actor: ActorContext, peerUserId: string): Promise<DirectConversationView> {
     if (peerUserId === actor.userId) {
+      throw new DirectChatError("NOT_FOUND", "User was not found");
+    }
+    if (!(await this.trust.canInteract(actor.userId, peerUserId))) {
       throw new DirectChatError("NOT_FOUND", "User was not found");
     }
     const peerProfiles = await this.readParticipantProfiles([peerUserId]);
@@ -272,17 +278,23 @@ export class DirectChatService {
   ): Promise<{
     replay: DirectMessageView | null;
   }> {
-    await this.requireMemberConversation(
-      actor.userId,
-      conversationId,
-    );
-    return {
-      replay: await this.findExactReplay(
+    const conversation =
+      await this.requireMemberConversation(
         actor.userId,
         conversationId,
-        input,
-      ),
-    };
+      );
+    const replay = await this.findExactReplay(
+      actor.userId,
+      conversationId,
+      input,
+    );
+    if (!replay) {
+      await this.assertInteractionAllowed(
+        actor.userId,
+        conversation.members.map((member) => member.userId),
+      );
+    }
+    return { replay };
   }
 
   async send(
@@ -310,12 +322,14 @@ export class DirectChatService {
     message: DirectMessageView;
     replayed: boolean;
   }> {
-    const memberIds = (
+    const conversation =
       await this.requireMemberConversation(
         actor.userId,
         conversationId,
-      )
-    ).members.map((member) => member.userId);
+      );
+    const memberIds = conversation.members.map(
+      (member) => member.userId,
+    );
     const replay = await this.findExactReplay(
       actor.userId,
       conversationId,
@@ -324,6 +338,10 @@ export class DirectChatService {
     if (replay) {
       return { message: replay, replayed: true };
     }
+    await this.assertInteractionAllowed(
+      actor.userId,
+      memberIds,
+    );
 
     const senderDevice = await this.requireActiveDevice(actor.userId, input.senderDeviceId);
     if (input.envelopes.length > this.options.maxEnvelopes) {
@@ -549,7 +567,10 @@ export class DirectChatService {
     }
     const pairKey = directPairKey(actorUserId, targetUserId);
     const shared = await this.db.directConversation.findUnique({ where: { pairKey } });
-    if (!shared) {
+    if (
+      !shared ||
+      !(await this.trust.canInteract(actorUserId, targetUserId))
+    ) {
       throw new DirectChatError("NOT_FOUND", "User was not found");
     }
   }
@@ -677,6 +698,24 @@ export class DirectChatService {
     );
     if (!ok) {
       throw new DirectChatError("TAMPERED", "Envelope signature is invalid");
+    }
+  }
+
+  private async assertInteractionAllowed(
+    actorUserId: string,
+    memberIds: readonly string[],
+  ): Promise<void> {
+    const peerUserId = memberIds.find(
+      (userId) => userId !== actorUserId,
+    );
+    if (
+      !peerUserId ||
+      !(await this.trust.canInteract(actorUserId, peerUserId))
+    ) {
+      throw new DirectChatError(
+        "FORBIDDEN",
+        "Direct Chat interaction is unavailable",
+      );
     }
   }
 
