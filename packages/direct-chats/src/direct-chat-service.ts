@@ -294,11 +294,10 @@ export class DirectChatService {
   ): Promise<{
     replay: DirectMessageView | null;
   }> {
-    const conversation =
-      await this.requireMemberConversation(
-        actor.userId,
-        conversationId,
-      );
+    await this.requireMemberConversation(
+      actor.userId,
+      conversationId,
+    );
     const replay = await this.findExactReplay(
       actor.userId,
       conversationId,
