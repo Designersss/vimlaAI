@@ -145,6 +145,7 @@ export interface StoredPendingSend {
   operatorOutput?: StoredOperatorOutputLink;
   committedMessageId?: string;
   committedCreatedAt?: string;
+  trustCancelledAt?: string;
 }
 
 export interface OutboundRatchetUpdate {
@@ -1218,6 +1219,54 @@ export function pendingSendRevision(
     (pending.revision ?? 0) >= 0
     ? (pending.revision ?? 0)
     : 0;
+}
+
+export async function cancelPendingSendsForTrust(input: {
+  conversationId: string;
+  senderDeviceId: string;
+}): Promise<void> {
+  const cancelledAt = new Date().toISOString();
+  const db = await openDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction("pendingSends", "readwrite");
+    const store = tx.objectStore("pendingSends");
+    const request = store
+      .index(PENDING_SEND_SCOPE_INDEX)
+      .openCursor(
+        IDBKeyRange.only([
+          input.conversationId,
+          input.senderDeviceId,
+        ]),
+      );
+
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor) return;
+      const row = cursor.value as StoredPendingSend;
+      if (!row.trustCancelledAt) {
+        cursor.update({
+          ...row,
+          revision: pendingSendRevision(row) + 1,
+          trustCancelledAt: cancelledAt,
+        } satisfies StoredPendingSend);
+      }
+      cursor.continue();
+    };
+    request.onerror = () => tx.abort();
+    tx.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    tx.onabort = () => {
+      db.close();
+      reject(
+        tx.error ??
+          new Error(
+            "Trust pending-send cancellation transaction aborted",
+          ),
+      );
+    };
+  });
 }
 
 export async function discardPendingSendForUnavailableInteraction(
