@@ -24,7 +24,8 @@
     "@vimla/ai": "workspace:*",
     "@vimla/artifacts": "workspace:*",
     "@vimla/contracts": "workspace:*",
-    "@vimla/database": "workspace:*"
+    "@vimla/database": "workspace:*",
+    "@vimla/trust": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^24.3.1",
