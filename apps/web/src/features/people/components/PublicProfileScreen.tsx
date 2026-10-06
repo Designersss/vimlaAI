@@ -38,6 +38,7 @@ import {
   updateMyPublicProfile,
 } from "../../chat/services/people";
 import { createDirectConversation } from "../../direct-chats/services/api";
+import { cancelPendingSendsForTrust } from "../../direct-chats/services/crypto-store";
 import { ensureLocalDevice } from "../../direct-chats/services/session";
 import { CONSUMER_FEATURES } from "../../../shared/config/consumer-features";
 import { ReportUserDialog } from "../../trust/components/ReportUserDialog";
@@ -208,6 +209,15 @@ export function PublicProfileScreen({
       await blockUser(profile.handle);
       setBlocked(true);
       setBlockOpen(false);
+      try {
+        await cancelPendingSendsForTrust({
+          peerUserId: profile.userId,
+        });
+      } catch {
+        // Blocking is already authoritative on the server. Surface the local
+        // outbox cleanup problem without pretending the block was rolled back.
+        setSafetyFailed(true);
+      }
     } catch (error: unknown) {
       if (error instanceof AuthRequiredError) {
         router.replace("/sign-in");
