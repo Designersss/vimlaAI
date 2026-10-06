@@ -198,6 +198,9 @@ importers:
       zod:
         specifier: ^4.1.5
         version: 4.5.4
+      '@vimla/trust':
+        specifier: workspace:*
+        version: link:../../packages/trust
     devDependencies:
       '@types/node':
         specifier: ^24.3.1
@@ -575,6 +578,9 @@ importers:
       '@vimla/database':
         specifier: workspace:*
         version: link:../database
+      '@vimla/trust':
+        specifier: workspace:*
+        version: link:../trust
     devDependencies:
       '@types/node':
         specifier: ^24.3.1
@@ -653,6 +659,9 @@ importers:
       '@vimla/e2ee':
         specifier: workspace:*
         version: link:../e2ee
+      '@vimla/trust':
+        specifier: workspace:*
+        version: link:../trust
     devDependencies:
       '@types/node':
         specifier: ^24.3.1
@@ -811,6 +820,28 @@ importers:
       react-dom:
         specifier: ^19.1.1
         version: 19.2.8(react@19.2.8)
+      typescript:
+        specifier: ^5.9.2
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.7(@types/node@24.13.3)(jiti@2.7.0)(sass@1.104.0)(tsx@4.23.13)
+
+  packages/trust:
+    dependencies:
+      '@vimla/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@vimla/database':
+        specifier: workspace:*
+        version: link:../database
+    devDependencies:
+      '@types/node':
+        specifier: ^24.3.1
+        version: 24.13.3
+      eslint:
+        specifier: ^9.35.0
+        version: 9.39.5(jiti@2.7.0)
       typescript:
         specifier: ^5.9.2
         version: 5.9.3
