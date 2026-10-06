@@ -2,9 +2,11 @@ import type {
   CreateDirectConversation,
   CryptoDeviceView,
   DirectConversationView,
+  DirectMessageSendPreflight,
   DirectMessageView,
   DirectMessagesResponse,
   MarkDirectChatRead,
+  PrepareDirectMessageSend,
   PrekeyBundlesResponse,
   RegisterCryptoDevice,
   SendDirectMessage,
@@ -91,6 +93,22 @@ export async function fetchDirectMessages(
       id,
       deviceId,
       cursor,
+      { signal: timeoutSignal() },
+    );
+  } catch (error: unknown) {
+    return wipeAfterCurrentDeviceRevocation(error);
+  }
+}
+
+export async function prepareDirectMessageSend(
+  id: string,
+  input: PrepareDirectMessageSend,
+  fetchImpl: typeof fetch = fetch,
+): Promise<DirectMessageSendPreflight> {
+  try {
+    return await createWebClientApi(fetchImpl).directChats.prepareDirectMessageSend(
+      id,
+      input,
       { signal: timeoutSignal() },
     );
   } catch (error: unknown) {
