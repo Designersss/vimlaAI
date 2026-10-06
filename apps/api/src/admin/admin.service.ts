@@ -638,6 +638,117 @@ export class AdminFacade {
     };
   }
 
+  async listAbuseReports(
+    query: Record<string, unknown>,
+  ) {
+    const take = boundLimit(query.limit);
+    const skip = boundOffset(query.offset);
+    const status =
+      query.status === "SUBMITTED" ||
+      query.status === "REVIEWING" ||
+      query.status === "RESOLVED" ||
+      query.status === "DISMISSED"
+        ? query.status
+        : undefined;
+    const where = status ? { status } : {};
+    const [items, total] =
+      await this.prismaService.client.$transaction([
+        this.prismaService.client.abuseReport.findMany({
+          where,
+          select: {
+            id: true,
+            reporterUserId: true,
+            targetUserId: true,
+            reason: true,
+            details: true,
+            status: true,
+            evidenceKind: true,
+            directConversationId: true,
+            directMessageId: true,
+            evidenceSenderUserId: true,
+            evidenceMessageKind: true,
+            evidenceMessageCreatedAt: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+          orderBy: [
+            { createdAt: "desc" },
+            { id: "desc" },
+          ],
+          take,
+          skip,
+        }),
+        this.prismaService.client.abuseReport.count({
+          where,
+        }),
+      ]);
+    return {
+      items: items.map((item) => ({
+        ...item,
+        evidenceMessageCreatedAt:
+          item.evidenceMessageCreatedAt?.toISOString() ??
+          null,
+        createdAt: item.createdAt.toISOString(),
+        updatedAt: item.updatedAt.toISOString(),
+      })),
+      total,
+      take,
+      skip,
+    };
+  }
+
+  async getAbuseReportEvidence(
+    actor: AdminActor,
+    reportId: string,
+    requestId: string,
+  ) {
+    const report =
+      await this.prismaService.client.abuseReport.findUnique({
+        where: { id: reportId },
+        select: {
+          id: true,
+          reporterUserId: true,
+          targetUserId: true,
+          reason: true,
+          status: true,
+          evidenceKind: true,
+          directConversationId: true,
+          directMessageId: true,
+          evidenceSenderUserId: true,
+          evidenceSenderDeviceId: true,
+          evidenceMessageKind: true,
+          evidenceMessageCreatedAt: true,
+          evidenceText: true,
+          createdAt: true,
+        },
+      });
+    if (!report) {
+      return null;
+    }
+
+    await this.control.audit({
+      adminUserId: actor.userId,
+      principalId: actor.principalId,
+      adminSessionId: actor.sessionId,
+      action: "MODERATION_EVIDENCE_VIEWED",
+      resourceType: "AbuseReport",
+      resourceId: report.id,
+      requestId,
+      afterSnapshot: {
+        evidenceKind: report.evidenceKind,
+        directMessageId: report.directMessageId,
+      },
+    });
+
+    return {
+      ...report,
+      evidenceMessageCreatedAt:
+        report.evidenceMessageCreatedAt?.toISOString() ??
+        null,
+      createdAt: report.createdAt.toISOString(),
+    };
+  }
+
   async listSecurityEvents() {
     return this.prismaService.client.adminSecurityEvent.findMany({
       orderBy: { createdAt: "desc" },
