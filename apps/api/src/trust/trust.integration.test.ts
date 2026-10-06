@@ -166,6 +166,24 @@ describe("trust safety API", () => {
         ),
     ).toBe(false);
 
+    const mentionSuggestions = await app.inject({
+      method: "GET",
+      url: `/v1/mentions?q=${encodeURIComponent(
+        bob.handle,
+      )}&directConversationId=${direct.id}`,
+      headers: { origin },
+      cookies: alice.cookies,
+    });
+    expect(mentionSuggestions.statusCode).toBe(200);
+    expect(
+      mentionSuggestions
+        .json()
+        .people.some(
+          (item: { handle: string }) =>
+            item.handle === bob.handle,
+        ),
+    ).toBe(false);
+
     const history = await app.inject({
       method: "GET",
       url: `/v1/direct-chats/${direct.id}`,
