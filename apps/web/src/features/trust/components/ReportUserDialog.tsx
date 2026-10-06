@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactElement } from "react";
+import { useEffect, useState, type ReactElement } from "react";
 import { useTranslations } from "next-intl";
 import {
   TRUST_LIMITS,
@@ -44,8 +44,18 @@ export function ReportUserDialog({
   const t = useTranslations();
   const [reason, setReason] = useState<AbuseReportReason>("HARASSMENT");
   const [details, setDetails] = useState("");
+  const [evidenceText, setEvidenceText] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [state, setState] = useState<"idle" | "success" | "error">("idle");
+
+  useEffect(() => {
+    if (!open) return;
+    setEvidenceText(
+      evidence
+        ? boundedEvidenceExcerpt(evidence.disclosedText)
+        : "",
+    );
+  }, [evidence?.messageId, evidence?.disclosedText, open]);
 
   function handleOpenChange(nextOpen: boolean): void {
     if (!nextOpen) {
@@ -65,7 +75,14 @@ export function ReportUserDialog({
         targetHandle,
         reason,
         ...(details.trim().length > 0 ? { details } : {}),
-        ...(evidence ? { evidence } : {}),
+        ...(evidence
+          ? {
+              evidence: {
+                ...evidence,
+                disclosedText: evidenceText,
+              },
+            }
+          : {}),
       });
       setState("success");
     } catch {
@@ -88,7 +105,14 @@ export function ReportUserDialog({
             {state === "success" ? t("trust.reportDone") : t("common.cancel")}
           </Button>
           {state !== "success" ? (
-            <Button disabled={submitting} onClick={() => void submit()}>
+            <Button
+              disabled={
+                submitting ||
+                (evidence !== undefined &&
+                  evidenceText.trim().length === 0)
+              }
+              onClick={() => void submit()}
+            >
               {t("trust.submitReport")}
             </Button>
           ) : null}
@@ -131,8 +155,33 @@ export function ReportUserDialog({
             </FormField>
             {evidence ? (
               <div className={styles.evidencePreview}>
-                <Text tone="caption">{t("trust.selectedEvidence")}</Text>
-                <blockquote>{evidence.disclosedText}</blockquote>
+                {evidence.disclosedText.length >
+                TRUST_LIMITS.evidenceTextMax ? (
+                  <Alert variant="info">
+                    {t("trust.evidenceExcerptLong", {
+                      max: TRUST_LIMITS.evidenceTextMax,
+                    })}
+                  </Alert>
+                ) : null}
+                <FormField
+                  label={t("trust.evidenceExcerpt")}
+                  htmlFor="trust-report-evidence"
+                >
+                  <Textarea
+                    id="trust-report-evidence"
+                    rows={6}
+                    value={evidenceText}
+                    maxLength={TRUST_LIMITS.evidenceTextMax}
+                    onChange={(event) =>
+                      setEvidenceText(event.currentTarget.value)
+                    }
+                  />
+                </FormField>
+                <Text tone="caption">
+                  {t("trust.evidenceExcerptHelp", {
+                    max: TRUST_LIMITS.evidenceTextMax,
+                  })}
+                </Text>
               </div>
             ) : null}
           </>
@@ -143,4 +192,9 @@ export function ReportUserDialog({
       </div>
     </Dialog>
   );
+}
+
+
+function boundedEvidenceExcerpt(value: string): string {
+  return value.slice(0, TRUST_LIMITS.evidenceTextMax);
 }
