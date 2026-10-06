@@ -20,12 +20,12 @@ const moderationReportsQuerySchema = z
       .min(1)
       .max(TRUST_LIMITS.moderationPageMax)
       .default(TRUST_LIMITS.moderationPageDefault),
-    offset: z.coerce
-      .number()
-      .int()
-      .min(0)
-      .max(10_000)
-      .default(0),
+    cursor: z
+      .string()
+      .min(1)
+      .max(512)
+      .regex(/^[A-Za-z0-9_-]+$/)
+      .optional(),
     status: abuseReportStatusSchema.optional(),
   })
   .strict();
