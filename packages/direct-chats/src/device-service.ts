@@ -1,5 +1,5 @@
 import type { CryptoDeviceView, PrekeyBundle, RegisterCryptoDevice, RotatePrekeys } from "@vimla/contracts";
-import type { Prisma, PrismaClient } from "@vimla/database";
+import type { Prisma } from "@vimla/database";
 import { b64ToBytes, verifySignedPreKey } from "@vimla/e2ee";
 import { DirectChatError } from "./errors.js";
 import type { ActorContext, DbClient } from "./types.js";
@@ -233,9 +233,10 @@ function assertSignedPrekey(
 }
 
 
-type PrekeyDb =
-  | Pick<PrismaClient, "userCryptoDevice" | "directOneTimePrekey">
-  | Pick<Prisma.TransactionClient, "userCryptoDevice" | "directOneTimePrekey">;
+type PrekeyDb = Pick<
+  Prisma.TransactionClient,
+  "userCryptoDevice" | "directOneTimePrekey"
+>;
 
 export async function consumePrekeyBundlesForUser(
   db: PrekeyDb,
