@@ -54,10 +54,14 @@ export async function lockTrustUserPair(
     userIds[0],
     userIds[1],
   ]);
-  await db.$queryRaw(Prisma.sql`
-    SELECT pg_advisory_xact_lock(
-      hashtextextended(${lockKey}, 0)
+  await db.$queryRaw<Array<{ locked: number }>>(Prisma.sql`
+    WITH "trust_pair_lock" AS (
+      SELECT pg_advisory_xact_lock(
+        hashtextextended(${lockKey}, 0)
+      )
     )
+    SELECT 1::int AS "locked"
+    FROM "trust_pair_lock"
   `);
 
   const rows = await db.$queryRaw<Array<{ id: string }>>(Prisma.sql`
