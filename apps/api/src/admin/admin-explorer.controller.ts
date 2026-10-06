@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Inject, Param, Post, Query, Req, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Inject, NotFoundException, Param, Post, Query, Req, UseGuards } from "@nestjs/common";
 import type { FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { AdminActor } from "@vimla/admin";
@@ -41,6 +41,36 @@ export class AdminExplorerController {
   @RequireAdminPermission("security.audit.read")
   audit(@Query() query: Record<string, unknown>) {
     return this.admin.listAudit(query);
+  }
+
+  @Get("moderation/reports")
+  @RequireAdminPermission("moderation.read")
+  moderationReports(
+    @Query() query: Record<string, unknown>,
+  ) {
+    return this.admin.listAbuseReports(query);
+  }
+
+  @Get("moderation/reports/:id/evidence")
+  @RequireAdminPermission("moderation.evidence.read", {
+    stepUp: true,
+  })
+  async moderationEvidence(
+    @Req() request: FastifyRequest,
+    @Param("id") id: string,
+  ) {
+    const evidence =
+      await this.admin.getAbuseReportEvidence(
+        request.adminActor as AdminActor,
+        id,
+        String(request.id),
+      );
+    if (!evidence) {
+      throw new NotFoundException(
+        "Abuse report was not found",
+      );
+    }
+    return evidence;
   }
 
   @Get("security/sessions")
