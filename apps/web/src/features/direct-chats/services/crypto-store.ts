@@ -136,6 +136,7 @@ export interface StoredPendingSend {
   clientMessageId: string;
   senderUserId: string;
   senderDeviceId: string;
+  peerUserId?: string;
   kind: DirectMessageKind;
   envelopes: WireEnvelopeDto[];
   mentions: MessageMentionInput[];
@@ -1222,28 +1223,47 @@ export function pendingSendRevision(
 }
 
 export async function cancelPendingSendsForTrust(input: {
-  conversationId: string;
-  senderDeviceId: string;
+  conversationId?: string;
+  senderDeviceId?: string;
+  peerUserId?: string;
 }): Promise<void> {
+  if (
+    !input.conversationId &&
+    !input.peerUserId
+  ) {
+    throw new Error(
+      "Trust pending-send cancellation scope is required",
+    );
+  }
   const cancelledAt = new Date().toISOString();
   const db = await openDb();
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction("pendingSends", "readwrite");
     const store = tx.objectStore("pendingSends");
-    const request = store
-      .index(PENDING_SEND_SCOPE_INDEX)
-      .openCursor(
-        IDBKeyRange.only([
-          input.conversationId,
-          input.senderDeviceId,
-        ]),
-      );
+    const request =
+      input.conversationId && input.senderDeviceId
+        ? store
+            .index(PENDING_SEND_SCOPE_INDEX)
+            .openCursor(
+              IDBKeyRange.only([
+                input.conversationId,
+                input.senderDeviceId,
+              ]),
+            )
+        : store.openCursor();
 
     request.onsuccess = () => {
       const cursor = request.result;
       if (!cursor) return;
       const row = cursor.value as StoredPendingSend;
-      if (!row.trustCancelledAt) {
+      const matches =
+        (input.conversationId === undefined ||
+          row.conversationId === input.conversationId) &&
+        (input.senderDeviceId === undefined ||
+          row.senderDeviceId === input.senderDeviceId) &&
+        (input.peerUserId === undefined ||
+          row.peerUserId === input.peerUserId);
+      if (matches && !row.trustCancelledAt) {
         cursor.update({
           ...row,
           revision: pendingSendRevision(row) + 1,
