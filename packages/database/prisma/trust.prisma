@@ -1,7 +1,9 @@
 model UserBlock {
   id            String   @id @default(uuid()) @db.Uuid
   blockerUserId String
+  blocker       User     @relation("UserBlockBlocker", fields: [blockerUserId], references: [id], onDelete: Cascade)
   blockedUserId String
+  blocked       User     @relation("UserBlockBlocked", fields: [blockedUserId], references: [id], onDelete: Cascade)
   createdAt     DateTime @default(now())
 
   @@unique([blockerUserId, blockedUserId])
@@ -11,22 +13,28 @@ model UserBlock {
 }
 
 model AbuseReport {
-  id                       String   @id @default(uuid()) @db.Uuid
+  id                       String              @id @default(uuid()) @db.Uuid
   reporterUserId           String
+  reporter                 User                @relation("AbuseReportReporter", fields: [reporterUserId], references: [id], onDelete: Restrict)
   targetUserId             String
+  target                   User                @relation("AbuseReportTarget", fields: [targetUserId], references: [id], onDelete: Restrict)
   reason                   String
   details                  String?
-  status                   String   @default("SUBMITTED")
-  evidenceKind             String   @default("NONE")
-  directConversationId     String?  @db.Uuid
-  directMessageId          String?  @db.Uuid
+  status                   String              @default("SUBMITTED")
+  evidenceKind             String              @default("NONE")
+  directConversationId     String?             @db.Uuid
+  directConversation       DirectConversation? @relation(fields: [directConversationId], references: [id], onDelete: Restrict)
+  directMessageId          String?             @db.Uuid
+  directMessage            DirectMessage?      @relation(fields: [directMessageId], references: [id], onDelete: Restrict)
   evidenceSenderUserId     String?
-  evidenceSenderDeviceId   String?  @db.Uuid
+  evidenceSender           User?               @relation("AbuseReportEvidenceSender", fields: [evidenceSenderUserId], references: [id], onDelete: Restrict)
+  evidenceSenderDeviceId   String?             @db.Uuid
+  evidenceSenderDevice     UserCryptoDevice?   @relation(fields: [evidenceSenderDeviceId], references: [id], onDelete: Restrict)
   evidenceMessageKind      String?
   evidenceMessageCreatedAt DateTime?
   evidenceText             String?
-  createdAt                DateTime @default(now())
-  updatedAt                DateTime @updatedAt
+  createdAt                DateTime            @default(now())
+  updatedAt                DateTime            @updatedAt
 
   @@index([reporterUserId, createdAt])
   @@index([targetUserId, createdAt])
@@ -36,11 +44,13 @@ model AbuseReport {
 }
 
 model CommunicationSurfacePreference {
-  surfaceId String   @db.Uuid
+  surfaceId String               @db.Uuid
+  surface   CommunicationSurface @relation(fields: [surfaceId], references: [id], onDelete: Cascade)
   userId    String
-  muted     Boolean  @default(false)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  user      User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  muted     Boolean              @default(false)
+  createdAt DateTime             @default(now())
+  updatedAt DateTime             @updatedAt
 
   @@id([surfaceId, userId])
   @@index([userId, muted, updatedAt])
