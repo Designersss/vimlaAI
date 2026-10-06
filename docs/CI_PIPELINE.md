@@ -19,7 +19,7 @@ PR/main ──┼─ quality / build (full) ─────────┤
                                                                    ┘
 ```
 
-No test runner needs another quality check to pass. This is deliberate: a TypeScript error must not hide unrelated browser failures, and E2E is no longer stalled behind lint and unit tests. GitHub matrix strategies use `fail-fast: false`. Playwright Web shards use the same configuration and all configured browser projects; the three `--shard=N/3` invocations together cover each selected test once. Each shard owns its own runner, PostgreSQL and Redis containers and migrated/seeded test database. Admin E2E also has isolated services. The Web suite intentionally retains `workers: 1` and `fullyParallel: false`; we improve host-level parallelism without changing in-file test isolation semantics.
+No test runner needs another quality check to pass. This is deliberate: a TypeScript error must not hide unrelated browser failures, and E2E is no longer stalled behind lint and unit tests. GitHub matrix strategies use `fail-fast: false`. Playwright Web shards use the same configuration and all configured browser projects. The CI-only `scripts/ci-web-e2e-shard.mjs` enumerates every `apps/web/e2e/*.spec.ts` file and assigns each file exactly once across three hosts using deterministic longest-processing-time balancing. Known files use measured duration seeds from CI #2083; new files are automatically included with a conservative 30-second seed until remeasured. Each shard owns its own runner, PostgreSQL and Redis containers and migrated/seeded test database. Admin E2E also has isolated services. The Web suite intentionally retains `workers: 1` and `fullyParallel: false`; host-level balancing never opts tests into a different in-file isolation model.
 
 ## Setup, build and cache boundaries
 
@@ -58,17 +58,17 @@ pnpm --filter @vimla/database ensure-test-db
 DATABASE_URL="$TEST_DATABASE_URL" pnpm --filter @vimla/billing seed
 DATABASE_URL="$TEST_DATABASE_URL" pnpm --filter @vimla/ai seed
 pnpm --filter @vimla/web exec playwright install --with-deps chromium webkit firefox
-pnpm --filter @vimla/web test:e2e --shard=1/3
-pnpm --filter @vimla/web test:e2e --shard=2/3
-pnpm --filter @vimla/web test:e2e --shard=3/3
+node scripts/ci-web-e2e-shard.mjs 1 3
+node scripts/ci-web-e2e-shard.mjs 2 3
+node scripts/ci-web-e2e-shard.mjs 3 3
 pnpm --filter @vimla/admin-web test:e2e
 ```
 
-The Web shard commands above are **illustrative sequential local execution**. In CI they run on different hosts with separate databases, so do not execute shards simultaneously against one local database without explicit isolation. `pnpm codex:validate` remains a sequential developer command; this task changes only CI scheduling, not its coverage.
+The Web shard commands above use the exact CI file partitioner but are **illustrative sequential local execution**. In CI they run on different hosts with separate databases, so do not execute shards simultaneously against one local database without explicit isolation. The partitioner fails if discovery produces no tests and verifies that every discovered spec is assigned exactly once; it prints the chosen files and seed weight for diagnosis. `pnpm codex:validate` remains a sequential developer command; this task changes only CI scheduling, not its coverage.
 
 ## Metrics, limitations and rollout
 
-Historical successful workflow median before #147 was **17m53s**. The first complete parallel candidate, [CI #2082](https://github.com/Designersss/vimlaAI/actions/runs/37435705644), completed in **8m11s**, a 54.2% wall-time reduction versus that median while preserving 97 configured Web browser cases. Its two Web shards were imbalanced at 8m00s versus 5m52s, which motivates the measured three-shard experiment without enabling in-file parallelism.
+Historical successful workflow median before #147 was **17m53s**. The first complete parallel candidate, [CI #2082](https://github.com/Designersss/vimlaAI/actions/runs/37435705644), completed in **8m11s**, a 54.2% wall-time reduction versus that median while preserving 97 configured Web browser cases. Its two Web shards were imbalanced at 8m00s versus 5m52s. A naive three-way Playwright file shard on [CI #2083](https://github.com/Designersss/vimlaAI/actions/runs/37452605822) remained imbalanced at 366s / 154s / 239s of Playwright time and extended end-to-end CI to about 9 minutes once report merging was included. CI therefore uses deterministic weighted file assignment rather than assuming that a larger native shard count is automatically faster.
 
 Operational SLOs for this pipeline are: first meaningful quality feedback around **2 minutes or less** under normal runner availability, and complete required CI around **8-10 minutes** for a representative green run. Treat these as engineering targets, not guarantees: GitHub queueing and cold dependency downloads vary. Compare medians across several exact-HEAD runs and record per-job setup/execution duration, cache hit rates, flaky attempts and aggregate runner-minutes.
 

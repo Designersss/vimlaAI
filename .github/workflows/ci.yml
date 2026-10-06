@@ -181,10 +181,12 @@ jobs:
           DATABASE_URL="$TEST_DATABASE_URL" pnpm --filter @vimla/ai seed
       - name: Install browser engines
         run: pnpm --filter @vimla/web exec playwright install --with-deps chromium webkit firefox
-      - name: Web Playwright shard ${{ matrix.shard }}/3
+      - name: Web Playwright weighted shard ${{ matrix.shard }}/3
         id: browser-tests
         timeout-minutes: 20
-        run: pnpm --filter @vimla/web test:e2e --shard=${{ matrix.shard }}/3
+        env:
+          PLAYWRIGHT_BLOB_OUTPUT_NAME: report-${{ matrix.shard }}.zip
+        run: node scripts/ci-web-e2e-shard.mjs ${{ matrix.shard }} 3
       - name: Publish Web E2E summary
         if: ${{ !cancelled() && steps.browser-tests.outcome != 'skipped' }}
         run: node scripts/ci-playwright-summary.mjs apps/web/test-results/results.json "Web E2E shard ${{ matrix.shard }}/3"
@@ -215,6 +217,7 @@ jobs:
         uses: ./.github/actions/setup-workspace
         with:
           turbo-cache-scope: web-e2e-report
+          turbo-cache-enabled: "false"
       - name: Download Web E2E shard artifacts
         uses: actions/download-artifact@v8
         with:

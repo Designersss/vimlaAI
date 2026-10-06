@@ -5,6 +5,10 @@ inputs:
     description: Stable lane name used to isolate the local Turborepo cache archive
     required: false
     default: shared
+  turbo-cache-enabled:
+    description: Whether this job executes Turborepo tasks and should restore/save .turbo
+    required: false
+    default: "true"
 runs:
   using: composite
   steps:
@@ -19,6 +23,7 @@ runs:
         cache: pnpm
         cache-dependency-path: pnpm-lock.yaml
     - name: Restore Turborepo task cache
+      if: inputs.turbo-cache-enabled == 'true'
       uses: actions/cache@v6
       with:
         path: .turbo
