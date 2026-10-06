@@ -1,11 +1,23 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { PrismaUserTrustPolicy } from "@vimla/trust";
+import { Prisma } from "@vimla/database";
+import {
+  PrismaUserTrustPolicy,
+  trustDiscoveryAllowedSql,
+} from "@vimla/trust";
 import { PrismaService } from "../persistence/prisma.service.js";
 
 export const PEOPLE_ACCESS_POLICY = Symbol("PEOPLE_ACCESS_POLICY");
 
 export interface PeopleAccessPolicy {
-  excludedDiscoveryUserIds(actorUserId: string): Promise<readonly string[]>;
+  canDiscover(actorUserId: string, targetUserId: string): Promise<boolean>;
+  filterDiscoverableUserIds(
+    actorUserId: string,
+    candidateUserIds: readonly string[],
+  ): Promise<readonly string[]>;
+  discoveryAllowedSql(
+    actorUserId: string,
+    candidateUserId: Prisma.Sql,
+  ): Prisma.Sql;
   canStartDirectChat(actorUserId: string, targetUserId: string): Promise<boolean>;
 }
 
@@ -19,8 +31,31 @@ export class DefaultPeopleAccessPolicy implements PeopleAccessPolicy {
     this.trust = new PrismaUserTrustPolicy(prisma.client);
   }
 
-  excludedDiscoveryUserIds(actorUserId: string): Promise<readonly string[]> {
-    return this.trust.excludedDiscoveryUserIds(actorUserId);
+  canDiscover(
+    actorUserId: string,
+    targetUserId: string,
+  ): Promise<boolean> {
+    return this.trust.canDiscover(actorUserId, targetUserId);
+  }
+
+  filterDiscoverableUserIds(
+    actorUserId: string,
+    candidateUserIds: readonly string[],
+  ): Promise<readonly string[]> {
+    return this.trust.filterDiscoverableUserIds(
+      actorUserId,
+      candidateUserIds,
+    );
+  }
+
+  discoveryAllowedSql(
+    actorUserId: string,
+    candidateUserId: Prisma.Sql,
+  ): Prisma.Sql {
+    return trustDiscoveryAllowedSql(
+      actorUserId,
+      candidateUserId,
+    );
   }
 
   canStartDirectChat(actorUserId: string, targetUserId: string): Promise<boolean> {
