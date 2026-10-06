@@ -155,9 +155,34 @@ test.describe("Secure Direct Chats", () => {
 
     await composer.fill("live from alice");
     await alicePage.getByTestId("chat-composer-send").click();
-    await expect(nikitaPage.getByTestId("direct-message-human").filter({ hasText: "live from alice" })).toBeVisible({
+    const liveFromAlice = nikitaPage
+      .getByTestId("direct-message-human")
+      .filter({ hasText: "live from alice" });
+    await expect(liveFromAlice).toBeVisible({
       timeout: 20_000,
     });
+    const liveBubble = liveFromAlice.locator("..");
+    await liveBubble
+      .getByRole("button", {
+        name: /пожаловаться на сообщение|report message/i,
+      })
+      .click();
+    const evidenceDialog = nikitaPage.getByRole("dialog");
+    await expect(evidenceDialog).toContainText("live from alice");
+    await expect(evidenceDialog).toContainText(
+      /раскрыт|disclos/i,
+    );
+    await evidenceDialog
+      .getByRole("button", {
+        name: /отправить жалобу|submit report/i,
+      })
+      .click();
+    await expect(evidenceDialog).toContainText(
+      /жалоба отправлена|report submitted/i,
+    );
+    await evidenceDialog
+      .getByRole("button", { name: /закрыть|close/i })
+      .click();
 
     let abortBeforeServer = true;
     await alicePage.route(
