@@ -3,10 +3,32 @@ import type { FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { AdminActor } from "@vimla/admin";
 import { microRubFromJson } from "@vimla/billing";
+import {
+  abuseReportStatusSchema,
+  TRUST_LIMITS,
+} from "@vimla/contracts";
 import { AdminGuard, AdminOriginGuard } from "./admin.guard.js";
 import { AdminPermissionGuard } from "./admin-permission.guard.js";
 import { RequireAdminPermission } from "./admin-permission.decorator.js";
 import { AdminFacade } from "./admin.service.js";
+
+const moderationReportsQuerySchema = z
+  .object({
+    limit: z.coerce
+      .number()
+      .int()
+      .min(1)
+      .max(TRUST_LIMITS.moderationPageMax)
+      .default(TRUST_LIMITS.moderationPageDefault),
+    offset: z.coerce
+      .number()
+      .int()
+      .min(0)
+      .max(10_000)
+      .default(0),
+    status: abuseReportStatusSchema.optional(),
+  })
+  .strict();
 
 @Controller("admin/v1")
 @UseGuards(AdminOriginGuard, AdminGuard, AdminPermissionGuard)
@@ -46,9 +68,11 @@ export class AdminExplorerController {
   @Get("moderation/reports")
   @RequireAdminPermission("moderation.read")
   moderationReports(
-    @Query() query: Record<string, unknown>,
+    @Query() query: unknown,
   ) {
-    return this.admin.listAbuseReports(query);
+    return this.admin.listAbuseReports(
+      moderationReportsQuerySchema.parse(query),
+    );
   }
 
   @Get("moderation/reports/:id/evidence")
@@ -59,10 +83,11 @@ export class AdminExplorerController {
     @Req() request: FastifyRequest,
     @Param("id") id: string,
   ) {
+    const reportId = z.string().uuid().parse(id);
     const evidence =
       await this.admin.getAbuseReportEvidence(
         request.adminActor as AdminActor,
-        id,
+        reportId,
         String(request.id),
       );
     if (!evidence) {
