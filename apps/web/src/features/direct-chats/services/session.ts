@@ -39,6 +39,7 @@ import {
   commitOutboundRatchets,
   completePendingOperatorIntent,
   completePendingSend,
+  discardPendingSendForUnavailableInteraction,
   encodeIdentity,
   identityFromMaterial,
   loadDeviceMaterial,
@@ -426,7 +427,7 @@ export async function recoverPendingSends(input: {
         }
 
         try {
-          const created = await sendPendingRow(row);
+          const created = await sendPendingDirectMessage(row);
           await finalizePendingSend(row, created);
           continue;
         } catch (error: unknown) {
@@ -438,6 +439,11 @@ export async function recoverPendingSends(input: {
             "direct_chat_device_revoked"
           ) {
             return "LOCAL_DEVICE_INACTIVE";
+          }
+          if (error.code === "forbidden") {
+            // sendPendingDirectMessage already removed the terminally
+            // rejected outbox row. Do not let a later unblock resurrect it.
+            continue;
           }
           if (
             error.code !== "validation_error" &&
@@ -541,7 +547,7 @@ export async function recoverPendingSends(input: {
           }
 
           const created =
-            await sendPendingRow(row);
+            await sendPendingDirectMessage(row);
           await finalizePendingSend(
             row,
             created,
@@ -633,19 +639,31 @@ export async function withPendingOperatorInvocationLock<T>(
   );
 }
 
-async function sendPendingRow(
+export async function sendPendingDirectMessage(
   row: StoredPendingSend,
 ): Promise<DirectMessageView> {
-  return sendDirectMessage(
-    row.conversationId,
-    {
-      clientMessageId: row.clientMessageId,
-      senderDeviceId: row.senderDeviceId,
-      kind: row.kind,
-      envelopes: row.envelopes,
-      mentions: row.mentions,
-    },
-  );
+  try {
+    return await sendDirectMessage(
+      row.conversationId,
+      {
+        clientMessageId: row.clientMessageId,
+        senderDeviceId: row.senderDeviceId,
+        kind: row.kind,
+        envelopes: row.envelopes,
+        mentions: row.mentions,
+      },
+    );
+  } catch (error: unknown) {
+    if (
+      error instanceof DirectChatsApiError &&
+      error.code === "forbidden"
+    ) {
+      await discardPendingSendForUnavailableInteraction(
+        row,
+      );
+    }
+    throw error;
+  }
 }
 
 export interface DecryptMessageResult {
