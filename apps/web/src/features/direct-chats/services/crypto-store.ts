@@ -1220,6 +1220,60 @@ export function pendingSendRevision(
     : 0;
 }
 
+export async function discardPendingSendForUnavailableInteraction(
+  pending: StoredPendingSend,
+): Promise<void> {
+  const parentClientMessageId =
+    pending.operatorOutput?.parentClientMessageId ?? null;
+  const db = await openDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction("pendingSends", "readwrite");
+    const store = tx.objectStore("pendingSends");
+
+    if (!parentClientMessageId) {
+      store.delete(pending.clientMessageId);
+    } else {
+      const request = store
+        .index(PENDING_SEND_SCOPE_INDEX)
+        .openCursor(
+          IDBKeyRange.only([
+            pending.conversationId,
+            pending.senderDeviceId,
+          ]),
+        );
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) return;
+        const row = cursor.value as StoredPendingSend;
+        if (
+          row.clientMessageId === parentClientMessageId ||
+          row.clientMessageId === pending.clientMessageId ||
+          row.operatorOutput?.parentClientMessageId ===
+            parentClientMessageId
+        ) {
+          cursor.delete();
+        }
+        cursor.continue();
+      };
+      request.onerror = () => tx.abort();
+    }
+
+    tx.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    tx.onabort = () => {
+      db.close();
+      reject(
+        tx.error ??
+          new Error(
+            "Pending send cancellation transaction aborted",
+          ),
+      );
+    };
+  });
+}
+
 export async function completePendingSend(input: {
   pending: StoredPendingSend;
   messageId: string;
