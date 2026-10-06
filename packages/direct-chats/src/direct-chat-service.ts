@@ -56,6 +56,11 @@ type ParticipantProfileRow = {
   avatarUrl: string | null;
 };
 
+type DirectMessageReadDb = Pick<
+  Prisma.TransactionClient,
+  "directMessage" | "directMessageMention"
+>;
+
 export class DirectChatService {
   private readonly options: DirectChatServiceOptions;
 
@@ -387,12 +392,54 @@ export class DirectChatService {
     }
 
     try {
-      const created = await this.db.$transaction(async (tx) => {
-        await this.assertInteractionAllowedTx(
+      return await this.db.$transaction(async (tx) => {
+        const peerUserId = memberIds.find(
+          (userId) => userId !== actor.userId,
+        );
+        if (!peerUserId) {
+          throw new DirectChatError(
+            "FORBIDDEN",
+            "Direct Chat interaction is unavailable",
+          );
+        }
+
+        const usersExist = await lockTrustUserPair(
           tx,
           actor.userId,
-          memberIds,
+          peerUserId,
         );
+
+        // Re-check idempotent replay after taking the same pair lock used by
+        // block/unblock. A committed retry must still resolve as success even
+        // if a block was established immediately afterwards; conversely, a
+        // FORBIDDEN response now proves this clientMessageId was not committed.
+        const transactionalReplay =
+          await this.findExactReplay(
+            actor.userId,
+            conversationId,
+            input,
+            tx,
+          );
+        if (transactionalReplay) {
+          return {
+            message: transactionalReplay,
+            replayed: true,
+          };
+        }
+
+        const allowed =
+          usersExist &&
+          (await new PrismaUserTrustPolicy(tx).canInteract(
+            actor.userId,
+            peerUserId,
+          ));
+        if (!allowed) {
+          throw new DirectChatError(
+            "FORBIDDEN",
+            "Direct Chat interaction is unavailable",
+          );
+        }
+
         const message = await tx.directMessage.create({
           data: {
             conversationId,
@@ -439,16 +486,15 @@ export class DirectChatService {
             recipientUserIds: memberIds,
           },
         );
-        return message;
+        return {
+          message: toMessageView(
+            message,
+            senderDevice.id,
+            resolvedMentions,
+          ),
+          replayed: false,
+        };
       });
-      return {
-        message: toMessageView(
-          created,
-          senderDevice.id,
-          resolvedMentions,
-        ),
-        replayed: false,
-      };
     } catch (error: unknown) {
       if (isUnique(error)) {
         const replay = await this.findExactReplay(
@@ -637,8 +683,9 @@ export class DirectChatService {
     userId: string,
     conversationId: string,
     input: SendDirectMessage,
+    db: DirectMessageReadDb = this.db,
   ): Promise<DirectMessageView | null> {
-    const existing = await this.db.directMessage.findFirst({
+    const existing = await db.directMessage.findFirst({
       where: {
         conversationId,
         senderUserId: userId,
@@ -656,7 +703,10 @@ export class DirectChatService {
         "Message replay sender device does not match",
       );
     }
-    const mentions = await this.readMentionMap([existing.id]);
+    const mentions = await this.readMentionMap(
+      [existing.id],
+      db,
+    );
     const existingMentions = mentions.get(existing.id) ?? [];
     if (
       existing.kind !== input.kind ||
@@ -681,10 +731,13 @@ export class DirectChatService {
     );
   }
 
-  private async readMentionMap(messageIds: string[]): Promise<Map<string, MessageMentionView[]>> {
+  private async readMentionMap(
+    messageIds: string[],
+    db: DirectMessageReadDb = this.db,
+  ): Promise<Map<string, MessageMentionView[]>> {
     const grouped = new Map<string, MessageMentionView[]>();
     if (messageIds.length === 0) return grouped;
-    const rows = await this.db.directMessageMention.findMany({
+    const rows = await db.directMessageMention.findMany({
       where: { directMessageId: { in: messageIds } },
       orderBy: [{ directMessageId: "asc" }, { startOffset: "asc" }],
     });
@@ -762,40 +815,6 @@ export class DirectChatService {
     }
   }
 
-  private async assertInteractionAllowedTx(
-    tx: Prisma.TransactionClient,
-    actorUserId: string,
-    memberIds: readonly string[],
-  ): Promise<void> {
-    const peerUserId = memberIds.find(
-      (userId) => userId !== actorUserId,
-    );
-    if (!peerUserId) {
-      throw new DirectChatError(
-        "FORBIDDEN",
-        "Direct Chat interaction is unavailable",
-      );
-    }
-
-    const usersExist = await lockTrustUserPair(
-      tx,
-      actorUserId,
-      peerUserId,
-    );
-    const allowed =
-      usersExist &&
-      (await new PrismaUserTrustPolicy(tx).canInteract(
-        actorUserId,
-        peerUserId,
-      ));
-    if (!allowed) {
-      throw new DirectChatError(
-        "FORBIDDEN",
-        "Direct Chat interaction is unavailable",
-      );
-    }
-  }
-
   private async requireMemberConversation(userId: string, conversationId: string) {
     const conversation = await this.db.directConversation.findFirst({
       where: { id: conversationId, members: { some: { userId } } },
@@ -857,18 +876,37 @@ export class DirectChatService {
     conversation: ConversationRecord,
     actorUserId: string,
   ): Promise<DirectConversationView> {
-    const unreadCount = await this.readUnreadCount(
-      actorUserId,
-      conversation.id,
+    const peer = conversation.members.find(
+      (member) => member.userId !== actorUserId,
     );
-    const profiles = await this.readParticipantProfiles(
-      conversation.members.map((member) => member.userId),
-    );
+    if (!peer) {
+      throw new DirectChatError(
+        "NOT_FOUND",
+        "Direct Chat was not found",
+      );
+    }
+    const [unreadCount, profiles, blockedByMe] =
+      await Promise.all([
+        this.readUnreadCount(
+          actorUserId,
+          conversation.id,
+        ),
+        this.readParticipantProfiles(
+          conversation.members.map(
+            (member) => member.userId,
+          ),
+        ),
+        this.trust.hasBlocked(
+          actorUserId,
+          peer.userId,
+        ),
+      ]);
     const summary = this.toSummary(
       conversation,
       actorUserId,
       unreadCount,
       profiles,
+      blockedByMe,
     );
     const devices = conversation.members.flatMap((member) =>
       member.user.cryptoDevices.filter((device) => device.revokedAt === null).map(toDeviceView),
@@ -910,6 +948,7 @@ export class DirectChatService {
     actorUserId: string,
     unreadCount: number,
     profiles: ReadonlyMap<string, DirectParticipant>,
+    blockedByMe: boolean,
   ): DirectConversationSummary {
     const mine = conversation.members.find((member) => member.userId === actorUserId);
     const peer = conversation.members.find((member) => member.userId !== actorUserId);
@@ -935,6 +974,7 @@ export class DirectChatService {
       lastKind: isKind(latest?.kind) ? latest.kind : null,
       lastSenderUserId: latest?.senderUserId ?? null,
       createdAt: conversation.createdAt.toISOString(),
+      blockedByMe,
       privacy: toPrivacy(mine, peer),
     };
   }
