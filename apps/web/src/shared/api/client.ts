@@ -9,6 +9,7 @@ import {
   createOperatorClient,
   createPeopleClient,
   createSyncClient,
+  createTrustClient,
 } from "@vimla/client-api";
 import { publicWebConfig } from "../config/public-env";
 
@@ -34,5 +35,6 @@ export function createWebClientApi(
     operator: createOperatorClient(transport),
     people: createPeopleClient(transport),
     sync: createSyncClient(transport),
+    trust: createTrustClient(transport),
   };
 }
