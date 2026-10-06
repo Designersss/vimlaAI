@@ -902,12 +902,6 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
     setBlockBusy(true);
     try {
       await blockUser(conversation.peer.handle);
-      const device = await ensureLocalDevice();
-      await cancelPendingSendsForTrust({
-        conversationId: conversation.id,
-        senderDeviceId: device.deviceId,
-        peerUserId: conversation.peer.userId,
-      });
       setConversation((current) =>
         current
           ? { ...current, blockedByMe: true }
@@ -918,6 +912,18 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
       setComposerMentions([]);
       setPendingRun(null);
       setBlockOpen(false);
+      try {
+        const device = await ensureLocalDevice();
+        await cancelPendingSendsForTrust({
+          conversationId: conversation.id,
+          senderDeviceId: device.deviceId,
+          peerUserId: conversation.peer.userId,
+        });
+      } catch {
+        // The server block is authoritative. Keep the UI blocked even if
+        // local outbox quarantine needs to be retried on the next chat load.
+        setError("internal_error");
+      }
     } catch {
       setError("internal_error");
     } finally {
