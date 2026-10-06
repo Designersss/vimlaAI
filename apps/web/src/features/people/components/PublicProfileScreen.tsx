@@ -19,6 +19,7 @@ import {
   Avatar,
   Button,
   Card,
+  Dialog,
   ErrorState,
   FormField,
   Heading,
@@ -39,6 +40,8 @@ import {
 import { createDirectConversation } from "../../direct-chats/services/api";
 import { ensureLocalDevice } from "../../direct-chats/services/session";
 import { CONSUMER_FEATURES } from "../../../shared/config/consumer-features";
+import { ReportUserDialog } from "../../trust/components/ReportUserDialog";
+import { blockUser } from "../../trust/services/api";
 import styles from "./PublicProfile.module.scss";
 
 type LoadState = "loading" | "ready" | "failed";
@@ -71,6 +74,11 @@ export function PublicProfileScreen({
   const [saved, setSaved] = useState(false);
   const [startingChat, setStartingChat] = useState(false);
   const [startFailed, setStartFailed] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [blockOpen, setBlockOpen] = useState(false);
+  const [blocking, setBlocking] = useState(false);
+  const [blocked, setBlocked] = useState(false);
+  const [safetyFailed, setSafetyFailed] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -92,6 +100,8 @@ export function PublicProfileScreen({
         setSaveFailed(false);
         setSaved(false);
         setStartFailed(false);
+        setBlocked(false);
+        setSafetyFailed(false);
         setLoadedHandle(handle);
         setBoot("ready");
       })
@@ -127,6 +137,7 @@ export function PublicProfileScreen({
     setSaveFailed(false);
     setSaved(false);
     setStartFailed(false);
+    setSafetyFailed(false);
     setAttempt((value) => value + 1);
   }
 
@@ -186,6 +197,25 @@ export function PublicProfileScreen({
       setStartFailed(true);
     } finally {
       setStartingChat(false);
+    }
+  }
+
+  async function confirmBlock(): Promise<void> {
+    if (!profile || blocking) return;
+    setBlocking(true);
+    setSafetyFailed(false);
+    try {
+      await blockUser(profile.handle);
+      setBlocked(true);
+      setBlockOpen(false);
+    } catch (error: unknown) {
+      if (error instanceof AuthRequiredError) {
+        router.replace("/sign-in");
+        return;
+      }
+      setSafetyFailed(true);
+    } finally {
+      setBlocking(false);
     }
   }
 
@@ -264,14 +294,31 @@ export function PublicProfileScreen({
                   ? t("common.cancel")
                   : t("profile.edit")}
               </Button>
-            ) : CONSUMER_FEATURES.directChats ? (
-              <Button
-                disabled={startingChat}
-                onClick={() => void startDirectChat()}
-              >
-                {t("profile.startChat")}
-              </Button>
-            ) : undefined
+            ) : (
+              <div className={styles.formActions}>
+                {CONSUMER_FEATURES.directChats ? (
+                  <Button
+                    disabled={startingChat || blocked}
+                    onClick={() => void startDirectChat()}
+                  >
+                    {t("profile.startChat")}
+                  </Button>
+                ) : null}
+                <Button
+                  variant="secondary"
+                  onClick={() => setReportOpen(true)}
+                >
+                  {t("trust.report")}
+                </Button>
+                <Button
+                  variant="secondary"
+                  disabled={blocked}
+                  onClick={() => setBlockOpen(true)}
+                >
+                  {t("trust.block")}
+                </Button>
+              </div>
+            )
           }
         />
 
@@ -289,6 +336,12 @@ export function PublicProfileScreen({
           <Alert variant="error">
             {t("profile.startFailed")}
           </Alert>
+        ) : null}
+        {blocked ? (
+          <Alert variant="success">{t("trust.blockSuccess")}</Alert>
+        ) : null}
+        {safetyFailed ? (
+          <Alert variant="error">{t("common.genericError")}</Alert>
         ) : null}
 
         <Card className={styles.hero}>
@@ -415,6 +468,32 @@ export function PublicProfileScreen({
           </Card>
         )}
       </div>
+      {!isOwner ? (
+        <>
+          <ReportUserDialog
+            open={reportOpen}
+            onOpenChange={setReportOpen}
+            targetHandle={profile.handle}
+          />
+          <Dialog
+            open={blockOpen}
+            onOpenChange={setBlockOpen}
+            title={t("trust.blockConfirmTitle", { handle: profile.handle })}
+            description={t("trust.blockConfirmDescription")}
+            closeLabel={t("common.close")}
+            actions={
+              <>
+                <Button variant="ghost" onClick={() => setBlockOpen(false)}>
+                  {t("common.cancel")}
+                </Button>
+                <Button disabled={blocking} onClick={() => void confirmBlock()}>
+                  {t("trust.block")}
+                </Button>
+              </>
+            }
+          />
+        </>
+      ) : null}
     </section>
   );
 }
