@@ -166,7 +166,7 @@ test.describe("Public profile", () => {
       reportDialog.getByText("Report submitted."),
     ).toBeVisible();
     await reportDialog
-      .getByRole("button", { name: "Close" })
+      .getByRole("button", { name: "Done" })
       .click();
 
     await alicePage
