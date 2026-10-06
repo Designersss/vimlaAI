@@ -872,6 +872,8 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
 
   async function toggleMute(nextMuted: boolean): Promise<void> {
     if (!conversation || muteBusy) return;
+    const previousMuted = muted;
+    setMuted(nextMuted);
     setMuteBusy(true);
     try {
       const preference = await updateSurfacePreference(
@@ -880,6 +882,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
       );
       setMuted(preference.muted);
     } catch {
+      setMuted(previousMuted);
       setError("internal_error");
     } finally {
       setMuteBusy(false);
