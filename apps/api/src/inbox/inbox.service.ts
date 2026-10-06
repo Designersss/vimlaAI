@@ -385,15 +385,11 @@ export class InboxService {
           )
         )`
       : Prisma.sql``;
-    const excludedUserIds = [
-      ...new Set(
-        await this.peopleAccess.excludedDiscoveryUserIds(userId),
-      ),
-    ];
     const discoveryPredicate =
-      excludedUserIds.length === 0
-        ? Prisma.sql`TRUE`
-        : Prisma.sql`peer."userId" NOT IN (${Prisma.join(excludedUserIds)})`;
+      this.peopleAccess.discoveryAllowedSql(
+        userId,
+        Prisma.sql`peer."userId"`,
+      );
 
     const rows = await this.prisma.$queryRaw<
       Array<{ surfaceId: string }>
