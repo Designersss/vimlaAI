@@ -11,11 +11,13 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from "@nestjs/common";
 import type { AuthenticatedUser } from "@vimla/auth";
 import {
   abuseReportReceiptSchema,
+  blockedUsersQuerySchema,
   blockedUsersResponseSchema,
   blockUserSchema,
   createAbuseReportSchema,
@@ -48,12 +50,18 @@ export class TrustController {
   @Get("blocks")
   async blocks(
     @AuthUser() user: AuthenticatedUser,
+    @Query() query: unknown,
   ): Promise<BlockedUsersResponse> {
-    return blockedUsersResponseSchema.parse({
-      items: await withTrustErrors(() =>
-        this.trust.service.listBlockedUsers(user.id),
+    const parsed = parseTrustRequest(
+      blockedUsersQuerySchema,
+      query,
+      "Invalid blocked users query",
+    );
+    return blockedUsersResponseSchema.parse(
+      await withTrustErrors(() =>
+        this.trust.service.listBlockedUsers(user.id, parsed),
       ),
-    });
+    );
   }
 
   @Post("blocks")
