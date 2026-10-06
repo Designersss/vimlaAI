@@ -61,6 +61,7 @@ describe("contextual mention resolver", () => {
     expect(bobHandle).toBeTruthy();
     expect(strangerHandle).toBeTruthy();
 
+    const boundaryDisplayName = "🚀".repeat(80);
     await prisma.$transaction([
       prisma.user.update({
         where: { id: bob.id },
@@ -72,7 +73,7 @@ describe("contextual mention resolver", () => {
       prisma.publicProfile.update({
         where: { userId: bob.id },
         data: {
-          displayName: "Public Bob",
+          displayName: boundaryDisplayName,
           avatarUrl: "https://public.example/bob.png",
         },
       }),
@@ -128,7 +129,7 @@ describe("contextual mention resolver", () => {
         (candidate) => candidate.handle === bobHandle,
       ),
     ).toMatchObject({
-      label: "Public Bob",
+      label: boundaryDisplayName,
       avatarUrl: "https://public.example/bob.png",
     });
     expect(
@@ -166,7 +167,7 @@ describe("contextual mention resolver", () => {
         (candidate) => candidate.handle === bobHandle,
       ),
     ).toMatchObject({
-      label: "Public Bob",
+      label: boundaryDisplayName,
       avatarUrl: "https://public.example/bob.png",
     });
 

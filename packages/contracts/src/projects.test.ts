@@ -3,6 +3,7 @@ import {
   acceptProjectInviteSchema,
   createProjectInviteSchema,
   createProjectSchema,
+  projectMemberViewSchema,
   projectRoleUpdateSchema,
   updateProjectSchema,
 } from "./projects.js";
@@ -41,6 +42,32 @@ describe("project public DTOs", () => {
         email: "member@example.com",
         role: "MEMBER",
         userId: "injected",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("uses canonical PublicProfile identity for member views", () => {
+    const member = {
+      userId: "user-1",
+      handle: "member.user",
+      displayName: "🚀".repeat(80),
+      avatarUrl: null,
+      role: "MEMBER" as const,
+      accessState: "ACTIVE" as const,
+      lastOpenedAt: null,
+      createdAt: "2026-10-06T00:00:00.000Z",
+    };
+    expect(projectMemberViewSchema.parse(member)).toEqual(member);
+    expect(
+      projectMemberViewSchema.safeParse({
+        ...member,
+        email: "member@example.com",
+      }).success,
+    ).toBe(false);
+    expect(
+      projectMemberViewSchema.safeParse({
+        ...member,
+        name: "Legacy Account Name",
       }).success,
     ).toBe(false);
   });

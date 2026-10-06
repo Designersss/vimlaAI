@@ -1,6 +1,10 @@
 import { z } from "zod";
 import { handleInputSchema, handleSchema } from "./handles.js";
 import { messageMentionInputSchema, messageMentionViewSchema } from "./mentions.js";
+import {
+  publicProfileAvatarUrlSchema,
+  publicProfileDisplayNameSchema,
+} from "./public-profiles.js";
 
 export const DIRECT_CHAT_LIMITS = {
   ciphertextMax: 65_536,
@@ -179,8 +183,8 @@ export type PrekeyBundlesResponse = z.infer<typeof prekeyBundlesResponseSchema>;
 export const directParticipantSchema = z.object({
   userId: z.string(),
   handle: handleSchema,
-  name: z.string().trim().min(1).max(80),
-  avatarUrl: z.string().url().max(2_048).nullable(),
+  name: publicProfileDisplayNameSchema,
+  avatarUrl: publicProfileAvatarUrlSchema,
 });
 export type DirectParticipant = z.infer<typeof directParticipantSchema>;
 

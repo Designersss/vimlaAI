@@ -310,6 +310,11 @@ describe("direct chats API", () => {
     const aliceDevice = await registerHarness(app, alice);
     const nikitaDevice = await registerHarness(app, nikita);
     await registerHarness(app, stranger);
+    const unicodeDisplayName = "🚀".repeat(80);
+    await app.get(PrismaService).client.publicProfile.update({
+      where: { userId: nikita.id },
+      data: { displayName: unicodeDisplayName },
+    });
 
     const created = await app.inject({
       method: "POST",
@@ -321,6 +326,10 @@ describe("direct chats API", () => {
     expect(created.statusCode).toBe(400);
 
     const chat = await createChat(app, alice.cookies, nikita.handle);
+    expect(chat.peer.name).toBe(unicodeDisplayName);
+    expect(chat.members.find((member) => member.userId === nikita.id)?.name).toBe(
+      unicodeDisplayName,
+    );
     expect(chat.surfaceKind).toBe("DIRECT");
     expect(String(chat.surfaceId)).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,

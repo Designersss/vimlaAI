@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   createDirectConversationSchema,
+  directParticipantSchema,
   markDirectChatReadSchema,
   operatorContextBundleSchema,
   sendDirectMessageSchema,
@@ -58,6 +59,26 @@ describe("direct chat contracts", () => {
         signedPrekeySignature: "dddddddddddddddddddddddd==",
         oneTimePrekeys: [{ keyId: 1, publicKey: "eeeeeeeeeeeeeeeeeeeeee==" }],
         identitySecret: "nope",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("uses PublicProfile code-point bounds for participant display names", () => {
+    const displayName = "🚀".repeat(80);
+    expect(
+      directParticipantSchema.parse({
+        userId: "user-1",
+        handle: "nikita.user",
+        name: displayName,
+        avatarUrl: null,
+      }).name,
+    ).toBe(displayName);
+    expect(
+      directParticipantSchema.safeParse({
+        userId: "user-1",
+        handle: "nikita.user",
+        name: "🚀".repeat(81),
+        avatarUrl: null,
       }).success,
     ).toBe(false);
   });

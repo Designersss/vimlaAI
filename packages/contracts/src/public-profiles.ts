@@ -31,7 +31,7 @@ const boundedPublicText = (max: number) =>
       message: "Public profile text contains an invalid character",
     });
 
-const displayNameSchema = z
+export const publicProfileDisplayNameSchema = z
   .string()
   .trim()
   .min(1)
@@ -62,12 +62,18 @@ const nullableTrimmedText = (max: number) =>
     .transform((value) => (value.length > 0 ? value : null))
     .nullable();
 
+export const publicProfileAvatarUrlSchema = z
+  .string()
+  .url()
+  .max(PUBLIC_PROFILE_LIMITS.avatarUrlMax)
+  .nullable();
+
 export const publicProfileSchema = z
   .object({
     userId: z.string().min(1),
     handle: handleSchema,
-    displayName: displayNameSchema,
-    avatarUrl: z.string().url().max(PUBLIC_PROFILE_LIMITS.avatarUrlMax).nullable(),
+    displayName: publicProfileDisplayNameSchema,
+    avatarUrl: publicProfileAvatarUrlSchema,
     bio: boundedPublicText(PUBLIC_PROFILE_LIMITS.bioMax).nullable(),
     status: boundedPublicText(PUBLIC_PROFILE_LIMITS.statusMax).nullable(),
   })
@@ -81,7 +87,7 @@ export type PublicProfile = z.infer<typeof publicProfileSchema>;
  */
 export const updatePublicProfileSchema = z
   .object({
-    displayName: displayNameSchema.optional(),
+    displayName: publicProfileDisplayNameSchema.optional(),
     bio: nullableTrimmedText(PUBLIC_PROFILE_LIMITS.bioMax).optional(),
     status: nullableTrimmedText(PUBLIC_PROFILE_LIMITS.statusMax).optional(),
   })

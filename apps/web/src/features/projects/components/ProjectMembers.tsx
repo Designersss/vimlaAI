@@ -126,8 +126,8 @@ export function ProjectMembers({ projectId }: { projectId: string }): ReactEleme
             <Card key={member.userId}>
               <div className={styles.memberRow}>
                 <div className={styles.memberMeta}>
-                  <Text>{member.name || member.email}</Text>
-                  <Text tone="caption">{member.email}</Text>
+                  <Text>{member.displayName}</Text>
+                  <Text tone="caption">@{member.handle}</Text>
                   <Text tone="caption">
                     {t(projectRoleMessageKey(member.role))}
                     {member.accessState !== "ACTIVE" ? ` · ${t("projects.readOnly")}` : ""}
