@@ -98,8 +98,10 @@ export class DirectChatPrekeysController {
   @Get(":userId/prekeys")
   async prekeys(@AuthUser() user: AuthenticatedUser, @Param("userId") userId: string): Promise<PrekeyBundlesResponse> {
     this.directChats.assertEnabled();
-    await this.directChats.chats.assertCanFetchPrekeys(user.id, userId);
-    const bundles = await this.directChats.devices.prekeyBundlesForUser(userId);
+    const bundles = await this.directChats.chats.prekeyBundles(
+      user.id,
+      userId,
+    );
     return prekeyBundlesResponseSchema.parse({ userId, bundles });
   }
 }
