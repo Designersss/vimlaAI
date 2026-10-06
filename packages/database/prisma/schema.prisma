@@ -60,6 +60,12 @@ model User {
   memoryItems          MemoryItem[]             @relation("MemoryOwner")
   compactedStates      CompactedContextState[]  @relation("CompactedStateOwner")
   memoryExtractionReceipts MemoryExtractionReceipt[] @relation("MemoryExtractionOwner")
+  blocksCreated             UserBlock[] @relation("UserBlockBlocker")
+  blocksReceived            UserBlock[] @relation("UserBlockBlocked")
+  abuseReportsCreated       AbuseReport[] @relation("AbuseReportReporter")
+  abuseReportsReceived      AbuseReport[] @relation("AbuseReportTarget")
+  abuseReportEvidenceSent   AbuseReport[] @relation("AbuseReportEvidenceSender")
+  communicationSurfacePreferences CommunicationSurfacePreference[]
 
   @@unique([email])
   @@unique([phoneNumber])
@@ -443,6 +449,7 @@ model CommunicationSurface {
   directConversation   DirectConversation? @relation("DirectCommunicationSurface", fields: [directConversationId], references: [id], onDelete: Cascade)
   createdAt            DateTime            @default(now())
   updatedAt            DateTime            @updatedAt
+  preferences          CommunicationSurfacePreference[]
 
   @@index([status, lastActivityAt, id])
   @@map("communication_surface")
@@ -1119,6 +1126,7 @@ model UserCryptoDevice {
   oneTimePrekeys          DirectOneTimePrekey[]
   sentMessages            DirectMessage[]
   receivedEnvelopes       DirectMessageEnvelope[]
+  abuseReportEvidence      AbuseReport[]
 
   @@index([userId, revokedAt])
   @@map("user_crypto_device")
@@ -1149,6 +1157,7 @@ model DirectConversation {
   members             DirectConversationMember[]
   messages      DirectMessage[]
   operatorRuns  OperatorRun[]
+  abuseReportEvidence AbuseReport[]
 
   @@index([lastMessageAt])
   @@map("direct_conversation")
@@ -1185,6 +1194,7 @@ model DirectMessage {
   sequence       BigInt             @default(0)
   createdAt      DateTime           @default(now())
   envelopes      DirectMessageEnvelope[]
+  abuseReportEvidence AbuseReport[]
 
   @@unique([conversationId, senderUserId, clientMessageId])
   @@unique([conversationId, sequence])
