@@ -75,6 +75,10 @@ describe("loadApiConfig", () => {
     expect(config.memoryDerivedAuditRetentionDays).toBe(180);
     expect(config.directChatsEnabled).toBe(false);
     expect(config.directChatsMutationLimitPerMinute).toBe(60);
+    expect(config.trustReadLimitPerMinute).toBe(120);
+    expect(config.trustMutationLimitPerMinute).toBe(60);
+    expect(config.trustReportLimitPerMinute).toBe(6);
+    expect(config.trustReportIpLimitPerMinute).toBe(60);
     expect(config.aiTextProvider).toBe("mock");
     expect(config.semanticPlannerProvider).toBe("mock");
     expect(config.semanticPlannerBaseUrl).toBeUndefined();
