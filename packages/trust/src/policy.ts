@@ -1,12 +1,36 @@
-import type { PrismaClient } from "@vimla/database";
+import { Prisma, type PrismaClient } from "@vimla/database";
+
+export type TrustPolicyDb =
+  | PrismaClient
+  | Prisma.TransactionClient;
 
 export interface UserTrustPolicy {
   excludedDiscoveryUserIds(actorUserId: string): Promise<readonly string[]>;
   canInteract(leftUserId: string, rightUserId: string): Promise<boolean>;
 }
 
+export async function lockTrustUserPair(
+  db: TrustPolicyDb,
+  leftUserId: string,
+  rightUserId: string,
+): Promise<boolean> {
+  const userIds = [...new Set([leftUserId, rightUserId])].sort();
+  if (userIds.length <= 1) {
+    return true;
+  }
+
+  const rows = await db.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+    SELECT "id"
+    FROM "user"
+    WHERE "id" IN (${Prisma.join(userIds)})
+    ORDER BY "id"
+    FOR UPDATE
+  `);
+  return rows.length === userIds.length;
+}
+
 export class PrismaUserTrustPolicy implements UserTrustPolicy {
-  constructor(private readonly db: PrismaClient) {}
+  constructor(private readonly db: TrustPolicyDb) {}
 
   async excludedDiscoveryUserIds(
     actorUserId: string,
