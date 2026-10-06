@@ -205,6 +205,7 @@ async function registerStoredDevice(
 export async function encryptForDevices(input: {
   conversationId: string;
   senderUserId: string;
+  peerUserId?: string;
   clientMessageId: string;
   localDevice: StoredDeviceMaterial;
   kind: DirectMessageKind;
@@ -319,6 +320,9 @@ export async function encryptForDevices(input: {
       clientMessageId: input.clientMessageId,
       senderUserId: input.senderUserId,
       senderDeviceId: material.deviceId,
+      ...(input.peerUserId
+        ? { peerUserId: input.peerUserId }
+        : {}),
       kind: input.kind,
       envelopes,
       mentions: input.mentions ?? [],
@@ -508,6 +512,9 @@ export async function recoverPendingSends(input: {
               conversationId:
                 row.conversationId,
               senderUserId: row.senderUserId,
+              ...(row.peerUserId
+                ? { peerUserId: row.peerUserId }
+                : {}),
               clientMessageId:
                 row.clientMessageId,
               localDevice: input.localDevice,
