@@ -64,6 +64,7 @@ import {
 } from "../services/api";
 import {
   PendingOperatorInvocationGoneError,
+  cancelPendingSendsForTrust,
   loadConversationPlaintexts,
   loadPendingSends,
   type StoredOperatorIntent,
@@ -263,6 +264,13 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         await prepareDevice();
         const device = await ensureLocalDevice();
         const detail = await fetchDirectConversation(conversationId);
+        if (detail.blockedByMe) {
+          await cancelPendingSendsForTrust({
+            conversationId,
+            senderDeviceId: device.deviceId,
+            peerUserId: detail.peer.userId,
+          });
+        }
         const page = await fetchLatestDecryptedPage(
           detail,
           device.deviceId,
@@ -894,6 +902,12 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
     setBlockBusy(true);
     try {
       await blockUser(conversation.peer.handle);
+      const device = await ensureLocalDevice();
+      await cancelPendingSendsForTrust({
+        conversationId: conversation.id,
+        senderDeviceId: device.deviceId,
+        peerUserId: conversation.peer.userId,
+      });
       setConversation((current) =>
         current
           ? { ...current, blockedByMe: true }
@@ -1235,6 +1249,7 @@ async function sendEncryptedDirectMessage(input: {
   const pending = await encryptForDevices({
     conversationId: latest.id,
     senderUserId: input.userId,
+    peerUserId: latest.peer.userId,
     clientMessageId:
       input.clientMessageId ?? crypto.randomUUID(),
     localDevice: device,
