@@ -21,7 +21,11 @@ import {
   signaturePayload,
   verifyDirectMessage,
 } from "@vimla/e2ee";
-import { PrismaUserTrustPolicy, type UserTrustPolicy } from "@vimla/trust";
+import {
+  PrismaUserTrustPolicy,
+  lockTrustUserPair,
+  type UserTrustPolicy,
+} from "@vimla/trust";
 import type { DirectChatParticipant } from "./assignee.js";
 import {
   filterOperatorContextBundle,
@@ -75,15 +79,30 @@ export class DirectChatService {
     }
 
     const pairKey = directPairKey(actor.userId, peerUserId);
-    const existing = await this.db.directConversation.findUnique({
-      where: { pairKey },
-      include: conversationInclude,
-    });
-    if (existing) {
-      return this.toView(existing, actor.userId);
-    }
-    try {
-      const created = await this.db.directConversation.create({
+    const conversation = await this.db.$transaction(async (tx) => {
+      const usersExist = await lockTrustUserPair(
+        tx,
+        actor.userId,
+        peerUserId,
+      );
+      const allowed =
+        usersExist &&
+        (await new PrismaUserTrustPolicy(tx).canInteract(
+          actor.userId,
+          peerUserId,
+        ));
+      if (!allowed) {
+        throw new DirectChatError("NOT_FOUND", "User was not found");
+      }
+
+      const existing = await tx.directConversation.findUnique({
+        where: { pairKey },
+        include: conversationInclude,
+      });
+      if (existing) {
+        return existing;
+      }
+      return tx.directConversation.create({
         data: {
           pairKey,
           members: {
@@ -92,20 +111,8 @@ export class DirectChatService {
         },
         include: conversationInclude,
       });
-      return this.toView(created, actor.userId);
-    } catch (error: unknown) {
-      if (!isUnique(error)) {
-        throw error;
-      }
-      const replay = await this.db.directConversation.findUnique({
-        where: { pairKey },
-        include: conversationInclude,
-      });
-      if (!replay) {
-        throw error;
-      }
-      return this.toView(replay, actor.userId);
-    }
+    });
+    return this.toView(conversation, actor.userId);
   }
 
   async get(actor: ActorContext, conversationId: string): Promise<DirectConversationView> {
@@ -377,6 +384,11 @@ export class DirectChatService {
 
     try {
       const created = await this.db.$transaction(async (tx) => {
+        await this.assertInteractionAllowedTx(
+          tx,
+          actor.userId,
+          memberIds,
+        );
         const message = await tx.directMessage.create({
           data: {
             conversationId,
@@ -712,6 +724,40 @@ export class DirectChatService {
       !peerUserId ||
       !(await this.trust.canInteract(actorUserId, peerUserId))
     ) {
+      throw new DirectChatError(
+        "FORBIDDEN",
+        "Direct Chat interaction is unavailable",
+      );
+    }
+  }
+
+  private async assertInteractionAllowedTx(
+    tx: Prisma.TransactionClient,
+    actorUserId: string,
+    memberIds: readonly string[],
+  ): Promise<void> {
+    const peerUserId = memberIds.find(
+      (userId) => userId !== actorUserId,
+    );
+    if (!peerUserId) {
+      throw new DirectChatError(
+        "FORBIDDEN",
+        "Direct Chat interaction is unavailable",
+      );
+    }
+
+    const usersExist = await lockTrustUserPair(
+      tx,
+      actorUserId,
+      peerUserId,
+    );
+    const allowed =
+      usersExist &&
+      (await new PrismaUserTrustPolicy(tx).canInteract(
+        actorUserId,
+        peerUserId,
+      ));
+    if (!allowed) {
       throw new DirectChatError(
         "FORBIDDEN",
         "Direct Chat interaction is unavailable",
