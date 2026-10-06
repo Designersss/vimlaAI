@@ -60,7 +60,15 @@ function expectedLanes() {
   );
 }
 
-function validateContract() {
+function browserEnginesForFiles(files) {
+  const engines = ["chromium"];
+  if (files.some((file) => file.endsWith("-cross-browser.spec.ts"))) {
+    engines.push("webkit", "firefox");
+  }
+  return engines;
+}
+
+function validateContract(quiet = false) {
   const errors = [];
   const discovered = discoverSpecs(e2eDir).sort();
 
@@ -135,19 +143,21 @@ function validateContract() {
     process.exit(1);
   }
 
-  console.log(
-    `Web E2E suite contract valid: ${discovered.length} specs, ${WEB_E2E_SUITES.length} suites, ${expectedLanes().length} CI lanes.`,
-  );
-  for (const suite of WEB_E2E_SUITES) {
-    const bins = partitionSuite(suite);
-    const totalSeconds = bins.reduce((sum, lane) => sum + lane.seconds, 0);
+  if (!quiet) {
     console.log(
-      `  - ${suite.id}: ${suite.files.length} files, ${suite.shards} shard(s), estimated ${totalSeconds.toFixed(1)}s total`,
+      `Web E2E suite contract valid: ${discovered.length} specs, ${WEB_E2E_SUITES.length} suites, ${expectedLanes().length} CI lanes.`,
     );
-    for (const lane of bins) {
+    for (const suite of WEB_E2E_SUITES) {
+      const bins = partitionSuite(suite);
+      const totalSeconds = bins.reduce((sum, lane) => sum + lane.seconds, 0);
       console.log(
-        `      lane ${lane.index + 1}/${suite.shards}: ${lane.files.length} files, estimated ${lane.seconds.toFixed(1)}s`,
+        `  - ${suite.id}: ${suite.files.length} files, ${suite.shards} shard(s), estimated ${totalSeconds.toFixed(1)}s total`,
       );
+      for (const lane of bins) {
+        console.log(
+          `      lane ${lane.index + 1}/${suite.shards}: ${lane.files.length} files, estimated ${lane.seconds.toFixed(1)}s`,
+        );
+      }
     }
   }
 }
@@ -188,6 +198,27 @@ const args = process.argv.slice(2);
 
 if (args[0] === "--validate") {
   validateContract();
+  process.exit(0);
+}
+
+if (args[0] === "--browsers") {
+  const [, suiteId, shardRaw] = args;
+  validateContract(true);
+  const suite = WEB_E2E_SUITES.find((candidate) => candidate.id === suiteId);
+  const shardIndex = Number(shardRaw);
+  if (
+    !suite ||
+    !Number.isInteger(shardIndex) ||
+    shardIndex < 1 ||
+    shardIndex > suite.shards
+  ) {
+    console.error(
+      "Usage: node scripts/ci-web-e2e-suite.mjs --browsers <suite-id> <shard-index>",
+    );
+    process.exit(2);
+  }
+  const selected = partitionSuite(suite)[shardIndex - 1];
+  console.log(browserEnginesForFiles(selected.files).join(" "));
   process.exit(0);
 }
 
