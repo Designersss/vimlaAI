@@ -1154,7 +1154,6 @@ model DirectConversation {
   updatedAt     DateTime @updatedAt
   lastMessageAt       DateTime @default(now())
   lastMessageSequence  BigInt   @default(0)
-  trustRevision        Int      @default(0)
   members             DirectConversationMember[]
   messages      DirectMessage[]
   operatorRuns  OperatorRun[]
