@@ -1401,6 +1401,156 @@ describe("direct chats API", () => {
     expect(replay.json().id).toBe(first.json().id);
   });
 
+  it("rejects stale ciphertext after block and reboots E2EE after unblock", async () => {
+    const alice = await readyUser(
+      app,
+      "dc-epoch-alice",
+      "Epoch Alice",
+    );
+    const bob = await readyUser(
+      app,
+      "dc-epoch-bob",
+      "Epoch Bob",
+    );
+    const aliceDevice = await registerHarness(app, alice);
+    const bobDevice = await registerHarness(app, bob);
+    const chat = await createChat(
+      app,
+      alice.cookies,
+      bob.handle,
+    );
+
+    const staleEnvelopes = [];
+    for (const device of chat.devices) {
+      staleEnvelopes.push(
+        await encryptTo(
+          app,
+          alice,
+          aliceDevice,
+          device,
+          chat.id,
+          "HUMAN",
+          "stale before block",
+          [],
+          chat.interactionEpoch,
+        ),
+      );
+    }
+    const stalePayload = {
+      clientMessageId: randomUUID(),
+      senderDeviceId: aliceDevice.deviceId,
+      interactionEpoch: chat.interactionEpoch,
+      kind: "HUMAN" as const,
+      envelopes: staleEnvelopes,
+      mentions: [],
+    };
+
+    const block = await app.inject({
+      method: "POST",
+      url: "/v1/trust/blocks",
+      headers: jsonHeaders(),
+      cookies: bob.cookies,
+      payload: { handle: alice.handle },
+    });
+    expect(block.statusCode).toBe(200);
+
+    const unblock = await app.inject({
+      method: "DELETE",
+      url: `/v1/trust/blocks/${encodeURIComponent(alice.handle)}`,
+      headers: jsonHeaders(),
+      cookies: bob.cookies,
+    });
+    expect(unblock.statusCode).toBe(200);
+
+    const stale = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/${chat.id}/messages`,
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: stalePayload,
+    });
+    expect(stale.statusCode).toBe(409);
+    expect(errorCode(stale)).toBe("conflict");
+
+    const refreshed = await app.inject({
+      method: "GET",
+      url: `/v1/direct-chats/${chat.id}`,
+      headers: { origin },
+      cookies: alice.cookies,
+    });
+    expect(refreshed.statusCode).toBe(200);
+    const latest = refreshed.json() as DirectConversationView;
+    expect(latest.interactionEpoch).toBe(
+      chat.interactionEpoch + 2,
+    );
+
+    const freshEnvelopes = [];
+    for (const device of latest.devices) {
+      freshEnvelopes.push(
+        await encryptTo(
+          app,
+          alice,
+          aliceDevice,
+          device,
+          chat.id,
+          "HUMAN",
+          "fresh after unblock",
+          [],
+          latest.interactionEpoch,
+        ),
+      );
+    }
+    expect(
+      freshEnvelopes.every(
+        (envelope) => envelope.x3dhInit !== null,
+      ),
+    ).toBe(true);
+
+    const fresh = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/${chat.id}/messages`,
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: {
+        clientMessageId: randomUUID(),
+        senderDeviceId: aliceDevice.deviceId,
+        interactionEpoch: latest.interactionEpoch,
+        kind: "HUMAN",
+        envelopes: freshEnvelopes,
+        mentions: [],
+      },
+    });
+    expect(fresh.statusCode).toBe(201);
+    expect(fresh.json().interactionEpoch).toBe(
+      latest.interactionEpoch,
+    );
+
+    const page = await listMessages(
+      app,
+      bob,
+      bobDevice.deviceId,
+      chat.id,
+    );
+    const received = page.items.find(
+      (item) => item.id === fresh.json().id,
+    );
+    expect(received?.envelope).toBeTruthy();
+    if (!received?.envelope) {
+      throw new Error("Expected fresh epoch envelope");
+    }
+    expect(
+      decryptFor(
+        bobDevice,
+        aliceDevice,
+        chat.id,
+        alice.id,
+        "HUMAN",
+        received.envelope,
+        latest.interactionEpoch,
+      ),
+    ).toBe("fresh after unblock");
+  });
+
   it("serializes a queued block ahead of a concurrent Direct Chat send", async () => {
     const alice = await readyUser(
       app,
