@@ -911,6 +911,7 @@ describe("direct chats API", () => {
         payload: {
           clientMessageId: raceClientMessageId,
           senderDeviceId: aliceDevice.deviceId,
+          interactionEpoch: chat.interactionEpoch,
           kind: "HUMAN",
           envelopes: raceEnvelopesA,
           mentions: [],
@@ -924,6 +925,7 @@ describe("direct chats API", () => {
         payload: {
           clientMessageId: raceClientMessageId,
           senderDeviceId: aliceDevice.deviceId,
+          interactionEpoch: chat.interactionEpoch,
           kind: "HUMAN",
           envelopes: raceEnvelopesB,
           mentions: [],
@@ -1457,7 +1459,7 @@ describe("direct chats API", () => {
     const unblock = await app.inject({
       method: "DELETE",
       url: `/v1/trust/blocks/${encodeURIComponent(alice.handle)}`,
-      headers: jsonHeaders(),
+      headers: { origin },
       cookies: bob.cookies,
     });
     expect(unblock.statusCode).toBe(200);
