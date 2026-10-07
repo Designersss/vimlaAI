@@ -665,6 +665,7 @@ describe("trust safety API", () => {
       "trust-report-idempotency-target",
     );
     const db = app.get(PrismaService).client;
+    const remoteAddress = "203.0.113.151";
     const requestId = randomUUID();
     const payload = {
       requestId,
@@ -676,6 +677,7 @@ describe("trust safety API", () => {
     const first = await app.inject({
       method: "POST",
       url: "/v1/trust/reports",
+      remoteAddress,
       headers: jsonHeaders(),
       cookies: reporter.cookies,
       payload,
@@ -685,6 +687,7 @@ describe("trust safety API", () => {
     const replay = await app.inject({
       method: "POST",
       url: "/v1/trust/reports",
+      remoteAddress,
       headers: jsonHeaders(),
       cookies: reporter.cookies,
       payload,
@@ -695,6 +698,7 @@ describe("trust safety API", () => {
     const mismatch = await app.inject({
       method: "POST",
       url: "/v1/trust/reports",
+      remoteAddress,
       headers: jsonHeaders(),
       cookies: reporter.cookies,
       payload: {
@@ -901,11 +905,13 @@ describe("trust safety API", () => {
       app,
       "trust-rate-target",
     );
+    const remoteAddress = "203.0.113.152";
 
     for (let index = 0; index < 6; index += 1) {
       const response = await app.inject({
         method: "POST",
         url: "/v1/trust/reports",
+        remoteAddress,
         headers: jsonHeaders(),
         cookies: reporter.cookies,
         payload: {
@@ -921,6 +927,7 @@ describe("trust safety API", () => {
     const limited = await app.inject({
       method: "POST",
       url: "/v1/trust/reports",
+      remoteAddress,
       headers: jsonHeaders(),
       cookies: reporter.cookies,
       payload: {
