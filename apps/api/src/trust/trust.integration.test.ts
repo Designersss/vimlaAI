@@ -500,6 +500,7 @@ describe("trust safety API", () => {
       headers: jsonHeaders(),
       cookies: alice.cookies,
       payload: {
+        requestId: randomUUID(),
         reporterUserId: outsider.id,
         targetHandle: bob.handle,
         reason: "HARASSMENT",
@@ -513,6 +514,7 @@ describe("trust safety API", () => {
       headers: jsonHeaders(),
       cookies: alice.cookies,
       payload: {
+        requestId: randomUUID(),
         targetHandle: bob.handle,
         reason: "HARASSMENT",
         evidence: {
@@ -533,6 +535,7 @@ describe("trust safety API", () => {
       headers: jsonHeaders(),
       cookies: alice.cookies,
       payload: {
+        requestId: randomUUID(),
         targetHandle: bob.handle,
         reason: "THREATS",
         details: "Context supplied by the reporter",
@@ -576,6 +579,7 @@ describe("trust safety API", () => {
       headers: jsonHeaders(),
       cookies: alice.cookies,
       payload: {
+        requestId: randomUUID(),
         targetHandle: bob.handle,
         reason: "HARASSMENT",
         evidence: {
@@ -603,6 +607,7 @@ describe("trust safety API", () => {
       headers: jsonHeaders(),
       cookies: alice.cookies,
       payload: {
+        requestId: randomUUID(),
         targetHandle: bob.handle,
         reason: "THREATS",
         evidence: {
@@ -635,6 +640,7 @@ describe("trust safety API", () => {
         headers: jsonHeaders(),
         cookies: alice.cookies,
         payload: {
+          requestId: randomUUID(),
           targetHandle: bob.handle,
           reason: "IMPERSONATION",
           evidence: {
@@ -647,6 +653,64 @@ describe("trust safety API", () => {
         },
       });
     expect(forgedOperatorOutput.statusCode).toBe(400);
+  });
+
+  it("deduplicates exact report retries by reporter-scoped request id", async () => {
+    const reporter = await registerVerifiedUser(
+      app,
+      "trust-report-idempotency-reporter",
+    );
+    const target = await registerVerifiedUser(
+      app,
+      "trust-report-idempotency-target",
+    );
+    const db = app.get(PrismaService).client;
+    const requestId = randomUUID();
+    const payload = {
+      requestId,
+      targetHandle: target.handle,
+      reason: "SPAM",
+      details: "Same logical report after a lost response",
+    } as const;
+
+    const first = await app.inject({
+      method: "POST",
+      url: "/v1/trust/reports",
+      headers: jsonHeaders(),
+      cookies: reporter.cookies,
+      payload,
+    });
+    expect(first.statusCode).toBe(201);
+
+    const replay = await app.inject({
+      method: "POST",
+      url: "/v1/trust/reports",
+      headers: jsonHeaders(),
+      cookies: reporter.cookies,
+      payload,
+    });
+    expect(replay.statusCode).toBe(201);
+    expect(replay.json()).toEqual(first.json());
+
+    const mismatch = await app.inject({
+      method: "POST",
+      url: "/v1/trust/reports",
+      headers: jsonHeaders(),
+      cookies: reporter.cookies,
+      payload: {
+        ...payload,
+        reason: "HARASSMENT",
+      },
+    });
+    expect(mismatch.statusCode).toBe(409);
+    expect(
+      await db.abuseReport.count({
+        where: {
+          reporterUserId: reporter.id,
+          requestId,
+        },
+      }),
+    ).toBe(1);
   });
 
   it("rate-limits abuse reports across different users sharing one IP", async () => {
@@ -679,6 +743,7 @@ describe("trust safety API", () => {
           headers: jsonHeaders(),
           cookies: reporter.cookies,
           payload: {
+            requestId: randomUUID(),
             targetHandle: target.handle,
             reason: "SPAM",
             details: `Shared IP occurrence ${index}`,
@@ -699,6 +764,7 @@ describe("trust safety API", () => {
       headers: jsonHeaders(),
       cookies: limitedReporter.cookies,
       payload: {
+        requestId: randomUUID(),
         targetHandle: target.handle,
         reason: "SPAM",
       },
@@ -735,6 +801,7 @@ describe("trust safety API", () => {
           },
           cookies: reporter.cookies,
           payload: {
+            requestId: randomUUID(),
             targetHandle: target.handle,
             reason: "SPAM",
           },
@@ -757,6 +824,7 @@ describe("trust safety API", () => {
       },
       cookies: thirdReporter.cookies,
       payload: {
+        requestId: randomUUID(),
         targetHandle: target.handle,
         reason: "SPAM",
       },
@@ -773,6 +841,7 @@ describe("trust safety API", () => {
       },
       cookies: thirdReporter.cookies,
       payload: {
+        requestId: randomUUID(),
         targetHandle: target.handle,
         reason: "SPAM",
       },
@@ -792,6 +861,7 @@ describe("trust safety API", () => {
           },
           cookies: reporter.cookies,
           payload: {
+            requestId: randomUUID(),
             targetHandle: target.handle,
             reason: "SPAM",
           },
@@ -814,6 +884,7 @@ describe("trust safety API", () => {
       },
       cookies: spoofReporter.cookies,
       payload: {
+        requestId: randomUUID(),
         targetHandle: target.handle,
         reason: "SPAM",
       },
@@ -838,6 +909,7 @@ describe("trust safety API", () => {
         headers: jsonHeaders(),
         cookies: reporter.cookies,
         payload: {
+          requestId: randomUUID(),
           targetHandle: target.handle,
           reason: "SPAM",
           details: `Occurrence ${index}`,
@@ -852,6 +924,7 @@ describe("trust safety API", () => {
       headers: jsonHeaders(),
       cookies: reporter.cookies,
       payload: {
+        requestId: randomUUID(),
         targetHandle: target.handle,
         reason: "SPAM",
       },
