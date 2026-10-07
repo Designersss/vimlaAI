@@ -13,5 +13,6 @@ export {
 } from "./policy.js";
 export {
   TrustService,
+  abuseReportRequestFingerprint,
   type SurfaceAccessPolicy,
 } from "./service.js";
