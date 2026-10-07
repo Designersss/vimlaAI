@@ -6,10 +6,13 @@ import type {
   UpdateSurfacePreference,
   UserBlockState,
 } from "@vimla/contracts";
-import { TrustApiError } from "@vimla/client-api";
+import {
+  AuthRequiredError,
+  TrustApiError,
+} from "@vimla/client-api";
 import { createWebClientApi } from "../../../shared/api/client";
 
-export { TrustApiError };
+export { AuthRequiredError, TrustApiError };
 
 export function listBlockedUsers(
   query: { cursor?: string; limit?: number } = {},
