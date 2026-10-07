@@ -553,7 +553,7 @@
     "report": "Report",
     "reportMessage": "Report message",
     "reportTitle": "Report @{handle}",
-    "reportDescription": "Reports go to authorized Vimla moderation. Do not include secrets unless they are necessary for the report.",
+    "reportDescription": "Your report will be securely recorded for future review by authorized Vimla safety personnel. Do not include secrets unless they are necessary for the report.",
     "submitReport": "Submit report",
     "reportSubmitted": "Report submitted.",
     "reason": "Reason",
@@ -562,7 +562,7 @@
     "evidenceExcerpt": "Evidence excerpt",
     "evidenceExcerptHelp": "Only the excerpt shown here (up to {max} characters) will be disclosed. You can edit it before submitting.",
     "evidenceExcerptLong": "This message is longer than {max} characters. Review and edit the excerpt below so the relevant part is disclosed explicitly.",
-    "evidenceDisclosure": "This report will explicitly disclose the decrypted message excerpt shown below to authorized moderation. Vimla verifies the message metadata and sender, but the disclosed plaintext is supplied by your client and is not cryptographically verified by the server.",
+    "evidenceDisclosure": "This report will explicitly disclose the decrypted message excerpt shown below and store it with the report for future authorized review. Vimla verifies the message metadata and sender, but the disclosed plaintext is supplied by your client and is not cryptographically verified by the server.",
     "mute": "Mute this chat",
     "muted": "Chat muted.",
     "unmuted": "Chat unmuted.",
@@ -574,6 +574,7 @@
     "reason_SEXUAL_CONTENT": "Sexual content",
     "reason_SELF_HARM": "Self-harm",
     "reason_OTHER": "Other",
-    "reportDone": "Done"
+    "reportDone": "Done",
+    "muteUnavailable": "Mute setting is temporarily unavailable. Retry to load the current value."
   }
 }

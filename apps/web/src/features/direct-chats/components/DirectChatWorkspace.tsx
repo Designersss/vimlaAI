@@ -214,6 +214,9 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
   const [userId, setUserId] = useState<string | null>(null);
   const [muted, setMuted] = useState(false);
   const [muteBusy, setMuteBusy] = useState(false);
+  const [muteStatus, setMuteStatus] = useState<
+    "loading" | "ready" | "error"
+  >("loading");
   const blockedByMe = conversation?.blockedByMe ?? false;
   const [blockOpen, setBlockOpen] = useState(false);
   const [blockBusy, setBlockBusy] = useState(false);
@@ -249,6 +252,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
 
   useEffect(() => {
     let cancelled = false;
+    setMuteStatus("loading");
     void (async () => {
       try {
         const currentUser = await fetchCurrentUser();
@@ -285,10 +289,11 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
             await fetchSurfacePreference(detail.surfaceId);
           if (!cancelled) {
             setMuted(preference.muted);
+            setMuteStatus("ready");
           }
         } catch {
           if (!cancelled) {
-            setMuted(false);
+            setMuteStatus("error");
           }
         }
         const visibleRows = [...page.decrypted].reverse();
@@ -882,8 +887,22 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
     }
   }
 
+  async function retryMutePreference(): Promise<void> {
+    if (!conversation || muteStatus === "loading") return;
+    setMuteStatus("loading");
+    try {
+      const preference = await fetchSurfacePreference(
+        conversation.surfaceId,
+      );
+      setMuted(preference.muted);
+      setMuteStatus("ready");
+    } catch {
+      setMuteStatus("error");
+    }
+  }
+
   async function toggleMute(nextMuted: boolean): Promise<void> {
-    if (!conversation || muteBusy) return;
+    if (!conversation || muteBusy || muteStatus !== "ready") return;
     const previousMuted = muted;
     setMuted(nextMuted);
     setMuteBusy(true);
@@ -895,7 +914,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
       setMuted(preference.muted);
     } catch {
       setMuted(previousMuted);
-      setError("internal_error");
+      setMuteStatus("error");
     } finally {
       setMuteBusy(false);
     }
@@ -1040,14 +1059,31 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
       />
       <div className={styles.thread}>
         <div className={styles.privacy}>
-          <Switch
-            label={t("trust.mute")}
-            checked={muted}
-            disabled={muteBusy}
-            onChange={(event) => {
-              void toggleMute(event.currentTarget.checked);
-            }}
-          />
+          {muteStatus === "ready" ? (
+            <Switch
+              label={t("trust.mute")}
+              checked={muted}
+              disabled={muteBusy}
+              onChange={(event) => {
+                void toggleMute(event.currentTarget.checked);
+              }}
+            />
+          ) : muteStatus === "error" ? (
+            <div>
+              <Alert variant="error">
+                {t("trust.muteUnavailable")}
+              </Alert>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => void retryMutePreference()}
+              >
+                {t("common.retry")}
+              </Button>
+            </div>
+          ) : (
+            <Text tone="caption">{t("common.loading")}</Text>
+          )}
           <Switch
             label={t("direct.shareOwn")}
             checked={conversation.privacy.shareOwnHistoryWithVimla}

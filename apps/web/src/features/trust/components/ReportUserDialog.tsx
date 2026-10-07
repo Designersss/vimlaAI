@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactElement } from "react";
+import { useEffect, useRef, useState, type ReactElement } from "react";
 import { useTranslations } from "next-intl";
 import {
   TRUST_LIMITS,
@@ -51,19 +51,27 @@ export function ReportUserDialog({
     : "";
   const [submitting, setSubmitting] = useState(false);
   const [state, setState] = useState<"idle" | "success" | "error">("idle");
+  const submissionGenerationRef = useRef(0);
+
+  useEffect(() => {
+    if (open) return;
+    submissionGenerationRef.current += 1;
+    setReason("HARASSMENT");
+    setDetails("");
+    setEvidenceEdits({});
+    setSubmitting(false);
+    setState("idle");
+  }, [open]);
 
   function handleOpenChange(nextOpen: boolean): void {
-    if (!nextOpen) {
-      setReason("HARASSMENT");
-      setDetails("");
-      setEvidenceEdits({});
-      setState("idle");
-    }
+    if (!nextOpen && submitting) return;
     onOpenChange(nextOpen);
   }
 
   async function submit(): Promise<void> {
     if (submitting) return;
+    const generation = submissionGenerationRef.current + 1;
+    submissionGenerationRef.current = generation;
     setSubmitting(true);
     setState("idle");
     try {
@@ -80,11 +88,17 @@ export function ReportUserDialog({
             }
           : {}),
       });
-      setState("success");
+      if (submissionGenerationRef.current === generation) {
+        setState("success");
+      }
     } catch {
-      setState("error");
+      if (submissionGenerationRef.current === generation) {
+        setState("error");
+      }
     } finally {
-      setSubmitting(false);
+      if (submissionGenerationRef.current === generation) {
+        setSubmitting(false);
+      }
     }
   }
 
@@ -97,7 +111,11 @@ export function ReportUserDialog({
       closeLabel={t("common.close")}
       actions={
         <>
-          <Button variant="ghost" onClick={() => handleOpenChange(false)}>
+          <Button
+            variant="ghost"
+            disabled={submitting}
+            onClick={() => handleOpenChange(false)}
+          >
             {state === "success" ? t("trust.reportDone") : t("common.cancel")}
           </Button>
           {state !== "success" ? (

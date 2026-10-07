@@ -1097,7 +1097,7 @@ test.describe("Secure Direct Chats", () => {
 
     const localDeviceId =
       await readLocalDeviceId(alicePage);
-    await insertExpiredTrustCancelledPendingSend(
+    await insertAgedTrustCancelledPendingSend(
       alicePage,
       {
         conversationId,
@@ -1115,7 +1115,7 @@ test.describe("Secure Direct Chats", () => {
       .poll(() => readPendingSendCount(alicePage), {
         timeout: 20_000,
       })
-      .toBe(0);
+      .toBe(1);
 
     await aliceContext.close();
     await bobContext.close();
@@ -2625,7 +2625,7 @@ async function restoreIndexedDbPut(
   });
 }
 
-async function insertExpiredTrustCancelledPendingSend(
+async function insertAgedTrustCancelledPendingSend(
   page: Page,
   input: {
     conversationId: string;
@@ -2657,7 +2657,7 @@ async function insertExpiredTrustCancelledPendingSend(
             "readwrite",
           );
           const clientMessageId =
-            `expired-trust-${crypto.randomUUID()}`;
+            `aged-trust-${crypto.randomUUID()}`;
           tx.objectStore("pendingSends").put(
             {
               revision: 1,
@@ -2669,7 +2669,7 @@ async function insertExpiredTrustCancelledPendingSend(
               kind: "HUMAN",
               envelopes: [],
               mentions: [],
-              plaintext: "expired trust tombstone",
+              plaintext: "aged trust tombstone",
               createdAt: new Date(
                 Date.now() - 11 * 60_000,
               ).toISOString(),
@@ -2684,14 +2684,14 @@ async function insertExpiredTrustCancelledPendingSend(
             reject(
               tx.error ??
                 new Error(
-                  "Expired trust tombstone insert aborted",
+                  "Aged trust tombstone insert aborted",
                 ),
             );
           tx.onerror = () =>
             reject(
               tx.error ??
                 new Error(
-                  "Expired trust tombstone insert failed",
+                  "Aged trust tombstone insert failed",
                 ),
             );
         },

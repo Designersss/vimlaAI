@@ -140,14 +140,44 @@ test.describe("Public profile", () => {
       .getByTestId("direct-conversation-row")
       .filter({ hasText: `@${bobHandle}` });
     await expect(directRow).toBeVisible({ timeout: 20_000 });
+    let failMutePreferenceLoad = true;
+    await alicePage.route(
+      "**/v1/trust/surfaces/*/preference",
+      async (route) => {
+        if (
+          failMutePreferenceLoad &&
+          route.request().method() === "GET"
+        ) {
+          failMutePreferenceLoad = false;
+          await route.abort("failed");
+          return;
+        }
+        await route.continue();
+      },
+    );
     await directRow.click();
     await expect(
       alicePage.getByTestId("direct-chat-shell"),
     ).toBeVisible({ timeout: 20_000 });
+    await expect(
+      alicePage.getByText(
+        "Mute setting is temporarily unavailable. Retry to load the current value.",
+      ),
+    ).toBeVisible();
+    await expect(
+      alicePage.getByRole("switch", {
+        name: "Mute this chat",
+      }),
+    ).toHaveCount(0);
+    await alicePage.getByRole("button", { name: "Retry" }).click();
 
     const mute = alicePage.getByRole("switch", {
       name: "Mute this chat",
     });
+    await expect(mute).toBeVisible();
+    await alicePage.unroute(
+      "**/v1/trust/surfaces/*/preference",
+    );
     await expect(mute).toBeVisible();
     await mute.check();
     await expect(mute).toBeChecked();
@@ -160,12 +190,37 @@ test.describe("Public profile", () => {
       name: `Report @${bobHandle}`,
     });
     await expect(reportDialog).toBeVisible();
-    await reportDialog
-      .getByRole("button", { name: "Submit report" })
-      .click();
+    let releaseReport!: () => void;
+    let signalReportHeld!: () => void;
+    const reportHeld = new Promise<void>((resolve) => {
+      signalReportHeld = resolve;
+    });
+    const reportRelease = new Promise<void>((resolve) => {
+      releaseReport = resolve;
+    });
+    await alicePage.route(
+      "**/v1/trust/reports",
+      async (route) => {
+        if (route.request().method() === "POST") {
+          signalReportHeld();
+          await reportRelease;
+        }
+        await route.continue();
+      },
+    );
+    const submitReport = reportDialog.getByRole("button", {
+      name: "Submit report",
+    });
+    await submitReport.click();
+    await reportHeld;
+    await alicePage.keyboard.press("Escape");
+    await expect(reportDialog).toBeVisible();
+    await expect(submitReport).toBeDisabled();
+    releaseReport();
     await expect(
       reportDialog.getByText("Report submitted."),
     ).toBeVisible();
+    await alicePage.unroute("**/v1/trust/reports");
     await reportDialog
       .getByRole("button", { name: "Done" })
       .click();
@@ -229,10 +284,29 @@ test.describe("Public profile", () => {
         }),
     ).toBeDisabled();
 
+    let failBlockedListLoad = true;
+    await alicePage.route(
+      "**/v1/trust/blocks*",
+      async (route) => {
+        if (
+          failBlockedListLoad &&
+          route.request().method() === "GET"
+        ) {
+          failBlockedListLoad = false;
+          await route.abort("failed");
+          return;
+        }
+        await route.continue();
+      },
+    );
     await alicePage.goto("/settings/safety");
     await expect(
       alicePage.getByRole("heading", { name: "Safety" }),
     ).toBeVisible();
+    await expect(
+      alicePage.getByText("You have not blocked anyone."),
+    ).toHaveCount(0);
+    await alicePage.getByRole("button", { name: "Retry" }).click();
     const blockedCard = alicePage
       .getByTestId("blocked-user-row")
       .filter({ hasText: `@${bobHandle}` });
@@ -243,6 +317,7 @@ test.describe("Public profile", () => {
     await expect(
       alicePage.getByText(`@${bobHandle}`),
     ).toHaveCount(0);
+    await alicePage.unroute("**/v1/trust/blocks*");
 
     await alicePage.goto(directUrl);
     await expect(

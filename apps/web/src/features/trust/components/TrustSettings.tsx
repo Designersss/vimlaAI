@@ -21,6 +21,7 @@ export function TrustSettings(): ReactElement {
   const t = useTranslations();
   const [items, setItems] = useState<BlockedUser[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
   const [status, setStatus] = useState<"loading" | "ready" | "error">("loading");
   const [loadingMore, setLoadingMore] = useState(false);
   const [busyHandle, setBusyHandle] = useState<string | null>(null);
@@ -40,7 +41,7 @@ export function TrustSettings(): ReactElement {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [attempt]);
 
   async function loadMore(): Promise<void> {
     if (!cursor || loadingMore) return;
@@ -52,6 +53,7 @@ export function TrustSettings(): ReactElement {
         return [...current, ...page.items.filter((item) => !seen.has(item.userId))];
       });
       setCursor(page.nextCursor);
+      setStatus("ready");
     } catch {
       setStatus("error");
     } finally {
@@ -65,11 +67,18 @@ export function TrustSettings(): ReactElement {
     try {
       await unblockUser(handle);
       setItems((current) => current.filter((item) => item.handle !== handle));
+      setStatus("ready");
     } catch {
       setStatus("error");
     } finally {
       setBusyHandle(null);
     }
+  }
+
+  function retryLoad(): void {
+    if (status === "loading") return;
+    setStatus("loading");
+    setAttempt((value) => value + 1);
   }
 
   return (
@@ -83,7 +92,13 @@ export function TrustSettings(): ReactElement {
         {status === "loading" ? (
           <Spinner label={t("common.loading")} />
         ) : items.length === 0 ? (
-          <EmptyState title={t("trust.noBlockedUsers")} />
+          status === "error" ? (
+            <Button variant="ghost" onClick={retryLoad}>
+              {t("common.retry")}
+            </Button>
+          ) : (
+            <EmptyState title={t("trust.noBlockedUsers")} />
+          )
         ) : (
           <div className={styles.blockedList}>
             {items.map((item) => (

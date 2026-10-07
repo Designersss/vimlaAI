@@ -51,8 +51,6 @@ const RATCHET_SESSION_LOCK_MAX_HOLD_MS = 90_000;
 const LOCAL_DEVICE_LOCK_MAX_HOLD_MS = 60_000;
 const PENDING_SEND_RECOVERY_LOCK_MAX_HOLD_MS = 120_000;
 const PENDING_OPERATOR_LOCK_MAX_HOLD_MS = 120_000;
-const TRUST_CANCELLED_PENDING_RETENTION_MS =
-  5 * 60_000;
 const RATCHET_LOCK_POLL_MS = 40;
 const LOCAL_DEVICE_LOCK_KEY = "vimla-local-device-bootstrap";
 const LEGACY_LOCAL_PROTECTION_VERSION = 0 as const;
@@ -1290,63 +1288,6 @@ export async function cancelPendingSendsForTrust(input: {
         tx.error ??
           new Error(
             "Trust pending-send cancellation transaction aborted",
-          ),
-      );
-    };
-  });
-}
-
-export async function purgeExpiredTrustCancelledPendingSends(input: {
-  conversationId: string;
-  senderDeviceId: string;
-  now?: Date;
-}): Promise<void> {
-  const cutoff =
-    (input.now ?? new Date()).getTime() -
-    TRUST_CANCELLED_PENDING_RETENTION_MS;
-  const db = await openDb();
-  await new Promise<void>((resolve, reject) => {
-    const tx = db.transaction(
-      "pendingSends",
-      "readwrite",
-    );
-    const request = tx
-      .objectStore("pendingSends")
-      .index(PENDING_SEND_SCOPE_INDEX)
-      .openCursor(
-        IDBKeyRange.only([
-          input.conversationId,
-          input.senderDeviceId,
-        ]),
-      );
-    request.onsuccess = () => {
-      const cursor = request.result;
-      if (!cursor) return;
-      const row = cursor.value as StoredPendingSend;
-      if (row.trustCancelledAt) {
-        const cancelledAt = Date.parse(
-          row.trustCancelledAt,
-        );
-        if (
-          !Number.isFinite(cancelledAt) ||
-          cancelledAt <= cutoff
-        ) {
-          cursor.delete();
-        }
-      }
-      cursor.continue();
-    };
-    request.onerror = () => tx.abort();
-    tx.oncomplete = () => {
-      db.close();
-      resolve();
-    };
-    tx.onabort = () => {
-      db.close();
-      reject(
-        tx.error ??
-          new Error(
-            "Trust pending-send cleanup transaction aborted",
           ),
       );
     };
