@@ -169,7 +169,7 @@ test.describe("Public profile", () => {
         name: "Mute this chat",
       }),
     ).toHaveCount(0);
-    await alicePage.getByRole("button", { name: "Retry" }).click();
+    await alicePage.getByRole("button", { name: "Try again" }).click();
 
     const mute = alicePage.getByRole("switch", {
       name: "Mute this chat",

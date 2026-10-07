@@ -149,7 +149,10 @@ jobs:
   web-e2e:
     name: web-browser-e2e / ${{ matrix.label }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    # Cold cross-browser installs can consume ~24 minutes before Playwright starts.
+    # Keep the browser-test step at 20 minutes as the hang guard; this outer budget
+    # also has to cover services, builds, migrations and browser installation.
+    timeout-minutes: 50
     strategy:
       fail-fast: false
       matrix:
