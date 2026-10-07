@@ -28,7 +28,7 @@ export class DirectChatsRateLimitGuard implements CanActivate {
       request.method === "OPTIONS" ||
       (
         request.method === "POST" &&
-        request.routeOptions.url.endsWith("/send-preflight")
+        request.routeOptions.url?.endsWith("/send-preflight") === true
       )
     ) {
       return true;
