@@ -11,11 +11,13 @@ describe("trust contracts", () => {
   it("accepts bounded typed reports without accepting reporter identity", () => {
     expect(
       createAbuseReportSchema.parse({
+        requestId: "11111111-1111-4111-8111-111111111111",
         targetHandle: "peer",
         reason: "HARASSMENT",
         details: "Repeated harassment",
       }),
     ).toEqual({
+      requestId: "11111111-1111-4111-8111-111111111111",
       targetHandle: "peer",
       reason: "HARASSMENT",
       details: "Repeated harassment",
@@ -23,6 +25,7 @@ describe("trust contracts", () => {
 
     expect(() =>
       createAbuseReportSchema.parse({
+        requestId: "11111111-1111-4111-8111-111111111111",
         targetHandle: "peer",
         reason: "HARASSMENT",
         reporterUserId: "forged-user",
@@ -31,6 +34,7 @@ describe("trust contracts", () => {
 
     expect(() =>
       createAbuseReportSchema.parse({
+        requestId: "11111111-1111-4111-8111-111111111111",
         targetHandle: "peer",
         reason: "OTHER",
         details: "x".repeat(TRUST_LIMITS.reportDetailsMax + 1),
@@ -39,6 +43,7 @@ describe("trust contracts", () => {
 
     expect(() =>
       createAbuseReportSchema.parse({
+        requestId: "11111111-1111-4111-8111-111111111111",
         targetHandle: "peer",
         reason: "OTHER",
         details: "hidden\u0000tail",
