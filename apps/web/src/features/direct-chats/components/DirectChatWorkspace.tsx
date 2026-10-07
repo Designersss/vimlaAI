@@ -290,7 +290,10 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
             setMuted(preference.muted);
             setMuteStatus("ready");
           }
-        } catch {
+        } catch (caught: unknown) {
+          if (caught instanceof AuthRequiredError) {
+            throw caught;
+          }
           if (!cancelled) {
             setMuteStatus("error");
           }
@@ -895,7 +898,11 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
       );
       setMuted(preference.muted);
       setMuteStatus("ready");
-    } catch {
+    } catch (caught: unknown) {
+      if (caught instanceof AuthRequiredError) {
+        router.replace("/sign-in");
+        return;
+      }
       setMuteStatus("error");
     }
   }
@@ -911,8 +918,12 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         { muted: nextMuted },
       );
       setMuted(preference.muted);
-    } catch {
+    } catch (caught: unknown) {
       setMuted(previousMuted);
+      if (caught instanceof AuthRequiredError) {
+        router.replace("/sign-in");
+        return;
+      }
       setMuteStatus("error");
     } finally {
       setMuteBusy(false);
@@ -946,7 +957,11 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         // local outbox quarantine needs to be retried on the next chat load.
         setError("internal_error");
       }
-    } catch {
+    } catch (caught: unknown) {
+      if (caught instanceof AuthRequiredError) {
+        router.replace("/sign-in");
+        return;
+      }
       setError("internal_error");
     } finally {
       setBlockBusy(false);
