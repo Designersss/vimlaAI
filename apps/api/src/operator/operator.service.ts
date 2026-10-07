@@ -168,12 +168,26 @@ export class OperatorService {
           userMessageId = userMessage.id;
         }
 
-        if (scope === "DIRECT_CHAT" && scoped.directConversationId) {
+        if (scope === "DIRECT_CHAT") {
+          if (
+            !scoped.directConversationId ||
+            !scoped.sourceMessageId ||
+            scoped.interactionEpoch === null
+          ) {
+            throw new OperatorError(
+              "CONTEXT_REVOKED",
+              "Direct Chat invocation provenance is unavailable",
+            );
+          }
           await this.assertDirectChatDisclosureConsentTx(
             tx,
             scoped.directConversationId,
             userId,
             scoped.messages,
+            {
+              sourceMessageId: scoped.sourceMessageId,
+              interactionEpoch: scoped.interactionEpoch,
+            },
           );
         }
 
@@ -191,6 +205,7 @@ export class OperatorService {
             locale,
             invocationScope: scope,
             directConversationId: scoped.directConversationId,
+            directInteractionEpoch: scoped.interactionEpoch,
             contextOwnIncluded: scoped.ownIncluded,
             contextPeerIncluded: scoped.peerIncluded,
             contextPeerDenied: scoped.peerDenied,
@@ -201,7 +216,8 @@ export class OperatorService {
           scope === "DIRECT_CHAT" &&
           scoped.directConversationId &&
           scoped.sourceMessageId &&
-          scoped.sourceMessageCreatedAt
+          scoped.sourceMessageCreatedAt &&
+          scoped.interactionEpoch !== null
         ) {
           await freezeDirectOperatorContextSnapshot(tx, {
             operatorRunId: runId,
@@ -209,6 +225,7 @@ export class OperatorService {
             directConversationId: scoped.directConversationId,
             sourceMessageId: scoped.sourceMessageId,
             sourceMessageCreatedAt: scoped.sourceMessageCreatedAt,
+            interactionEpoch: scoped.interactionEpoch,
             userText: input.content,
             messages: scoped.messages,
           });
@@ -1327,6 +1344,7 @@ export class OperatorService {
     directConversationId: string | null;
     sourceMessageId: string | null;
     sourceMessageCreatedAt: string | null;
+    interactionEpoch: number | null;
     messages: Array<{
       messageId: string;
       senderUserId: string;
@@ -1343,6 +1361,7 @@ export class OperatorService {
         directConversationId: null,
         sourceMessageId: null,
         sourceMessageCreatedAt: null,
+        interactionEpoch: null,
         messages: [],
         ownIncluded: false,
         peerIncluded: false,
@@ -1371,6 +1390,7 @@ export class OperatorService {
       directConversationId,
       sourceMessageId: disclosure.sourceMessageId,
       sourceMessageCreatedAt: disclosure.sourceMessageCreatedAt,
+      interactionEpoch: disclosure.sourceInteractionEpoch,
       messages: disclosure.messages,
       ownIncluded: disclosure.ownIncluded,
       peerIncluded: disclosure.peerIncluded,
@@ -1453,6 +1473,12 @@ export class OperatorService {
     ) {
       return null;
     }
+    if (run.directInteractionEpoch === null) {
+      throw new OperatorError(
+        "CONTEXT_REVOKED",
+        "Direct Chat interaction epoch is unavailable",
+      );
+    }
     const frozen = await loadDirectOperatorContextSnapshot(
       this.prisma,
       run.userId,
@@ -1462,6 +1488,12 @@ export class OperatorService {
       throw new OperatorError(
         "CONTEXT_REVOKED",
         "Direct Chat context snapshot is unavailable",
+      );
+    }
+    if (frozen.interactionEpoch !== run.directInteractionEpoch) {
+      throw new OperatorError(
+        "CONTEXT_REVOKED",
+        "Direct Chat interaction epoch changed",
       );
     }
     let disclosure;
@@ -1496,6 +1528,8 @@ export class OperatorService {
     if (
       disclosure.sourceMessageCreatedAt !==
         frozen.sourceMessageCreatedAt ||
+      disclosure.sourceInteractionEpoch !==
+        run.directInteractionEpoch ||
       disclosure.messages.length !== frozen.messages.length ||
       frozen.messages.some(
         (message) => !authorizedIds.has(message.messageId),
@@ -1621,28 +1655,77 @@ export class OperatorService {
     if (context.invocation.scope !== "DIRECT_CHAT") {
       return;
     }
-    const directConversationId = context.invocation.directConversationId;
-    if (!directConversationId) {
+    const run = await tx.operatorRun.findUnique({
+      where: { id: runId },
+      select: {
+        id: true,
+        userId: true,
+        invocationScope: true,
+        directConversationId: true,
+        directInteractionEpoch: true,
+      },
+    });
+    if (!run || run.userId !== context.actor.userId) {
       throw new OperatorError(
         "CONTEXT_REVOKED",
-        "Direct Chat context is unavailable",
+        "Direct Chat operator run is unavailable",
+      );
+    }
+    await this.assertDirectChatRunEpochTx(tx, run);
+  }
+
+  private async assertDirectChatRunEpochTx(
+    tx: Prisma.TransactionClient,
+    run: {
+      id: string;
+      userId: string;
+      invocationScope: string;
+      directConversationId: string | null;
+      directInteractionEpoch: number | null;
+    },
+  ): Promise<void> {
+    if (run.invocationScope !== "DIRECT_CHAT") {
+      return;
+    }
+    if (
+      !run.directConversationId ||
+      run.directInteractionEpoch === null
+    ) {
+      throw new OperatorError(
+        "CONTEXT_REVOKED",
+        "Direct Chat interaction epoch is unavailable",
       );
     }
 
     const snapshot = await tx.contextSnapshot.findUnique({
-      where: { operatorRunId: runId },
+      where: { operatorRunId: run.id },
       include: { items: { orderBy: { sequence: "asc" } } },
     });
-    if (!snapshot) {
+    if (
+      !snapshot ||
+      snapshot.directInteractionEpoch !== run.directInteractionEpoch
+    ) {
       throw new OperatorError(
         "CONTEXT_REVOKED",
         "Direct Chat context snapshot is unavailable",
       );
     }
+
+    let sourceMessageId: string | null = null;
     const messages: Array<{ senderUserId: string }> = [];
     for (const item of snapshot.items) {
       if (item.sourceType !== "E2EE_DISCLOSURE") continue;
       const metadata = asRecord(item.metadata);
+      if (metadata.disclosureKind === "CURRENT_REQUEST") {
+        if (sourceMessageId !== null) {
+          throw new OperatorError(
+            "CONTEXT_REVOKED",
+            "Direct Chat invocation provenance is invalid",
+          );
+        }
+        sourceMessageId = item.sourceId;
+        continue;
+      }
       if (metadata.disclosureKind !== "L1_RAW") continue;
       const senderUserId =
         typeof metadata.senderUserId === "string"
@@ -1656,11 +1739,22 @@ export class OperatorService {
       }
       messages.push({ senderUserId });
     }
+    if (!sourceMessageId) {
+      throw new OperatorError(
+        "CONTEXT_REVOKED",
+        "Direct Chat invocation provenance is unavailable",
+      );
+    }
+
     await this.assertDirectChatDisclosureConsentTx(
       tx,
-      directConversationId,
-      context.actor.userId,
+      run.directConversationId,
+      run.userId,
       messages,
+      {
+        sourceMessageId,
+        interactionEpoch: run.directInteractionEpoch,
+      },
     );
   }
 
@@ -1669,6 +1763,10 @@ export class OperatorService {
     directConversationId: string,
     actorUserId: string,
     messages: readonly { senderUserId: string }[],
+    invocation?: {
+      sourceMessageId: string;
+      interactionEpoch: number;
+    },
   ): Promise<void> {
     await tx.$queryRaw<Array<{ id: string }>>`
       SELECT "id"
@@ -1710,6 +1808,35 @@ export class OperatorService {
         "CONTEXT_REVOKED",
         "Direct Chat interaction is no longer available",
       );
+    }
+
+    if (invocation) {
+      const [conversation, source] = await Promise.all([
+        tx.directConversation.findUnique({
+          where: { id: directConversationId },
+          select: { interactionEpoch: true },
+        }),
+        tx.directMessage.findFirst({
+          where: {
+            id: invocation.sourceMessageId,
+            conversationId: directConversationId,
+            senderUserId: actorUserId,
+            kind: "OPERATOR_INVOKE",
+          },
+          select: { interactionEpoch: true },
+        }),
+      ]);
+      if (
+        !conversation ||
+        !source ||
+        conversation.interactionEpoch !== invocation.interactionEpoch ||
+        source.interactionEpoch !== invocation.interactionEpoch
+      ) {
+        throw new OperatorError(
+          "CONTEXT_REVOKED",
+          "Direct Chat interaction epoch changed",
+        );
+      }
     }
 
     for (const message of messages) {

@@ -620,6 +620,7 @@ export class DirectChatService {
   ): Promise<{
     sourceMessageId: string;
     sourceMessageCreatedAt: string;
+    sourceInteractionEpoch: number;
     memberIds: string[];
     messages: ContextMessageClaim[];
     ownIncluded: boolean;
@@ -634,12 +635,22 @@ export class DirectChatService {
         senderUserId: actorUserId,
         kind: "OPERATOR_INVOKE",
       },
-      select: { id: true, createdAt: true },
+      select: {
+        id: true,
+        createdAt: true,
+        interactionEpoch: true,
+      },
     });
     if (!source) {
       throw new DirectChatError(
         "VALIDATION_ERROR",
         "Direct Chat operator source message is invalid",
+      );
+    }
+    if (source.interactionEpoch !== consent.interactionEpoch) {
+      throw new DirectChatError(
+        "CONFLICT",
+        "Direct Chat interaction state changed",
       );
     }
 
@@ -701,6 +712,7 @@ export class DirectChatService {
     return {
       sourceMessageId: source.id,
       sourceMessageCreatedAt: source.createdAt.toISOString(),
+      sourceInteractionEpoch: source.interactionEpoch,
       memberIds: consent.memberIds,
       ...filtered,
     };
@@ -773,6 +785,7 @@ export class DirectChatService {
       actorShareOwnHistoryWithVimla: mine.shareOwnHistoryWithVimla,
       actorIncludePeerHistoryWhenInvoking: mine.includePeerHistoryWhenInvoking,
       peerShareOwnHistoryWithVimla: peer.shareOwnHistoryWithVimla,
+      interactionEpoch: conversation.interactionEpoch,
       memberIds: conversation.members.map((member) => member.userId),
     };
   }

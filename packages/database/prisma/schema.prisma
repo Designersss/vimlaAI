@@ -1048,6 +1048,7 @@ model OperatorRun {
   invocationScope          String   @default("PERSONAL")
   directConversationId     String?
   directConversation       DirectConversation? @relation(fields: [directConversationId], references: [id], onDelete: Restrict)
+  directInteractionEpoch   Int?
   contextOwnIncluded       Boolean  @default(false)
   contextPeerIncluded      Boolean  @default(false)
   contextPeerDenied        Boolean  @default(false)
@@ -1400,9 +1401,10 @@ model ContextSnapshot {
   id            String         @id @default(uuid())
   planId        String?        @unique
   plan          ExecutionPlan? @relation(fields: [planId], references: [id], onDelete: Restrict)
-  operatorRunId String?        @unique
-  operatorRun   OperatorRun?   @relation(fields: [operatorRunId], references: [id], onDelete: Restrict)
-  version       Int            @default(1)
+  operatorRunId          String?        @unique
+  operatorRun            OperatorRun?   @relation(fields: [operatorRunId], references: [id], onDelete: Restrict)
+  directInteractionEpoch Int?
+  version                Int            @default(1)
   fingerprint  String
   createdAt    DateTime      @default(now())
   items        ContextSnapshotItem[]

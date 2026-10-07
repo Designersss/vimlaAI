@@ -25,11 +25,7 @@ export class DirectChatsRateLimitGuard implements CanActivate {
     if (
       request.method === "GET" ||
       request.method === "HEAD" ||
-      request.method === "OPTIONS" ||
-      (
-        request.method === "POST" &&
-        request.routeOptions.url?.endsWith("/send-preflight") === true
-      )
+      request.method === "OPTIONS"
     ) {
       return true;
     }
@@ -39,9 +35,16 @@ export class DirectChatsRateLimitGuard implements CanActivate {
       return true;
     }
 
+    const preflight =
+      request.method === "POST" &&
+      request.routeOptions.url?.endsWith("/send-preflight") === true;
     const allowed = await this.hit(
-      `ratelimit:direct-chats:user:${userId}`,
-      this.config.directChatsMutationLimitPerMinute,
+      preflight
+        ? `ratelimit:direct-chats:preflight:user:${userId}`
+        : `ratelimit:direct-chats:user:${userId}`,
+      preflight
+        ? this.config.directChatsPreflightLimitPerMinute
+        : this.config.directChatsMutationLimitPerMinute,
     );
     if (!allowed) {
       throw new HttpException(

@@ -505,6 +505,34 @@ describe("trust safety API", () => {
     expect(
       stored.evidenceMessageCreatedAt?.toISOString(),
     ).toBe(message.createdAt.toISOString());
+
+    const boundedEvidenceText =
+      `${"L".repeat(3_993)} EDITED`;
+    expect(boundedEvidenceText).toHaveLength(4_000);
+    const bounded = await app.inject({
+      method: "POST",
+      url: "/v1/trust/reports",
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: {
+        targetHandle: bob.handle,
+        reason: "HARASSMENT",
+        evidence: {
+          kind: "DIRECT_MESSAGE",
+          conversationId: direct.id,
+          messageId: message.id,
+          disclosedText: boundedEvidenceText,
+        },
+      },
+    });
+    expect(bounded.statusCode).toBe(201);
+    const boundedStored =
+      await db.abuseReport.findUniqueOrThrow({
+        where: { id: bounded.json().id as string },
+      });
+    expect(boundedStored.evidenceText).toBe(
+      boundedEvidenceText,
+    );
   });
 
   it("rate-limits abuse reports across different users sharing one IP", async () => {

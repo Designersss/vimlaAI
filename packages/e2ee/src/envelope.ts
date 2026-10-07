@@ -64,29 +64,14 @@ export function serializeDirectRoutingMentions(mentions: DirectRoutingMention[])
 }
 
 export function buildAssociatedData(input: EnvelopeAssociatedData): Uint8Array {
-  const base = [
-    input.conversationId,
-    input.senderUserId,
-    input.senderDeviceId,
-    input.recipientDeviceId,
-    input.kind,
-  ];
-  if (input.interactionEpoch === 0) {
-    if (!input.routingContext) {
-      return utf8(["VimlaDirectAD1", ...base].join(":"));
-    }
-    return utf8(
-      JSON.stringify([
-        "VimlaDirectAD2",
-        ...base,
-        input.routingContext,
-      ]),
-    );
-  }
   return utf8(
     JSON.stringify([
       "VimlaDirectAD3",
-      ...base,
+      input.conversationId,
+      input.senderUserId,
+      input.senderDeviceId,
+      input.recipientDeviceId,
+      input.kind,
       input.interactionEpoch,
       input.routingContext ?? null,
     ]),

@@ -184,6 +184,67 @@ test.describe("Secure Direct Chats", () => {
       .getByRole("button", { name: /готово|done/i })
       .click();
 
+    const longEvidenceText =
+      `long evidence ${"x".repeat(4_500)}`;
+    await composer.fill(longEvidenceText);
+    await alicePage.getByTestId("chat-composer-send").click();
+    const longEvidenceMessage = nikitaPage
+      .getByTestId("direct-message-human")
+      .filter({ hasText: "long evidence" });
+    await expect(longEvidenceMessage).toBeVisible({
+      timeout: 20_000,
+    });
+    await longEvidenceMessage
+      .locator("..")
+      .getByRole("button", {
+        name: /пожаловаться на сообщение|report message/i,
+      })
+      .click();
+    const longEvidenceDialog =
+      nikitaPage.getByRole("dialog");
+    const evidenceEditor =
+      longEvidenceDialog.locator("#trust-report-evidence");
+    await expect(evidenceEditor).toBeVisible();
+    const boundedExcerpt =
+      await evidenceEditor.inputValue();
+    expect(boundedExcerpt).toHaveLength(4_000);
+    expect(
+      longEvidenceText.startsWith(boundedExcerpt),
+    ).toBe(true);
+    await expect(longEvidenceDialog).toContainText(
+      /4000|4[\s,.]?000/,
+    );
+    const editedEvidence =
+      `${boundedExcerpt.slice(0, 3_980)} [edited]`;
+    await evidenceEditor.fill(editedEvidence);
+    const reportRequestPromise =
+      nikitaPage.waitForRequest(
+        (request) =>
+          request.method() === "POST" &&
+          request.url() ===
+            `${apiBase}/v1/trust/reports`,
+      );
+    await longEvidenceDialog
+      .getByRole("button", {
+        name: /отправить жалобу|submit report/i,
+      })
+      .click();
+    const reportRequest =
+      await reportRequestPromise;
+    const reportPayload =
+      reportRequest.postDataJSON() as {
+        evidence?: { disclosedText?: string };
+      };
+    expect(
+      reportPayload.evidence?.disclosedText,
+    ).toBe(editedEvidence);
+    await expect(longEvidenceDialog).toContainText(
+      /жалоба отправлена|report submitted/i,
+    );
+    await longEvidenceDialog
+      .getByRole("button", { name: /готово|done/i })
+      .click();
+
     let abortBeforeServer = true;
     await alicePage.route(
       "**/v1/direct-chats/*/messages",
@@ -421,6 +482,7 @@ test.describe("Secure Direct Chats", () => {
     expect(detailResponse.ok()).toBe(true);
     const detailPayload = (await detailResponse.json()) as {
       devices: Array<{ id: string }>;
+      interactionEpoch: number;
     };
     const peerDeviceId = detailPayload.devices.find(
       (device) => device.id !== aliceLocalDeviceId,
@@ -434,6 +496,7 @@ test.describe("Secure Direct Chats", () => {
       directConversationId(directUrl),
       aliceLocalDeviceId,
       peerDeviceId,
+      `epoch-${detailPayload.interactionEpoch}`,
     ].join(":");
     await holdWebLock(alicePage, heldWebLockKey);
     try {
@@ -454,6 +517,7 @@ test.describe("Secure Direct Chats", () => {
       conversationId: directConversationId(directUrl),
       localDeviceId: aliceLocalDeviceId,
       peerDeviceId,
+      interactionEpoch: detailPayload.interactionEpoch,
     });
 
     const primaryComposer = alicePage.getByPlaceholder(
@@ -610,6 +674,7 @@ test.describe("Secure Direct Chats", () => {
         conversationId: directConversationId(directUrl),
         localDeviceId: legacyFixture.deviceId,
         peerDeviceId,
+        interactionEpoch: detailPayload.interactionEpoch,
       },
     );
     expect(migratedRatchet.schemaVersion).toBe(2);
@@ -3225,13 +3290,26 @@ async function readLegacyV2Fixture(
             | Record<string, unknown>
             | undefined;
           if (key.startsWith(prefix) && value) {
-            const peerDeviceId = key.slice(
-              prefix.length,
-            );
+            const suffix = key.slice(prefix.length);
+            const scoped =
+              /^(.*):epoch-(\d+)$/.exec(suffix);
+            if (!scoped) {
+              cursor.continue();
+              return;
+            }
+            const peerDeviceId = scoped[1];
+            const interactionEpoch = Number(scoped[2]);
+            if (
+              !peerDeviceId ||
+              !Number.isSafeInteger(interactionEpoch) ||
+              interactionEpoch < 0
+            ) {
+              cursor.continue();
+              return;
+            }
             if (value.state !== undefined) {
               rows.push({
-                key:
-                  `${targetConversationId}:${peerDeviceId}`,
+                key,
                 state: value.state,
               });
             } else if (
@@ -3247,13 +3325,13 @@ async function readLegacyV2Fixture(
                     targetConversationId,
                     deviceId,
                     peerDeviceId,
+                    `epoch-${interactionEpoch}`,
                     String(value.stateVersion),
                   ].join(":"),
                   wrappingKey,
                 ).then((plaintext) => {
                   rows.push({
-                    key:
-                      `${targetConversationId}:${peerDeviceId}`,
+                    key,
                     state: JSON.parse(
                       plaintext,
                     ) as unknown,
@@ -3363,6 +3441,7 @@ async function readRatchetRecordVersion(
     conversationId: string;
     localDeviceId: string;
     peerDeviceId: string;
+    interactionEpoch: number;
   },
 ): Promise<{ schemaVersion: number; stateVersion: number }> {
   return page.evaluate(async (value) => {
@@ -3382,6 +3461,7 @@ async function readRatchetRecordVersion(
           value.conversationId,
           value.localDeviceId,
           value.peerDeviceId,
+          `epoch-${value.interactionEpoch}`,
         ].join(":");
         const request = tx.objectStore("ratchets").get(key);
         request.onsuccess = () => {
@@ -3416,6 +3496,7 @@ async function seedExpiredRatchetLease(
     conversationId: string;
     localDeviceId: string;
     peerDeviceId: string;
+    interactionEpoch: number;
   },
 ): Promise<void> {
   await page.evaluate(async (value) => {
@@ -3438,6 +3519,7 @@ async function seedExpiredRatchetLease(
             value.conversationId,
             value.localDeviceId,
             value.peerDeviceId,
+            `epoch-${value.interactionEpoch}`,
           ].join(":"),
         );
         tx.oncomplete = () => resolve();

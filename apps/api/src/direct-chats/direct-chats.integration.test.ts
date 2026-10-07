@@ -67,6 +67,7 @@ describe("direct chats API", () => {
     process.env.OPERATOR_ENABLED = "true";
     process.env.OPERATOR_RATE_LIMIT_PER_MINUTE = "200";
     process.env.DIRECT_CHATS_MUTATION_LIMIT_PER_MINUTE = "500";
+    process.env.DIRECT_CHATS_PREFLIGHT_LIMIT_PER_MINUTE = "500";
     process.env.AI_TEXT_ENABLED = "true";
     process.env.AI_TEXT_PROVIDER = "mock";
 
@@ -107,6 +108,75 @@ describe("direct chats API", () => {
       });
       expect(created.statusCode).toBe(503);
       expect(errorCode(created)).toBe("direct_chats_disabled");
+    } finally {
+      await isolated.close();
+    }
+  });
+
+  it("rate-limits send preflight independently from Direct Chat mutations", async () => {
+    const config = loadApiConfig({
+      ...process.env,
+      DIRECT_CHATS_ENABLED: "true",
+      DIRECT_CHATS_MUTATION_LIMIT_PER_MINUTE: "50",
+      DIRECT_CHATS_PREFLIGHT_LIMIT_PER_MINUTE: "2",
+    });
+    const isolated = await createVimlaApiApp(config, {
+      quiet: true,
+    });
+    await isolated.init();
+    await isolated
+      .getHttpAdapter()
+      .getInstance()
+      .ready();
+    try {
+      const alice = await readyUser(
+        isolated,
+        "dc-preflight-rate-alice",
+        "Alice",
+      );
+      const nikita = await readyUser(
+        isolated,
+        "dc-preflight-rate-nikita",
+        "Nikita",
+      );
+      const aliceDevice = await registerHarness(
+        isolated,
+        alice,
+      );
+      await registerHarness(isolated, nikita);
+      const chat = await createChat(
+        isolated,
+        alice.cookies,
+        nikita.handle,
+      );
+
+      const preflight = () =>
+        isolated.inject({
+          method: "POST",
+          url: `/v1/direct-chats/${chat.id}/send-preflight`,
+          headers: jsonHeaders(),
+          cookies: alice.cookies,
+          payload: {
+            senderDeviceId: aliceDevice.deviceId,
+          },
+        });
+
+      expect((await preflight()).statusCode).toBe(200);
+      expect((await preflight()).statusCode).toBe(200);
+      const limited = await preflight();
+      expect(limited.statusCode).toBe(429);
+
+      const mutationStillAllowed = await isolated.inject({
+        method: "PATCH",
+        url: `/v1/direct-chats/${chat.id}/privacy`,
+        headers: jsonHeaders(),
+        cookies: alice.cookies,
+        payload: {
+          shareOwnHistoryWithVimla: true,
+          includePeerHistoryWhenInvoking: false,
+        },
+      });
+      expect(mutationStillAllowed.statusCode).toBe(200);
     } finally {
       await isolated.close();
     }
@@ -2669,6 +2739,249 @@ describe("direct chats API", () => {
     });
     expect(afterContinue.userText).toBe(beforeContinue.userText);
   });
+  it("permanently revokes stale Direct @Vimla intents and dormant runs after block-unblock", async () => {
+    const alice = await readyUser(
+      app,
+      "dc-epoch-operator-alice",
+      "Alice",
+    );
+    const nikita = await readyUser(
+      app,
+      "dc-epoch-operator-nikita",
+      "Nikita",
+    );
+    const aliceDevice = await registerHarness(app, alice);
+    await registerHarness(app, nikita);
+    const chat = await createChat(
+      app,
+      alice.cookies,
+      nikita.handle,
+    );
+    const db = app.get(PrismaService).client;
+    const vimlaHandle = await db.handle.findUnique({
+      where: { systemKey: "VIMLA" },
+    });
+    expect(vimlaHandle).toBeTruthy();
+    if (!vimlaHandle) {
+      throw new Error("expected seeded Vimla handle");
+    }
+    const vimlaMention: MessageMentionInput = {
+      handleId: vimlaHandle.id,
+      kind: "SYSTEM_AGENT",
+      canonicalHandle: vimlaHandle.normalized,
+      startOffset: 0,
+      endOffset: 6,
+    };
+
+    const sendInvoke = async (content: string) => {
+      const response = await sendPlain(
+        app,
+        alice,
+        aliceDevice,
+        chat.id,
+        "OPERATOR_INVOKE",
+        content,
+        [vimlaMention],
+      );
+      expect(response.statusCode).toBe(201);
+      return response.json() as {
+        id: string;
+        createdAt: string;
+      };
+    };
+    const createRun = async (
+      source: { id: string },
+      content: string,
+      clientRequestId: string,
+    ) =>
+      app.inject({
+        method: "POST",
+        url: "/v1/operator/runs",
+        headers: jsonHeaders(),
+        cookies: alice.cookies,
+        payload: {
+          clientRequestId,
+          content,
+          invocationScope: "DIRECT_CHAT",
+          directConversationId: chat.id,
+          directSourceMessageId: source.id,
+        },
+      });
+    const cycleEpoch = async () => {
+      const blocked = await app.inject({
+        method: "POST",
+        url: "/v1/trust/blocks",
+        headers: jsonHeaders(),
+        cookies: alice.cookies,
+        payload: { handle: nikita.handle },
+      });
+      expect(blocked.statusCode).toBe(200);
+      const unblocked = await app.inject({
+        method: "DELETE",
+        url: `/v1/trust/blocks/${nikita.handle}`,
+        headers: { origin },
+        cookies: alice.cookies,
+      });
+      expect(unblocked.statusCode).toBe(200);
+    };
+
+    const staleIntentText =
+      "@Vimla кто победил в гран-при 2026?";
+    const staleSource = await sendInvoke(staleIntentText);
+    const staleRequestId = randomUUID();
+    await cycleEpoch();
+    const staleCreate = await createRun(
+      staleSource,
+      staleIntentText,
+      staleRequestId,
+    );
+    expect(staleCreate.statusCode).toBe(409);
+    expect(
+      await db.operatorRun.count({
+        where: {
+          userId: alice.id,
+          clientRequestId: staleRequestId,
+        },
+      }),
+    ).toBe(0);
+
+    const executingText =
+      "@Vimla кто победил в гран-при 2026?";
+    const executingSource = await sendInvoke(executingText);
+    const executingRequestId = randomUUID();
+    const executingCreated = await createRun(
+      executingSource,
+      executingText,
+      executingRequestId,
+    );
+    expect(executingCreated.statusCode).toBe(201);
+    const executingRunId = executingCreated.json().id as string;
+    const [boundRun, boundSnapshot, sourceRow] =
+      await Promise.all([
+        db.operatorRun.findUniqueOrThrow({
+          where: { id: executingRunId },
+          select: { directInteractionEpoch: true },
+        }),
+        db.contextSnapshot.findUniqueOrThrow({
+          where: { operatorRunId: executingRunId },
+          select: { directInteractionEpoch: true },
+        }),
+        db.directMessage.findUniqueOrThrow({
+          where: { id: executingSource.id },
+          select: { interactionEpoch: true },
+        }),
+      ]);
+    expect(boundRun.directInteractionEpoch).toBe(
+      sourceRow.interactionEpoch,
+    );
+    expect(boundSnapshot.directInteractionEpoch).toBe(
+      sourceRow.interactionEpoch,
+    );
+
+    await db.operatorRun.update({
+      where: { id: executingRunId },
+      data: {
+        status: "EXECUTING",
+        errorCode: null,
+        publicMessage: null,
+      },
+    });
+    await db.operatorRunStep.deleteMany({
+      where: { runId: executingRunId },
+    });
+    await db.operatorRunStep.create({
+      data: {
+        runId: executingRunId,
+        sequence: 0,
+        toolName: "tasks.create",
+        status: "PENDING",
+        inputJson: {
+          title: "MUST NOT EXECUTE AFTER EPOCH CHANGE",
+        },
+        publicKind: "task",
+        publicTitle:
+          "MUST NOT EXECUTE AFTER EPOCH CHANGE",
+        publicDetail: null,
+        publicNavigationTarget: {
+          version: 1,
+          kind: "TASKS",
+        },
+        idempotencyKey:
+          "operator-epoch-block-unblock-executing",
+      },
+    });
+    await cycleEpoch();
+    const executingResume = await createRun(
+      executingSource,
+      executingText,
+      executingRequestId,
+    );
+    expect(executingResume.statusCode).toBe(201);
+    expect(executingResume.json().status).toBe("FAILED");
+    expect(executingResume.json().errorCode).toBe(
+      "direct_chat_context_revoked",
+    );
+    const tasksAfterExecutingResume = await app.inject({
+      method: "GET",
+      url: "/v1/workspace/tasks",
+      headers: { origin },
+      cookies: alice.cookies,
+    });
+    expect(
+      JSON.stringify(tasksAfterExecutingResume.json()),
+    ).not.toContain(
+      "MUST NOT EXECUTE AFTER EPOCH CHANGE",
+    );
+
+    const confirmationText =
+      "@Vimla кто победил в гран-при 2026?";
+    const confirmationSource =
+      await sendInvoke(confirmationText);
+    const confirmationRequestId = randomUUID();
+    const confirmationCreated = await createRun(
+      confirmationSource,
+      confirmationText,
+      confirmationRequestId,
+    );
+    expect(confirmationCreated.statusCode).toBe(201);
+    const confirmationRunId =
+      confirmationCreated.json().id as string;
+    await db.operatorRun.update({
+      where: { id: confirmationRunId },
+      data: {
+        status: "AWAITING_CONFIRMATION",
+        errorCode: null,
+      },
+    });
+    await cycleEpoch();
+    const confirmationResume = await createRun(
+      confirmationSource,
+      confirmationText,
+      confirmationRequestId,
+    );
+    expect(confirmationResume.statusCode).toBe(201);
+    expect(confirmationResume.json().status).toBe(
+      "FAILED",
+    );
+    expect(confirmationResume.json().errorCode).toBe(
+      "direct_chat_context_revoked",
+    );
+    const revokedConfirmation =
+      await db.operatorRun.findUniqueOrThrow({
+        where: { id: confirmationRunId },
+        select: {
+          confirmationTokenHash: true,
+          confirmationExpiresAt: true,
+        },
+      });
+    expect(
+      revokedConfirmation.confirmationTokenHash,
+    ).toBeNull();
+    expect(
+      revokedConfirmation.confirmationExpiresAt,
+    ).toBeNull();
+  });
+
 });
 
 interface Harness {

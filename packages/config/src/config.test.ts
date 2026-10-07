@@ -76,6 +76,7 @@ describe("loadApiConfig", () => {
     expect(config.memoryDerivedAuditRetentionDays).toBe(180);
     expect(config.directChatsEnabled).toBe(false);
     expect(config.directChatsMutationLimitPerMinute).toBe(60);
+    expect(config.directChatsPreflightLimitPerMinute).toBe(120);
     expect(config.trustReadLimitPerMinute).toBe(120);
     expect(config.trustMutationLimitPerMinute).toBe(60);
     expect(config.trustReportLimitPerMinute).toBe(6);

@@ -19,6 +19,7 @@ export interface FreezeDirectOperatorContextInput {
   directConversationId: string;
   sourceMessageId: string;
   sourceMessageCreatedAt: string;
+  interactionEpoch: number;
   userText: string;
   messages: readonly DirectOperatorDisclosureMessage[];
 }
@@ -26,6 +27,7 @@ export interface FreezeDirectOperatorContextInput {
 export interface FrozenDirectOperatorContext {
   sourceMessageId: string;
   sourceMessageCreatedAt: string;
+  interactionEpoch: number;
   messages: DirectOperatorDisclosureMessage[];
 }
 
@@ -37,6 +39,7 @@ export async function freezeDirectOperatorContextSnapshot(
   await tx.contextSnapshot.create({
     data: {
       operatorRunId: input.operatorRunId,
+      directInteractionEpoch: input.interactionEpoch,
       version: 1,
       fingerprint: fingerprintContextSnapshot(items),
       items: {
@@ -71,6 +74,14 @@ export async function loadDirectOperatorContextSnapshot(
     include: { items: { orderBy: { sequence: "asc" } } },
   });
   if (!snapshot) return null;
+  if (
+    snapshot.directInteractionEpoch === null ||
+    snapshot.directInteractionEpoch < 0
+  ) {
+    throw new ContextValidationError(
+      "Frozen Direct Chat context is missing its interaction epoch",
+    );
+  }
 
   const disclosureItems = snapshot.items.filter(
     (item) => item.sourceType === "E2EE_DISCLOSURE",
@@ -109,6 +120,7 @@ export async function loadDirectOperatorContextSnapshot(
   return {
     sourceMessageId: current.sourceId,
     sourceMessageCreatedAt: current.sourceVersion,
+    interactionEpoch: snapshot.directInteractionEpoch,
     messages,
   };
 }
@@ -169,6 +181,7 @@ function disclosureMetadata(
     senderRole: message.senderUserId === input.actorUserId ? "self" : "peer",
     sentAt: message.sentAt,
     text: message.text,
+    interactionEpoch: input.interactionEpoch,
     retrieval: {
       sourceKind: message.sourceKind,
       scope: {

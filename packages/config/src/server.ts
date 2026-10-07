@@ -151,6 +151,7 @@ export function loadApiConfig(
       parsed.MEMORY_DERIVED_AUDIT_RETENTION_DAYS ?? 180,
     directChatsEnabled: parsed.DIRECT_CHATS_ENABLED === "true",
     directChatsMutationLimitPerMinute: parsed.DIRECT_CHATS_MUTATION_LIMIT_PER_MINUTE,
+    directChatsPreflightLimitPerMinute: parsed.DIRECT_CHATS_PREFLIGHT_LIMIT_PER_MINUTE,
     trustReadLimitPerMinute: parsed.TRUST_READ_LIMIT_PER_MINUTE,
     trustMutationLimitPerMinute: parsed.TRUST_MUTATION_LIMIT_PER_MINUTE,
     trustReportLimitPerMinute: parsed.TRUST_REPORT_LIMIT_PER_MINUTE,

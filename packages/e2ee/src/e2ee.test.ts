@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { b64ToBytes } from "./bytes.js";
 import {
+  buildAssociatedData,
   decryptEnvelope,
   encryptEnvelope,
   type EnvelopeAssociatedData,
@@ -27,6 +28,22 @@ function ad(kind: EnvelopeAssociatedData["kind"] = "HUMAN"): EnvelopeAssociatedD
 }
 
 describe("Vimla X3DH + Double Ratchet", () => {
+  it("binds epoch zero into the current Direct Chat associated data format", () => {
+    const decoded = new TextDecoder().decode(
+      buildAssociatedData(ad()),
+    );
+    expect(JSON.parse(decoded)).toEqual([
+      "VimlaDirectAD3",
+      "11111111-1111-4111-8111-111111111111",
+      "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+      "HUMAN",
+      0,
+      null,
+    ]);
+  });
+
   it("lets two devices encrypt and decrypt with forward secrecy", () => {
     const alice = generateIdentity();
     const bob = generateIdentity();
