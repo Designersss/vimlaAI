@@ -184,67 +184,6 @@ test.describe("Secure Direct Chats", () => {
       .getByRole("button", { name: /готово|done/i })
       .click();
 
-    const longEvidenceText =
-      `long evidence ${"x".repeat(4_500)}`;
-    await composer.fill(longEvidenceText);
-    await alicePage.getByTestId("chat-composer-send").click();
-    const longEvidenceMessage = nikitaPage
-      .getByTestId("direct-message-human")
-      .filter({ hasText: "long evidence" });
-    await expect(longEvidenceMessage).toBeVisible({
-      timeout: 20_000,
-    });
-    await longEvidenceMessage
-      .locator("..")
-      .getByRole("button", {
-        name: /пожаловаться на сообщение|report message/i,
-      })
-      .click();
-    const longEvidenceDialog =
-      nikitaPage.getByRole("dialog");
-    const evidenceEditor =
-      longEvidenceDialog.locator("#trust-report-evidence");
-    await expect(evidenceEditor).toBeVisible();
-    const boundedExcerpt =
-      await evidenceEditor.inputValue();
-    expect(boundedExcerpt).toHaveLength(4_000);
-    expect(
-      longEvidenceText.startsWith(boundedExcerpt),
-    ).toBe(true);
-    await expect(longEvidenceDialog).toContainText(
-      /4000|4[\s,.]?000/,
-    );
-    const editedEvidence =
-      `${boundedExcerpt.slice(0, 3_980)} [edited]`;
-    await evidenceEditor.fill(editedEvidence);
-    const reportRequestPromise =
-      nikitaPage.waitForRequest(
-        (request) =>
-          request.method() === "POST" &&
-          request.url() ===
-            `${apiBase}/v1/trust/reports`,
-      );
-    await longEvidenceDialog
-      .getByRole("button", {
-        name: /отправить жалобу|submit report/i,
-      })
-      .click();
-    const reportRequest =
-      await reportRequestPromise;
-    const reportPayload =
-      reportRequest.postDataJSON() as {
-        evidence?: { disclosedText?: string };
-      };
-    expect(
-      reportPayload.evidence?.disclosedText,
-    ).toBe(editedEvidence);
-    await expect(longEvidenceDialog).toContainText(
-      /жалоба отправлена|report submitted/i,
-    );
-    await longEvidenceDialog
-      .getByRole("button", { name: /готово|done/i })
-      .click();
-
     let abortBeforeServer = true;
     await alicePage.route(
       "**/v1/direct-chats/*/messages",
@@ -327,6 +266,18 @@ test.describe("Secure Direct Chats", () => {
     );
     const recoveryConversationId =
       directConversationId(directUrl);
+    const recoveryDetailResponse =
+      await alicePage.request.get(
+        `${apiBase}/v1/direct-chats/${recoveryConversationId}`,
+      );
+    expect(recoveryDetailResponse.ok()).toBe(true);
+    const recoveryInteractionEpoch = Number(
+      (await recoveryDetailResponse.json()).interactionEpoch,
+    );
+    expect(
+      Number.isSafeInteger(recoveryInteractionEpoch) &&
+        recoveryInteractionEpoch >= 0,
+    ).toBe(true);
     const pendingRecoveryLockKey = [
       "vimla-pending-send-recovery",
       recoveryConversationId,
@@ -354,6 +305,7 @@ test.describe("Secure Direct Chats", () => {
           recoveryConversationId,
           aliceRecoveryDeviceId,
           peerDeviceId,
+          `epoch-${recoveryInteractionEpoch}`,
         ].join(":"),
         leaseTiming,
       );
@@ -836,6 +788,139 @@ test.describe("Secure Direct Chats", () => {
     await nikitaSecondContext.close();
     await aliceContext.close();
     await nikitaContext.close();
+  });
+
+  test("reports only the visible bounded excerpt from a long E2EE Direct message", async ({
+    browser,
+    request,
+  }) => {
+    test.setTimeout(120_000);
+    const password = "correct-horse-battery";
+    const aliceEmail = uniqueEmail("e2e-long-evidence-alice");
+    const bobEmail = uniqueEmail("e2e-long-evidence-bob");
+    const aliceHandle = uniqueHandle("longevidencealice");
+    const bobHandle = uniqueHandle("longevidencebob");
+
+    const aliceContext = await browser.newContext();
+    const bobContext = await browser.newContext();
+    const alicePage = await aliceContext.newPage();
+    const bobPage = await bobContext.newPage();
+
+    await signUp(alicePage, {
+      name: "Evidence Alice",
+      email: aliceEmail,
+      password,
+      handle: aliceHandle,
+    });
+    await verifyEmail(alicePage, request, aliceEmail);
+    await purchasePro(alicePage);
+
+    await signUp(bobPage, {
+      name: "Evidence Bob",
+      email: bobEmail,
+      password,
+      handle: bobHandle,
+    });
+    await verifyEmail(bobPage, request, bobEmail);
+    await purchasePro(bobPage);
+
+    const created = await alicePage.request.post(
+      `${apiBase}/v1/direct-chats`,
+      {
+        data: { peerHandle: bobHandle },
+        headers: {
+          origin: webOrigin,
+          "content-type": "application/json",
+        },
+      },
+    );
+    expect(created.ok()).toBe(true);
+    const conversationId = String(
+      (await created.json()).id,
+    );
+    const directUrl = `/app/direct/${conversationId}`;
+
+    await Promise.all([
+      alicePage.goto(directUrl),
+      bobPage.goto(directUrl),
+    ]);
+    await expect(
+      alicePage.getByTestId("direct-chat-shell"),
+    ).toBeVisible({ timeout: 20_000 });
+    await expect(
+      bobPage.getByTestId("direct-chat-shell"),
+    ).toBeVisible({ timeout: 20_000 });
+
+    const longEvidenceText =
+      `long evidence ${"x".repeat(4_500)}`;
+    const composer = alicePage.getByPlaceholder(
+      /сообщение этому человеку|message this person/i,
+    );
+    await composer.fill(longEvidenceText);
+    await expect(
+      alicePage.getByTestId("chat-composer-send"),
+    ).toBeEnabled();
+    await alicePage
+      .getByTestId("chat-composer-send")
+      .click();
+
+    const longEvidenceMessage = bobPage
+      .getByTestId("direct-message-human")
+      .filter({ hasText: "long evidence" });
+    await expect(longEvidenceMessage).toBeVisible({
+      timeout: 20_000,
+    });
+    await longEvidenceMessage
+      .locator("..")
+      .getByRole("button", {
+        name: /пожаловаться на сообщение|report message/i,
+      })
+      .click();
+
+    const dialog = bobPage.getByRole("dialog");
+    const evidenceEditor =
+      dialog.locator("#trust-report-evidence");
+    await expect(evidenceEditor).toBeVisible();
+    const boundedExcerpt =
+      await evidenceEditor.inputValue();
+    expect(boundedExcerpt).toHaveLength(4_000);
+    expect(
+      longEvidenceText.startsWith(boundedExcerpt),
+    ).toBe(true);
+    await expect(dialog).toContainText(
+      /4000|4[\s,.]?000/,
+    );
+
+    const editedEvidence =
+      `${boundedExcerpt.slice(0, 3_980)} [edited]`;
+    await evidenceEditor.fill(editedEvidence);
+    const reportRequestPromise =
+      bobPage.waitForRequest(
+        (outgoing) =>
+          outgoing.method() === "POST" &&
+          outgoing.url() ===
+            `${apiBase}/v1/trust/reports`,
+      );
+    await dialog
+      .getByRole("button", {
+        name: /отправить жалобу|submit report/i,
+      })
+      .click();
+    const reportRequest =
+      await reportRequestPromise;
+    const reportPayload =
+      reportRequest.postDataJSON() as {
+        evidence?: { disclosedText?: string };
+      };
+    expect(
+      reportPayload.evidence?.disclosedText,
+    ).toBe(editedEvidence);
+    await expect(dialog).toContainText(
+      /жалоба отправлена|report submitted/i,
+    );
+
+    await aliceContext.close();
+    await bobContext.close();
   });
 
   test("does not resurrect a trust-rejected pending message after unblock", async ({
