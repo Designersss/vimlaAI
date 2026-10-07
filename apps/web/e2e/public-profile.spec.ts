@@ -305,7 +305,7 @@ test.describe("Public profile", () => {
     await expect(
       alicePage.getByText("You have not blocked anyone."),
     ).toHaveCount(0);
-    await alicePage.getByRole("button", { name: "Retry" }).click();
+    await alicePage.getByRole("button", { name: "Try again" }).click();
     const blockedCard = alicePage
       .getByTestId("blocked-user-row")
       .filter({ hasText: `@${bobHandle}` });
