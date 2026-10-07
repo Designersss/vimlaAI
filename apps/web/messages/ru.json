@@ -458,6 +458,7 @@
     "direct_chat_recipient_device_missing": "У собеседника ещё нет активного устройства.",
     "direct_chat_context_denied": "Контекст чата не был передан @Vimla.",
     "direct_chat_context_revoked": "Этот запрос к @Vimla относится к предыдущему состоянию доверия чата и был отменён.",
+    "direct_chat_interaction_stale": "Состояние чата изменилось во время отправки сообщения. Отправьте его ещё раз.",
     "generic": "Не получилось выполнить запрос. Попробуйте ещё раз."
   },
   "notifications": {
