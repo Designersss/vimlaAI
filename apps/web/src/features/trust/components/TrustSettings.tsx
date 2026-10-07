@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ReactElement } from "react";
+import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import type { BlockedUser } from "@vimla/contracts";
 import {
@@ -14,11 +15,17 @@ import {
   Text,
 } from "@vimla/ui";
 import { SettingsChrome } from "../../settings/components/SettingsChrome/SettingsChrome";
-import { listBlockedUsers, unblockUser } from "../services/api";
+import {
+  AuthRequiredError,
+  TrustApiError,
+  listBlockedUsers,
+  unblockUser,
+} from "../services/api";
 import styles from "./Trust.module.scss";
 
 export function TrustSettings(): ReactElement {
   const t = useTranslations();
+  const router = useRouter();
   const [items, setItems] = useState<BlockedUser[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -35,13 +42,18 @@ export function TrustSettings(): ReactElement {
         setCursor(page.nextCursor);
         setStatus("ready");
       })
-      .catch(() => {
-        if (!cancelled) setStatus("error");
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        if (error instanceof AuthRequiredError) {
+          router.replace("/sign-in");
+          return;
+        }
+        setStatus("error");
       });
     return () => {
       cancelled = true;
     };
-  }, [attempt]);
+  }, [attempt, router]);
 
   async function loadMore(): Promise<void> {
     if (!cursor || loadingMore) return;
@@ -54,7 +66,11 @@ export function TrustSettings(): ReactElement {
       });
       setCursor(page.nextCursor);
       setStatus("ready");
-    } catch {
+    } catch (error: unknown) {
+      if (error instanceof AuthRequiredError) {
+        router.replace("/sign-in");
+        return;
+      }
       setStatus("error");
     } finally {
       setLoadingMore(false);
@@ -68,7 +84,21 @@ export function TrustSettings(): ReactElement {
       await unblockUser(handle);
       setItems((current) => current.filter((item) => item.handle !== handle));
       setStatus("ready");
-    } catch {
+    } catch (error: unknown) {
+      if (error instanceof AuthRequiredError) {
+        router.replace("/sign-in");
+        return;
+      }
+      if (
+        error instanceof TrustApiError &&
+        error.code === "not_found"
+      ) {
+        setItems((current) =>
+          current.filter((item) => item.handle !== handle),
+        );
+        setStatus("ready");
+        return;
+      }
       setStatus("error");
     } finally {
       setBusyHandle(null);
