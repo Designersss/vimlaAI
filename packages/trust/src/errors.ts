@@ -2,6 +2,7 @@ export const TRUST_ERROR_CODES = [
   "NOT_FOUND",
   "VALIDATION_ERROR",
   "FORBIDDEN",
+  "CONFLICT",
   "EVIDENCE_INVALID",
 ] as const;
 
