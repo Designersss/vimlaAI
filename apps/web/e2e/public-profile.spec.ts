@@ -324,7 +324,16 @@ test.describe("Public profile", () => {
           loseFirstUnblockResponse = false;
           const response = await route.fetch();
           expect(response.ok()).toBe(true);
-          await route.abort("failed");
+          await route.fulfill({
+            status: 503,
+            contentType: "application/json",
+            body: JSON.stringify({
+              error: {
+                code: "internal_error",
+                message: "Synthetic lost unblock response",
+              },
+            }),
+          });
           return;
         }
         await route.continue();
