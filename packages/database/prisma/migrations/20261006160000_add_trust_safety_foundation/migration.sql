@@ -64,7 +64,7 @@ CREATE TABLE "abuse_report" (
       AND "directMessageId" IS NOT NULL
       AND "evidenceSenderUserId" IS NOT NULL
       AND "evidenceSenderDeviceId" IS NOT NULL
-      AND "evidenceMessageKind" = 'HUMAN'
+      AND "evidenceMessageKind" IN ('HUMAN', 'OPERATOR_INVOKE')
       AND "evidenceMessageCreatedAt" IS NOT NULL
       AND "evidenceText" IS NOT NULL
       AND length("evidenceText") > 0
