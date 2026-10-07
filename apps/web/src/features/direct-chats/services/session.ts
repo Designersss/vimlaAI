@@ -699,7 +699,11 @@ export async function withPendingOperatorInvocationLock<T>(
 export async function sendPendingDirectMessage(
   row: StoredPendingSend,
 ): Promise<DirectMessageView> {
-  await assertPendingInteractionCurrent(row);
+  // A persisted pending send may already have committed on the server while
+  // the response was lost. Let the authoritative send endpoint resolve its
+  // exact idempotent replay before applying current trust/epoch rejection.
+  // Fresh sends are still preflighted before encryption, and an uncommitted
+  // stale epoch is discarded below after the server rejects it.
   try {
     return await sendDirectMessage(
       row.conversationId,
