@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState, type ReactElement } from "react";
+import { useRouter } from "next/navigation";
 import { useTranslations } from "next-intl";
 import {
   TRUST_LIMITS,
@@ -16,7 +17,10 @@ import {
   Text,
   Textarea,
 } from "@vimla/ui";
-import { reportUser } from "../services/api";
+import {
+  AuthRequiredError,
+  reportUser,
+} from "../services/api";
 import styles from "./Trust.module.scss";
 
 const REASONS: readonly AbuseReportReason[] = [
@@ -42,6 +46,7 @@ export function ReportUserDialog({
   evidence?: DirectMessageReportEvidence;
 }): ReactElement {
   const t = useTranslations();
+  const router = useRouter();
   const [reason, setReason] = useState<AbuseReportReason>("HARASSMENT");
   const [details, setDetails] = useState("");
   const [evidenceEdits, setEvidenceEdits] = useState<Record<string, string>>({});
@@ -52,6 +57,7 @@ export function ReportUserDialog({
   const [submitting, setSubmitting] = useState(false);
   const [state, setState] = useState<"idle" | "success" | "error">("idle");
   const submissionGenerationRef = useRef(0);
+  const requestIdRef = useRef<string | null>(null);
 
   function handleOpenChange(nextOpen: boolean): void {
     if (!nextOpen && submitting) return;
@@ -62,6 +68,7 @@ export function ReportUserDialog({
       setEvidenceEdits({});
       setSubmitting(false);
       setState("idle");
+      requestIdRef.current = null;
     }
     onOpenChange(nextOpen);
   }
@@ -70,10 +77,14 @@ export function ReportUserDialog({
     if (submitting) return;
     const generation = submissionGenerationRef.current + 1;
     submissionGenerationRef.current = generation;
+    const requestId =
+      requestIdRef.current ?? crypto.randomUUID();
+    requestIdRef.current = requestId;
     setSubmitting(true);
     setState("idle");
     try {
       await reportUser({
+        requestId,
         targetHandle,
         reason,
         ...(details.trim().length > 0 ? { details } : {}),
@@ -89,7 +100,11 @@ export function ReportUserDialog({
       if (submissionGenerationRef.current === generation) {
         setState("success");
       }
-    } catch {
+    } catch (error: unknown) {
+      if (error instanceof AuthRequiredError) {
+        router.replace("/sign-in");
+        return;
+      }
       if (submissionGenerationRef.current === generation) {
         setState("error");
       }
@@ -97,6 +112,13 @@ export function ReportUserDialog({
       if (submissionGenerationRef.current === generation) {
         setSubmitting(false);
       }
+    }
+  }
+
+  function resetRetryIdentity(): void {
+    requestIdRef.current = null;
+    if (state === "error") {
+      setState("idle");
     }
   }
 
@@ -145,9 +167,10 @@ export function ReportUserDialog({
               <NativeSelect
                 id="trust-report-reason"
                 value={reason}
-                onChange={(event) =>
-                  setReason(event.currentTarget.value as AbuseReportReason)
-                }
+                onChange={(event) => {
+                  resetRetryIdentity();
+                  setReason(event.currentTarget.value as AbuseReportReason);
+                }}
               >
                 {REASONS.map((value) => (
                   <option key={value} value={value}>
@@ -162,7 +185,10 @@ export function ReportUserDialog({
                 rows={4}
                 value={details}
                 maxLength={TRUST_LIMITS.reportDetailsMax}
-                onChange={(event) => setDetails(event.currentTarget.value)}
+                onChange={(event) => {
+                  resetRetryIdentity();
+                  setDetails(event.currentTarget.value);
+                }}
               />
             </FormField>
             {evidence ? (
@@ -187,6 +213,7 @@ export function ReportUserDialog({
                     onChange={(event) => {
                       const messageId = evidence.messageId;
                       const nextValue = event.currentTarget.value;
+                      resetRetryIdentity();
                       setEvidenceEdits((current) => ({
                         ...current,
                         [messageId]: nextValue,
