@@ -101,6 +101,7 @@ export type DirectMessageReportEvidence = z.infer<
 
 export const createAbuseReportSchema = z
   .object({
+    requestId: z.string().uuid(),
     targetHandle: handleSchema,
     reason: abuseReportReasonSchema,
     details: z
