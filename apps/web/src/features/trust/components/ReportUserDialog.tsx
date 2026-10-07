@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactElement } from "react";
+import { useRef, useState, type ReactElement } from "react";
 import { useTranslations } from "next-intl";
 import {
   TRUST_LIMITS,
@@ -53,18 +53,16 @@ export function ReportUserDialog({
   const [state, setState] = useState<"idle" | "success" | "error">("idle");
   const submissionGenerationRef = useRef(0);
 
-  useEffect(() => {
-    if (open) return;
-    submissionGenerationRef.current += 1;
-    setReason("HARASSMENT");
-    setDetails("");
-    setEvidenceEdits({});
-    setSubmitting(false);
-    setState("idle");
-  }, [open]);
-
   function handleOpenChange(nextOpen: boolean): void {
     if (!nextOpen && submitting) return;
+    if (!nextOpen) {
+      submissionGenerationRef.current += 1;
+      setReason("HARASSMENT");
+      setDetails("");
+      setEvidenceEdits({});
+      setSubmitting(false);
+      setState("idle");
+    }
     onOpenChange(nextOpen);
   }
 

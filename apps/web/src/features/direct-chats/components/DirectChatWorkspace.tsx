@@ -252,7 +252,6 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
 
   useEffect(() => {
     let cancelled = false;
-    setMuteStatus("loading");
     void (async () => {
       try {
         const currentUser = await fetchCurrentUser();
