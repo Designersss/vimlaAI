@@ -197,12 +197,27 @@ test.describe("Public profile", () => {
     const reportRelease = new Promise<void>((resolve) => {
       releaseReport = resolve;
     });
+    const reportRequestIds: string[] = [];
+    let loseFirstReportResponse = true;
     await alicePage.route(
       "**/v1/trust/reports",
       async (route) => {
         if (route.request().method() === "POST") {
-          signalReportHeld();
-          await reportRelease;
+          const payload = route.request().postDataJSON() as {
+            requestId?: string;
+          } | null;
+          if (payload?.requestId) {
+            reportRequestIds.push(payload.requestId);
+          }
+          if (loseFirstReportResponse) {
+            loseFirstReportResponse = false;
+            signalReportHeld();
+            await reportRelease;
+            const response = await route.fetch();
+            expect(response.ok()).toBe(true);
+            await route.abort("failed");
+            return;
+          }
         }
         await route.continue();
       },
@@ -216,9 +231,16 @@ test.describe("Public profile", () => {
     await expect(reportDialog).toBeVisible();
     await expect(submitReport).toBeDisabled();
     releaseReport();
+    await expect(submitReport).toBeEnabled();
+    await submitReport.click();
     await expect(
       reportDialog.getByText("Report submitted."),
     ).toBeVisible();
+    expect(reportRequestIds).toHaveLength(2);
+    expect(reportRequestIds[0]).toBe(reportRequestIds[1]);
+    expect(reportRequestIds[0]).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    );
     await alicePage.unroute("**/v1/trust/reports");
     await reportDialog
       .getByRole("button", { name: "Done" })
