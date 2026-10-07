@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactElement } from "react";
+import { useState, type ReactElement } from "react";
 import { useTranslations } from "next-intl";
 import {
   TRUST_LIMITS,
@@ -44,23 +44,19 @@ export function ReportUserDialog({
   const t = useTranslations();
   const [reason, setReason] = useState<AbuseReportReason>("HARASSMENT");
   const [details, setDetails] = useState("");
-  const [evidenceText, setEvidenceText] = useState("");
+  const [evidenceEdits, setEvidenceEdits] = useState<Record<string, string>>({});
+  const evidenceText = evidence
+    ? (evidenceEdits[evidence.messageId] ??
+      boundedEvidenceExcerpt(evidence.disclosedText))
+    : "";
   const [submitting, setSubmitting] = useState(false);
   const [state, setState] = useState<"idle" | "success" | "error">("idle");
-
-  useEffect(() => {
-    if (!open) return;
-    setEvidenceText(
-      evidence
-        ? boundedEvidenceExcerpt(evidence.disclosedText)
-        : "",
-    );
-  }, [evidence?.messageId, evidence?.disclosedText, open]);
 
   function handleOpenChange(nextOpen: boolean): void {
     if (!nextOpen) {
       setReason("HARASSMENT");
       setDetails("");
+      setEvidenceEdits({});
       setState("idle");
     }
     onOpenChange(nextOpen);
@@ -172,9 +168,13 @@ export function ReportUserDialog({
                     rows={6}
                     value={evidenceText}
                     maxLength={TRUST_LIMITS.evidenceTextMax}
-                    onChange={(event) =>
-                      setEvidenceText(event.currentTarget.value)
-                    }
+                    onChange={(event) => {
+                      const messageId = evidence.messageId;
+                      setEvidenceEdits((current) => ({
+                        ...current,
+                        [messageId]: event.currentTarget.value,
+                      }));
+                    }}
                   />
                 </FormField>
                 <Text tone="caption">
