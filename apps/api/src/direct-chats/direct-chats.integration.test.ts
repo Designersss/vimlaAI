@@ -390,6 +390,7 @@ describe("direct chats API", () => {
       payload: {
         clientMessageId: randomUUID(),
         senderDeviceId: nikitaDevice.deviceId,
+        interactionEpoch: chat.interactionEpoch,
         kind: "HUMAN",
         envelopes: sent.json().envelope ? [asWire(sent.json().envelope, nikitaDevice.deviceId)] : [],
       },
@@ -728,6 +729,7 @@ describe("direct chats API", () => {
       payload: {
         clientMessageId: randomUUID(),
         senderDeviceId: aliceDevice.deviceId,
+        interactionEpoch: chat.interactionEpoch,
         kind: "OPERATOR_INVOKE",
         envelopes: signedEnvelopes,
         mentions: [{ ...vimlaMention, endOffset: 7 }],
@@ -765,6 +767,7 @@ describe("direct chats API", () => {
       payload: {
         clientMessageId: randomUUID(),
         senderDeviceId: aliceDevice.deviceId,
+        interactionEpoch: chat.interactionEpoch,
         kind: "HUMAN",
         envelopes: outsideEnvelopes,
         mentions: [outsideMention],
@@ -780,6 +783,7 @@ describe("direct chats API", () => {
       payload: {
         clientMessageId: randomUUID(),
         senderDeviceId: aliceDevice.deviceId,
+        interactionEpoch: chat.interactionEpoch,
         kind: "HUMAN",
         envelopes: outsideEnvelopes,
         mentions: [{ ...vimlaMention, kind: "AI_MODEL" }],
@@ -814,6 +818,7 @@ describe("direct chats API", () => {
     const payload = {
       clientMessageId,
       senderDeviceId: aliceDevice.deviceId,
+      interactionEpoch: chat.interactionEpoch,
       kind: "HUMAN" as const,
       envelopes,
       mentions: [],
@@ -1080,6 +1085,7 @@ describe("direct chats API", () => {
     const payload = {
       clientMessageId: randomUUID(),
       senderDeviceId: aliceDevice.deviceId,
+      interactionEpoch: chat.interactionEpoch,
       kind: "HUMAN" as const,
       envelopes,
       mentions: [],
@@ -1360,6 +1366,7 @@ describe("direct chats API", () => {
     const payload = {
       clientMessageId: randomUUID(),
       senderDeviceId: aliceDevice.deviceId,
+      interactionEpoch: chat.interactionEpoch,
       kind: "HUMAN" as const,
       envelopes,
       mentions: [],
@@ -1469,6 +1476,7 @@ describe("direct chats API", () => {
       payload: {
         clientMessageId: randomUUID(),
         senderDeviceId: aliceDevice.deviceId,
+        interactionEpoch: chat.interactionEpoch,
         kind: "HUMAN",
         envelopes,
         mentions: [],
@@ -2621,10 +2629,24 @@ async function sendPlain(
     headers: { origin },
     cookies: sender.cookies,
   });
-  const devices = chat.json().devices as Array<{ id: string; userId: string }>;
+  const chatView = chat.json() as DirectConversationView;
+  const devices = chatView.devices;
+  const interactionEpoch = chatView.interactionEpoch;
   const envelopes = [];
   for (const device of devices) {
-    envelopes.push(await encryptTo(app, sender, senderDevice, device, conversationId, kind, plaintext, mentions));
+    envelopes.push(
+      await encryptTo(
+        app,
+        sender,
+        senderDevice,
+        device,
+        conversationId,
+        kind,
+        plaintext,
+        mentions,
+        interactionEpoch,
+      ),
+    );
   }
   return app.inject({
     method: "POST",
@@ -2634,6 +2656,7 @@ async function sendPlain(
     payload: {
       clientMessageId: randomUUID(),
       senderDeviceId: senderDevice.deviceId,
+      interactionEpoch,
       kind,
       envelopes,
       mentions,
@@ -2654,10 +2677,22 @@ async function sendWithMutatedCipher(
     headers: { origin },
     cookies: sender.cookies,
   });
-  const devices = chat.json().devices as Array<{ id: string; userId: string }>;
+  const chatView = chat.json() as DirectConversationView;
+  const devices = chatView.devices;
+  const interactionEpoch = chatView.interactionEpoch;
   const envelopes = [];
   for (const device of devices) {
-    const envelope = await encryptTo(app, sender, senderDevice, device, conversationId, "HUMAN", plaintext);
+    const envelope = await encryptTo(
+      app,
+      sender,
+      senderDevice,
+      device,
+      conversationId,
+      "HUMAN",
+      plaintext,
+      [],
+      interactionEpoch,
+    );
     envelopes.push({
       ...envelope,
       ciphertextB64: flipB64(envelope.ciphertextB64),
@@ -2671,6 +2706,7 @@ async function sendWithMutatedCipher(
     payload: {
       clientMessageId: randomUUID(),
       senderDeviceId: senderDevice.deviceId,
+      interactionEpoch,
       kind: "HUMAN",
       envelopes,
     },
@@ -2686,8 +2722,10 @@ async function encryptTo(
   kind: "HUMAN" | "OPERATOR_INVOKE" | "OPERATOR_RESPONSE" | "OPERATOR_ACTION",
   plaintext: string,
   mentions: MessageMentionInput[] = [],
+  interactionEpoch = 0,
 ): Promise<WireEnvelope & { recipientDeviceId: string }> {
-  let state = senderDevice.ratchets.get(recipient.id) ?? null;
+  const ratchetKey = `${recipient.id}:${interactionEpoch}`;
+  let state = senderDevice.ratchets.get(ratchetKey) ?? null;
   let x3dhInit: WireEnvelope["x3dhInit"] = null;
   if (!state) {
     const bundles = await app.inject({
@@ -2723,11 +2761,12 @@ async function encryptTo(
       senderDeviceId: senderDevice.deviceId,
       recipientDeviceId: recipient.id,
       kind,
+      interactionEpoch,
       routingContext,
     },
     x3dhInit,
   });
-  senderDevice.ratchets.set(recipient.id, state);
+  senderDevice.ratchets.set(ratchetKey, state);
   return { ...envelope, recipientDeviceId: recipient.id };
 }
 
@@ -2747,8 +2786,10 @@ function decryptFor(
     senderSignatureB64: string;
     x3dhInit: WireEnvelope["x3dhInit"];
   },
+  interactionEpoch = 0,
 ): string {
-  let state = recipient.ratchets.get(sender.deviceId) ?? null;
+  const ratchetKey = `${sender.deviceId}:${interactionEpoch}`;
+  let state = recipient.ratchets.get(ratchetKey) ?? null;
   if (!state && envelope.x3dhInit) {
     const oneTimePrekeyId =
       envelope.x3dhInit.oneTimePrekeyId;
@@ -2791,9 +2832,10 @@ function decryptFor(
       senderDeviceId: sender.deviceId,
       recipientDeviceId: envelope.recipientDeviceId,
       kind,
+      interactionEpoch,
     },
   });
-  recipient.ratchets.set(sender.deviceId, state);
+  recipient.ratchets.set(ratchetKey, state);
   return new TextDecoder().decode(opened);
 }
 
