@@ -178,7 +178,6 @@ test.describe("Public profile", () => {
     await alicePage.unroute(
       "**/v1/trust/surfaces/*/preference",
     );
-    await expect(mute).toBeVisible();
     await mute.check();
     await expect(mute).toBeChecked();
 

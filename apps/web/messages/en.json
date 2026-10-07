@@ -560,7 +560,7 @@
     "details": "Additional details (optional)",
     "selectedEvidence": "Selected message evidence",
     "evidenceExcerpt": "Evidence excerpt",
-    "evidenceExcerptHelp": "Only the excerpt shown here (up to {max} characters) will be disclosed. You can edit it before submitting.",
+    "evidenceExcerptHelp": "Only the excerpt shown here (up to {max} characters) will be stored with the report for future authorized review. You can edit it before submitting.",
     "evidenceExcerptLong": "This message is longer than {max} characters. Review and edit the excerpt below so the relevant part is disclosed explicitly.",
     "evidenceDisclosure": "This report will explicitly disclose the decrypted message excerpt shown below and store it with the report for future authorized review. Vimla verifies the message metadata and sender, but the disclosed plaintext is supplied by your client and is not cryptographically verified by the server.",
     "mute": "Mute this chat",
