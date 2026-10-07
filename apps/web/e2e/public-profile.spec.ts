@@ -283,15 +283,14 @@ test.describe("Public profile", () => {
         }),
     ).toBeDisabled();
 
-    let failBlockedListLoad = true;
+    let allowBlockedListLoad = false;
     await alicePage.route(
       "**/v1/trust/blocks*",
       async (route) => {
         if (
-          failBlockedListLoad &&
+          !allowBlockedListLoad &&
           route.request().method() === "GET"
         ) {
-          failBlockedListLoad = false;
           await route.abort("failed");
           return;
         }
@@ -305,7 +304,12 @@ test.describe("Public profile", () => {
     await expect(
       alicePage.getByText("You have not blocked anyone."),
     ).toHaveCount(0);
-    await alicePage.getByRole("button", { name: "Try again" }).click();
+    const retryBlockedList = alicePage.getByRole("button", {
+      name: "Try again",
+    });
+    await expect(retryBlockedList).toBeVisible();
+    allowBlockedListLoad = true;
+    await retryBlockedList.click();
     const blockedCard = alicePage
       .getByTestId("blocked-user-row")
       .filter({ hasText: `@${bobHandle}` });
