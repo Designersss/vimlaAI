@@ -457,6 +457,7 @@
     "direct_chat_device_revoked": "This device was revoked for Direct Chats.",
     "direct_chat_recipient_device_missing": "The other person has no active device yet.",
     "direct_chat_context_denied": "Chat context was not shared with @Vimla.",
+    "direct_chat_context_revoked": "This @Vimla request belongs to an earlier chat trust state and was canceled.",
     "generic": "The request failed. Try again."
   },
   "notifications": {

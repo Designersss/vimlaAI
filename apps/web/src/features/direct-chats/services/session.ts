@@ -624,6 +624,7 @@ export interface PendingOperatorInvocation {
   pendingClientMessageId: string;
   conversationId: string;
   senderDeviceId: string;
+  interactionEpoch: number;
   messageId: string;
   messageCreatedAt: string;
   intent: StoredOperatorIntent;
@@ -647,6 +648,7 @@ export async function loadPendingOperatorInvocations(input: {
             pendingClientMessageId: row.clientMessageId,
             conversationId: row.conversationId,
             senderDeviceId: row.senderDeviceId,
+            interactionEpoch: row.interactionEpoch,
             messageId: row.committedMessageId,
             messageCreatedAt: row.committedCreatedAt,
             intent: row.operatorIntent,
@@ -661,6 +663,20 @@ export async function finalizePendingOperatorInvocation(
 ): Promise<void> {
   await completePendingOperatorIntent(
     pendingClientMessageId,
+  );
+}
+
+export async function discardPendingOperatorInvocation(
+  pendingClientMessageId: string,
+): Promise<void> {
+  const pending = await loadPendingSend(
+    pendingClientMessageId,
+  );
+  if (!pending) {
+    return;
+  }
+  await discardPendingSendForUnavailableInteraction(
+    pending,
   );
 }
 

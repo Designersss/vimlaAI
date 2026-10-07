@@ -851,8 +851,11 @@ test.describe("Secure Direct Chats", () => {
       bobPage.getByTestId("direct-chat-shell"),
     ).toBeVisible({ timeout: 20_000 });
 
+    const evidencePrefix = "long evidence ";
     const longEvidenceText =
-      `long evidence ${"x".repeat(4_500)}`;
+      `${evidencePrefix}${"x".repeat(
+        3_999 - evidencePrefix.length,
+      )}😀${"y".repeat(500)}`;
     const composer = alicePage.getByPlaceholder(
       /сообщение этому человеку|message this person/i,
     );
@@ -883,10 +886,13 @@ test.describe("Secure Direct Chats", () => {
     await expect(evidenceEditor).toBeVisible();
     const boundedExcerpt =
       await evidenceEditor.inputValue();
-    expect(boundedExcerpt).toHaveLength(4_000);
+    expect(boundedExcerpt).toHaveLength(3_999);
     expect(
       longEvidenceText.startsWith(boundedExcerpt),
     ).toBe(true);
+    expect(
+      /[\uD800-\uDBFF]$/.test(boundedExcerpt),
+    ).toBe(false);
     await expect(dialog).toContainText(
       /4000|4[\s,.]?000/,
     );
@@ -1088,6 +1094,200 @@ test.describe("Secure Direct Chats", () => {
         .getByTestId("direct-message-human")
         .filter({ hasText: rejectedText }),
     ).toHaveCount(0);
+
+    await aliceContext.close();
+    await bobContext.close();
+  });
+
+
+  test("keeps Direct @Vimla recovery bound to the source trust epoch and clears stale confirmation UI", async ({
+    browser,
+    request,
+  }) => {
+    test.setTimeout(180_000);
+    const password = "correct-horse-battery";
+    const aliceEmail = uniqueEmail("e2e-operator-epoch-alice");
+    const bobEmail = uniqueEmail("e2e-operator-epoch-bob");
+    const aliceHandle = uniqueHandle("opepochalice");
+    const bobHandle = uniqueHandle("opepochbob");
+
+    const aliceContext = await browser.newContext();
+    const bobContext = await browser.newContext();
+    const alicePage = await aliceContext.newPage();
+    const bobPage = await bobContext.newPage();
+
+    await signUp(alicePage, {
+      name: "Operator Epoch Alice",
+      email: aliceEmail,
+      password,
+      handle: aliceHandle,
+    });
+    await verifyEmail(alicePage, request, aliceEmail);
+    await purchasePro(alicePage);
+    await alicePage.request.patch(
+      `${apiBase}/v1/me/preferences`,
+      {
+        data: { timezone: "Europe/Moscow" },
+        headers: {
+          origin: webOrigin,
+          "content-type": "application/json",
+        },
+      },
+    );
+
+    await signUp(bobPage, {
+      name: "Operator Epoch Bob",
+      email: bobEmail,
+      password,
+      handle: bobHandle,
+    });
+    await verifyEmail(bobPage, request, bobEmail);
+    await purchasePro(bobPage);
+
+    const created = await alicePage.request.post(
+      `${apiBase}/v1/direct-chats`,
+      {
+        data: { peerHandle: bobHandle },
+        headers: {
+          origin: webOrigin,
+          "content-type": "application/json",
+        },
+      },
+    );
+    expect(created.ok()).toBe(true);
+    const conversationId = String(
+      (await created.json()).id,
+    );
+    const directUrl = `/app/direct/${conversationId}`;
+
+    await Promise.all([
+      alicePage.goto(directUrl),
+      bobPage.goto(directUrl),
+    ]);
+    await expect(
+      alicePage.getByTestId("direct-chat-shell"),
+    ).toBeVisible({ timeout: 20_000 });
+    await expect(
+      bobPage.getByTestId("direct-chat-shell"),
+    ).toBeVisible({ timeout: 20_000 });
+
+    const composer = alicePage.getByPlaceholder(
+      /сообщение этому человеку|message this person/i,
+    );
+    const responsesBeforeEpochChange =
+      await bobPage
+        .getByTestId("direct-message-response")
+        .count();
+
+    await installHeldOperatorRunResponse(alicePage);
+    await composer.fill(
+      "@vimla ответь коротко: этот ответ не должен пережить смену trust epoch",
+    );
+    await alicePage
+      .getByTestId("chat-composer-send")
+      .click();
+    await expect.poll(
+      () => isOperatorRunResponseHeld(alicePage),
+    ).toBe(true);
+
+    const block = await bobPage.request.post(
+      `${apiBase}/v1/trust/blocks`,
+      {
+        data: { handle: aliceHandle },
+        headers: {
+          origin: webOrigin,
+          "content-type": "application/json",
+        },
+      },
+    );
+    expect(block.ok()).toBe(true);
+    const unblock = await bobPage.request.delete(
+      `${apiBase}/v1/trust/blocks/${aliceHandle}`,
+      { headers: { origin: webOrigin } },
+    );
+    expect(unblock.ok()).toBe(true);
+
+    await releaseHeldOperatorRunResponse(alicePage);
+    await expect.poll(
+      () => readPendingOperatorIntentCount(alicePage),
+      { timeout: 20_000 },
+    ).toBe(0);
+    await alicePage.waitForTimeout(500);
+    await expect(
+      bobPage.getByTestId("direct-message-response"),
+    ).toHaveCount(responsesBeforeEpochChange);
+
+    let mockStaleConfirmation = true;
+    await alicePage.route(
+      "**/v1/operator/runs",
+      async (route) => {
+        if (
+          !mockStaleConfirmation ||
+          route.request().method() !== "POST"
+        ) {
+          await route.continue();
+          return;
+        }
+        const response = await route.fetch();
+        const payload = (await response.json()) as Record<
+          string,
+          unknown
+        >;
+        await route.fulfill({
+          response,
+          json: {
+            ...payload,
+            status: "AWAITING_CONFIRMATION",
+            publicMessage: "Synthetic confirmation became terminal.",
+            clarificationQuestion: null,
+            confirmationRequired: true,
+            confirmationToken: "synthetic-confirmation-token",
+            errorCode: null,
+            actions: [
+              {
+                kind: "task",
+                operation: "created",
+                title: "Synthetic stale confirmation",
+                detail: null,
+                status: "pending_confirmation",
+                navigationTarget: {
+                  version: 1,
+                  kind: "TASKS",
+                },
+              },
+            ],
+          },
+        });
+        mockStaleConfirmation = false;
+      },
+    );
+
+    await composer.fill(
+      "@vimla ответь одним словом: готово",
+    );
+    await alicePage
+      .getByTestId("chat-composer-send")
+      .click();
+    await expect.poll(
+      () => mockStaleConfirmation,
+    ).toBe(false);
+    await alicePage.unroute("**/v1/operator/runs");
+
+    const confirmButton = alicePage.getByRole(
+      "button",
+      { name: /подтвердить|confirm/i },
+    );
+    await expect(confirmButton).toBeVisible({
+      timeout: 20_000,
+    });
+    await confirmButton.click();
+    await expect(confirmButton).toHaveCount(0, {
+      timeout: 20_000,
+    });
+    await expect.poll(
+      () => readPendingOperatorIntentCount(alicePage),
+      { timeout: 20_000 },
+    ).toBe(0);
 
     await aliceContext.close();
     await bobContext.close();

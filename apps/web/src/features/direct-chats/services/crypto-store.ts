@@ -1297,14 +1297,16 @@ export async function cancelPendingSendsForTrust(input: {
 export async function discardPendingSendForUnavailableInteraction(
   pending: StoredPendingSend,
 ): Promise<void> {
-  const parentClientMessageId =
-    pending.operatorOutput?.parentClientMessageId ?? null;
+  const operatorParentClientMessageId =
+    pending.operatorIntent
+      ? pending.clientMessageId
+      : pending.operatorOutput?.parentClientMessageId ?? null;
   const db = await openDb();
   await new Promise<void>((resolve, reject) => {
     const tx = db.transaction("pendingSends", "readwrite");
     const store = tx.objectStore("pendingSends");
 
-    if (!parentClientMessageId) {
+    if (!operatorParentClientMessageId) {
       store.delete(pending.clientMessageId);
     } else {
       const request = store
@@ -1320,10 +1322,11 @@ export async function discardPendingSendForUnavailableInteraction(
         if (!cursor) return;
         const row = cursor.value as StoredPendingSend;
         if (
-          row.clientMessageId === parentClientMessageId ||
+          row.clientMessageId ===
+            operatorParentClientMessageId ||
           row.clientMessageId === pending.clientMessageId ||
           row.operatorOutput?.parentClientMessageId ===
-            parentClientMessageId
+            operatorParentClientMessageId
         ) {
           cursor.delete();
         }

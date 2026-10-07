@@ -82,6 +82,7 @@ import {
 import { decodeDirectPlaintext, encodeDirectPlaintext, type DirectPlaintextPayload } from "../services/payload";
 import {
   decryptMessageWithStatus,
+  discardPendingOperatorInvocation,
   encryptForDevices,
   ensureLocalDevice,
   finalizePendingOperatorInvocation,
@@ -840,6 +841,8 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
               conversationId: conversation.id,
               senderDeviceId:
                 sourceMessage.senderDeviceId,
+              interactionEpoch:
+                sourceMessage.interactionEpoch,
               messageId: sourceMessage.id,
               messageCreatedAt:
                 sourceMessage.createdAt,
@@ -1229,6 +1232,7 @@ async function sendEncryptedDirectMessage(input: {
   operatorIntent?: StoredOperatorIntent;
   operatorOutput?: StoredOperatorOutputLink;
   recoverPending?: boolean;
+  expectedInteractionEpoch?: number;
 }): Promise<{
   message: DirectMessageView;
   latest: DirectConversationView;
@@ -1256,6 +1260,16 @@ async function sendEncryptedDirectMessage(input: {
       senderDeviceId: device.deviceId,
     },
   );
+  if (
+    input.expectedInteractionEpoch !== undefined &&
+    interaction.interactionEpoch !==
+      input.expectedInteractionEpoch
+  ) {
+    throw new DirectChatsApiError(
+      "direct_chat_interaction_stale",
+      409,
+    );
+  }
   const latest = await fetchDirectConversation(
     input.conversationId,
   );
@@ -1300,6 +1314,9 @@ async function confirmDirectOperatorRun(input: {
       input.runId,
       { signal: operatorRequestSignal() },
     );
+    if (fresh.status !== "AWAITING_CONFIRMATION") {
+      return fresh;
+    }
     const token = fresh.confirmationToken;
     if (!token) {
       throw new OperatorRequestError(
@@ -1406,6 +1423,37 @@ async function recoverDirectOperatorInvocations(input: {
   return deliveries;
 }
 
+async function ensurePendingOperatorInvocationCurrent(
+  invocation: PendingOperatorInvocation,
+): Promise<boolean> {
+  try {
+    const interaction = await prepareDirectMessageSend(
+      invocation.conversationId,
+      {
+        senderDeviceId: invocation.senderDeviceId,
+      },
+    );
+    if (
+      interaction.interactionEpoch ===
+      invocation.interactionEpoch
+    ) {
+      return true;
+    }
+  } catch (caught: unknown) {
+    if (
+      !(caught instanceof DirectChatsApiError) ||
+      caught.code !== "forbidden"
+    ) {
+      throw caught;
+    }
+  }
+
+  await discardPendingOperatorInvocation(
+    invocation.pendingClientMessageId,
+  );
+  return false;
+}
+
 async function resumeDirectOperatorInvocation(
   invocation: PendingOperatorInvocation,
   actorUserId: string,
@@ -1428,6 +1476,13 @@ async function resumeDirectOperatorInvocation(
           invocation.pendingClientMessageId,
       );
       if (!current) {
+        return null;
+      }
+      if (
+        !(await ensurePendingOperatorInvocationCurrent(
+          current,
+        ))
+      ) {
         return null;
       }
 
@@ -1481,28 +1536,50 @@ async function resumeDirectOperatorInvocation(
             current.messageCreatedAt,
             actorUserId,
           );
-        run = await createOperatorRun(
-          {
-            clientRequestId:
-              current.intent.clientRequestId,
-            content: current.intent.content,
-            invocationScope: "DIRECT_CHAT",
-            directConversationId:
-              current.conversationId,
-            directSourceMessageId:
-              current.messageId,
-            ...(sourceBoundContext.contextBundle.messages
-              .length > 0
-              ? {
-                  contextBundle:
-                    sourceBoundContext.contextBundle,
-                }
-              : {}),
-          },
-          { signal: operatorRequestSignal() },
-        );
+        try {
+          run = await createOperatorRun(
+            {
+              clientRequestId:
+                current.intent.clientRequestId,
+              content: current.intent.content,
+              invocationScope: "DIRECT_CHAT",
+              directConversationId:
+                current.conversationId,
+              directSourceMessageId:
+                current.messageId,
+              ...(sourceBoundContext.contextBundle.messages
+                .length > 0
+                ? {
+                    contextBundle:
+                      sourceBoundContext.contextBundle,
+                  }
+                : {}),
+            },
+            { signal: operatorRequestSignal() },
+          );
+        } catch (caught: unknown) {
+          if (
+            caught instanceof OperatorRequestError &&
+            (caught.code === "conflict" ||
+              caught.code ===
+                "direct_chat_context_revoked") &&
+            !(await ensurePendingOperatorInvocationCurrent(
+              current,
+            ))
+          ) {
+            return null;
+          }
+          throw caught;
+        }
       }
 
+      if (
+        !(await ensurePendingOperatorInvocationCurrent(
+          current,
+        ))
+      ) {
+        return null;
+      }
       if (isTransientOperatorRun(run)) {
         throw new Error(
           "Direct Chat operator run is still in progress",
@@ -1575,6 +1652,8 @@ async function resumeDirectOperatorInvocation(
             outputId: output.id,
           },
           recoverPending: false,
+          expectedInteractionEpoch:
+            current.interactionEpoch,
         });
         latest = result.latest;
         rows.push({
@@ -1617,6 +1696,17 @@ async function resumeDirectOperatorInvocation(
         PendingOperatorInvocationGoneError ||
       caught instanceof RatchetLockLostError
     ) {
+      return null;
+    }
+    if (
+      caught instanceof DirectChatsApiError &&
+      (caught.code === "forbidden" ||
+        caught.code ===
+          "direct_chat_interaction_stale")
+    ) {
+      await discardPendingOperatorInvocation(
+        invocation.pendingClientMessageId,
+      );
       return null;
     }
     throw caught;

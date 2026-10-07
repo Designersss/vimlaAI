@@ -197,5 +197,25 @@ export function ReportUserDialog({
 
 
 function boundedEvidenceExcerpt(value: string): string {
-  return value.slice(0, TRUST_LIMITS.evidenceTextMax);
+  let end = Math.min(
+    value.length,
+    TRUST_LIMITS.evidenceTextMax,
+  );
+  if (
+    end > 0 &&
+    end < value.length &&
+    isHighSurrogate(value.charCodeAt(end - 1)) &&
+    isLowSurrogate(value.charCodeAt(end))
+  ) {
+    end -= 1;
+  }
+  return value.slice(0, end);
+}
+
+function isHighSurrogate(codeUnit: number): boolean {
+  return codeUnit >= 0xd800 && codeUnit <= 0xdbff;
+}
+
+function isLowSurrogate(codeUnit: number): boolean {
+  return codeUnit >= 0xdc00 && codeUnit <= 0xdfff;
 }
