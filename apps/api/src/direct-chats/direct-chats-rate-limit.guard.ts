@@ -22,7 +22,15 @@ export class DirectChatsRateLimitGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<FastifyRequest>();
-    if (request.method === "GET" || request.method === "HEAD" || request.method === "OPTIONS") {
+    if (
+      request.method === "GET" ||
+      request.method === "HEAD" ||
+      request.method === "OPTIONS" ||
+      (
+        request.method === "POST" &&
+        request.routeOptions.url.endsWith("/send-preflight")
+      )
+    ) {
       return true;
     }
 
