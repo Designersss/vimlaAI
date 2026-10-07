@@ -284,6 +284,7 @@ test.describe("Public profile", () => {
     ).toBeDisabled();
 
     let allowBlockedListLoad = false;
+    let loseFirstUnblockResponse = true;
     await alicePage.route(
       "**/v1/trust/blocks*",
       async (route) => {
@@ -291,6 +292,16 @@ test.describe("Public profile", () => {
           !allowBlockedListLoad &&
           route.request().method() === "GET"
         ) {
+          await route.abort("failed");
+          return;
+        }
+        if (
+          loseFirstUnblockResponse &&
+          route.request().method() === "DELETE"
+        ) {
+          loseFirstUnblockResponse = false;
+          const response = await route.fetch();
+          expect(response.ok()).toBe(true);
           await route.abort("failed");
           return;
         }
@@ -314,12 +325,14 @@ test.describe("Public profile", () => {
       .getByTestId("blocked-user-row")
       .filter({ hasText: `@${bobHandle}` });
     await expect(blockedCard).toContainText("Bobby Profile");
-    await blockedCard
-      .getByRole("button", { name: "Unblock" })
-      .click();
-    await expect(
-      alicePage.getByText(`@${bobHandle}`),
-    ).toHaveCount(0);
+    const unblockButton = blockedCard.getByRole("button", {
+      name: "Unblock",
+    });
+    await unblockButton.click();
+    await expect(blockedCard).toBeVisible();
+    await expect(unblockButton).toBeEnabled();
+    await unblockButton.click();
+    await expect(blockedCard).toHaveCount(0);
     await alicePage.unroute("**/v1/trust/blocks*");
 
     await alicePage.goto(directUrl);
