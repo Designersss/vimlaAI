@@ -170,9 +170,10 @@ export function ReportUserDialog({
                     maxLength={TRUST_LIMITS.evidenceTextMax}
                     onChange={(event) => {
                       const messageId = evidence.messageId;
+                      const nextValue = event.currentTarget.value;
                       setEvidenceEdits((current) => ({
                         ...current,
-                        [messageId]: event.currentTarget.value,
+                        [messageId]: nextValue,
                       }));
                     }}
                   />
