@@ -7,8 +7,6 @@ export const ADMIN_PERMISSIONS = [
   "ai.read",
   "ai.manage",
   "security.audit.read",
-  "moderation.read",
-  "moderation.evidence.read",
   "admin.manage",
 ] as const;
 
@@ -43,5 +41,4 @@ export const SENSITIVE_ADMIN_ACTIONS = [
   "PAYMENT_RECONCILIATION_ACTION",
   "REFUND_ACTION",
   "ADMIN_PERMISSIONS_CHANGED",
-  "MODERATION_EVIDENCE_VIEWED",
 ] as const;

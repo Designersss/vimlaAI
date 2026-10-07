@@ -1,5 +1,9 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { createSurfaceAuthorityRegistry } from "@vimla/context";
+import {
+  createSurfaceAuthorityRegistry,
+  SurfaceAccessDeniedError,
+  SurfaceIdentityUnavailableError,
+} from "@vimla/context";
 import { TrustService } from "@vimla/trust";
 import { PrismaService } from "../persistence/prisma.service.js";
 
@@ -21,8 +25,14 @@ export class TrustFacade {
             surfaceId,
           });
           return authority.canRead;
-        } catch {
-          return false;
+        } catch (caught: unknown) {
+          if (
+            caught instanceof SurfaceIdentityUnavailableError ||
+            caught instanceof SurfaceAccessDeniedError
+          ) {
+            return false;
+          }
+          throw caught;
         }
       },
     });

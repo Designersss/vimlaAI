@@ -1095,6 +1095,28 @@ test.describe("Secure Direct Chats", () => {
         .filter({ hasText: rejectedText }),
     ).toHaveCount(0);
 
+    const localDeviceId =
+      await readLocalDeviceId(alicePage);
+    await insertExpiredTrustCancelledPendingSend(
+      alicePage,
+      {
+        conversationId,
+        senderDeviceId: localDeviceId,
+      },
+    );
+    await expect
+      .poll(() => readPendingSendCount(alicePage))
+      .toBe(1);
+    await alicePage.reload();
+    await expect(
+      alicePage.getByTestId("direct-chat-shell"),
+    ).toBeVisible({ timeout: 20_000 });
+    await expect
+      .poll(() => readPendingSendCount(alicePage), {
+        timeout: 20_000,
+      })
+      .toBe(0);
+
     await aliceContext.close();
     await bobContext.close();
   });
@@ -1189,6 +1211,67 @@ test.describe("Secure Direct Chats", () => {
     await expect.poll(
       () => isOperatorRunResponseHeld(alicePage),
     ).toBe(true);
+
+    const peerInvoke = bobPage
+      .getByTestId("direct-message-invoke")
+      .filter({
+        hasText:
+          "этот ответ не должен пережить смену trust epoch",
+      });
+    await expect(peerInvoke).toBeVisible({
+      timeout: 20_000,
+    });
+    await peerInvoke
+      .getByRole("button", {
+        name: /пожаловаться на сообщение|report message/i,
+      })
+      .click();
+    const invokeReportDialog =
+      bobPage.getByRole("dialog");
+    const invokeEvidence =
+      invokeReportDialog.locator(
+        "#trust-report-evidence",
+      );
+    await expect(invokeEvidence).toHaveValue(
+      /этот ответ не должен пережить смену trust epoch/i,
+    );
+    const invokeReportRequestPromise =
+      bobPage.waitForRequest(
+        (outgoing) =>
+          outgoing.method() === "POST" &&
+          outgoing.url() ===
+            `${apiBase}/v1/trust/reports`,
+      );
+    await invokeReportDialog
+      .getByRole("button", {
+        name: /отправить жалобу|submit report/i,
+      })
+      .click();
+    const invokeReportRequest =
+      await invokeReportRequestPromise;
+    const invokeReportPayload =
+      invokeReportRequest.postDataJSON() as {
+        evidence?: {
+          kind?: string;
+          disclosedText?: string;
+        };
+      };
+    expect(invokeReportPayload.evidence?.kind).toBe(
+      "DIRECT_MESSAGE",
+    );
+    expect(
+      invokeReportPayload.evidence?.disclosedText,
+    ).toContain(
+      "этот ответ не должен пережить смену trust epoch",
+    );
+    await expect(invokeReportDialog).toContainText(
+      /жалоба отправлена|report submitted/i,
+    );
+    await invokeReportDialog
+      .getByRole("button", {
+        name: /готово|done/i,
+      })
+      .click();
 
     const block = await bobPage.request.post(
       `${apiBase}/v1/trust/blocks`,
@@ -2540,6 +2623,83 @@ async function restoreIndexedDbPut(
     };
     state.__vimlaRestoreIndexedDbPut?.();
   });
+}
+
+async function insertExpiredTrustCancelledPendingSend(
+  page: Page,
+  input: {
+    conversationId: string;
+    senderDeviceId: string;
+  },
+): Promise<void> {
+  await page.evaluate(async (value) => {
+    const db = await new Promise<IDBDatabase>(
+      (resolve, reject) => {
+        const request = indexedDB.open(
+          "vimla-direct-e2ee",
+        );
+        request.onsuccess = () =>
+          resolve(request.result);
+        request.onerror = () =>
+          reject(
+            request.error ??
+              new Error(
+                "Pending send database open failed",
+              ),
+          );
+      },
+    );
+    try {
+      await new Promise<void>(
+        (resolve, reject) => {
+          const tx = db.transaction(
+            "pendingSends",
+            "readwrite",
+          );
+          const clientMessageId =
+            `expired-trust-${crypto.randomUUID()}`;
+          tx.objectStore("pendingSends").put(
+            {
+              revision: 1,
+              conversationId: value.conversationId,
+              clientMessageId,
+              senderUserId: "synthetic-user",
+              senderDeviceId: value.senderDeviceId,
+              interactionEpoch: 0,
+              kind: "HUMAN",
+              envelopes: [],
+              mentions: [],
+              plaintext: "expired trust tombstone",
+              createdAt: new Date(
+                Date.now() - 11 * 60_000,
+              ).toISOString(),
+              trustCancelledAt: new Date(
+                Date.now() - 10 * 60_000,
+              ).toISOString(),
+            },
+            clientMessageId,
+          );
+          tx.oncomplete = () => resolve();
+          tx.onabort = () =>
+            reject(
+              tx.error ??
+                new Error(
+                  "Expired trust tombstone insert aborted",
+                ),
+            );
+          tx.onerror = () =>
+            reject(
+              tx.error ??
+                new Error(
+                  "Expired trust tombstone insert failed",
+                ),
+            );
+        },
+      );
+    } finally {
+      db.close();
+    }
+  }, input);
 }
 
 async function readPendingSendCount(

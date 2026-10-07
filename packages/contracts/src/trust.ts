@@ -7,8 +7,6 @@ export const TRUST_LIMITS = {
   evidenceTextMax: 4_000,
   blockedUsersPageDefault: 50,
   blockedUsersPageMax: 100,
-  moderationPageDefault: 50,
-  moderationPageMax: 100,
 } as const;
 
 export const abuseReportReasonSchema = z.enum([

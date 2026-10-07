@@ -2084,6 +2084,24 @@ function DirectRow({
           {row.payload.contextShared ? <Badge>{t("direct.contextShared")}</Badge> : <Badge>{t("direct.contextDenied")}</Badge>}
         </div>
         <Text>{row.payload.text}</Text>
+        {!self ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() =>
+              onReport({
+                kind: "DIRECT_MESSAGE",
+                conversationId: row.message.conversationId,
+                messageId: row.message.id,
+                disclosedText: row.payload!.type === "invoke"
+                  ? row.payload!.text
+                  : "",
+              })
+            }
+          >
+            {t("trust.reportMessage")}
+          </Button>
+        ) : null}
       </Card>
     );
   }

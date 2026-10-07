@@ -49,6 +49,7 @@ import {
   loadPlaintext,
   loadRatchet,
   pendingSendRevision,
+  purgeExpiredTrustCancelledPendingSends,
   saveDeviceMaterial,
   stagePendingOperatorDelivery,
   withLocalDeviceBootstrapLock,
@@ -420,6 +421,10 @@ export async function recoverPendingSends(input: {
       localDeviceId: input.localDevice.deviceId,
     },
     async () => {
+      await purgeExpiredTrustCancelledPendingSends({
+        conversationId: input.conversationId,
+        senderDeviceId: input.localDevice.deviceId,
+      });
       const pending = await loadPendingSends(
         input.conversationId,
         input.localDevice.deviceId,

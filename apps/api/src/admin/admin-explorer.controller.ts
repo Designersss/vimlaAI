@@ -1,34 +1,12 @@
-import { Body, Controller, Get, Inject, NotFoundException, Param, Post, Query, Req, UseGuards } from "@nestjs/common";
+import { Body, Controller, Get, Inject, Param, Post, Query, Req, UseGuards } from "@nestjs/common";
 import type { FastifyRequest } from "fastify";
 import { z } from "zod";
 import type { AdminActor } from "@vimla/admin";
 import { microRubFromJson } from "@vimla/billing";
-import {
-  abuseReportStatusSchema,
-  TRUST_LIMITS,
-} from "@vimla/contracts";
 import { AdminGuard, AdminOriginGuard } from "./admin.guard.js";
 import { AdminPermissionGuard } from "./admin-permission.guard.js";
 import { RequireAdminPermission } from "./admin-permission.decorator.js";
 import { AdminFacade } from "./admin.service.js";
-
-const moderationReportsQuerySchema = z
-  .object({
-    limit: z.coerce
-      .number()
-      .int()
-      .min(1)
-      .max(TRUST_LIMITS.moderationPageMax)
-      .default(TRUST_LIMITS.moderationPageDefault),
-    cursor: z
-      .string()
-      .min(1)
-      .max(512)
-      .regex(/^[A-Za-z0-9_-]+$/)
-      .optional(),
-    status: abuseReportStatusSchema.optional(),
-  })
-  .strict();
 
 @Controller("admin/v1")
 @UseGuards(AdminOriginGuard, AdminGuard, AdminPermissionGuard)
@@ -63,39 +41,6 @@ export class AdminExplorerController {
   @RequireAdminPermission("security.audit.read")
   audit(@Query() query: Record<string, unknown>) {
     return this.admin.listAudit(query);
-  }
-
-  @Get("moderation/reports")
-  @RequireAdminPermission("moderation.read")
-  moderationReports(
-    @Query() query: unknown,
-  ) {
-    return this.admin.listAbuseReports(
-      moderationReportsQuerySchema.parse(query),
-    );
-  }
-
-  @Get("moderation/reports/:id/evidence")
-  @RequireAdminPermission("moderation.evidence.read", {
-    stepUp: true,
-  })
-  async moderationEvidence(
-    @Req() request: FastifyRequest,
-    @Param("id") id: string,
-  ) {
-    const reportId = z.string().uuid().parse(id);
-    const evidence =
-      await this.admin.getAbuseReportEvidence(
-        request.adminActor as AdminActor,
-        reportId,
-        String(request.id),
-      );
-    if (!evidence) {
-      throw new NotFoundException(
-        "Abuse report was not found",
-      );
-    }
-    return evidence;
   }
 
   @Get("security/sessions")

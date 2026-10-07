@@ -218,7 +218,7 @@ export class TrustService {
           id: input.evidence.messageId,
           conversationId: input.evidence.conversationId,
           senderUserId: target.userId,
-          kind: "HUMAN",
+          kind: { in: ["HUMAN", "OPERATOR_INVOKE"] },
           conversation: {
             members: {
               some: { userId: actorUserId },

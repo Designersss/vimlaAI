@@ -5,6 +5,7 @@ import {
   describe,
   expect,
   it,
+  vi,
 } from "vitest";
 import type { NestFastifyApplication } from "@nestjs/platform-fastify";
 import { loadApiConfig } from "@vimla/config/server";
@@ -358,6 +359,46 @@ describe("trust safety API", () => {
     expect(denied.statusCode).toBe(404);
   });
 
+  it("does not hide unexpected surface-authority infrastructure failures as not-found", async () => {
+    const alice = await registerVerifiedUser(
+      app,
+      "trust-mute-failure-alice",
+    );
+    const bob = await registerVerifiedUser(
+      app,
+      "trust-mute-failure-bob",
+    );
+    const created = await app.inject({
+      method: "POST",
+      url: "/v1/direct-chats",
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: { peerHandle: bob.handle },
+    });
+    expect(created.statusCode).toBe(201);
+    const surfaceId = created.json().surfaceId as string;
+    const prisma = app.get(PrismaService).client;
+    const lookup = vi
+      .spyOn(
+        prisma.communicationSurface,
+        "findUnique",
+      )
+      .mockRejectedValueOnce(
+        new Error("Synthetic surface authority outage"),
+      );
+    try {
+      const response = await app.inject({
+        method: "GET",
+        url: `/v1/trust/surfaces/${surfaceId}/preference`,
+        headers: { origin },
+        cookies: alice.cookies,
+      });
+      expect(response.statusCode).toBe(500);
+    } finally {
+      lookup.mockRestore();
+    }
+  });
+
   it("accepts only explicit actor-authorized E2EE evidence with server-verified provenance", async () => {
     const alice = await registerVerifiedUser(
       app,
@@ -409,6 +450,26 @@ describe("trust safety API", () => {
         kind: "HUMAN",
       },
     });
+    const operatorInvokeMessage =
+      await db.directMessage.create({
+        data: {
+          conversationId: direct.id,
+          senderUserId: bob.id,
+          senderDeviceId: senderDevice.id,
+          clientMessageId: randomUUID(),
+          kind: "OPERATOR_INVOKE",
+        },
+      });
+    const operatorResponseMessage =
+      await db.directMessage.create({
+        data: {
+          conversationId: direct.id,
+          senderUserId: bob.id,
+          senderDeviceId: senderDevice.id,
+          clientMessageId: randomUUID(),
+          kind: "OPERATOR_RESPONSE",
+        },
+      });
 
     const foreign =
       await db.directConversation.create({
@@ -533,6 +594,59 @@ describe("trust safety API", () => {
     expect(boundedStored.evidenceText).toBe(
       boundedEvidenceText,
     );
+
+    const invokeEvidenceText =
+      "@vimla peer-authored reportable text";
+    const invokeEvidence = await app.inject({
+      method: "POST",
+      url: "/v1/trust/reports",
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: {
+        targetHandle: bob.handle,
+        reason: "THREATS",
+        evidence: {
+          kind: "DIRECT_MESSAGE",
+          conversationId: direct.id,
+          messageId: operatorInvokeMessage.id,
+          disclosedText: invokeEvidenceText,
+        },
+      },
+    });
+    expect(invokeEvidence.statusCode).toBe(201);
+    const invokeStored =
+      await db.abuseReport.findUniqueOrThrow({
+        where: {
+          id: invokeEvidence.json().id as string,
+        },
+      });
+    expect(invokeStored).toMatchObject({
+      evidenceKind: "DIRECT_MESSAGE",
+      directMessageId: operatorInvokeMessage.id,
+      evidenceSenderUserId: bob.id,
+      evidenceMessageKind: "OPERATOR_INVOKE",
+      evidenceText: invokeEvidenceText,
+    });
+
+    const forgedOperatorOutput =
+      await app.inject({
+        method: "POST",
+        url: "/v1/trust/reports",
+        headers: jsonHeaders(),
+        cookies: alice.cookies,
+        payload: {
+          targetHandle: bob.handle,
+          reason: "IMPERSONATION",
+          evidence: {
+            kind: "DIRECT_MESSAGE",
+            conversationId: direct.id,
+            messageId: operatorResponseMessage.id,
+            disclosedText:
+              "Sender-controlled operator output is not reportable user evidence",
+          },
+        },
+      });
+    expect(forgedOperatorOutput.statusCode).toBe(400);
   });
 
   it("rate-limits abuse reports across different users sharing one IP", async () => {
