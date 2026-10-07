@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   Body,
+  ConflictException,
   Controller,
   Delete,
   ForbiddenException,
@@ -216,6 +217,12 @@ async function withTrustErrors<T>(
     if (error.code === "FORBIDDEN") {
       throw new ForbiddenException({
         code: "forbidden",
+        message: error.message,
+      });
+    }
+    if (error.code === "CONFLICT") {
+      throw new ConflictException({
+        code: "conflict",
         message: error.message,
       });
     }
