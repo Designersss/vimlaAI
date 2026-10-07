@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { handleInputSchema } from "@vimla/contracts";
 import {
   abuseReportReceiptSchema,
@@ -192,6 +193,29 @@ export class TrustService {
     actorUserId: string,
     input: CreateAbuseReport,
   ): Promise<AbuseReportReceipt> {
+    const requestFingerprint =
+      abuseReportRequestFingerprint(input);
+    const existing = await this.db.abuseReport.findUnique({
+      where: {
+        reporterUserId_requestId: {
+          reporterUserId: actorUserId,
+          requestId: input.requestId,
+        },
+      },
+      select: {
+        id: true,
+        status: true,
+        createdAt: true,
+        requestFingerprint: true,
+      },
+    });
+    if (existing) {
+      return resolveReportReplay(
+        existing,
+        requestFingerprint,
+      );
+    }
+
     const target = await this.resolveUser(input.targetHandle);
     if (!target) {
       throw new TrustError("NOT_FOUND", "User was not found");
@@ -251,28 +275,59 @@ export class TrustService {
       };
     }
 
-    const created = await this.db.abuseReport.create({
-      data: {
-        reporterUserId: actorUserId,
-        targetUserId: target.userId,
-        reason: input.reason,
-        details: input.details ?? null,
-        status: "SUBMITTED",
-        evidenceKind: evidence ? "DIRECT_MESSAGE" : "NONE",
-        ...(evidence ?? {}),
-      },
-      select: {
-        id: true,
-        status: true,
-        createdAt: true,
-      },
-    });
+    try {
+      const created = await this.db.abuseReport.create({
+        data: {
+          requestId: input.requestId,
+          requestFingerprint,
+          reporterUserId: actorUserId,
+          targetUserId: target.userId,
+          reason: input.reason,
+          details: input.details ?? null,
+          status: "SUBMITTED",
+          evidenceKind: evidence ? "DIRECT_MESSAGE" : "NONE",
+          ...(evidence ?? {}),
+        },
+        select: {
+          id: true,
+          status: true,
+          createdAt: true,
+        },
+      });
 
-    return abuseReportReceiptSchema.parse({
-      id: created.id,
-      status: created.status,
-      createdAt: created.createdAt.toISOString(),
-    });
+      return reportReceipt(created);
+    } catch (error: unknown) {
+      if (
+        !(
+          error instanceof
+          Prisma.PrismaClientKnownRequestError
+        ) ||
+        error.code !== "P2002"
+      ) {
+        throw error;
+      }
+      const replay = await this.db.abuseReport.findUnique({
+        where: {
+          reporterUserId_requestId: {
+            reporterUserId: actorUserId,
+            requestId: input.requestId,
+          },
+        },
+        select: {
+          id: true,
+          status: true,
+          createdAt: true,
+          requestFingerprint: true,
+        },
+      });
+      if (!replay) {
+        throw error;
+      }
+      return resolveReportReplay(
+        replay,
+        requestFingerprint,
+      );
+    }
   }
 
   async getSurfacePreference(
@@ -384,6 +439,58 @@ export class TrustService {
     `);
     return rows[0] ?? null;
   }
+}
+
+
+type StoredReportReplay = {
+  id: string;
+  status: string;
+  createdAt: Date;
+  requestFingerprint: string;
+};
+
+export function abuseReportRequestFingerprint(
+  input: CreateAbuseReport,
+): string {
+  const canonical = JSON.stringify({
+    targetHandle: input.targetHandle,
+    reason: input.reason,
+    details: input.details ?? null,
+    evidence: input.evidence
+      ? {
+          kind: input.evidence.kind,
+          conversationId: input.evidence.conversationId,
+          messageId: input.evidence.messageId,
+          disclosedText: input.evidence.disclosedText,
+        }
+      : null,
+  });
+  return createHash("sha256")
+    .update(canonical, "utf8")
+    .digest("hex");
+}
+
+function resolveReportReplay(
+  stored: StoredReportReplay,
+  requestFingerprint: string,
+): AbuseReportReceipt {
+  if (stored.requestFingerprint !== requestFingerprint) {
+    throw new TrustError(
+      "CONFLICT",
+      "Report request id was already used for different content",
+    );
+  }
+  return reportReceipt(stored);
+}
+
+function reportReceipt(
+  stored: Pick<StoredReportReplay, "id" | "status" | "createdAt">,
+): AbuseReportReceipt {
+  return abuseReportReceiptSchema.parse({
+    id: stored.id,
+    status: stored.status,
+    createdAt: stored.createdAt.toISOString(),
+  });
 }
 
 
