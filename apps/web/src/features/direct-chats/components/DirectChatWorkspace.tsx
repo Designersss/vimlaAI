@@ -922,7 +922,17 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         actorUserId: userId,
         privacy: conversation.privacy,
         query: text,
-        messages: localPlaintexts,
+        // The local cache holds the complete E2EE payload. Disclose only
+        // decoded HUMAN text (under existing participant consent), never
+        // serialized reply IDs/author metadata as AI context.
+        messages: localPlaintexts.map((row) =>
+          row.kind === "HUMAN"
+            ? {
+                ...row,
+                text: decodeDirectPlaintext("HUMAN", row.text).text,
+              }
+            : row,
+        ),
       });
       const sourceClientMessageId =
         crypto.randomUUID();

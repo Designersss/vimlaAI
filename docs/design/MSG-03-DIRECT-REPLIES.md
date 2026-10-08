@@ -44,3 +44,7 @@ is not initially available.
 This slice intentionally excludes cross-device missing-history recovery,
 edits, deletes, reactions, forwarding and verified Operator origin. The
 preproduction protocol may be refined before those separate security reviews.
+
+The consent-gated @Vimla local-history projection decodes HUMAN payloads
+before assembling AI context. It must never include serialized encrypted
+reply-reference metadata as if it were ordinary user text.

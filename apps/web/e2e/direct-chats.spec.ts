@@ -184,6 +184,45 @@ test.describe("Secure Direct Chats", () => {
       .getByRole("button", { name: /готово|done/i })
       .click();
 
+    // Replies are HUMAN ciphertext: original attribution comes exclusively
+    // from a locally decrypted source, never a sender-supplied quote string.
+    const original = nikitaPage
+      .getByTestId("direct-message-row")
+      .filter({ hasText: "hello from alice" });
+    await original
+      .getByTestId("direct-message-reply-action")
+      .click();
+    const replyComposer = nikitaPage.getByTestId("direct-reply-composer");
+    await expect(replyComposer).toContainText("hello from alice");
+    const nikitaComposer = nikitaPage.getByPlaceholder(
+      /сообщение этому человеку|message this person/i,
+    );
+    await nikitaComposer.fill("Nikita replying to original hello");
+    await nikitaPage.getByTestId("chat-composer-send").click();
+    await expect(replyComposer).toHaveCount(0);
+    const replyOnAlice = alicePage
+      .getByTestId("direct-message-row")
+      .filter({ hasText: "Nikita replying to original hello" });
+    await expect(replyOnAlice).toBeVisible({ timeout: 20_000 });
+    await expect(replyOnAlice.getByTestId("direct-reply-context"))
+      .toContainText("hello from alice");
+
+    await nikitaPage.reload();
+    await expect(
+      nikitaPage.getByTestId("direct-chat-shell"),
+    ).toBeVisible({ timeout: 20_000 });
+    const reloadedReply = nikitaPage
+      .getByTestId("direct-message-row")
+      .filter({ hasText: "Nikita replying to original hello" });
+    await expect(reloadedReply).toBeVisible({ timeout: 20_000 });
+    // The original was pushed beyond the first history page. An unverified
+    // source never produces peer-attributed quoted text.
+    await expect(reloadedReply.getByTestId("direct-reply-context"))
+      .toContainText(/исходное сообщение недоступно|original message unavailable/i);
+    await nikitaPage.getByTestId("direct-chat-load-older").click();
+    await expect(reloadedReply.getByTestId("direct-reply-context"))
+      .toContainText("hello from alice", { timeout: 20_000 });
+
     let abortBeforeServer = true;
     await alicePage.route(
       "**/v1/direct-chats/*/messages",
