@@ -24,6 +24,7 @@ export const DIRECT_CHAT_LIMITS = {
 
 export const directMessageKindSchema = z.enum([
   "HUMAN",
+  "REACTION",
   "OPERATOR_INVOKE",
   "OPERATOR_RESPONSE",
   "OPERATOR_ACTION",
@@ -132,13 +133,27 @@ export const sendDirectMessageSchema = z
   .object({
     clientMessageId: z.string().uuid(),
     contentCommitmentB64: z.string().length(44).nullable().default(null),
+    // An opaque source-derived lookup tag, never an unencrypted source reference.
+    reactionTargetTagB64: z.string().regex(/^[A-Za-z0-9+/]{43}=$/).nullable().optional(),
     senderDeviceId: z.string().uuid(),
     interactionEpoch: directInteractionEpochSchema,
     kind: directMessageKindSchema,
     envelopes: z.array(wireEnvelopeSchema).min(1).max(DIRECT_CHAT_LIMITS.envelopesMax),
     mentions: z.array(messageMentionInputSchema).max(DIRECT_CHAT_LIMITS.mentionsMax).default([]),
   })
-  .strict();
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.kind === "REACTION") {
+      if (!value.reactionTargetTagB64 || !value.contentCommitmentB64) {
+        ctx.addIssue({ code: "custom", path: ["reactionTargetTagB64"], message: "Signed reaction commitment and target tag are required" });
+      }
+      if (value.mentions.length > 0) {
+        ctx.addIssue({ code: "custom", path: ["mentions"], message: "Reactions cannot include routing mentions" });
+      }
+    } else if (value.reactionTargetTagB64 != null) {
+      ctx.addIssue({ code: "custom", path: ["reactionTargetTagB64"], message: "Only reactions may supply a target tag" });
+    }
+  });
 export type SendDirectMessage = z.infer<typeof sendDirectMessageSchema>;
 
 export const listDirectMessagesQuerySchema = z.object({
@@ -260,6 +275,7 @@ export const directMessageViewSchema = z.object({
   senderDeviceId: z.string().uuid(),
   clientMessageId: z.string().uuid(),
   contentCommitmentB64: z.string().length(44).nullable(),
+  reactionTargetTagB64: z.string().regex(/^[A-Za-z0-9+/]{43}=$/).nullable(),
   kind: directMessageKindSchema,
   interactionEpoch: directInteractionEpochSchema,
   createdAt: z.string(),
