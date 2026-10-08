@@ -63,3 +63,23 @@ export {
   createDirectHumanMessage,
   type HumanPayload,
 } from "./direct-chat-human-payload.js";
+
+export {
+  DIRECT_REACTION_EMOJIS,
+  isDirectReactionEmoji,
+  directReactionTargetTag,
+  createDirectReaction,
+  decodeDirectReaction,
+  resolveDirectReactionSource,
+  verifyDirectReaction,
+  type DirectReactionEmoji,
+  type DirectReactionAction,
+  type DirectReactionPayload,
+  type PreparedDirectReaction,
+  type SignedDirectReactionMetadata,
+  type VerifiedDirectReaction,
+} from "./direct-chat-reactions.js";
+export {
+  reduceVerifiedDirectReactions,
+  type DirectReactionState,
+} from "./direct-chat-reaction-state.js";
