@@ -89,6 +89,137 @@ describe("direct chats API", () => {
     }
   });
 
+  it("stores signed opaque reactions without changing unread, visible latest or inbox activity", async () => {
+    const alice = await readyUser(app, "dc-reaction-alice", "Alice");
+    const bob = await readyUser(app, "dc-reaction-bob", "Bob");
+    const aliceDevice = await registerHarness(app, alice);
+    await registerHarness(app, bob);
+    const chat = await createChat(app, alice.cookies, bob.handle);
+    const human = await sendPlain(
+      app, alice, aliceDevice, chat.id, "HUMAN", "The only visible message",
+    );
+    expect(human.statusCode).toBe(201);
+    const humanMessage = human.json() as { id: string; sequence: string };
+    expect(BigInt(humanMessage.sequence)).toBeGreaterThan(0n);
+    const db = app.get(PrismaService).client;
+    const beforeConversation = await db.directConversation.findUniqueOrThrow({
+      where: { id: chat.id },
+    });
+    const beforeSurface = await db.communicationSurface.findFirstOrThrow({
+      where: { directConversationId: chat.id },
+    });
+    const bobChatBefore = await app.inject({
+      method: "GET", url: `/v1/direct-chats/${chat.id}`,
+      headers: { origin }, cookies: bob.cookies,
+    });
+    expect(bobChatBefore.statusCode).toBe(200);
+    expect((bobChatBefore.json() as DirectConversationView).unreadCount).toBe(1);
+
+    const chatDetail = await app.inject({
+      method: "GET", url: `/v1/direct-chats/${chat.id}`,
+      headers: { origin }, cookies: alice.cookies,
+    });
+    const view = chatDetail.json() as DirectConversationView;
+    const tag = bytesToB64(new Uint8Array(32).fill(0x3d));
+    const reactionId = randomUUID();
+    const ciphertext = JSON.stringify({
+      type: "reaction", version: 1, action: "add", emoji: "👍",
+      target: { clientMessageId: humanMessage.id },
+    });
+    // Server never parses ciphertext: this fixture proves only signature
+    // coverage, authenticated routing, authorization and DB projections.
+    const envelopes = [];
+    for (const recipient of view.devices) {
+      envelopes.push(await encryptTo(
+        app, alice, aliceDevice, recipient, chat.id, "REACTION",
+        ciphertext, [], view.interactionEpoch, reactionId, tag,
+      ));
+    }
+    const payload = {
+      clientMessageId: reactionId,
+      contentCommitmentB64: testCommitmentForClientId(reactionId),
+      reactionTargetTagB64: tag,
+      senderDeviceId: aliceDevice.deviceId,
+      interactionEpoch: view.interactionEpoch,
+      kind: "REACTION",
+      mentions: [],
+      envelopes,
+    };
+    const send = await app.inject({
+      method: "POST", url: `/v1/direct-chats/${chat.id}/messages`,
+      headers: jsonHeaders(), cookies: alice.cookies, payload,
+    });
+    expect(send.statusCode).toBe(201);
+    const event = send.json() as {
+      id: string; kind: string; sequence: string;
+      reactionTargetTagB64: string;
+    };
+    expect(event.kind).toBe("REACTION");
+    expect(event.reactionTargetTagB64).toBe(tag);
+    expect(BigInt(event.sequence)).toBeGreaterThan(BigInt(humanMessage.sequence));
+    const replay = await app.inject({
+      method: "POST", url: `/v1/direct-chats/${chat.id}/messages`,
+      headers: jsonHeaders(), cookies: alice.cookies, payload,
+    });
+    expect(replay.statusCode).toBe(201);
+    expect((replay.json() as { id: string }).id).toBe(event.id);
+
+    const [afterConversation, afterSurface] = await Promise.all([
+      db.directConversation.findUniqueOrThrow({ where: { id: chat.id } }),
+      db.communicationSurface.findFirstOrThrow({
+        where: { directConversationId: chat.id },
+      }),
+    ]);
+    expect(afterConversation.lastMessageAt).toEqual(beforeConversation.lastMessageAt);
+    expect(afterSurface.lastActivityAt).toEqual(beforeSurface.lastActivityAt);
+    expect(afterConversation.lastMessageSequence).toBe(BigInt(event.sequence));
+
+    const bobChatAfter = await app.inject({
+      method: "GET", url: `/v1/direct-chats/${chat.id}`,
+      headers: { origin }, cookies: bob.cookies,
+    });
+    expect(bobChatAfter.statusCode).toBe(200);
+    const afterDetail = bobChatAfter.json() as DirectConversationView;
+    expect(afterDetail.unreadCount).toBe(1);
+    expect(afterDetail.lastKind).toBe("HUMAN");
+
+    const inbox = await app.inject({
+      method: "GET", url: "/v1/inbox?kind=DIRECT",
+      headers: { origin }, cookies: bob.cookies,
+    });
+    expect(inbox.statusCode).toBe(200);
+    const inboxItem = (inbox.json() as {
+      items: Array<{ domainId: string; unreadCount: number; preview: { messageId?: string } }>;
+    }).items.find((item) => item.domainId === chat.id);
+    expect(inboxItem).toMatchObject({
+      unreadCount: 1, preview: { messageId: humanMessage.id },
+    });
+
+    const readReactionOnly = await app.inject({
+      method: "POST", url: `/v1/direct-chats/${chat.id}/read`,
+      headers: jsonHeaders(), cookies: bob.cookies,
+      payload: { seenMessageIds: [event.id] },
+    });
+    expect(readReactionOnly.statusCode).toBe(200);
+    expect((readReactionOnly.json() as DirectConversationView).unreadCount).toBe(1);
+    const readHuman = await app.inject({
+      method: "POST", url: `/v1/direct-chats/${chat.id}/read`,
+      headers: jsonHeaders(), cookies: bob.cookies,
+      payload: { seenMessageIds: [humanMessage.id] },
+    });
+    expect((readHuman.json() as DirectConversationView).unreadCount).toBe(0);
+
+    const tampered = await app.inject({
+      method: "POST", url: `/v1/direct-chats/${chat.id}/messages`,
+      headers: jsonHeaders(), cookies: alice.cookies,
+      payload: {
+        ...payload,
+        reactionTargetTagB64: bytesToB64(new Uint8Array(32).fill(0x77)),
+      },
+    });
+    expect(tampered.statusCode).toBe(400);
+  });
+
   it("fails closed when Direct Chats are disabled", async () => {
     const previous = process.env.DIRECT_CHATS_ENABLED;
     process.env.DIRECT_CHATS_ENABLED = "false";
