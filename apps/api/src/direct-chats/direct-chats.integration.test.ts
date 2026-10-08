@@ -1143,6 +1143,7 @@ describe("direct chats API", () => {
     }
     const payload = {
       clientMessageId,
+      contentCommitmentB64: testCommitmentForClientId(clientMessageId),
       senderDeviceId: aliceDevice.deviceId,
       interactionEpoch: chat.interactionEpoch,
       kind: "HUMAN" as const,
@@ -1157,7 +1158,14 @@ describe("direct chats API", () => {
       url: `/v1/direct-chats/${chat.id}/messages`,
       headers: jsonHeaders(),
       cookies: alice.cookies,
-      payload: { ...payload, clientMessageId: randomUUID() },
+      payload: (() => {
+        const forgedId = randomUUID();
+        return {
+          ...payload,
+          clientMessageId: forgedId,
+          contentCommitmentB64: testCommitmentForClientId(forgedId),
+        };
+      })(),
     });
     expect(swappedIdentity.statusCode).toBe(400);
     // Public API intentionally maps TAMPERED to validation_error to avoid
