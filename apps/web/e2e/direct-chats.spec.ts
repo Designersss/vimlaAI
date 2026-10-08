@@ -225,8 +225,13 @@ test.describe("Secure Direct Chats", () => {
 
     // A pre-outbox failure must keep the text and selected source; retry
     // cannot silently downgrade this reply into an ordinary message.
+    // Match the original message BODY. Filtering the entire row also
+    // matches replies that contain the same text in their quote context.
     const sourceAgain = nikitaPage.getByTestId("direct-message-row")
-      .filter({ hasText: "hello from alice" });
+      .filter({
+        has: nikitaPage.getByTestId("direct-message-human")
+          .filter({ hasText: "hello from alice" }),
+      });
     await sourceAgain.getByTestId("direct-message-reply-action").click();
     const failedDraft = "reply @offline mention preflight failure";
     await nikitaComposer.fill(failedDraft);

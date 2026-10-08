@@ -1158,7 +1158,11 @@ describe("direct chats API", () => {
       payload: { ...payload, clientMessageId: randomUUID() },
     });
     expect(swappedIdentity.statusCode).toBe(400);
-    expect(errorCode(swappedIdentity)).toBe("tampered");
+    // Public API intentionally maps TAMPERED to validation_error to avoid
+    // exposing verification internals; assert the signature guard was hit.
+    expect(errorCode(swappedIdentity)).toBe("validation_error");
+    expect((swappedIdentity.json() as { error: { message: string } }).error.message)
+      .toBe("Envelope signature is invalid");
 
     const sent = await app.inject({
       method: "POST",
