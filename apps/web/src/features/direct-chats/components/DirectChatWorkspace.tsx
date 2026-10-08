@@ -1342,8 +1342,8 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
               {tx(t, apiErrorMessageKey(visibleError))}
             </Alert>
           ) : null}
-          {rows.length === 0 ? <EmptyState title={t("direct.empty")} /> : null}
-          {rows.map((row) => (
+          {rows.every((row) => row.message.kind === "REACTION") ? <EmptyState title={t("direct.empty")} /> : null}
+          {rows.filter((row) => row.message.kind !== "REACTION").map((row) => (
             <DirectRow
               key={row.message.id}
               row={row}
