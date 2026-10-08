@@ -29,8 +29,17 @@ describe("portable Direct HUMAN E2EE content commitment", () => {
     expect(prepared.clientMessageId).toMatch(/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/);
     expect(prepared.clientMessageId).not.toBe(other.clientMessageId);
     expect(directHumanClientMessageId(prepared.plaintext)).toBe(prepared.clientMessageId);
-    expect(decodeDirectHumanPayload(prepared.plaintext, prepared.clientMessageId)).toEqual(message);
-    expect(decodeDirectHumanPayload(prepared.plaintext, other.clientMessageId)).toBeNull();
+    expect(prepared.contentCommitmentB64.length).toBe(44);
+    expect(decodeDirectHumanPayload(
+      prepared.plaintext, prepared.clientMessageId, prepared.contentCommitmentB64,
+    )).toEqual(message);
+    expect(decodeDirectHumanPayload(
+      prepared.plaintext, other.clientMessageId, other.contentCommitmentB64,
+    )).toBeNull();
+    const differentCommitment = createDirectHumanMessage(message);
+    expect(decodeDirectHumanPayload(
+      prepared.plaintext, prepared.clientMessageId, differentCommitment.contentCommitmentB64,
+    )).toBeNull();
     expect(JSON.stringify(message)).not.toContain(wire.bindingKey as string);
   });
 
@@ -39,18 +48,18 @@ describe("portable Direct HUMAN E2EE content commitment", () => {
     const alternateText = JSON.parse(original.plaintext) as Record<string, unknown>;
     alternateText.text = "malicious alternative on another device";
     const differentBody = JSON.stringify(alternateText);
-    expect(decodeDirectHumanPayload(differentBody, original.clientMessageId)).toBeNull();
+    expect(decodeDirectHumanPayload(differentBody, original.clientMessageId, original.contentCommitmentB64)).toBeNull();
     expect(directHumanClientMessageId(differentBody)).not.toBe(original.clientMessageId);
 
     const alternateKey = JSON.parse(original.plaintext) as Record<string, unknown>;
     alternateKey.bindingKey = (JSON.parse(createDirectHumanMessage({
       type: "human", text: "unrelated",
     }).plaintext) as Record<string, unknown>).bindingKey;
-    expect(decodeDirectHumanPayload(JSON.stringify(alternateKey), original.clientMessageId)).toBeNull();
+    expect(decodeDirectHumanPayload(JSON.stringify(alternateKey), original.clientMessageId, original.contentCommitmentB64)).toBeNull();
 
     const alternateReply = JSON.parse(original.plaintext) as Record<string, unknown>;
     alternateReply.replyTo = reference;
-    expect(decodeDirectHumanPayload(JSON.stringify(alternateReply), original.clientMessageId)).toBeNull();
+    expect(decodeDirectHumanPayload(JSON.stringify(alternateReply), original.clientMessageId, original.contentCommitmentB64)).toBeNull();
   });
 
   it("rejects two DIFFERENT plaintexts signed by the same malicious sender for one id on separate devices", () => {
@@ -77,6 +86,7 @@ describe("portable Direct HUMAN E2EE content commitment", () => {
         senderUserId: "11111111-1111-4111-8111-111111111111",
         senderDeviceId: "22222222-2222-4222-8222-222222222222",
         clientMessageId: prepared.clientMessageId,
+        contentCommitmentB64: prepared.contentCommitmentB64,
         recipientDeviceId: i === 0
           ? "33333333-3333-4333-8333-333333333333"
           : "44444444-4444-4444-8444-444444444444",
@@ -94,9 +104,13 @@ describe("portable Direct HUMAN E2EE content commitment", () => {
         state: opening, envelope, ad,
       }));
     });
-    expect(decodeDirectHumanPayload(verified[0] ?? "", prepared.clientMessageId))
+    expect(decodeDirectHumanPayload(
+      verified[0] ?? "", prepared.clientMessageId, prepared.contentCommitmentB64,
+    ))
       .toEqual({ type: "human", text: "authentic visible source", replyTo: reference });
-    expect(decodeDirectHumanPayload(verified[1] ?? "", prepared.clientMessageId))
+    expect(decodeDirectHumanPayload(
+      verified[1] ?? "", prepared.clientMessageId, prepared.contentCommitmentB64,
+    ))
       .toBeNull();
   });
 

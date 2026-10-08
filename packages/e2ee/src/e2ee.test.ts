@@ -34,11 +34,12 @@ describe("Vimla X3DH + Double Ratchet", () => {
       buildAssociatedData(ad()),
     );
     expect(JSON.parse(decoded)).toEqual([
-      "VimlaDirectAD4",
+      "VimlaDirectAD5",
       "11111111-1111-4111-8111-111111111111",
       "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
       "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
       "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+      null,
       "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
       "HUMAN",
       0,

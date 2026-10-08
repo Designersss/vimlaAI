@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { directHumanClientMessageId } from "@vimla/client-core";
+import { directHumanClientMessageId, directHumanContentCommitment } from "@vimla/client-core";
 import {
   decodeDirectPlaintext,
   directPlaintextPreview,
@@ -138,6 +138,7 @@ describe("authenticated Direct HUMAN replies", () => {
       "HUMAN",
       encrypted,
       directHumanClientMessageId(encrypted) ?? undefined,
+      directHumanContentCommitment(encrypted),
     )).toBe("reply from Alice");
   });
 
