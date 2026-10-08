@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  decryptEnvelope, encryptEnvelope, generateIdentity, generateSignedPreKey,
+  initRatchetInitiator, initRatchetResponder, publicBundleFrom,
+  utf8, x3dhInitiate, x3dhRespond,
+} from "@vimla/e2ee";
+import {
   createDirectHumanMessage,
   decodeDirectHumanPayload,
   directHumanClientMessageId,
@@ -46,6 +51,53 @@ describe("portable Direct HUMAN E2EE content commitment", () => {
     const alternateReply = JSON.parse(original.plaintext) as Record<string, unknown>;
     alternateReply.replyTo = reference;
     expect(decodeDirectHumanPayload(JSON.stringify(alternateReply), original.clientMessageId)).toBeNull();
+  });
+
+  it("rejects two DIFFERENT plaintexts signed by the same malicious sender for one id on separate devices", () => {
+    const sender = generateIdentity();
+    const prepared = createDirectHumanMessage({
+      type: "human", text: "authentic visible source",
+      replyTo: reference,
+    });
+    const tampered = JSON.parse(prepared.plaintext) as Record<string, unknown>;
+    tampered.text = "different quote shown to second device";
+    const bodies = [prepared.plaintext, JSON.stringify(tampered)];
+    const verified = bodies.map((plaintext, i) => {
+      const recipient = generateIdentity();
+      const signed = generateSignedPreKey(recipient, 1);
+      const bundle = publicBundleFrom("recipient", recipient, signed, null);
+      const init = x3dhInitiate(sender, bundle);
+      const sending = initRatchetInitiator(init.sharedKey, init.remoteRatchetPublic);
+      const received = x3dhRespond(recipient, signed.secret, null, init.initHeader);
+      const opening = initRatchetResponder(received.sharedKey, {
+        secret: signed.secret, publicKey: signed.publicKey,
+      });
+      const ad = {
+        conversationId: "00000000-0000-4000-8000-000000000000",
+        senderUserId: "11111111-1111-4111-8111-111111111111",
+        senderDeviceId: "22222222-2222-4222-8222-222222222222",
+        clientMessageId: prepared.clientMessageId,
+        recipientDeviceId: i === 0
+          ? "33333333-3333-4333-8333-333333333333"
+          : "44444444-4444-4444-8444-444444444444",
+        kind: "HUMAN" as const,
+        interactionEpoch: 0,
+      };
+      const envelope = encryptEnvelope({
+        identity: sender, state: sending,
+        plaintext: utf8(plaintext), ad, x3dhInit: init.initHeader,
+      });
+      // Both ciphertext signatures are completely valid. This verifies that
+      // the attack is NOT just an invalid-signature substitution.
+      return new TextDecoder().decode(decryptEnvelope({
+        senderIdentityEd25519Public: sender.ed25519Public,
+        state: opening, envelope, ad,
+      }));
+    });
+    expect(decodeDirectHumanPayload(verified[0]!, prepared.clientMessageId))
+      .toEqual({ type: "human", text: "authentic visible source", replyTo: reference });
+    expect(decodeDirectHumanPayload(verified[1]!, prepared.clientMessageId))
+      .toBeNull();
   });
 
   it("keeps literal JSON user text distinct from encrypted control metadata", () => {
