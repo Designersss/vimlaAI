@@ -257,5 +257,10 @@ describe("deterministic Direct reaction reducer", () => {
     expect(reduceVerifiedDirectReactions([
       va, { ...va, reactorUserId: originalUserId, sequence: 2n },
     ])).toHaveLength(2);
+    // Global conversation sequence must NOT be reused, even if the
+    // unrelated actor happened to produce the same client message UUID.
+    expect(() => reduceVerifiedDirectReactions([
+      va, { ...va, reactorUserId: originalUserId, sequence: 1n },
+    ])).toThrow("sequence");
   });
 });
