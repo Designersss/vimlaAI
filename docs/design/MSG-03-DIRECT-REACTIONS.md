@@ -1,6 +1,6 @@
 # MSG-03 — E2EE Direct message reactions (proposed third slice)
 
-Status: **Draft; portable codec/cryptographic proof exists, but the network protocol, server persistence and Web feature are NOT yet approved or implemented**.
+Status: **Draft; authenticated protocol, server storage/projections and portable codec exist; Web reaction UX and bounded historical reconstruction are NOT implemented or signed off**.
 Parent: [#102](https://github.com/Designersss/vimlaAI/issues/102);
 epic: [#81](https://github.com/Designersss/vimlaAI/issues/81);
 master: [#78](https://github.com/Designersss/vimlaAI/issues/78).
@@ -122,7 +122,7 @@ review and negative tests before production implementation.
   hint for bounded historical lookup must receive an explicit metadata
   privacy decision and itself be authenticated in AD (see gate below).
 
-## Implemented portable proof (not yet wired to API or UI)
+## Implemented protocol and persistence substrate (Draft; UI not wired)
 
 - `@vimla/e2ee` has two independently domain-separated HMAC-SHA256
   helpers: one for each event's full content identity and one for an
@@ -146,17 +146,25 @@ review and negative tests before production implementation.
   conversation sequence must be globally unique across all senders.
 - The final provenance gate now requires the target lookup tag in the
   **sender-signed associated metadata**; a caller-supplied unsigned tag
-  is no longer sufficient. This is a portable contract, not yet a shipped
-  AD or server API schema.
+  is no longer sufficient. For REACTION, the server and Web route this
+  tag through the existing signed AD5 routing-context field, without
+  changing AD for older HUMAN or OPERATOR kinds.
 - Unit tests include malformed inputs, target forgery, full-commitment
   tamper beyond the UUID prefix, multi-device sender equivocation and
   out-of-order/duplicate projection.
 
-**Important:** The current Direct API does not yet have a REACTION kind,
-index column, reaction pagination endpoint, inbox projection exception,
-or a Web reaction control. These portable helpers must **not** be
-mistaken for a deployed feature. The event source's signed-envelope
-authentication remains a required precondition of local verification.
+**Implemented, but not yet a shipped product feature:** The Direct API
+now accepts signed `REACTION` envelope kinds and stores the opaque
+`reactionTargetTagB64` plus the authoritative sequence in the existing
+append-only `direct_message` log. PostgreSQL constraints and a compound
+index protect the opaque tag; the existing Direct message list preserves
+ratchet chronology. SQL triggers preserve ordinary inbox sorting and
+read count semantics. Web decrypts these envelopes in the ordinary
+ratchet stream but deliberately does not render them as HUMAN text or
+include them in AI context. **The per-message reaction controls, verified
+emoji aggregates, historical tag lookup and bounded cold-start
+reconstruction are not yet implemented.** Sender-signature verification
+remains a prerequisite of any user-visible event projection.
 
 ## Open design gates before implementing the mutation endpoints
 
@@ -166,10 +174,16 @@ An encrypted server cannot index reactions by arbitrary encrypted
 `target` for an old message. Scanning an unbounded whole-chat event
 history when paginating is not acceptable at million-user scale.
 
-**Preferred candidate for the next server slice: A (opaque tag).** The
-portable HMAC derivation is implemented as a proof, but API metadata
-exposure, index authorization and retention must pass the final protocol
-review before this tag is added to the authoritative persistence model.
+**Chosen for this Draft implementation: A (opaque tag).** The API stores
+an AD5-authenticated 256-bit HMAC-derived tag, not a plaintext message
+reference. The service can correlate reaction events sharing a target tag
+and observe sender/timing metadata, but cannot invert the tag to ordinary
+HUMAN text or discover a target by comparing unkeyed hashes. This
+correlation leakage is explicitly accepted as a proposed metadata tradeoff
+and remains subject to independent privacy/adversary audit before merge.
+No server-side materialized reaction counts or author claims are trusted.
+The compound index exists, but a safe historical lookup endpoint still
+needs ratchet-aware design and a bounded reconstruction proof.
 
 Evaluate and approve ONE bounded lookup design:
 
@@ -247,7 +261,9 @@ E2EE decryption dependencies.
 
 ## Exit conditions
 
-This document alone delivers **no reactions feature** and is not a merge
-candidate. Implement only after resolving the indexing/retention and
-metadata-privacy gates, with one clean protocol and full test coverage.
+This Draft is **not a merge candidate**. Even though authenticated event
+storage and projection guards now exist, user-visible reactions remain
+unimplemented and indexed historical retrieval still lacks a secure,
+bounded ratchet reconstruction policy. Do not merge until that policy,
+full tests, Web UX and independent adversarial/security review are complete.
 #102 remains open after this slice; #54/#74/#75 remain independent.
