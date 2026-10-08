@@ -734,7 +734,7 @@ test.describe("E2EE H02 storage regressions", () => {
     }
   });
 
-  test("migrates legacy raw plaintext and pending rows through the protected schema", async ({
+  test("re-protects legacy local rows but never trusts obsolete HUMAN wire payloads", async ({
     browser,
     request,
   }) => {
@@ -908,23 +908,20 @@ test.describe("E2EE H02 storage regressions", () => {
         },
         {
           messageId: sent.id,
-          // H02 tests unprotected local STORAGE, not pre-release legacy
-          // HUMAN wire semantics. Seed a valid v1 E2EE plaintext inside
-          // a legacy protectionVersion:0 IndexedDB row.
-          plaintext: JSON.stringify({
-            type: "human",
-            version: 1,
-            text: legacyCacheText,
-          }),
+          // This is an unprotected old local record, deliberately
+          // carrying obsolete HUMAN wire content. H02 must re-protect it
+          // without downgrading the authenticated v2 content protocol.
+          plaintext: legacyCacheText,
         },
       );
 
       await alicePage.reload();
       await expect(
-        alicePage
-          .getByTestId("direct-message-human")
-          .filter({ hasText: legacyCacheText }),
+        alicePage.getByTestId("direct-message-undecryptable"),
       ).toBeVisible({ timeout: 20_000 });
+      await expect(
+        alicePage.getByTestId("direct-message-human").filter({ hasText: legacyCacheText }),
+      ).toHaveCount(0);
 
       const migratedCache =
         await alicePage.evaluate(
@@ -1062,21 +1059,20 @@ test.describe("E2EE H02 storage regressions", () => {
             db.close();
           }
         },
-        JSON.stringify({
-          type: "human",
-          version: 1,
-          text: legacyPendingText,
-        }),
+        legacyPendingText,
       );
       await alicePage.unroute(
         "**/v1/direct-chats/*/messages",
       );
       await alicePage.reload();
       await expect(
-        alicePage
-          .getByTestId("direct-message-human")
-          .filter({ hasText: legacyPendingText }),
+        alicePage.getByTestId("direct-message-undecryptable").first(),
       ).toBeVisible({ timeout: 20_000 });
+      await expect(
+        alicePage.getByTestId("direct-message-human").filter({ hasText: legacyPendingText }),
+      ).toHaveCount(0);
+      // Pending outbox bytes remain recoverable/idempotent, but no stale
+      // local plaintext may be misattributed to the signed HUMAN v2 ID.
     } finally {
       await aliceContext.close();
       await nikitaContext.close();
