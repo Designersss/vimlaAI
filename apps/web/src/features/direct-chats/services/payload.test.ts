@@ -102,3 +102,55 @@ describe("direct chat plaintext payloads", () => {
     ).toBeNull();
   });
 });
+
+describe("authenticated Direct HUMAN replies", () => {
+  const originalId = "11111111-1111-4111-8111-111111111111";
+  const reference = { messageId: originalId, senderUserId: "person-1" };
+
+  it("keeps ordinary text untouched and round-trips a typed encrypted reply", () => {
+    const original = encodeDirectPlaintext({ type: "human", text: '{"json":true}' });
+    expect(original).toBe('{"json":true}');
+    expect(decodeDirectPlaintext("HUMAN", original)).toEqual({
+      type: "human", text: original,
+    });
+    const encrypted = encodeDirectPlaintext({
+      type: "human", text: "reply from Alice", replyTo: reference,
+    });
+    expect(JSON.parse(encrypted)).toEqual({
+      type: "human", version: 1, text: "reply from Alice", replyTo: reference,
+    });
+    expect(decodeDirectPlaintext("HUMAN", encrypted)).toEqual({
+      type: "human", text: "reply from Alice", replyTo: reference,
+    });
+    expect(directPlaintextPreview("HUMAN", encrypted)).toBe("reply from Alice");
+  });
+
+  it("does not interpret malformed, unknown-version or additional-field references", () => {
+    const cases = [
+      null,
+      { ...reference, extra: "spoof" },
+      { ...reference, messageId: "not-a-uuid" },
+      { ...reference, senderUserId: "" },
+      { messageId: originalId },
+    ];
+    for (const replyTo of cases) {
+      const text = JSON.stringify({ type: "human", version: 1, text: "msg", replyTo });
+      expect(decodeDirectPlaintext("HUMAN", text)).toEqual({
+        type: "human", text: "msg",
+      });
+    }
+    expect(decodeDirectPlaintext("HUMAN", JSON.stringify({
+      type: "human", version: 2, text: "msg", replyTo: reference,
+    }))).toEqual({ type: "human", text: "msg" });
+    expect(() => encodeDirectPlaintext({
+      type: "human", text: "msg", replyTo: { ...reference, messageId: "other" },
+    })).toThrow("Invalid Direct reply reference");
+  });
+
+  it("never treats an operator kind with human-shaped plaintext as a trusted reply", () => {
+    const spoof = encodeDirectPlaintext({ type: "human", text: "spoof", replyTo: reference });
+    expect(decodeDirectPlaintext("OPERATOR_RESPONSE", spoof)).not.toMatchObject({
+      type: "human", replyTo: reference,
+    });
+  });
+});
