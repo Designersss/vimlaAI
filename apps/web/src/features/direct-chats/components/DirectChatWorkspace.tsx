@@ -98,6 +98,7 @@ import { useChatSyncHub, useChatWorkspace, usePrepareChatDevice } from "../../ch
 import { ChatConversationHeader } from "../../chat/components/ChatWorkspace/ChatConversationHeader";
 import { ChatDetailStatus } from "../../chat/components/ChatWorkspace/ChatDetailStatus";
 import styles from "./DirectChatWorkspace.module.scss";
+import { TRUST_CANCELLED_GC_POLL_INTERVAL_MS } from "../services/trust-cancelled-gc";
 
 interface DecryptedRow {
   message: DirectMessageView;
@@ -428,9 +429,16 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         };
         window.addEventListener("online", retryOnReconnect);
         document.addEventListener("visibilitychange", retryWhenVisible);
+        // Without a time-based wakeup a freshly cancelled send can remain
+        // forever in an online tab that never reloads or loses focus.
+        const gcInterval = window.setInterval(
+          retryOnReconnect,
+          TRUST_CANCELLED_GC_POLL_INTERVAL_MS,
+        );
         removeReconnectListeners = () => {
           window.removeEventListener("online", retryOnReconnect);
           document.removeEventListener("visibilitychange", retryWhenVisible);
+          window.clearInterval(gcInterval);
         };
 
         try {

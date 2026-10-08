@@ -75,6 +75,7 @@ import {
 import { decodeDirectPlaintext, encodeDirectPlaintext, type DirectPlaintextPayload } from "./payload";
 import { clearLocalDataAfterDeviceRevocation } from "./local-data";
 import { isLocalDeviceRevoked } from "./revocation-state";
+import { selectTrustCancelledGcCandidates } from "./trust-cancelled-gc";
 
 function assertLocalDeviceNotRevoked(): void {
   if (isLocalDeviceRevoked()) {
@@ -633,36 +634,18 @@ export async function recoverPendingSends(input: {
   return result;
 }
 
-const TRUST_CANCELLED_GC_MIN_AGE_MS = 5 * 60 * 1000;
-const TRUST_CANCELLED_GC_BATCH_MAX = 16;
-
 async function reconcileTrustCancelledPendingSends(
   pending: readonly StoredPendingSend[],
   conversationId: string,
   senderDeviceId: string,
 ): Promise<"RESOLVED" | "LOCAL_DEVICE_INACTIVE"> {
-  const now = Date.now();
-  const candidates = pending
-    .filter((row) => {
-      const cancelledAt = row.trustCancelledAt
-        ? Date.parse(row.trustCancelledAt)
-        : Number.NaN;
-      return (
-        Number.isFinite(cancelledAt) &&
-        now - cancelledAt >= TRUST_CANCELLED_GC_MIN_AGE_MS &&
-        row.conversationId === conversationId &&
-        row.senderDeviceId === senderDeviceId
-      );
-    })
-    // Children must settle before their Operator parent, otherwise a
-    // bounded page of parents could starve their own dependent outputs.
-    .sort((left, right) =>
-      Number(Boolean(left.operatorIntent)) -
-        Number(Boolean(right.operatorIntent)) ||
-      Date.parse(left.createdAt) - Date.parse(right.createdAt) ||
-      left.clientMessageId.localeCompare(right.clientMessageId),
-    )
-    .slice(0, TRUST_CANCELLED_GC_BATCH_MAX);
+  // Rotate bounded pages: permanently ambiguous older rows must not
+  // indefinitely starve newer cancelled outbox and Operator intent rows.
+  const candidates = selectTrustCancelledGcCandidates(pending, {
+    conversationId,
+    senderDeviceId,
+    now: Date.now(),
+  });
   if (candidates.length === 0) return "RESOLVED";
 
   let currentEpoch: number;

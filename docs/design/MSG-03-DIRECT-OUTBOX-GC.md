@@ -40,7 +40,10 @@ and never exposes a crypto-maintenance button to the user. The mounted
 Direct Chat retries this recovery when the browser reports connectivity
 restored or the tab becomes visible again; duplicate events are coalesced; pending-free conversations do not
 perform a needless recovery network round-trip. Existing IndexedDB
-leases prevent competing outbox mutations.
+leases prevent competing outbox mutations. A low-frequency timer also retries
+in continuously open online tabs after the safety grace period. Each
+five-minute window selects a different bounded, child-first GC page, so
+permanently ambiguous early records cannot starve later records.
 
 ## Limitations and remaining #102 work
 
