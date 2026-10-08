@@ -52,6 +52,8 @@ export function isDirectReactionEmoji(input: unknown): input is DirectReactionEm
 }
 
 function parseReactionWire(plaintext: string): ParsedReactionWire | null {
+  // Reject oversized control plaintext before JSON parsing/allocations.
+  if (plaintext.length > 2048) return null;
   let input: unknown;
   try {
     input = JSON.parse(plaintext);
@@ -253,6 +255,8 @@ export function verifyDirectReaction(
   expectedTargetTagB64: string,
 ): VerifiedDirectReaction | null {
   if (metadata.kind !== "REACTION" ||
+      !metadata.senderUserId ||
+      !metadata.conversationId ||
       !metadata.contentCommitmentB64 ||
       metadata.sequence <= 0n) return null;
   const payload = decodeDirectReaction(
