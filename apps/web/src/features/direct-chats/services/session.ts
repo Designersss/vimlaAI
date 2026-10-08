@@ -70,6 +70,7 @@ import {
 } from "./crypto-store";
 import {
   RatchetLockLostError,
+  directHumanClientMessageId,
   cachedDirectPlaintextMatchesMessage,
   RatchetStateConflictError,
 } from "@vimla/client-core";
@@ -222,6 +223,15 @@ export async function encryptForDevices(input: {
   operatorOutput?: StoredOperatorOutputLink;
   expectedPendingRevision?: number | null;
 }): Promise<StoredPendingSend> {
+  // The same canonical HUMAN v2 bytes MUST be used for every recipient
+  // envelope. Do not allow an alternate sending/recovery call path to bind
+  // arbitrary plaintext to an unrelated, sender-chosen clientMessageId.
+  if (
+    input.kind === "HUMAN" &&
+    directHumanClientMessageId(input.plaintext) !== input.clientMessageId
+  ) {
+    throw new Error("Direct HUMAN content identity mismatch");
+  }
   const material = input.localDevice;
   const identity = identityFromMaterial(material);
   const activeDevices = input.devices
