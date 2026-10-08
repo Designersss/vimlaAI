@@ -229,6 +229,8 @@ export interface SignedDirectReactionMetadata {
   senderUserId: string;
   clientMessageId: string;
   contentCommitmentB64: string | null;
+  // Authenticated in sender-signed associated data, not an unsigned lookup hint.
+  targetTagB64: string | null;
   kind: string;
   sequence: bigint;
 }
@@ -252,12 +254,12 @@ export function verifyDirectReaction(
   plaintext: string,
   source: LocalDirectReplySource | undefined,
   originalHumanPlaintext: string,
-  expectedTargetTagB64: string,
 ): VerifiedDirectReaction | null {
   if (metadata.kind !== "REACTION" ||
       !metadata.senderUserId ||
       !metadata.conversationId ||
       !metadata.contentCommitmentB64 ||
+      !metadata.targetTagB64 ||
       metadata.sequence <= 0n) return null;
   const payload = decodeDirectReaction(
     plaintext, metadata.clientMessageId, metadata.contentCommitmentB64,
@@ -265,7 +267,7 @@ export function verifyDirectReaction(
   if (!payload ||
       !resolveDirectReactionSource(
         source, originalHumanPlaintext, metadata.conversationId,
-        payload.target, expectedTargetTagB64,
+        payload.target, metadata.targetTagB64,
       )) {
     return null;
   }
