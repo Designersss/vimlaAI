@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ExecutionContext } from "@nestjs/common";
 import type { FastifyRequest } from "fastify";
 import type { ApiRuntimeConfig } from "../config/api-config.js";
-import { RedisService } from "../persistence/redis.service.js";
+import type { RedisService } from "../persistence/redis.service.js";
 import { redisFixedWindowHit } from "../persistence/rate-limit.js";
 import { TrustRateLimitGuard } from "./trust-rate-limit.guard.js";
 
