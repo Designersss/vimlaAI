@@ -685,6 +685,7 @@ describe("direct chats API", () => {
       bobMessage.senderUserId,
       "HUMAN",
       bobMessage.envelope,
+      bobMessage.clientMessageId,
     );
     expect(opened).toBe(secret);
 
@@ -1020,6 +1021,7 @@ describe("direct chats API", () => {
     });
     const devices = chatView.json().devices as Array<{ id: string; userId: string }>;
 
+    const signedClientMessageId = randomUUID();
     const signedEnvelopes = [];
     for (const device of devices) {
       signedEnvelopes.push(
@@ -1032,6 +1034,8 @@ describe("direct chats API", () => {
           "OPERATOR_INVOKE",
           "@vimla signed",
           [vimlaMention],
+          chat.interactionEpoch,
+          signedClientMessageId,
         ),
       );
     }
@@ -1041,7 +1045,7 @@ describe("direct chats API", () => {
       headers: jsonHeaders(),
       cookies: alice.cookies,
       payload: {
-        clientMessageId: randomUUID(),
+        clientMessageId: signedClientMessageId,
         senderDeviceId: aliceDevice.deviceId,
         interactionEpoch: chat.interactionEpoch,
         kind: "OPERATOR_INVOKE",
@@ -1058,6 +1062,7 @@ describe("direct chats API", () => {
       startOffset: 0,
       endOffset: Math.min(8, oscarHandle.normalized.length + 1),
     };
+    const outsideClientMessageId = randomUUID();
     const outsideEnvelopes = [];
     for (const device of devices) {
       outsideEnvelopes.push(
@@ -1070,6 +1075,8 @@ describe("direct chats API", () => {
           "HUMAN",
           `@${oscarHandle.normalized} ping`,
           [outsideMention],
+          chat.interactionEpoch,
+          outsideClientMessageId,
         ),
       );
     }
@@ -1079,7 +1086,7 @@ describe("direct chats API", () => {
       headers: jsonHeaders(),
       cookies: alice.cookies,
       payload: {
-        clientMessageId: randomUUID(),
+        clientMessageId: outsideClientMessageId,
         senderDeviceId: aliceDevice.deviceId,
         interactionEpoch: chat.interactionEpoch,
         kind: "HUMAN",
@@ -1095,7 +1102,7 @@ describe("direct chats API", () => {
       headers: jsonHeaders(),
       cookies: alice.cookies,
       payload: {
-        clientMessageId: randomUUID(),
+        clientMessageId: outsideClientMessageId,
         senderDeviceId: aliceDevice.deviceId,
         interactionEpoch: chat.interactionEpoch,
         kind: "HUMAN",
@@ -1114,6 +1121,7 @@ describe("direct chats API", () => {
     const chat = await createChat(app, alice.cookies, nikita.handle);
 
     const devices = chat.devices;
+    const clientMessageId = randomUUID();
     const envelopes = [];
     for (const device of devices) {
       envelopes.push(
@@ -1125,10 +1133,12 @@ describe("direct chats API", () => {
           chat.id,
           "HUMAN",
           "durable replay",
+          [],
+          chat.interactionEpoch,
+          clientMessageId,
         ),
       );
     }
-    const clientMessageId = randomUUID();
     const payload = {
       clientMessageId,
       senderDeviceId: aliceDevice.deviceId,
@@ -1384,6 +1394,7 @@ describe("direct chats API", () => {
       alice.cookies,
       nikita.handle,
     );
+    const preflightReplayClientId = randomUUID();
     const envelopes = [];
     for (const device of chat.devices) {
       envelopes.push(
@@ -1395,11 +1406,14 @@ describe("direct chats API", () => {
           chat.id,
           "HUMAN",
           "preflight replay race",
+          [],
+          chat.interactionEpoch,
+          preflightReplayClientId,
         ),
       );
     }
     const payload = {
-      clientMessageId: randomUUID(),
+      clientMessageId: preflightReplayClientId,
       senderDeviceId: aliceDevice.deviceId,
       interactionEpoch: chat.interactionEpoch,
       kind: "HUMAN" as const,
@@ -1665,6 +1679,7 @@ describe("direct chats API", () => {
       bob.handle,
     );
 
+    const blockedReplayClientId = randomUUID();
     const envelopes = [];
     for (const device of chat.devices) {
       envelopes.push(
@@ -1676,11 +1691,14 @@ describe("direct chats API", () => {
           chat.id,
           "HUMAN",
           "committed before block",
+          [],
+          chat.interactionEpoch,
+          blockedReplayClientId,
         ),
       );
     }
     const payload = {
-      clientMessageId: randomUUID(),
+      clientMessageId: blockedReplayClientId,
       senderDeviceId: aliceDevice.deviceId,
       interactionEpoch: chat.interactionEpoch,
       kind: "HUMAN" as const,
@@ -1736,6 +1754,7 @@ describe("direct chats API", () => {
       bob.handle,
     );
 
+    const staleClientId = randomUUID();
     const staleEnvelopes = [];
     for (const device of chat.devices) {
       staleEnvelopes.push(
@@ -1749,11 +1768,13 @@ describe("direct chats API", () => {
           "stale before block",
           [],
           chat.interactionEpoch,
+          chat.interactionEpoch,
+          staleClientId,
         ),
       );
     }
     const stalePayload = {
-      clientMessageId: randomUUID(),
+      clientMessageId: staleClientId,
       senderDeviceId: aliceDevice.deviceId,
       interactionEpoch: chat.interactionEpoch,
       kind: "HUMAN" as const,
@@ -1800,6 +1821,7 @@ describe("direct chats API", () => {
       chat.interactionEpoch + 2,
     );
 
+    const freshClientId = randomUUID();
     const freshEnvelopes = [];
     for (const device of latest.devices) {
       freshEnvelopes.push(
@@ -1813,6 +1835,8 @@ describe("direct chats API", () => {
           "fresh after unblock",
           [],
           latest.interactionEpoch,
+          latest.interactionEpoch,
+          freshClientId,
         ),
       );
     }
@@ -1828,7 +1852,7 @@ describe("direct chats API", () => {
       headers: jsonHeaders(),
       cookies: alice.cookies,
       payload: {
-        clientMessageId: randomUUID(),
+        clientMessageId: freshClientId,
         senderDeviceId: aliceDevice.deviceId,
         interactionEpoch: latest.interactionEpoch,
         kind: "HUMAN",
@@ -1862,6 +1886,7 @@ describe("direct chats API", () => {
         alice.id,
         "HUMAN",
         received.envelope,
+        received.clientMessageId,
         latest.interactionEpoch,
       ),
     ).toBe("fresh after unblock");
@@ -1886,6 +1911,7 @@ describe("direct chats API", () => {
       nikita.handle,
     );
 
+    const queuedBlockClientId = randomUUID();
     const envelopes = [];
     for (const device of chat.devices) {
       envelopes.push(
@@ -1897,6 +1923,9 @@ describe("direct chats API", () => {
           chat.id,
           "HUMAN",
           "must not pass a completed block",
+          [],
+          chat.interactionEpoch,
+          queuedBlockClientId,
         ),
       );
     }
@@ -1940,7 +1969,7 @@ describe("direct chats API", () => {
       headers: jsonHeaders(),
       cookies: alice.cookies,
       payload: {
-        clientMessageId: randomUUID(),
+        clientMessageId: queuedBlockClientId,
         senderDeviceId: aliceDevice.deviceId,
         interactionEpoch: chat.interactionEpoch,
         kind: "HUMAN",
@@ -3341,6 +3370,7 @@ async function sendPlain(
   const chatView = chat.json() as DirectConversationView;
   const devices = chatView.devices;
   const interactionEpoch = chatView.interactionEpoch;
+  const clientMessageId = randomUUID();
   const envelopes = [];
   for (const device of devices) {
     envelopes.push(
@@ -3354,6 +3384,7 @@ async function sendPlain(
         plaintext,
         mentions,
         interactionEpoch,
+        clientMessageId,
       ),
     );
   }
@@ -3363,7 +3394,7 @@ async function sendPlain(
     headers: jsonHeaders(),
     cookies: sender.cookies,
     payload: {
-      clientMessageId: randomUUID(),
+      clientMessageId,
       senderDeviceId: senderDevice.deviceId,
       interactionEpoch,
       kind,
@@ -3389,6 +3420,7 @@ async function sendWithMutatedCipher(
   const chatView = chat.json() as DirectConversationView;
   const devices = chatView.devices;
   const interactionEpoch = chatView.interactionEpoch;
+  const clientMessageId = randomUUID();
   const envelopes = [];
   for (const device of devices) {
     const envelope = await encryptTo(
@@ -3401,6 +3433,7 @@ async function sendWithMutatedCipher(
       plaintext,
       [],
       interactionEpoch,
+      clientMessageId,
     );
     envelopes.push({
       ...envelope,
@@ -3413,7 +3446,7 @@ async function sendWithMutatedCipher(
     headers: jsonHeaders(),
     cookies: sender.cookies,
     payload: {
-      clientMessageId: randomUUID(),
+      clientMessageId,
       senderDeviceId: senderDevice.deviceId,
       interactionEpoch,
       kind: "HUMAN",
@@ -3432,6 +3465,7 @@ async function encryptTo(
   plaintext: string,
   mentions: MessageMentionInput[] = [],
   interactionEpoch = 0,
+  clientMessageId = randomUUID(),
 ): Promise<WireEnvelope & { recipientDeviceId: string }> {
   const ratchetKey = `${recipient.id}:${interactionEpoch}`;
   let state = senderDevice.ratchets.get(ratchetKey) ?? null;
@@ -3469,6 +3503,7 @@ async function encryptTo(
       conversationId,
       senderUserId: sender.id,
       senderDeviceId: senderDevice.deviceId,
+      clientMessageId,
       recipientDeviceId: recipient.id,
       kind,
       interactionEpoch,
@@ -3496,6 +3531,7 @@ function decryptFor(
     senderSignatureB64: string;
     x3dhInit: WireEnvelope["x3dhInit"];
   },
+  clientMessageId: string,
   interactionEpoch = 0,
 ): string {
   const ratchetKey = `${sender.deviceId}:${interactionEpoch}`;
@@ -3540,6 +3576,7 @@ function decryptFor(
       conversationId,
       senderUserId,
       senderDeviceId: sender.deviceId,
+      clientMessageId,
       recipientDeviceId: envelope.recipientDeviceId,
       kind,
       interactionEpoch,
