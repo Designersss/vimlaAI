@@ -186,6 +186,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
   const [attempt, setAttempt] = useState(0);
   const [boot, setBoot] = useState<"loading" | "ready" | "failed">("loading");
   const [error, setError] = useState<string | null>(null);
+  const [recoveryError, setRecoveryError] = useState<string | null>(null);
   const [conversation, setConversation] = useState<DirectConversationView | null>(null);
   const [rows, setRows] = useState<DecryptedRow[]>([]);
   const rowsRef = useRef<DecryptedRow[]>([]);
@@ -321,11 +322,11 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
             });
             if (cancelled) return;
             if (result === "LOCAL_DEVICE_INACTIVE") {
-              setError("direct_chat_device_revoked");
+              setRecoveryError("direct_chat_device_revoked");
               return;
             }
             if (result === "RECIPIENT_DEVICE_MISSING") {
-              setError(
+              setRecoveryError(
                 "direct_chat_recipient_device_missing",
               );
               return;
@@ -359,6 +360,9 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
               applyOperatorDelivery(delivery);
             }
             workspace.requestInboxRefresh();
+            // Clear only errors originating in recovery. A concurrent
+            // user-triggered send/read failure must remain visible.
+            setRecoveryError(null);
           } catch (recoveryError: unknown) {
             if (cancelled) return;
             if (
@@ -377,7 +381,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
               }
               return;
             }
-            setError(
+            setRecoveryError(
               recoveryError instanceof
                   DirectChatsApiError ||
                 recoveryError instanceof
@@ -416,7 +420,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
                 router.replace("/sign-in");
                 return;
               }
-              setError("internal_error");
+              setRecoveryError("internal_error");
             }
           })().finally(() => {
             reconnectFlight = null;
@@ -1181,7 +1185,11 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
               {t("direct.loadOlder")}
             </Button>
           ) : null}
-          {error ? <Alert variant="error">{tx(t, apiErrorMessageKey(error))}</Alert> : null}
+          {error ?? recoveryError ? (
+            <Alert variant="error">
+              {tx(t, apiErrorMessageKey((error ?? recoveryError)!))}
+            </Alert>
+          ) : null}
           {rows.length === 0 ? <EmptyState title={t("direct.empty")} /> : null}
           {rows.map((row) => (
             <DirectRow

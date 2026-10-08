@@ -55,3 +55,9 @@ new cross-device message history. Those require separate reviewed slices;
 E2EE-mutable semantics require a separate explicit protocol/adversary review.
 #74 operator-output origin attestation remains a feature gate; do not trust
 a forged `OPERATOR_*` kind as proof of Vimla authorship.
+
+## Recovery error ownership
+
+Background retry owns a separate recoverable error state. A successful
+reconnect clears that state without clearing a concurrent user-action error
+(e.g. an explicit failed send), avoiding a stale error banner after recovery.
