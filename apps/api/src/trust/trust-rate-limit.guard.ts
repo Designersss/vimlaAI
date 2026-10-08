@@ -35,9 +35,11 @@ export class TrustRateLimitGuard implements CanActivate {
       return true;
     }
 
+    // Classify the matched Fastify route, not the raw URL. Alternate
+    // encodings of an accepted path must never bypass report-specific limits.
     const isReport =
       request.method === "POST" &&
-      request.url.split("?")[0] === "/v1/trust/reports";
+      request.routeOptions.url === "/v1/trust/reports";
     const read =
       request.method === "GET" ||
       request.method === "HEAD";
@@ -56,11 +58,16 @@ export class TrustRateLimitGuard implements CanActivate {
       `ratelimit:trust:${operation}:user:${userId}`,
       max,
     );
-    const ipAllowed = !isReport || await this.hit(
-      `ratelimit:trust:report:ip:${request.ip}`,
-      this.config.trustReportIpLimitPerMinute,
-    );
-    if (!allowed || !ipAllowed) {
+    // A user already over their own report quota must not spend the shared
+    // IP budget that other users behind the same NAT still need.
+    if (
+      !allowed ||
+      (isReport &&
+        !(await this.hit(
+          `ratelimit:trust:report:ip:${request.ip}`,
+          this.config.trustReportIpLimitPerMinute,
+        )))
+    ) {
       throw new HttpException(
         {
           code: "rate_limited",
