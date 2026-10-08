@@ -30,6 +30,7 @@ export {
   decryptEnvelope,
   buildAssociatedData,
   serializeDirectRoutingMentions,
+  serializeDirectReactionTargetTag,
   signaturePayload,
   DIRECT_MESSAGE_KINDS,
   type DirectMessageKind,
