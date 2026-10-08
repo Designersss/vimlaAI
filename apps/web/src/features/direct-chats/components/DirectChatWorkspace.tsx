@@ -252,6 +252,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
 
   useEffect(() => {
     let cancelled = false;
+    let removeReconnectListeners: (() => void) | null = null;
     void (async () => {
       try {
         const currentUser = await fetchCurrentUser();
@@ -387,6 +388,32 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         };
         void recoverInitialState(true);
 
+        // An already-open conversation must recover after connectivity
+        // returns (or a sleeping tab becomes foreground) without requiring
+        // users to reload or exposing crypto maintenance controls.
+        // Reuse the same serialized reconciliation as initial boot; bound
+        // overlapping browser events to one in-flight attempt per surface.
+        let reconnectFlight: Promise<void> | null = null;
+        const retryOnReconnect = (): void => {
+          if (cancelled || reconnectFlight || !navigator.onLine) {
+            return;
+          }
+          reconnectFlight = recoverInitialState(true).finally(() => {
+            reconnectFlight = null;
+          });
+        };
+        const retryWhenVisible = (): void => {
+          if (document.visibilityState === "visible") {
+            retryOnReconnect();
+          }
+        };
+        window.addEventListener("online", retryOnReconnect);
+        document.addEventListener("visibilitychange", retryWhenVisible);
+        removeReconnectListeners = () => {
+          window.removeEventListener("online", retryOnReconnect);
+          document.removeEventListener("visibilitychange", retryWhenVisible);
+        };
+
         try {
           const read =
             detail.unreadCount > 0
@@ -423,6 +450,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
     })();
     return () => {
       cancelled = true;
+      removeReconnectListeners?.();
     };
   }, [
     applyOperatorDelivery,

@@ -1166,10 +1166,11 @@ test.describe("Secure Direct Chats", () => {
     await alicePage.unroute(
       "**/v1/direct-chats/*/messages/lookup*",
     );
-    await alicePage.reload();
-    await expect(
-      alicePage.getByTestId("direct-chat-shell"),
-    ).toBeVisible({ timeout: 20_000 });
+    // A normal browser online event must retry the authoritative lookup
+    // even while the conversation remains mounted (no manual reload).
+    await alicePage.evaluate(() => {
+      window.dispatchEvent(new Event("online"));
+    });
     await expect
       .poll(() => readPendingSendCount(alicePage), {
         timeout: 20_000,

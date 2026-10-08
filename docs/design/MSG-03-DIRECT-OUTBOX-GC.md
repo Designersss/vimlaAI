@@ -36,7 +36,10 @@ local protection version are invalid; tests inject a valid v0 legacy record
 to exercise its migration and subsequent reconciliation, never a fake
 unversioned plaintext row.  Reconciliation is capped per recovery
 invocation, performed under existing pending-send recovery serialization,
-and never exposes a crypto-maintenance button to the user.
+and never exposes a crypto-maintenance button to the user. The mounted
+Direct Chat retries this recovery when the browser reports connectivity
+restored or the tab becomes visible again; duplicate events are coalesced
+and existing IndexedDB leases prevent competing outbox mutations.
 
 ## Limitations and remaining #102 work
 
