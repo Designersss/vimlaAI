@@ -4,6 +4,11 @@ import { hmacSha256 } from "./kdf.js";
 const DOMAIN = utf8("VimlaHumanContentIdentityV2\u0000");
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
+/** Generate a per-message secret in the crypto package with WebCrypto. */
+export function generateHumanBindingKey(): string {
+  return bytesToB64(crypto.getRandomValues(new Uint8Array(32)));
+}
+
 /**
  * A uniformly random per-message secret travels ONLY in the E2EE plaintext.
  * The server-visible 122-bit UUID is a truncated keyed HMAC commitment to

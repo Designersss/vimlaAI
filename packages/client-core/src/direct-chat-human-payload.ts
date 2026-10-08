@@ -1,6 +1,6 @@
 import {
   boundHumanClientMessageId,
-  bytesToB64,
+  generateHumanBindingKey,
 } from "@vimla/e2ee";
 import { readDirectReplyReference, type DirectReplyReference } from "./direct-chat-replies.js";
 
@@ -20,7 +20,7 @@ export function encodeDirectHumanPayload(payload: HumanPayload): string {
   if (payload.replyTo && !readDirectReplyReference(payload.replyTo)) {
     throw new Error("Invalid Direct reply reference");
   }
-  const bindingKey = bytesToB64(crypto.getRandomValues(new Uint8Array(32)));
+  const bindingKey = generateHumanBindingKey();
   return JSON.stringify({
     type: "human",
     version: 2,

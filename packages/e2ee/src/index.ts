@@ -38,4 +38,8 @@ export {
   type WireEnvelope,
 } from "./envelope.js";
 
-export { boundHumanClientMessageId, isBoundHumanClientMessageId } from "./human-content-identity.js";
+export {
+  boundHumanClientMessageId,
+  isBoundHumanClientMessageId,
+  generateHumanBindingKey,
+} from "./human-content-identity.js";
