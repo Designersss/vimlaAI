@@ -21,6 +21,7 @@ function ad(kind: EnvelopeAssociatedData["kind"] = "HUMAN"): EnvelopeAssociatedD
     conversationId: "11111111-1111-4111-8111-111111111111",
     senderUserId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
     senderDeviceId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    clientMessageId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
     recipientDeviceId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
     kind,
     interactionEpoch: 0,
@@ -33,10 +34,11 @@ describe("Vimla X3DH + Double Ratchet", () => {
       buildAssociatedData(ad()),
     );
     expect(JSON.parse(decoded)).toEqual([
-      "VimlaDirectAD3",
+      "VimlaDirectAD4",
       "11111111-1111-4111-8111-111111111111",
       "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
       "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
       "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
       "HUMAN",
       0,

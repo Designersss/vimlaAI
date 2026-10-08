@@ -6,14 +6,17 @@ import type { DirectMessageView } from "@vimla/contracts";
  * HUMAN message within the same Direct conversation.
  */
 export interface DirectReplyReference {
-  messageId: string;
+  // The client-generated id is signed into each sender E2EE envelope;
+  // unlike server-generated message.id it cannot be relabelled by the server.
+  clientMessageId: string;
   senderUserId: string;
+  senderDeviceId: string;
 }
 
 export interface LocalDirectReplySource {
   message: Pick<
     DirectMessageView,
-    "id" | "conversationId" | "senderUserId" | "kind"
+    "clientMessageId" | "conversationId" | "senderUserId" | "senderDeviceId" | "kind"
   >;
   payload: { type: string; text?: unknown } | null;
 }
@@ -25,18 +28,21 @@ export function readDirectReplyReference(input: unknown): DirectReplyReference |
   const value = input as Record<string, unknown>;
   const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   if (
-    Object.keys(value).length !== 2 ||
-    typeof value.messageId !== "string" ||
-    !uuid.test(value.messageId) ||
+    Object.keys(value).length !== 3 ||
+    typeof value.clientMessageId !== "string" ||
+    !uuid.test(value.clientMessageId) ||
     typeof value.senderUserId !== "string" ||
     value.senderUserId.length < 1 ||
-    value.senderUserId.length > 128
+    value.senderUserId.length > 128 ||
+    typeof value.senderDeviceId !== "string" ||
+    !uuid.test(value.senderDeviceId)
   ) {
     return null;
   }
   return {
-    messageId: value.messageId,
+    clientMessageId: value.clientMessageId,
     senderUserId: value.senderUserId,
+    senderDeviceId: value.senderDeviceId,
   };
 }
 
@@ -44,8 +50,9 @@ export function directReplyReference(
   source: LocalDirectReplySource,
 ): DirectReplyReference {
   return {
-    messageId: source.message.id,
+    clientMessageId: source.message.clientMessageId,
     senderUserId: source.message.senderUserId,
+    senderDeviceId: source.message.senderDeviceId,
   };
 }
 
@@ -56,9 +63,10 @@ export function resolveDirectReplySource<T extends LocalDirectReplySource>(
 ): T | null {
   if (
     !source ||
-    source.message.id !== reference.messageId ||
+    source.message.clientMessageId !== reference.clientMessageId ||
     source.message.conversationId !== conversationId ||
     source.message.senderUserId !== reference.senderUserId ||
+    source.message.senderDeviceId !== reference.senderDeviceId ||
     source.message.kind !== "HUMAN" ||
     source.payload?.type !== "human" ||
     typeof source.payload.text !== "string"

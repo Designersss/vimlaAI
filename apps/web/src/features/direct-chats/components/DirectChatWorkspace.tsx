@@ -243,7 +243,10 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         ? null
         : current);
   };
-  const rowsById = useMemo(() => new Map(rows.map((row) => [row.message.id, row])), [rows]);
+  const rowsByClientId = useMemo(
+    () => new Map(rows.map((row) => [row.message.clientMessageId, row])),
+    [rows],
+  );
   const composerHostRef = useRef<HTMLDivElement | null>(null);
   const [activeMention, setActiveMention] = useState<ActiveMentionQuery | null>(null);
   const [mentionSuggestions, setMentionSuggestions] = useState<MentionSuggestionsResponse | null>(null);
@@ -825,7 +828,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
     // Reply provenance is checked again at send-time, not only when the
     // reply button was clicked. Realtime/history updates can remove rows.
     if (replyTo && !resolveDirectReplySource(
-      rowsRef.current.find((row) => row.message.id === replyTo.messageId),
+      rowsRef.current.find((row) => row.message.clientMessageId === replyTo.clientMessageId),
       conversationId,
       replyTo,
     )) {
@@ -1285,7 +1288,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
               onReply={blockedByMe ? undefined : selectReply}
               sourceRow={
                 row.payload?.type === "human" && row.payload.replyTo
-                  ? rowsById.get(row.payload.replyTo.messageId)
+                  ? rowsByClientId.get(row.payload.replyTo.clientMessageId)
                   : undefined
               }
               selfUserId={userId ?? ""}
@@ -1383,7 +1386,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
               <Text tone="secondary">
                 {(() => {
                   const source = resolveDirectReplySource(
-                    rowsById.get(replyTo.messageId),
+                    rowsByClientId.get(replyTo.clientMessageId),
                     conversationId,
                     replyTo,
                   );

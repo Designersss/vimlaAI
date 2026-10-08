@@ -9,9 +9,10 @@ import {
 const id = "11111111-1111-4111-8111-111111111111";
 const human: LocalDirectReplySource = {
   message: {
-    id,
+    clientMessageId: id,
     conversationId: "chat-1",
     senderUserId: "alice",
+    senderDeviceId: "22222222-2222-4222-8222-222222222222",
     kind: "HUMAN",
   },
   payload: { type: "human", text: "original authenticated ciphertext" },
@@ -24,7 +25,7 @@ describe("Direct quoted-message source verification", () => {
     expect(resolveDirectReplySource(undefined, "chat-1", ref)).toBeNull();
     expect(resolveDirectReplySource(human, "chat-2", ref)).toBeNull();
     expect(resolveDirectReplySource(human, "chat-1", { ...ref, senderUserId: "mallory" })).toBeNull();
-    expect(resolveDirectReplySource(human, "chat-1", { ...ref, messageId: "22222222-2222-4222-8222-222222222222" })).toBeNull();
+    expect(resolveDirectReplySource(human, "chat-1", { ...ref, clientMessageId: "33333333-3333-4333-8333-333333333333" })).toBeNull();
   });
 
   it("does not attribute undecryptable, malformed or forged Operator content as a quotation", () => {
@@ -42,14 +43,19 @@ describe("Direct quoted-message source verification", () => {
 
 describe("encrypted Direct reply reference parser", () => {
   const valid = {
-    messageId: "11111111-1111-4111-8111-111111111111",
+    clientMessageId: "11111111-1111-4111-8111-111111111111",
     senderUserId: "alice",
+    senderDeviceId: "22222222-2222-4222-8222-222222222222",
   };
   it("accepts exact source identities and rejects malicious extras/invalid IDs", () => {
     expect(readDirectReplyReference(valid)).toEqual(valid);
     expect(readDirectReplyReference({ ...valid, extra: "spoof" })).toBeNull();
-    expect(readDirectReplyReference({ ...valid, messageId: "bad" })).toBeNull();
+    expect(readDirectReplyReference({ ...valid, clientMessageId: "bad" })).toBeNull();
     expect(readDirectReplyReference({ ...valid, senderUserId: "" })).toBeNull();
+    expect(readDirectReplyReference({ ...valid, senderDeviceId: "fake-device" })).toBeNull();
+    expect(resolveDirectReplySource({
+      ...human, message: { ...human.message, senderDeviceId: "33333333-3333-4333-8333-333333333333" },
+    }, "chat-1", valid)).toBeNull();
     expect(readDirectReplyReference(null)).toBeNull();
   });
 });

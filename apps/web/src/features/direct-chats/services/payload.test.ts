@@ -107,7 +107,11 @@ describe("direct chat plaintext payloads", () => {
 
 describe("authenticated Direct HUMAN replies", () => {
   const originalId = "11111111-1111-4111-8111-111111111111";
-  const reference = { messageId: originalId, senderUserId: "person-1" };
+  const reference = {
+    clientMessageId: originalId,
+    senderUserId: "person-1",
+    senderDeviceId: "22222222-2222-4222-8222-222222222222",
+  };
 
   it("keeps ordinary text untouched and round-trips a typed encrypted reply", () => {
     const literalJson = '{"type":"human","version":1,"text":"literal","replyTo":{"messageId":"fake"}}';
@@ -137,9 +141,9 @@ describe("authenticated Direct HUMAN replies", () => {
     const cases = [
       null,
       { ...reference, extra: "spoof" },
-      { ...reference, messageId: "not-a-uuid" },
+      { ...reference, clientMessageId: "not-a-uuid" },
       { ...reference, senderUserId: "" },
-      { messageId: originalId },
+      { clientMessageId: originalId },
     ];
     for (const replyTo of cases) {
       const text = JSON.stringify({ type: "human", version: 1, text: "msg", replyTo });
@@ -156,7 +160,7 @@ describe("authenticated Direct HUMAN replies", () => {
       type: "human", text: unsupportedVersion,
     });
     expect(() => encodeDirectPlaintext({
-      type: "human", text: "msg", replyTo: { ...reference, messageId: "other" },
+      type: "human", text: "msg", replyTo: { ...reference, clientMessageId: "other" },
     })).toThrow("Invalid Direct reply reference");
   });
 

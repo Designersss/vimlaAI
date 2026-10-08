@@ -2,8 +2,9 @@ import { describe, expect, it } from "vitest";
 import { decodeDirectHumanPayload, encodeDirectHumanPayload } from "./direct-chat-human-payload.js";
 
 const reference = {
-  messageId: "11111111-1111-4111-8111-111111111111",
+  clientMessageId: "11111111-1111-4111-8111-111111111111",
   senderUserId: "sender",
+  senderDeviceId: "22222222-2222-4222-8222-222222222222",
 };
 
 describe("portable Direct HUMAN E2EE payload", () => {
@@ -30,7 +31,7 @@ describe("portable Direct HUMAN E2EE payload", () => {
     });
     expect(decodeDirectHumanPayload(unknown)).toEqual({ type: "human", text: unknown });
     expect(() => encodeDirectHumanPayload({
-      type: "human", text: "answer", replyTo: { ...reference, messageId: "not-a-uuid" },
+      type: "human", text: "answer", replyTo: { ...reference, clientMessageId: "not-a-uuid" },
     })).toThrow("Invalid Direct reply reference");
   });
 });

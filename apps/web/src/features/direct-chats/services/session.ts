@@ -293,6 +293,7 @@ export async function encryptForDevices(input: {
           conversationId: input.conversationId,
           senderUserId: input.senderUserId,
           senderDeviceId: material.deviceId,
+          clientMessageId: input.clientMessageId,
           recipientDeviceId: device.id,
           kind: input.kind,
           interactionEpoch: input.interactionEpoch,
@@ -1037,6 +1038,7 @@ export async function decryptMessageWithStatus(input: {
             conversationId: input.conversationId,
             senderUserId: input.message.senderUserId,
             senderDeviceId: input.message.senderDeviceId,
+            clientMessageId: input.message.clientMessageId,
             recipientDeviceId: envelope.recipientDeviceId,
             kind: input.message.kind,
             interactionEpoch:
