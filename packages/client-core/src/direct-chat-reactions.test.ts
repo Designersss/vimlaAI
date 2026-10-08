@@ -228,9 +228,9 @@ describe("deterministic Direct reaction reducer", () => {
     const remove = createDirectReaction("remove", "👍", source, human.plaintext, conversationId);
     const addAgain = createDirectReaction("add", "👍", source, human.plaintext, conversationId);
     const verified = [add, remove, addAgain].map((p, index) =>
-      verifyDirectReaction(
+      required(verifyDirectReaction(
         metadata(p, BigInt(index + 1)), p.plaintext, source, human.plaintext, p.targetTagB64,
-      )!
+      ))
     );
     expect(reduceVerifiedDirectReactions([
       required(verified[2]), required(verified[0]), required(verified[1]), required(verified[0]),
@@ -243,8 +243,8 @@ describe("deterministic Direct reaction reducer", () => {
     const { human, source } = fixture();
     const a = createDirectReaction("add", "🔥", source, human.plaintext, conversationId);
     const b = createDirectReaction("remove", "🔥", source, human.plaintext, conversationId);
-    const va = verifyDirectReaction(metadata(a), a.plaintext, source, human.plaintext, a.targetTagB64)!;
-    const vb = verifyDirectReaction(metadata(b), b.plaintext, source, human.plaintext, b.targetTagB64)!;
+    const va = required(verifyDirectReaction(metadata(a), a.plaintext, source, human.plaintext, a.targetTagB64));
+    const vb = required(verifyDirectReaction(metadata(b), b.plaintext, source, human.plaintext, b.targetTagB64));
     expect(() => reduceVerifiedDirectReactions([va, vb])).toThrow("sequence");
     expect(() => reduceVerifiedDirectReactions([
       va, { ...vb, eventClientMessageId: va.eventClientMessageId, sequence: 2n },
