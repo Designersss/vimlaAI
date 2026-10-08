@@ -187,6 +187,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
   const [boot, setBoot] = useState<"loading" | "ready" | "failed">("loading");
   const [error, setError] = useState<string | null>(null);
   const [recoveryError, setRecoveryError] = useState<string | null>(null);
+  const visibleError = error ?? recoveryError;
   const [conversation, setConversation] = useState<DirectConversationView | null>(null);
   const [rows, setRows] = useState<DecryptedRow[]>([]);
   const rowsRef = useRef<DecryptedRow[]>([]);
@@ -1185,9 +1186,9 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
               {t("direct.loadOlder")}
             </Button>
           ) : null}
-          {error ?? recoveryError ? (
+          {visibleError ? (
             <Alert variant="error">
-              {tx(t, apiErrorMessageKey((error ?? recoveryError)!))}
+              {tx(t, apiErrorMessageKey(visibleError))}
             </Alert>
           ) : null}
           {rows.length === 0 ? <EmptyState title={t("direct.empty")} /> : null}
