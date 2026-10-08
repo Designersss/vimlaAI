@@ -1,4 +1,5 @@
 import type { CryptoDeviceView, PrekeyBundle, RegisterCryptoDevice, RotatePrekeys } from "@vimla/contracts";
+import type { Prisma } from "@vimla/database";
 import { b64ToBytes, verifySignedPreKey } from "@vimla/e2ee";
 import { DirectChatError } from "./errors.js";
 import type { ActorContext, DbClient } from "./types.js";
@@ -148,34 +149,6 @@ export class DeviceService {
     return toDeviceView(updated);
   }
 
-  async prekeyBundlesForUser(userId: string): Promise<PrekeyBundle[]> {
-    const devices = await this.db.userCryptoDevice.findMany({
-      where: { userId, revokedAt: null },
-      include: { oneTimePrekeys: { where: { consumedAt: null }, orderBy: { keyId: "asc" }, take: 1 } },
-    });
-    const bundles: PrekeyBundle[] = [];
-    for (const device of devices) {
-      const otk = device.oneTimePrekeys[0];
-      if (otk) {
-        await this.db.directOneTimePrekey.update({
-          where: { id: otk.id },
-          data: { consumedAt: new Date() },
-        });
-      }
-      bundles.push({
-        deviceId: device.id,
-        identityEd25519Public: device.identityEd25519Public,
-        identityX25519Public: device.identityX25519Public,
-        signedPrekeyId: device.signedPrekeyId,
-        signedPrekeyPublic: device.signedPrekeyPublic,
-        signedPrekeySignature: device.signedPrekeySignature,
-        oneTimePrekeyId: otk?.keyId ?? null,
-        oneTimePrekeyPublic: otk?.publicKey ?? null,
-      });
-    }
-    return bundles;
-  }
-
   async requireOwnActiveDevice(userId: string, deviceId: string) {
     const device = await this.requireOwnDevice(userId, deviceId);
     if (device.revokedAt) {
@@ -253,4 +226,53 @@ function assertSignedPrekey(
     }
     throw new DirectChatError("VALIDATION_ERROR", "Signed prekey is invalid");
   }
+}
+
+
+type PrekeyDb = Pick<
+  Prisma.TransactionClient,
+  "$queryRaw" | "userCryptoDevice" | "directOneTimePrekey"
+>;
+
+export async function consumePrekeyBundlesForUser(
+  db: PrekeyDb,
+  userId: string,
+): Promise<PrekeyBundle[]> {
+  const devices = await db.userCryptoDevice.findMany({
+    where: { userId, revokedAt: null },
+    orderBy: { id: "asc" },
+  });
+  const bundles: PrekeyBundle[] = [];
+  for (const device of devices) {
+    // Concurrent requesters must never claim the same OTK. The selected row
+    // stays locked until the surrounding transaction commits.
+    const available = await db.$queryRaw<
+      Array<{ id: string; keyId: number; publicKey: string }>
+    >`
+      SELECT "id", "keyId", "publicKey"
+      FROM "direct_one_time_prekey"
+      WHERE "deviceId" = ${device.id} AND "consumedAt" IS NULL
+      ORDER BY "keyId" ASC
+      LIMIT 1
+      FOR UPDATE SKIP LOCKED
+    `;
+    const otk = available[0];
+    if (otk) {
+      await db.directOneTimePrekey.update({
+        where: { id: otk.id },
+        data: { consumedAt: new Date() },
+      });
+    }
+    bundles.push({
+      deviceId: device.id,
+      identityEd25519Public: device.identityEd25519Public,
+      identityX25519Public: device.identityX25519Public,
+      signedPrekeyId: device.signedPrekeyId,
+      signedPrekeyPublic: device.signedPrekeyPublic,
+      signedPrekeySignature: device.signedPrekeySignature,
+      oneTimePrekeyId: otk?.keyId ?? null,
+      oneTimePrekeyPublic: otk?.publicKey ?? null,
+    });
+  }
+  return bundles;
 }

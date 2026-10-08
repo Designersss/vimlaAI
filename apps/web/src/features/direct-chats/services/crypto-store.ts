@@ -136,6 +136,8 @@ export interface StoredPendingSend {
   clientMessageId: string;
   senderUserId: string;
   senderDeviceId: string;
+  interactionEpoch: number;
+  peerUserId?: string;
   kind: DirectMessageKind;
   envelopes: WireEnvelopeDto[];
   mentions: MessageMentionInput[];
@@ -145,6 +147,7 @@ export interface StoredPendingSend {
   operatorOutput?: StoredOperatorOutputLink;
   committedMessageId?: string;
   committedCreatedAt?: string;
+  trustCancelledAt?: string;
 }
 
 export interface OutboundRatchetUpdate {
@@ -206,6 +209,7 @@ function ratchetStateAad(input: {
   conversationId: string;
   localDeviceId: string;
   peerDeviceId: string;
+  interactionEpoch: number;
   stateVersion: number;
 }): string {
   return [
@@ -213,6 +217,7 @@ function ratchetStateAad(input: {
     input.conversationId,
     input.localDeviceId,
     input.peerDeviceId,
+    `epoch-${input.interactionEpoch}`,
     String(input.stateVersion),
   ].join(":");
 }
@@ -675,6 +680,7 @@ async function protectRatchetRecord(input: {
   conversationId: string;
   localDeviceId: string;
   peerDeviceId: string;
+  interactionEpoch: number;
   stateVersion: number;
   state: SerializedRatchetState;
   pendingX3dhInit: X3dhInitHeader | null;
@@ -697,6 +703,7 @@ async function decodePersistedRatchet(
     conversationId: string;
     localDeviceId: string;
     peerDeviceId: string;
+    interactionEpoch: number;
   },
 ): Promise<RatchetSnapshot | null> {
   if (!isProtectedRatchetRecord(value)) {
@@ -1220,6 +1227,130 @@ export function pendingSendRevision(
     : 0;
 }
 
+export async function cancelPendingSendsForTrust(input: {
+  conversationId?: string;
+  senderDeviceId?: string;
+  peerUserId?: string;
+}): Promise<void> {
+  if (
+    !input.conversationId &&
+    !input.peerUserId
+  ) {
+    throw new Error(
+      "Trust pending-send cancellation scope is required",
+    );
+  }
+  const cancelledAt = new Date().toISOString();
+  const db = await openDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction("pendingSends", "readwrite");
+    const store = tx.objectStore("pendingSends");
+    const request =
+      input.conversationId && input.senderDeviceId
+        ? store
+            .index(PENDING_SEND_SCOPE_INDEX)
+            .openCursor(
+              IDBKeyRange.only([
+                input.conversationId,
+                input.senderDeviceId,
+              ]),
+            )
+        : store.openCursor();
+
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor) return;
+      const row = cursor.value as StoredPendingSend;
+      const matches =
+        (input.conversationId === undefined ||
+          row.conversationId === input.conversationId) &&
+        (input.senderDeviceId === undefined ||
+          row.senderDeviceId === input.senderDeviceId) &&
+        (input.peerUserId === undefined ||
+          row.peerUserId === input.peerUserId);
+      if (matches && !row.trustCancelledAt) {
+        cursor.update({
+          ...row,
+          revision: pendingSendRevision(row) + 1,
+          trustCancelledAt: cancelledAt,
+        } satisfies StoredPendingSend);
+      }
+      cursor.continue();
+    };
+    request.onerror = () => tx.abort();
+    tx.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    tx.onabort = () => {
+      db.close();
+      reject(
+        tx.error ??
+          new Error(
+            "Trust pending-send cancellation transaction aborted",
+          ),
+      );
+    };
+  });
+}
+
+export async function discardPendingSendForUnavailableInteraction(
+  pending: StoredPendingSend,
+): Promise<void> {
+  const operatorParentClientMessageId =
+    pending.operatorIntent
+      ? pending.clientMessageId
+      : pending.operatorOutput?.parentClientMessageId ?? null;
+  const db = await openDb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction("pendingSends", "readwrite");
+    const store = tx.objectStore("pendingSends");
+
+    if (!operatorParentClientMessageId) {
+      store.delete(pending.clientMessageId);
+    } else {
+      const request = store
+        .index(PENDING_SEND_SCOPE_INDEX)
+        .openCursor(
+          IDBKeyRange.only([
+            pending.conversationId,
+            pending.senderDeviceId,
+          ]),
+        );
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) return;
+        const row = cursor.value as StoredPendingSend;
+        if (
+          row.clientMessageId ===
+            operatorParentClientMessageId ||
+          row.clientMessageId === pending.clientMessageId ||
+          row.operatorOutput?.parentClientMessageId ===
+            operatorParentClientMessageId
+        ) {
+          cursor.delete();
+        }
+        cursor.continue();
+      };
+      request.onerror = () => tx.abort();
+    }
+
+    tx.oncomplete = () => {
+      db.close();
+      resolve();
+    };
+    tx.onabort = () => {
+      db.close();
+      reject(
+        tx.error ??
+          new Error(
+            "Pending send cancellation transaction aborted",
+          ),
+      );
+    };
+  });
+}
+
 export async function completePendingSend(input: {
   pending: StoredPendingSend;
   messageId: string;
@@ -1638,6 +1769,7 @@ async function migrateLegacyRatchet(input: {
   conversationId: string;
   localDeviceId: string;
   peerDeviceId: string;
+  interactionEpoch: number;
   sourceKey: string;
   snapshot: RatchetSnapshot;
 }): Promise<void> {
@@ -1645,6 +1777,7 @@ async function migrateLegacyRatchet(input: {
     conversationId: input.conversationId,
     localDeviceId: input.localDeviceId,
     peerDeviceId: input.peerDeviceId,
+    interactionEpoch: input.interactionEpoch,
     stateVersion: input.snapshot.stateVersion,
     state: input.snapshot.state,
     pendingX3dhInit: input.snapshot.pendingX3dhInit,
@@ -1653,6 +1786,7 @@ async function migrateLegacyRatchet(input: {
     input.conversationId,
     input.localDeviceId,
     input.peerDeviceId,
+    input.interactionEpoch,
   );
   const db = await openDb();
   await new Promise<void>((resolve, reject) => {
@@ -1724,67 +1858,41 @@ export async function loadRatchet(
   conversationId: string,
   localDeviceId: string,
   peerDeviceId: string,
+  interactionEpoch: number,
 ): Promise<RatchetSnapshot | null> {
   const scopedKey = ratchetStorageKey(
     conversationId,
     localDeviceId,
     peerDeviceId,
+    interactionEpoch,
   );
   const scoped = await withStore<unknown>(
     "ratchets",
     "readonly",
     (store) => store.get(scopedKey),
   );
-  if (scoped !== undefined) {
-    const snapshot = await decodePersistedRatchet(
-      scoped,
-      {
-        conversationId,
-        localDeviceId,
-        peerDeviceId,
-      },
-    );
-    if (
-      snapshot &&
-      !isProtectedRatchetRecord(scoped)
-    ) {
-      await migrateLegacyRatchet({
-        conversationId,
-        localDeviceId,
-        peerDeviceId,
-        sourceKey: scopedKey,
-        snapshot,
-      });
-    }
-    return snapshot;
+  if (scoped === undefined) {
+    return null;
   }
-  const legacyKey = legacyRatchetStorageKey(
-    conversationId,
-    peerDeviceId,
-  );
-  const legacy = await withStore<unknown>(
-    "ratchets",
-    "readonly",
-    (store) => store.get(legacyKey),
-  );
   const snapshot = await decodePersistedRatchet(
-    legacy,
+    scoped,
     {
       conversationId,
       localDeviceId,
       peerDeviceId,
+      interactionEpoch,
     },
   );
   if (
     snapshot &&
-    legacy !== undefined &&
-    !isProtectedRatchetRecord(legacy)
+    !isProtectedRatchetRecord(scoped)
   ) {
     await migrateLegacyRatchet({
       conversationId,
       localDeviceId,
       peerDeviceId,
-      sourceKey: legacyKey,
+      interactionEpoch,
+      sourceKey: scopedKey,
       snapshot,
     });
   }
@@ -1795,6 +1903,7 @@ export async function commitDecryptedRatchet(input: {
   conversationId: string;
   localDeviceId: string;
   peerDeviceId: string;
+  interactionEpoch: number;
   expectedVersion: number;
   state: SerializedRatchetState;
   pendingX3dhInit: X3dhInitHeader | null;
@@ -1806,6 +1915,7 @@ export async function commitDecryptedRatchet(input: {
 export async function commitOutboundRatchets(input: {
   conversationId: string;
   localDeviceId: string;
+  interactionEpoch: number;
   updates: OutboundRatchetUpdate[];
   pendingSend: StoredPendingSend;
   expectedPendingRevision: number | null;
@@ -1835,6 +1945,7 @@ export async function commitOutboundRatchets(input: {
           conversationId: input.conversationId,
           localDeviceId: input.localDeviceId,
           peerDeviceId: update.peerDeviceId,
+          interactionEpoch: input.interactionEpoch,
           stateVersion:
             update.expectedVersion + 1,
           state: update.state,
@@ -1875,19 +1986,13 @@ export async function commitOutboundRatchets(input: {
         input.conversationId,
         input.localDeviceId,
         update.peerDeviceId,
-      );
-      const legacyKey = legacyRatchetStorageKey(
-        input.conversationId,
-        update.peerDeviceId,
+        input.interactionEpoch,
       );
       return {
         update,
         key,
-        legacyKey,
         current: ratchets.get(key),
-        legacy: ratchets.get(legacyKey),
         currentReady: false,
-        legacyReady: false,
       };
     });
 
@@ -1895,11 +2000,7 @@ export async function commitOutboundRatchets(input: {
       if (
         !pendingReady ||
         !operatorParentReady ||
-        reads.some(
-          (read) =>
-            !read.currentReady ||
-            !read.legacyReady,
-        )
+        reads.some((read) => !read.currentReady)
       ) {
         return;
       }
@@ -1943,14 +2044,8 @@ export async function commitOutboundRatchets(input: {
         }
 
         for (const read of reads) {
-          const useLegacy =
-            read.current.result === undefined &&
-            read.legacy.result !== undefined;
-          const raw = useLegacy
-            ? read.legacy.result
-            : read.current.result;
           assertPersistedRatchetVersion(
-            raw,
+            read.current.result,
             input.localDeviceId,
             read.update.expectedVersion,
           );
@@ -1965,9 +2060,6 @@ export async function commitOutboundRatchets(input: {
             protectedRecord,
             read.key,
           );
-          if (useLegacy) {
-            ratchets.delete(read.legacyKey);
-          }
         }
 
         pendingSends.put(
@@ -2015,23 +2107,11 @@ export async function commitOutboundRatchets(input: {
         read.currentReady = true;
         apply();
       };
-      read.legacy.onsuccess = () => {
-        read.legacyReady = true;
-        apply();
-      };
       read.current.onerror = () => {
         failure =
           read.current.error ??
           new Error(
             "Outbound ratchet read failed",
-          );
-        tx.abort();
-      };
-      read.legacy.onerror = () => {
-        failure =
-          read.legacy.error ??
-          new Error(
-            "Outbound legacy ratchet read failed",
           );
         tx.abort();
       };
@@ -2065,12 +2145,14 @@ export async function acknowledgeRatchetHandshake(input: {
   conversationId: string;
   localDeviceId: string;
   peerDeviceId: string;
+  interactionEpoch: number;
 }): Promise<void> {
   await withRatchetSessionLock(input, async () => {
     const current = await loadRatchet(
       input.conversationId,
       input.localDeviceId,
       input.peerDeviceId,
+      input.interactionEpoch,
     );
     if (!current?.pendingX3dhInit) return;
     await commitRatchet({
@@ -2087,6 +2169,7 @@ export async function withRatchetSessionLock<T>(
     conversationId: string;
     localDeviceId: string;
     peerDeviceId: string;
+    interactionEpoch: number;
   },
   fn: () => Promise<T>,
 ): Promise<T> {
@@ -2102,6 +2185,7 @@ export async function withRatchetSessionLocks<T>(
     conversationId: string;
     localDeviceId: string;
     peerDeviceId: string;
+    interactionEpoch: number;
   }>,
   fn: () => Promise<T>,
 ): Promise<T> {
@@ -2358,6 +2442,7 @@ async function commitRatchet(input: {
   conversationId: string;
   localDeviceId: string;
   peerDeviceId: string;
+  interactionEpoch: number;
   expectedVersion: number;
   state: SerializedRatchetState;
   pendingX3dhInit: X3dhInitHeader | null;
@@ -2368,6 +2453,7 @@ async function commitRatchet(input: {
     conversationId: input.conversationId,
     localDeviceId: input.localDeviceId,
     peerDeviceId: input.peerDeviceId,
+    interactionEpoch: input.interactionEpoch,
     stateVersion: nextVersion,
     state: input.state,
     pendingX3dhInit: input.pendingX3dhInit,
@@ -2387,27 +2473,16 @@ async function commitRatchet(input: {
       input.conversationId,
       input.localDeviceId,
       input.peerDeviceId,
-    );
-    const legacyKey = legacyRatchetStorageKey(
-      input.conversationId,
-      input.peerDeviceId,
+      input.interactionEpoch,
     );
     const currentRequest = ratchets.get(key);
-    const legacyRequest = ratchets.get(legacyKey);
     let currentReady = false;
-    let legacyReady = false;
 
     const apply = (): void => {
-      if (!currentReady || !legacyReady) return;
+      if (!currentReady) return;
       try {
-        const useLegacy =
-          currentRequest.result === undefined &&
-          legacyRequest.result !== undefined;
-        const raw = useLegacy
-          ? legacyRequest.result
-          : currentRequest.result;
         assertPersistedRatchetVersion(
-          raw,
+          currentRequest.result,
           input.localDeviceId,
           input.expectedVersion,
         );
@@ -2415,9 +2490,6 @@ async function commitRatchet(input: {
           protectedRecord,
           key,
         );
-        if (useLegacy) {
-          ratchets.delete(legacyKey);
-        }
         if (protectedPlaintext) {
           tx.objectStore("plaintexts").put(
             protectedPlaintext,
@@ -2436,18 +2508,12 @@ async function commitRatchet(input: {
       currentReady = true;
       apply();
     };
-    legacyRequest.onsuccess = () => {
-      legacyReady = true;
-      apply();
-    };
-    const failRead = (request: IDBRequest): void => {
+    currentRequest.onerror = () => {
       failure =
-        request.error ??
+        currentRequest.error ??
         new Error("Ratchet state could not be read");
       tx.abort();
     };
-    currentRequest.onerror = () => failRead(currentRequest);
-    legacyRequest.onerror = () => failRead(legacyRequest);
     tx.oncomplete = () => {
       db.close();
       resolve({
@@ -3014,31 +3080,28 @@ function ratchetStorageKey(
   conversationId: string,
   localDeviceId: string,
   peerDeviceId: string,
+  interactionEpoch: number,
 ): string {
   return [
     conversationId,
     localDeviceId,
     peerDeviceId,
+    `epoch-${interactionEpoch}`,
   ].join(":");
-}
-
-function legacyRatchetStorageKey(
-  conversationId: string,
-  peerDeviceId: string,
-): string {
-  return `${conversationId}:${peerDeviceId}`;
 }
 
 function ratchetLockKey(input: {
   conversationId: string;
   localDeviceId: string;
   peerDeviceId: string;
+  interactionEpoch: number;
 }): string {
   return [
     "vimla-ratchet",
     input.conversationId,
     input.localDeviceId,
     input.peerDeviceId,
+    `epoch-${input.interactionEpoch}`,
   ].join(":");
 }
 

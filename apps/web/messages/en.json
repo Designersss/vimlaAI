@@ -24,7 +24,8 @@
     "vimla": "Vimla",
     "primary": "Vimla",
     "account": "Account",
-    "notifications": "Notifications"
+    "notifications": "Notifications",
+    "safety": "Safety"
   },
   "home": {
     "eyebrow": "Vimla",
@@ -146,7 +147,8 @@
     "changeEmailConfirmCurrent": "Confirm current email",
     "changeEmailConfirmNew": "Confirm new email",
     "changeEmailSuccess": "Email updated",
-    "unknownDevice": "Unknown device"
+    "unknownDevice": "Unknown device",
+    "safetyTitle": "Safety"
   },
   "appearance": {
     "theme": "Theme",
@@ -455,6 +457,8 @@
     "direct_chat_device_revoked": "This device was revoked for Direct Chats.",
     "direct_chat_recipient_device_missing": "The other person has no active device yet.",
     "direct_chat_context_denied": "Chat context was not shared with @Vimla.",
+    "direct_chat_context_revoked": "This @Vimla request belongs to an earlier chat trust state and was canceled.",
+    "direct_chat_interaction_stale": "The chat changed while this message was being sent. Send it again.",
     "generic": "The request failed. Try again."
   },
   "notifications": {
@@ -535,5 +539,42 @@
     "evaluationPass": "Pass",
     "evaluationFail": "Needs changes",
     "evaluationResult": "Evaluation: {outcome} · confidence {confidence}%"
+  },
+  "trust": {
+    "block": "Block",
+    "blockConfirmTitle": "Block @{handle}?",
+    "blockConfirmDescription": "You will no longer be able to start or continue new interaction with this person. Existing Direct Chat history stays readable.",
+    "blockSuccess": "User blocked.",
+    "unblock": "Unblock",
+    "blockedUsers": "Blocked users",
+    "blockedUsersDescription": "People you blocked cannot start or continue new interaction with you. You can unblock them here.",
+    "noBlockedUsers": "You have not blocked anyone.",
+    "loadMore": "Load more",
+    "report": "Report",
+    "reportMessage": "Report message",
+    "reportTitle": "Report @{handle}",
+    "reportDescription": "Your report will be securely recorded for future review by authorized Vimla safety personnel. Do not include secrets unless they are necessary for the report.",
+    "submitReport": "Submit report",
+    "reportSubmitted": "Report submitted.",
+    "reason": "Reason",
+    "details": "Additional details (optional)",
+    "selectedEvidence": "Selected message evidence",
+    "evidenceExcerpt": "Evidence excerpt",
+    "evidenceExcerptHelp": "Only the excerpt shown here (up to {max} characters) will be stored with the report for future authorized review. You can edit it before submitting.",
+    "evidenceExcerptLong": "This message is longer than {max} characters. Review and edit the excerpt below so the relevant part is disclosed explicitly.",
+    "evidenceDisclosure": "This report will explicitly disclose the decrypted message excerpt shown below and store it with the report for future authorized review. Vimla verifies the message metadata and sender, but the disclosed plaintext is supplied by your client and is not cryptographically verified by the server.",
+    "mute": "Mute this chat",
+    "muted": "Chat muted.",
+    "unmuted": "Chat unmuted.",
+    "reason_HARASSMENT": "Harassment",
+    "reason_HATE": "Hate",
+    "reason_THREATS": "Threats",
+    "reason_SPAM": "Spam",
+    "reason_IMPERSONATION": "Impersonation",
+    "reason_SEXUAL_CONTENT": "Sexual content",
+    "reason_SELF_HARM": "Self-harm",
+    "reason_OTHER": "Other",
+    "reportDone": "Done",
+    "muteUnavailable": "Mute setting is temporarily unavailable. Retry to load the current value."
   }
 }

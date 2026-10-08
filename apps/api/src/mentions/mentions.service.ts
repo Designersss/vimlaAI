@@ -7,6 +7,10 @@ import type {
 import { Prisma } from "@vimla/database";
 import { PrismaService } from "../persistence/prisma.service.js";
 import { TextChatService } from "../ai/text-chat.service.js";
+import {
+  PEOPLE_ACCESS_POLICY,
+  type PeopleAccessPolicy,
+} from "../people/people-access-policy.js";
 
 type ContextPerson = { userId: string; role: string | null };
 
@@ -23,6 +27,8 @@ export class MentionsService {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(TextChatService) private readonly chat: TextChatService,
+    @Inject(PEOPLE_ACCESS_POLICY)
+    private readonly peopleAccess: PeopleAccessPolicy,
   ) {}
 
   async suggest(userId: string, query: MentionSuggestionsQuery): Promise<MentionSuggestionsResponse> {
@@ -35,7 +41,7 @@ export class MentionsService {
       this.chat.listRetailModels(),
     ]);
 
-    const peopleCandidates = await this.peopleCandidates(people);
+    const peopleCandidates = await this.peopleCandidates(userId, people);
     const systemByHandle = new Map(systemRows.map((row) => [row.normalized, row]));
     const vimlaRow = systemByHandle.get("vimla");
     const autoRow = systemByHandle.get("auto");
@@ -140,11 +146,19 @@ export class MentionsService {
     return [];
   }
 
-  private async peopleCandidates(people: ContextPerson[]): Promise<MentionCandidate[]> {
+  private async peopleCandidates(
+    actorUserId: string,
+    people: ContextPerson[],
+  ): Promise<MentionCandidate[]> {
     const unique = new Map(
       people.map((person) => [person.userId, person]),
     );
-    const userIds = [...unique.keys()];
+    const userIds = [
+      ...(await this.peopleAccess.filterDiscoverableUserIds(
+        actorUserId,
+        [...unique.keys()],
+      )),
+    ];
     if (userIds.length === 0) return [];
 
     const profiles =

@@ -6,9 +6,11 @@ import {
   type DirectConversationView,
   type DirectEnvelopeView,
   type DirectMessageView,
+  type DirectMessageSendPreflight,
   type DirectParticipant,
   type MarkDirectChatRead,
   type MessageMentionView,
+  type PrekeyBundle,
   type SendDirectMessage,
   type UpdateDirectChatPrivacy,
   type WireEnvelopeDto,
@@ -21,12 +23,20 @@ import {
   signaturePayload,
   verifyDirectMessage,
 } from "@vimla/e2ee";
+import {
+  PrismaUserTrustPolicy,
+  lockTrustUserPair,
+  type UserTrustPolicy,
+} from "@vimla/trust";
 import type { DirectChatParticipant } from "./assignee.js";
 import {
   filterOperatorContextBundle,
   type ContextMessageClaim,
 } from "./consent.js";
-import { toDeviceView } from "./device-service.js";
+import {
+  consumePrekeyBundlesForUser,
+  toDeviceView,
+} from "./device-service.js";
 import {
   PrismaDirectChatDurableEventWriter,
   type DirectChatDurableEventWriter,
@@ -47,6 +57,11 @@ type ParticipantProfileRow = {
   avatarUrl: string | null;
 };
 
+type DirectMessageReadDb = Pick<
+  Prisma.TransactionClient,
+  "directMessage" | "directMessageMention"
+>;
+
 export class DirectChatService {
   private readonly options: DirectChatServiceOptions;
 
@@ -55,6 +70,8 @@ export class DirectChatService {
     options?: Partial<DirectChatServiceOptions>,
     private readonly durableEvents: DirectChatDurableEventWriter =
       new PrismaDirectChatDurableEventWriter(),
+    private readonly trust: UserTrustPolicy =
+      new PrismaUserTrustPolicy(db),
   ) {
     this.options = { ...DEFAULTS, ...options };
   }
@@ -63,21 +80,39 @@ export class DirectChatService {
     if (peerUserId === actor.userId) {
       throw new DirectChatError("NOT_FOUND", "User was not found");
     }
+    if (!(await this.trust.canInteract(actor.userId, peerUserId))) {
+      throw new DirectChatError("NOT_FOUND", "User was not found");
+    }
     const peerProfiles = await this.readParticipantProfiles([peerUserId]);
     if (!peerProfiles.has(peerUserId)) {
       throw new DirectChatError("NOT_FOUND", "User was not found");
     }
 
     const pairKey = directPairKey(actor.userId, peerUserId);
-    const existing = await this.db.directConversation.findUnique({
-      where: { pairKey },
-      include: conversationInclude,
-    });
-    if (existing) {
-      return this.toView(existing, actor.userId);
-    }
-    try {
-      const created = await this.db.directConversation.create({
+    const conversation = await this.db.$transaction(async (tx) => {
+      const usersExist = await lockTrustUserPair(
+        tx,
+        actor.userId,
+        peerUserId,
+      );
+      const allowed =
+        usersExist &&
+        (await new PrismaUserTrustPolicy(tx).canInteract(
+          actor.userId,
+          peerUserId,
+        ));
+      if (!allowed) {
+        throw new DirectChatError("NOT_FOUND", "User was not found");
+      }
+
+      const existing = await tx.directConversation.findUnique({
+        where: { pairKey },
+        include: conversationInclude,
+      });
+      if (existing) {
+        return existing;
+      }
+      return tx.directConversation.create({
         data: {
           pairKey,
           members: {
@@ -86,20 +121,8 @@ export class DirectChatService {
         },
         include: conversationInclude,
       });
-      return this.toView(created, actor.userId);
-    } catch (error: unknown) {
-      if (!isUnique(error)) {
-        throw error;
-      }
-      const replay = await this.db.directConversation.findUnique({
-        where: { pairKey },
-        include: conversationInclude,
-      });
-      if (!replay) {
-        throw error;
-      }
-      return this.toView(replay, actor.userId);
-    }
+    });
+    return this.toView(conversation, actor.userId);
   }
 
   async get(actor: ActorContext, conversationId: string): Promise<DirectConversationView> {
@@ -265,6 +288,97 @@ export class DirectChatService {
     };
   }
 
+  async prepareSend(
+    actor: ActorContext,
+    conversationId: string,
+    senderDeviceId: string,
+  ): Promise<DirectMessageSendPreflight> {
+    return this.db.$transaction(async (tx) => {
+      const conversation =
+        await tx.directConversation.findFirst({
+          where: {
+            id: conversationId,
+            members: {
+              some: { userId: actor.userId },
+            },
+          },
+          select: {
+            members: {
+              select: { userId: true },
+            },
+          },
+        });
+      if (!conversation) {
+        throw new DirectChatError(
+          "NOT_FOUND",
+          "Direct Chat was not found",
+        );
+      }
+      const peerUserId = conversation.members.find(
+        (member) => member.userId !== actor.userId,
+      )?.userId;
+      if (!peerUserId) {
+        throw new DirectChatError(
+          "FORBIDDEN",
+          "Direct Chat interaction is unavailable",
+        );
+      }
+
+      const device = await tx.userCryptoDevice.findFirst({
+        where: {
+          id: senderDeviceId,
+          userId: actor.userId,
+        },
+        select: { revokedAt: true },
+      });
+      if (!device) {
+        throw new DirectChatError(
+          "NOT_FOUND",
+          "Device was not found",
+        );
+      }
+      if (device.revokedAt) {
+        throw new DirectChatError(
+          "DEVICE_REVOKED",
+          "This device was revoked",
+        );
+      }
+
+      const usersExist = await lockTrustUserPair(
+        tx,
+        actor.userId,
+        peerUserId,
+      );
+      const allowed =
+        usersExist &&
+        (await new PrismaUserTrustPolicy(tx).canInteract(
+          actor.userId,
+          peerUserId,
+        ));
+      if (!allowed) {
+        throw new DirectChatError(
+          "FORBIDDEN",
+          "Direct Chat interaction is unavailable",
+        );
+      }
+
+      const current =
+        await tx.directConversation.findUnique({
+          where: { id: conversationId },
+          select: { interactionEpoch: true },
+        });
+      if (!current) {
+        throw new DirectChatError(
+          "NOT_FOUND",
+          "Direct Chat was not found",
+        );
+      }
+      return {
+        interactionEpoch: current.interactionEpoch,
+      };
+    });
+  }
+
   async preflightSend(
     actor: ActorContext,
     conversationId: string,
@@ -276,13 +390,12 @@ export class DirectChatService {
       actor.userId,
       conversationId,
     );
-    return {
-      replay: await this.findExactReplay(
-        actor.userId,
-        conversationId,
-        input,
-      ),
-    };
+    const replay = await this.findExactReplay(
+      actor.userId,
+      conversationId,
+      input,
+    );
+    return { replay };
   }
 
   async send(
@@ -310,12 +423,14 @@ export class DirectChatService {
     message: DirectMessageView;
     replayed: boolean;
   }> {
-    const memberIds = (
+    const conversation =
       await this.requireMemberConversation(
         actor.userId,
         conversationId,
-      )
-    ).members.map((member) => member.userId);
+      );
+    const memberIds = conversation.members.map(
+      (member) => member.userId,
+    );
     const replay = await this.findExactReplay(
       actor.userId,
       conversationId,
@@ -324,7 +439,6 @@ export class DirectChatService {
     if (replay) {
       return { message: replay, replayed: true };
     }
-
     const senderDevice = await this.requireActiveDevice(actor.userId, input.senderDeviceId);
     if (input.envelopes.length > this.options.maxEnvelopes) {
       throw new DirectChatError("VALIDATION_ERROR", "Too many envelopes");
@@ -353,12 +467,76 @@ export class DirectChatService {
         senderUserId: actor.userId,
         senderDeviceId: senderDevice.id,
         kind: input.kind,
+        interactionEpoch: input.interactionEpoch,
         routingContext,
       });
     }
 
     try {
-      const created = await this.db.$transaction(async (tx) => {
+      return await this.db.$transaction(async (tx) => {
+        const peerUserId = memberIds.find(
+          (userId) => userId !== actor.userId,
+        );
+        if (!peerUserId) {
+          throw new DirectChatError(
+            "FORBIDDEN",
+            "Direct Chat interaction is unavailable",
+          );
+        }
+
+        const usersExist = await lockTrustUserPair(
+          tx,
+          actor.userId,
+          peerUserId,
+        );
+
+        // Re-check idempotent replay after taking the same pair lock used by
+        // block/unblock. A committed retry must still resolve as success even
+        // if a block was established immediately afterwards; conversely, a
+        // FORBIDDEN response now proves this clientMessageId was not committed.
+        const transactionalReplay =
+          await this.findExactReplay(
+            actor.userId,
+            conversationId,
+            input,
+            tx,
+          );
+        if (transactionalReplay) {
+          return {
+            message: transactionalReplay,
+            replayed: true,
+          };
+        }
+
+        const allowed =
+          usersExist &&
+          (await new PrismaUserTrustPolicy(tx).canInteract(
+            actor.userId,
+            peerUserId,
+          ));
+        if (!allowed) {
+          throw new DirectChatError(
+            "FORBIDDEN",
+            "Direct Chat interaction is unavailable",
+          );
+        }
+
+        const currentConversation =
+          await tx.directConversation.findUnique({
+            where: { id: conversationId },
+            select: { interactionEpoch: true },
+          });
+        if (
+          !currentConversation ||
+          currentConversation.interactionEpoch !==
+            input.interactionEpoch
+        ) {
+          throw new DirectChatError(
+            "CONFLICT",
+            "Direct Chat interaction state changed",
+          );
+        }
+
         const message = await tx.directMessage.create({
           data: {
             conversationId,
@@ -366,6 +544,7 @@ export class DirectChatService {
             senderDeviceId: senderDevice.id,
             clientMessageId: input.clientMessageId,
             kind: input.kind,
+            interactionEpoch: input.interactionEpoch,
             envelopes: {
               create: input.envelopes.map((envelope) => ({
                 recipientDeviceId: envelope.recipientDeviceId,
@@ -405,16 +584,15 @@ export class DirectChatService {
             recipientUserIds: memberIds,
           },
         );
-        return message;
+        return {
+          message: toMessageView(
+            message,
+            senderDevice.id,
+            resolvedMentions,
+          ),
+          replayed: false,
+        };
       });
-      return {
-        message: toMessageView(
-          created,
-          senderDevice.id,
-          resolvedMentions,
-        ),
-        replayed: false,
-      };
     } catch (error: unknown) {
       if (isUnique(error)) {
         const replay = await this.findExactReplay(
@@ -442,6 +620,7 @@ export class DirectChatService {
   ): Promise<{
     sourceMessageId: string;
     sourceMessageCreatedAt: string;
+    sourceInteractionEpoch: number;
     memberIds: string[];
     messages: ContextMessageClaim[];
     ownIncluded: boolean;
@@ -456,12 +635,22 @@ export class DirectChatService {
         senderUserId: actorUserId,
         kind: "OPERATOR_INVOKE",
       },
-      select: { id: true, createdAt: true },
+      select: {
+        id: true,
+        createdAt: true,
+        interactionEpoch: true,
+      },
     });
     if (!source) {
       throw new DirectChatError(
         "VALIDATION_ERROR",
         "Direct Chat operator source message is invalid",
+      );
+    }
+    if (source.interactionEpoch !== consent.interactionEpoch) {
+      throw new DirectChatError(
+        "CONFLICT",
+        "Direct Chat interaction state changed",
       );
     }
 
@@ -523,6 +712,7 @@ export class DirectChatService {
     return {
       sourceMessageId: source.id,
       sourceMessageCreatedAt: source.createdAt.toISOString(),
+      sourceInteractionEpoch: source.interactionEpoch,
       memberIds: consent.memberIds,
       ...filtered,
     };
@@ -543,15 +733,45 @@ export class DirectChatService {
     });
   }
 
-  async assertCanFetchPrekeys(actorUserId: string, targetUserId: string): Promise<void> {
-    if (actorUserId === targetUserId) {
-      return;
-    }
-    const pairKey = directPairKey(actorUserId, targetUserId);
-    const shared = await this.db.directConversation.findUnique({ where: { pairKey } });
-    if (!shared) {
-      throw new DirectChatError("NOT_FOUND", "User was not found");
-    }
+  async prekeyBundles(
+    actorUserId: string,
+    targetUserId: string,
+  ): Promise<PrekeyBundle[]> {
+    return this.db.$transaction(async (tx) => {
+      if (actorUserId !== targetUserId) {
+        const usersExist = await lockTrustUserPair(
+          tx,
+          actorUserId,
+          targetUserId,
+        );
+        const pairKey = directPairKey(
+          actorUserId,
+          targetUserId,
+        );
+        const shared =
+          await tx.directConversation.findUnique({
+            where: { pairKey },
+            select: { id: true },
+          });
+        const allowed =
+          usersExist &&
+          shared !== null &&
+          (await new PrismaUserTrustPolicy(tx).canInteract(
+            actorUserId,
+            targetUserId,
+          ));
+        if (!allowed) {
+          throw new DirectChatError(
+            "NOT_FOUND",
+            "User was not found",
+          );
+        }
+      }
+      return consumePrekeyBundlesForUser(
+        tx,
+        targetUserId,
+      );
+    });
   }
 
   async consent(actorUserId: string, conversationId: string) {
@@ -565,6 +785,7 @@ export class DirectChatService {
       actorShareOwnHistoryWithVimla: mine.shareOwnHistoryWithVimla,
       actorIncludePeerHistoryWhenInvoking: mine.includePeerHistoryWhenInvoking,
       peerShareOwnHistoryWithVimla: peer.shareOwnHistoryWithVimla,
+      interactionEpoch: conversation.interactionEpoch,
       memberIds: conversation.members.map((member) => member.userId),
     };
   }
@@ -573,8 +794,9 @@ export class DirectChatService {
     userId: string,
     conversationId: string,
     input: SendDirectMessage,
+    db: DirectMessageReadDb = this.db,
   ): Promise<DirectMessageView | null> {
-    const existing = await this.db.directMessage.findFirst({
+    const existing = await db.directMessage.findFirst({
       where: {
         conversationId,
         senderUserId: userId,
@@ -592,10 +814,14 @@ export class DirectChatService {
         "Message replay sender device does not match",
       );
     }
-    const mentions = await this.readMentionMap([existing.id]);
+    const mentions = await this.readMentionMap(
+      [existing.id],
+      db,
+    );
     const existingMentions = mentions.get(existing.id) ?? [];
     if (
       existing.kind !== input.kind ||
+      existing.interactionEpoch !== input.interactionEpoch ||
       !sameReplayEnvelopes(
         existing.envelopes,
         input.envelopes,
@@ -617,10 +843,13 @@ export class DirectChatService {
     );
   }
 
-  private async readMentionMap(messageIds: string[]): Promise<Map<string, MessageMentionView[]>> {
+  private async readMentionMap(
+    messageIds: string[],
+    db: DirectMessageReadDb = this.db,
+  ): Promise<Map<string, MessageMentionView[]>> {
     const grouped = new Map<string, MessageMentionView[]>();
     if (messageIds.length === 0) return grouped;
-    const rows = await this.db.directMessageMention.findMany({
+    const rows = await db.directMessageMention.findMany({
       where: { directMessageId: { in: messageIds } },
       orderBy: [{ directMessageId: "asc" }, { startOffset: "asc" }],
     });
@@ -650,6 +879,7 @@ export class DirectChatService {
       senderUserId: string;
       senderDeviceId: string;
       kind: SendDirectMessage["kind"];
+      interactionEpoch: number;
       routingContext?: string;
     },
   ): void {
@@ -666,6 +896,7 @@ export class DirectChatService {
       senderDeviceId: ad.senderDeviceId,
       recipientDeviceId: envelope.recipientDeviceId,
       kind: ad.kind,
+      interactionEpoch: ad.interactionEpoch,
       routingContext: ad.routingContext,
     });
     const header = b64ToBytes(envelope.headerB64);
@@ -741,18 +972,37 @@ export class DirectChatService {
     conversation: ConversationRecord,
     actorUserId: string,
   ): Promise<DirectConversationView> {
-    const unreadCount = await this.readUnreadCount(
-      actorUserId,
-      conversation.id,
+    const peer = conversation.members.find(
+      (member) => member.userId !== actorUserId,
     );
-    const profiles = await this.readParticipantProfiles(
-      conversation.members.map((member) => member.userId),
-    );
+    if (!peer) {
+      throw new DirectChatError(
+        "NOT_FOUND",
+        "Direct Chat was not found",
+      );
+    }
+    const [unreadCount, profiles, blockedByMe] =
+      await Promise.all([
+        this.readUnreadCount(
+          actorUserId,
+          conversation.id,
+        ),
+        this.readParticipantProfiles(
+          conversation.members.map(
+            (member) => member.userId,
+          ),
+        ),
+        this.trust.hasBlocked(
+          actorUserId,
+          peer.userId,
+        ),
+      ]);
     const summary = this.toSummary(
       conversation,
       actorUserId,
       unreadCount,
       profiles,
+      blockedByMe,
     );
     const devices = conversation.members.flatMap((member) =>
       member.user.cryptoDevices.filter((device) => device.revokedAt === null).map(toDeviceView),
@@ -794,6 +1044,7 @@ export class DirectChatService {
     actorUserId: string,
     unreadCount: number,
     profiles: ReadonlyMap<string, DirectParticipant>,
+    blockedByMe: boolean,
   ): DirectConversationSummary {
     const mine = conversation.members.find((member) => member.userId === actorUserId);
     const peer = conversation.members.find((member) => member.userId !== actorUserId);
@@ -819,6 +1070,8 @@ export class DirectChatService {
       lastKind: isKind(latest?.kind) ? latest.kind : null,
       lastSenderUserId: latest?.senderUserId ?? null,
       createdAt: conversation.createdAt.toISOString(),
+      interactionEpoch: conversation.interactionEpoch,
+      blockedByMe,
       privacy: toPrivacy(mine, peer),
     };
   }
@@ -877,6 +1130,7 @@ function toMessageView(
     senderDeviceId: string;
     clientMessageId: string;
     kind: string;
+    interactionEpoch: number;
     createdAt: Date;
     envelopes: Array<{
       recipientDeviceId: string;
@@ -903,6 +1157,7 @@ function toMessageView(
     senderDeviceId: row.senderDeviceId,
     clientMessageId: row.clientMessageId,
     kind: isKind(row.kind) ? row.kind : "HUMAN",
+    interactionEpoch: row.interactionEpoch,
     createdAt: row.createdAt.toISOString(),
     envelope: envelope ? toEnvelopeView(envelope) : null,
     mentions,

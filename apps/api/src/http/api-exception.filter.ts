@@ -223,6 +223,8 @@ function operatorCodeToApi(code: OperatorErrorCode): ApiErrorCode {
       return "operator_clarification_required";
     case "TOOL_DENIED":
       return "operator_tool_denied";
+    case "CONTEXT_REVOKED":
+      return "direct_chat_context_revoked";
     case "CONFLICT":
       return "conflict";
     default:

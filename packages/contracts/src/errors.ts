@@ -74,6 +74,7 @@ export const apiErrorCodeSchema = z.enum([
   "direct_chat_device_revoked",
   "direct_chat_recipient_device_missing",
   "direct_chat_context_denied",
+  "direct_chat_context_revoked",
   "projects_disabled",
   "project_plan_locked",
   "project_entitlement_denied",

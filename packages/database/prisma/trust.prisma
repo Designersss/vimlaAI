@@ -1,0 +1,61 @@
+model UserBlock {
+  id            String   @id @default(uuid()) @db.Uuid
+  blockerUserId String
+  blocker       User     @relation("UserBlockBlocker", fields: [blockerUserId], references: [id], onDelete: Cascade)
+  blockedUserId String
+  blocked       User     @relation("UserBlockBlocked", fields: [blockedUserId], references: [id], onDelete: Cascade)
+  createdAt     DateTime @default(now())
+
+  @@unique([blockerUserId, blockedUserId])
+  @@index([blockedUserId, createdAt])
+  @@index([blockerUserId, createdAt])
+  @@map("user_block")
+}
+
+model AbuseReport {
+  id                       String              @id @default(uuid()) @db.Uuid
+  requestId                String              @db.Uuid
+  requestFingerprint       String
+  reporterUserId           String
+  reporter                 User                @relation("AbuseReportReporter", fields: [reporterUserId], references: [id], onDelete: Restrict)
+  targetUserId             String
+  target                   User                @relation("AbuseReportTarget", fields: [targetUserId], references: [id], onDelete: Restrict)
+  reason                   String
+  details                  String?
+  status                   String              @default("SUBMITTED")
+  evidenceKind             String              @default("NONE")
+  directConversationId     String?
+  directConversation       DirectConversation? @relation(fields: [directConversationId], references: [id], onDelete: Restrict)
+  directMessageId          String?
+  directMessage            DirectMessage?      @relation(fields: [directMessageId], references: [id], onDelete: Restrict)
+  evidenceSenderUserId     String?
+  evidenceSender           User?               @relation("AbuseReportEvidenceSender", fields: [evidenceSenderUserId], references: [id], onDelete: Restrict)
+  evidenceSenderDeviceId   String?
+  evidenceSenderDevice     UserCryptoDevice?   @relation(fields: [evidenceSenderDeviceId], references: [id], onDelete: Restrict)
+  evidenceMessageKind      String?
+  evidenceMessageCreatedAt DateTime?
+  evidenceText             String?
+  createdAt                DateTime            @default(now())
+  updatedAt                DateTime            @updatedAt
+
+  @@unique([reporterUserId, requestId])
+  @@index([reporterUserId, createdAt])
+  @@index([targetUserId, createdAt])
+  @@index([status, createdAt])
+  @@index([directMessageId])
+  @@map("abuse_report")
+}
+
+model CommunicationSurfacePreference {
+  surfaceId String               @db.Uuid
+  surface   CommunicationSurface @relation(fields: [surfaceId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  muted     Boolean              @default(false)
+  createdAt DateTime             @default(now())
+  updatedAt DateTime             @updatedAt
+
+  @@id([surfaceId, userId])
+  @@index([userId, muted, updatedAt])
+  @@map("communication_surface_preference")
+}

@@ -1,0 +1,1140 @@
+import { randomUUID } from "node:crypto";
+import {
+  afterAll,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
+import type { NestFastifyApplication } from "@nestjs/platform-fastify";
+import { loadApiConfig } from "@vimla/config/server";
+import { createPrismaClient } from "@vimla/database";
+import { createVimlaApiApp } from "../create-app.js";
+import { PrismaService } from "../persistence/prisma.service.js";
+import { registerVerifiedUser } from "../test/identity-helpers.js";
+
+const testDatabaseUrl = process.env.TEST_DATABASE_URL;
+if (!testDatabaseUrl) {
+  throw new Error("TEST_DATABASE_URL is required");
+}
+
+const origin = "http://localhost:3000";
+
+describe("trust safety API", () => {
+  let app: NestFastifyApplication;
+
+  beforeAll(async () => {
+    process.env.NODE_ENV = "test";
+    process.env.APP_ENV = "test";
+    process.env.LOG_LEVEL = "error";
+    process.env.API_HOST = "127.0.0.1";
+    process.env.API_PORT = "3001";
+    process.env.WEB_ORIGIN = origin;
+    process.env.DATABASE_URL = testDatabaseUrl;
+    process.env.REDIS_URL =
+      process.env.REDIS_URL ??
+      "redis://localhost:6379";
+    process.env.BETTER_AUTH_SECRET =
+      process.env.BETTER_AUTH_SECRET ??
+      "local-dev-only-change-me-use-32-chars-min";
+    process.env.BETTER_AUTH_URL =
+      process.env.BETTER_AUTH_URL ??
+      "http://localhost:3001";
+    process.env.DIRECT_CHATS_ENABLED = "true";
+    process.env.TRUST_REPORT_IP_LIMIT_PER_MINUTE = "12";
+    process.env.TRUSTED_PROXY_RANGES = "127.0.0.1/32";
+
+    const prisma =
+      createPrismaClient(testDatabaseUrl);
+    await prisma.$disconnect();
+
+    const config = loadApiConfig(process.env);
+    app = await createVimlaApiApp(config, {
+      quiet: true,
+    });
+    await app.init();
+    await app
+      .getHttpAdapter()
+      .getInstance()
+      .ready();
+  });
+
+  afterAll(async () => {
+    if (app) {
+      await app.close();
+    }
+  });
+
+  it("enforces block bidirectionally across discovery and Direct Chat while preserving history", async () => {
+    const alice = await registerVerifiedUser(
+      app,
+      "trust-block-alice",
+    );
+    const bob = await registerVerifiedUser(
+      app,
+      "trust-block-bob",
+    );
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/v1/direct-chats",
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: { peerHandle: bob.handle },
+    });
+    expect(created.statusCode).toBe(201);
+    const direct = created.json() as {
+      id: string;
+      surfaceId: string;
+    };
+
+    const block = await app.inject({
+      method: "POST",
+      url: "/v1/trust/blocks",
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: { handle: bob.handle },
+    });
+    expect(block.statusCode).toBe(200);
+    expect(block.json()).toEqual({
+      handle: bob.handle,
+      blockedByMe: true,
+    });
+
+    const blockedList = await app.inject({
+      method: "GET",
+      url: "/v1/trust/blocks",
+      headers: { origin },
+      cookies: alice.cookies,
+    });
+    expect(blockedList.statusCode).toBe(200);
+    expect(blockedList.json().items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          userId: bob.id,
+          handle: bob.handle,
+        }),
+      ]),
+    );
+    expect(blockedList.body).not.toContain(bob.email);
+
+    for (const [viewer, target] of [
+      [alice, bob],
+      [bob, alice],
+    ] as const) {
+      const search = await app.inject({
+        method: "GET",
+        url: `/v1/people?q=${encodeURIComponent(
+          `@${target.handle}`,
+        )}&limit=10`,
+        headers: { origin },
+        cookies: viewer.cookies,
+      });
+      expect(search.statusCode).toBe(200);
+      expect(
+        search.json().items.some(
+          (item: { userId: string }) =>
+            item.userId === target.id,
+        ),
+      ).toBe(false);
+
+      const start = await app.inject({
+        method: "POST",
+        url: "/v1/direct-chats",
+        headers: jsonHeaders(),
+        cookies: viewer.cookies,
+        payload: {
+          peerHandle: target.handle,
+        },
+      });
+      expect(start.statusCode).toBe(404);
+    }
+
+    const directSearch = await app.inject({
+      method: "GET",
+      url: `/v1/inbox?kind=DIRECT&q=${encodeURIComponent(
+        bob.handle,
+      )}`,
+      headers: { origin },
+      cookies: alice.cookies,
+    });
+    expect(directSearch.statusCode).toBe(200);
+    expect(
+      directSearch
+        .json()
+        .items.some(
+          (item: { domainId: string }) =>
+            item.domainId === direct.id,
+        ),
+    ).toBe(false);
+
+    const mentionSuggestions = await app.inject({
+      method: "GET",
+      url: `/v1/mentions?q=${encodeURIComponent(
+        bob.handle,
+      )}&directConversationId=${direct.id}`,
+      headers: { origin },
+      cookies: alice.cookies,
+    });
+    expect(mentionSuggestions.statusCode).toBe(200);
+    expect(
+      mentionSuggestions
+        .json()
+        .people.some(
+          (item: { handle: string }) =>
+            item.handle === bob.handle,
+        ),
+    ).toBe(false);
+
+    const history = await app.inject({
+      method: "GET",
+      url: `/v1/direct-chats/${direct.id}`,
+      headers: { origin },
+      cookies: alice.cookies,
+    });
+    expect(history.statusCode).toBe(200);
+
+    const prekeys = await app.inject({
+      method: "GET",
+      url: `/v1/direct-chats/users/${bob.id}/prekeys`,
+      headers: { origin },
+      cookies: alice.cookies,
+    });
+    expect(prekeys.statusCode).toBe(404);
+
+    const unblock = await app.inject({
+      method: "DELETE",
+      url: `/v1/trust/blocks/${bob.handle}`,
+      headers: { origin },
+      cookies: alice.cookies,
+    });
+    expect(unblock.statusCode).toBe(200);
+    expect(unblock.json()).toEqual({
+      handle: bob.handle,
+      blockedByMe: false,
+    });
+
+    const restored = await app.inject({
+      method: "POST",
+      url: "/v1/direct-chats",
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: { peerHandle: bob.handle },
+    });
+    expect(restored.statusCode).toBe(201);
+    expect(restored.json().id).toBe(direct.id);
+  });
+
+  it("keeps unblock actor-owned and paginates blocked users", async () => {
+    const actor = await registerVerifiedUser(
+      app,
+      "trust-block-list-actor",
+    );
+    const targets = await Promise.all(
+      ["a", "b", "c"].map((suffix) =>
+        registerVerifiedUser(
+          app,
+          `trust-block-list-${suffix}`,
+        ),
+      ),
+    );
+    const stranger = await registerVerifiedUser(
+      app,
+      "trust-block-list-stranger",
+    );
+
+    for (const target of targets) {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/trust/blocks",
+        headers: jsonHeaders(),
+        cookies: actor.cookies,
+        payload: { handle: target.handle },
+      });
+      expect(response.statusCode).toBe(200);
+    }
+
+    const first = await app.inject({
+      method: "GET",
+      url: "/v1/trust/blocks?limit=2",
+      headers: { origin },
+      cookies: actor.cookies,
+    });
+    expect(first.statusCode).toBe(200);
+    expect(first.json().items).toHaveLength(2);
+    expect(first.json().nextCursor).toBeTruthy();
+
+    const cursorItem = first.json().items.at(-1) as {
+      handle: string;
+    };
+    const removeCursorRow = await app.inject({
+      method: "DELETE",
+      url: `/v1/trust/blocks/${cursorItem.handle}`,
+      headers: { origin },
+      cookies: actor.cookies,
+    });
+    expect(removeCursorRow.statusCode).toBe(200);
+
+    const second = await app.inject({
+      method: "GET",
+      url: `/v1/trust/blocks?limit=2&cursor=${first.json().nextCursor}`,
+      headers: { origin },
+      cookies: actor.cookies,
+    });
+    expect(second.statusCode).toBe(200);
+    expect(second.json().items).toHaveLength(1);
+    expect(second.json().nextCursor).toBeNull();
+
+    const notMine = await app.inject({
+      method: "DELETE",
+      url: `/v1/trust/blocks/${stranger.handle}`,
+      headers: { origin },
+      cookies: actor.cookies,
+    });
+    expect(notMine.statusCode).toBe(404);
+  });
+
+  it("persists mute only for authorized communication-surface members", async () => {
+    const alice = await registerVerifiedUser(
+      app,
+      "trust-mute-alice",
+    );
+    const bob = await registerVerifiedUser(
+      app,
+      "trust-mute-bob",
+    );
+    const outsider = await registerVerifiedUser(
+      app,
+      "trust-mute-outsider",
+    );
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/v1/direct-chats",
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: { peerHandle: bob.handle },
+    });
+    expect(created.statusCode).toBe(201);
+    const surfaceId = created.json().surfaceId as string;
+
+    const muted = await app.inject({
+      method: "PATCH",
+      url: `/v1/trust/surfaces/${surfaceId}/preference`,
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: { muted: true },
+    });
+    expect(muted.statusCode).toBe(200);
+    expect(muted.json()).toMatchObject({
+      surfaceId,
+      muted: true,
+    });
+
+    const mine = await app.inject({
+      method: "GET",
+      url: `/v1/trust/surfaces/${surfaceId}/preference`,
+      headers: { origin },
+      cookies: alice.cookies,
+    });
+    expect(mine.statusCode).toBe(200);
+    expect(mine.json().muted).toBe(true);
+
+    const peer = await app.inject({
+      method: "GET",
+      url: `/v1/trust/surfaces/${surfaceId}/preference`,
+      headers: { origin },
+      cookies: bob.cookies,
+    });
+    expect(peer.statusCode).toBe(200);
+    expect(peer.json().muted).toBe(false);
+
+    const denied = await app.inject({
+      method: "GET",
+      url: `/v1/trust/surfaces/${surfaceId}/preference`,
+      headers: { origin },
+      cookies: outsider.cookies,
+    });
+    expect(denied.statusCode).toBe(404);
+  });
+
+  it("does not hide unexpected surface-authority infrastructure failures as not-found", async () => {
+    const alice = await registerVerifiedUser(
+      app,
+      "trust-mute-failure-alice",
+    );
+    const bob = await registerVerifiedUser(
+      app,
+      "trust-mute-failure-bob",
+    );
+    const created = await app.inject({
+      method: "POST",
+      url: "/v1/direct-chats",
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: { peerHandle: bob.handle },
+    });
+    expect(created.statusCode).toBe(201);
+    const surfaceId = created.json().surfaceId as string;
+    const prisma = app.get(PrismaService).client;
+    const lookup = vi
+      .spyOn(
+        prisma.communicationSurface,
+        "findUnique",
+      )
+      .mockRejectedValueOnce(
+        new Error("Synthetic surface authority outage"),
+      );
+    try {
+      const response = await app.inject({
+        method: "GET",
+        url: `/v1/trust/surfaces/${surfaceId}/preference`,
+        headers: { origin },
+        cookies: alice.cookies,
+      });
+      expect(response.statusCode).toBe(500);
+    } finally {
+      lookup.mockRestore();
+    }
+  });
+
+  it("accepts only explicit actor-authorized E2EE evidence with server-verified provenance", async () => {
+    const alice = await registerVerifiedUser(
+      app,
+      "trust-report-alice",
+    );
+    const bob = await registerVerifiedUser(
+      app,
+      "trust-report-bob",
+    );
+    const outsider = await registerVerifiedUser(
+      app,
+      "trust-report-outsider",
+    );
+    const db = app.get(PrismaService).client;
+
+    const direct =
+      await db.directConversation.create({
+        data: {
+          pairKey: `trust-report-${randomUUID()}`,
+          members: {
+            create: [
+              { userId: alice.id },
+              { userId: bob.id },
+            ],
+          },
+        },
+      });
+    const senderDevice =
+      await db.userCryptoDevice.create({
+        data: {
+          userId: bob.id,
+          identityEd25519Public:
+            "trust-report-ed25519",
+          identityX25519Public:
+            "trust-report-x25519",
+          signedPrekeyId: 1,
+          signedPrekeyPublic:
+            "trust-report-signed",
+          signedPrekeySignature:
+            "trust-report-signature",
+        },
+      });
+    const message = await db.directMessage.create({
+      data: {
+        conversationId: direct.id,
+        senderUserId: bob.id,
+        senderDeviceId: senderDevice.id,
+        clientMessageId: randomUUID(),
+        kind: "HUMAN",
+      },
+    });
+    const operatorInvokeMessage =
+      await db.directMessage.create({
+        data: {
+          conversationId: direct.id,
+          senderUserId: bob.id,
+          senderDeviceId: senderDevice.id,
+          clientMessageId: randomUUID(),
+          kind: "OPERATOR_INVOKE",
+        },
+      });
+    const operatorResponseMessage =
+      await db.directMessage.create({
+        data: {
+          conversationId: direct.id,
+          senderUserId: bob.id,
+          senderDeviceId: senderDevice.id,
+          clientMessageId: randomUUID(),
+          kind: "OPERATOR_RESPONSE",
+        },
+      });
+
+    const foreign =
+      await db.directConversation.create({
+        data: {
+          pairKey: `trust-report-foreign-${randomUUID()}`,
+          members: {
+            create: [
+              { userId: bob.id },
+              { userId: outsider.id },
+            ],
+          },
+        },
+      });
+    const foreignMessage =
+      await db.directMessage.create({
+        data: {
+          conversationId: foreign.id,
+          senderUserId: bob.id,
+          senderDeviceId: senderDevice.id,
+          clientMessageId: randomUUID(),
+          kind: "HUMAN",
+        },
+      });
+
+    const forged = await app.inject({
+      method: "POST",
+      url: "/v1/trust/reports",
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: {
+        requestId: randomUUID(),
+        reporterUserId: outsider.id,
+        targetHandle: bob.handle,
+        reason: "HARASSMENT",
+      },
+    });
+    expect(forged.statusCode).toBe(400);
+
+    const foreignEvidence = await app.inject({
+      method: "POST",
+      url: "/v1/trust/reports",
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: {
+        requestId: randomUUID(),
+        targetHandle: bob.handle,
+        reason: "HARASSMENT",
+        evidence: {
+          kind: "DIRECT_MESSAGE",
+          conversationId: foreign.id,
+          messageId: foreignMessage.id,
+          disclosedText: "Not Alice's conversation",
+        },
+      },
+    });
+    expect(foreignEvidence.statusCode).toBe(400);
+
+    const disclosedText =
+      "  Explicitly selected decrypted message\n";
+    const accepted = await app.inject({
+      method: "POST",
+      url: "/v1/trust/reports",
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: {
+        requestId: randomUUID(),
+        targetHandle: bob.handle,
+        reason: "THREATS",
+        details: "Context supplied by the reporter",
+        evidence: {
+          kind: "DIRECT_MESSAGE",
+          conversationId: direct.id,
+          messageId: message.id,
+          disclosedText,
+        },
+      },
+    });
+    expect(accepted.statusCode).toBe(201);
+    expect(accepted.body).not.toContain(disclosedText);
+    const reportId = accepted.json().id as string;
+
+    const stored =
+      await db.abuseReport.findUniqueOrThrow({
+        where: { id: reportId },
+      });
+    expect(stored).toMatchObject({
+      reporterUserId: alice.id,
+      targetUserId: bob.id,
+      evidenceKind: "DIRECT_MESSAGE",
+      directConversationId: direct.id,
+      directMessageId: message.id,
+      evidenceSenderUserId: bob.id,
+      evidenceSenderDeviceId: senderDevice.id,
+      evidenceMessageKind: "HUMAN",
+      evidenceText: disclosedText,
+    });
+    expect(
+      stored.evidenceMessageCreatedAt?.toISOString(),
+    ).toBe(message.createdAt.toISOString());
+
+    const boundedEvidenceText =
+      `${"L".repeat(3_993)} EDITED`;
+    expect(boundedEvidenceText).toHaveLength(4_000);
+    const bounded = await app.inject({
+      method: "POST",
+      url: "/v1/trust/reports",
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: {
+        requestId: randomUUID(),
+        targetHandle: bob.handle,
+        reason: "HARASSMENT",
+        evidence: {
+          kind: "DIRECT_MESSAGE",
+          conversationId: direct.id,
+          messageId: message.id,
+          disclosedText: boundedEvidenceText,
+        },
+      },
+    });
+    expect(bounded.statusCode).toBe(201);
+    const boundedStored =
+      await db.abuseReport.findUniqueOrThrow({
+        where: { id: bounded.json().id as string },
+      });
+    expect(boundedStored.evidenceText).toBe(
+      boundedEvidenceText,
+    );
+
+    const invokeEvidenceText =
+      "@vimla peer-authored reportable text";
+    const invokeEvidence = await app.inject({
+      method: "POST",
+      url: "/v1/trust/reports",
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: {
+        requestId: randomUUID(),
+        targetHandle: bob.handle,
+        reason: "THREATS",
+        evidence: {
+          kind: "DIRECT_MESSAGE",
+          conversationId: direct.id,
+          messageId: operatorInvokeMessage.id,
+          disclosedText: invokeEvidenceText,
+        },
+      },
+    });
+    expect(invokeEvidence.statusCode).toBe(201);
+    const invokeStored =
+      await db.abuseReport.findUniqueOrThrow({
+        where: {
+          id: invokeEvidence.json().id as string,
+        },
+      });
+    expect(invokeStored).toMatchObject({
+      evidenceKind: "DIRECT_MESSAGE",
+      directMessageId: operatorInvokeMessage.id,
+      evidenceSenderUserId: bob.id,
+      evidenceMessageKind: "OPERATOR_INVOKE",
+      evidenceText: invokeEvidenceText,
+    });
+
+    const forgedOperatorOutput =
+      await app.inject({
+        method: "POST",
+        url: "/v1/trust/reports",
+        headers: jsonHeaders(),
+        cookies: alice.cookies,
+        payload: {
+          requestId: randomUUID(),
+          targetHandle: bob.handle,
+          reason: "IMPERSONATION",
+          evidence: {
+            kind: "DIRECT_MESSAGE",
+            conversationId: direct.id,
+            messageId: operatorResponseMessage.id,
+            disclosedText:
+              "Sender-controlled operator output is not reportable user evidence",
+          },
+        },
+      });
+    expect(forgedOperatorOutput.statusCode).toBe(400);
+  });
+
+  it("deduplicates exact report retries by reporter-scoped request id", async () => {
+    const reporter = await registerVerifiedUser(
+      app,
+      "trust-report-idempotency-reporter",
+    );
+    const target = await registerVerifiedUser(
+      app,
+      "trust-report-idempotency-target",
+    );
+    const db = app.get(PrismaService).client;
+    const remoteAddress = "203.0.113.151";
+    const requestId = randomUUID();
+    const payload = {
+      requestId,
+      targetHandle: target.handle,
+      reason: "SPAM",
+      details: "Same logical report after a lost response",
+    } as const;
+
+    const first = await app.inject({
+      method: "POST",
+      url: "/v1/trust/reports",
+      remoteAddress,
+      headers: jsonHeaders(),
+      cookies: reporter.cookies,
+      payload,
+    });
+    expect(first.statusCode).toBe(201);
+
+    const replay = await app.inject({
+      method: "POST",
+      url: "/v1/trust/reports",
+      remoteAddress,
+      headers: jsonHeaders(),
+      cookies: reporter.cookies,
+      payload,
+    });
+    expect(replay.statusCode).toBe(201);
+    expect(replay.json()).toEqual(first.json());
+
+    const mismatch = await app.inject({
+      method: "POST",
+      url: "/v1/trust/reports",
+      remoteAddress,
+      headers: jsonHeaders(),
+      cookies: reporter.cookies,
+      payload: {
+        ...payload,
+        reason: "HARASSMENT",
+      },
+    });
+    expect(mismatch.statusCode).toBe(409);
+    expect(
+      await db.abuseReport.count({
+        where: {
+          reporterUserId: reporter.id,
+          requestId,
+        },
+      }),
+    ).toBe(1);
+  });
+
+  it("returns the stored receipt after the user report quota is exhausted", async () => {
+    const reporter = await registerVerifiedUser(app, "trust-replay-exhausted-reporter");
+    const target = await registerVerifiedUser(app, "trust-replay-exhausted-target");
+    const remoteAddress = "203.0.113.166";
+    let lastPayload: { requestId: string; targetHandle: string; reason: "SPAM" } | null = null;
+    let lastReceipt: unknown = null;
+    for (let index = 0; index < 6; index += 1) {
+      lastPayload = { requestId: randomUUID(), targetHandle: target.handle, reason: "SPAM" };
+      const response = await app.inject({
+        method: "POST", url: "/v1/trust/reports", remoteAddress,
+        headers: jsonHeaders(), cookies: reporter.cookies, payload: lastPayload,
+      });
+      expect(response.statusCode).toBe(201);
+      lastReceipt = response.json();
+    }
+    if (!lastPayload) throw new Error("Expected committed report payload");
+    const retry = await app.inject({
+      method: "POST", url: "/v1/trust/reports", remoteAddress,
+      headers: jsonHeaders(), cookies: reporter.cookies, payload: lastPayload,
+    });
+    expect(retry.statusCode).toBe(201);
+    expect(retry.json()).toEqual(lastReceipt);
+    const fresh = await app.inject({
+      method: "POST", url: "/v1/trust/reports", remoteAddress,
+      headers: jsonHeaders(), cookies: reporter.cookies,
+      payload: { ...lastPayload, requestId: randomUUID() },
+    });
+    expect(fresh.statusCode).toBe(429);
+    const altered = await app.inject({
+      method: "POST", url: "/v1/trust/reports", remoteAddress,
+      headers: jsonHeaders(), cookies: reporter.cookies,
+      payload: { ...lastPayload, reason: "THREATS" },
+    });
+    expect(altered.statusCode).toBe(429);
+    expect(await app.get(PrismaService).client.abuseReport.count({
+      where: { reporterUserId: reporter.id },
+    })).toBe(6);
+  });
+
+  it("resolves exact committed retries after the shared IP quota is exhausted", async () => {
+    const target = await registerVerifiedUser(app, "trust-ip-replay-target");
+    const reporters = await Promise.all([
+      registerVerifiedUser(app, "trust-ip-replay-reporter-a"),
+      registerVerifiedUser(app, "trust-ip-replay-reporter-b"),
+      registerVerifiedUser(app, "trust-ip-replay-reporter-c"),
+    ]);
+    const remoteAddress = "203.0.113.167";
+    let lastPayload: { requestId: string; targetHandle: string; reason: "SPAM" } | null = null;
+    let receipt: unknown = null;
+    for (const reporter of reporters.slice(0, 2)) {
+      for (let index = 0; index < 6; index += 1) {
+        const payload = {
+          requestId: randomUUID(), targetHandle: target.handle, reason: "SPAM" as const,
+        };
+        const response = await app.inject({
+          method: "POST", url: "/v1/trust/reports", remoteAddress,
+          headers: jsonHeaders(), cookies: reporter.cookies, payload,
+        });
+        expect(response.statusCode).toBe(201);
+        if (reporter === reporters[1] && index === 5) {
+          lastPayload = payload;
+          receipt = response.json();
+        }
+      }
+    }
+    if (!lastPayload || !reporters[1] || !reporters[2]) {
+      throw new Error("Expected committed report and reporters");
+    }
+    const retry = await app.inject({
+      method: "POST", url: "/v1/trust/reports", remoteAddress,
+      headers: jsonHeaders(), cookies: reporters[1].cookies, payload: lastPayload,
+    });
+    expect(retry.statusCode).toBe(201);
+    expect(retry.json()).toEqual(receipt);
+    const fresh = await app.inject({
+      method: "POST", url: "/v1/trust/reports", remoteAddress,
+      headers: jsonHeaders(), cookies: reporters[2].cookies,
+      payload: { requestId: randomUUID(), targetHandle: target.handle, reason: "SPAM" },
+    });
+    expect(fresh.statusCode).toBe(429);
+  });
+
+  it("does not bypass report limits through alternate request URLs", async () => {
+    const reporter = await registerVerifiedUser(
+      app,
+      "trust-report-route-reporter",
+    );
+    const target = await registerVerifiedUser(
+      app,
+      "trust-report-route-target",
+    );
+    const remoteAddress = "203.0.113.159";
+
+    for (let index = 0; index < 6; index += 1) {
+      const accepted = await app.inject({
+        method: "POST",
+        url: "/v1/trust/reports",
+        remoteAddress,
+        headers: jsonHeaders(),
+        cookies: reporter.cookies,
+        payload: {
+          requestId: randomUUID(),
+          targetHandle: target.handle,
+          reason: "SPAM",
+        },
+      });
+      expect(accepted.statusCode).toBe(201);
+    }
+
+    // A non-canonical spelling either does not match any route (400/404),
+    // or reaches the reports handler and must be limited just as strictly.
+    for (const url of [
+      "/v1/trust/%72eports",
+      "/v1/%74rust/reports",
+      "/v1/trust/reports?source=alternate-url",
+    ]) {
+      const response = await app.inject({
+        method: "POST",
+        url,
+        remoteAddress,
+        headers: jsonHeaders(),
+        cookies: reporter.cookies,
+        payload: {
+          requestId: randomUUID(),
+          targetHandle: target.handle,
+          reason: "SPAM",
+        },
+      });
+      expect([400, 404, 429]).toContain(response.statusCode);
+    }
+  });
+
+  it("does not exhaust another user's IP report quota after a user-level 429", async () => {
+    const target = await registerVerifiedUser(
+      app,
+      "trust-ip-quota-target",
+    );
+    const [saturatedReporter, neighborReporter, finalReporter] =
+      await Promise.all(
+        ["saturated", "neighbor", "final"].map((suffix) =>
+          registerVerifiedUser(
+            app,
+            "trust-ip-quota-" + suffix,
+          ),
+        ),
+      );
+    if (!saturatedReporter || !neighborReporter || !finalReporter) {
+      throw new Error("Expected all three report accounts");
+    }
+
+    const remoteAddress = "203.0.113.160";
+    const submit = (cookies: typeof saturatedReporter.cookies) =>
+      app.inject({
+        method: "POST",
+        url: "/v1/trust/reports",
+        remoteAddress,
+        headers: jsonHeaders(),
+        cookies,
+        payload: {
+          requestId: randomUUID(),
+          targetHandle: target.handle,
+          reason: "SPAM",
+        },
+      });
+
+    for (let index = 0; index < 6; index += 1) {
+      const response = await submit(saturatedReporter.cookies);
+      expect(response.statusCode).toBe(201);
+    }
+    for (let index = 0; index < 12; index += 1) {
+      const response = await submit(saturatedReporter.cookies);
+      expect(response.statusCode).toBe(429);
+    }
+
+    // The six rejected attempts above must not consume this shared IP's
+    // remaining six report slots.
+    for (let index = 0; index < 6; index += 1) {
+      const response = await submit(neighborReporter.cookies);
+      expect(response.statusCode).toBe(201);
+    }
+    const exhausted = await submit(finalReporter.cookies);
+    expect(exhausted.statusCode).toBe(429);
+  });
+
+  it("rate-limits abuse reports across different users sharing one IP", async () => {
+    const target = await registerVerifiedUser(
+      app,
+      "trust-ip-rate-target",
+    );
+    const reporters = await Promise.all([
+      registerVerifiedUser(
+        app,
+        "trust-ip-rate-reporter-a",
+      ),
+      registerVerifiedUser(
+        app,
+        "trust-ip-rate-reporter-b",
+      ),
+      registerVerifiedUser(
+        app,
+        "trust-ip-rate-reporter-c",
+      ),
+    ]);
+    const remoteAddress = "203.0.113.77";
+
+    for (const reporter of reporters.slice(0, 2)) {
+      for (let index = 0; index < 6; index += 1) {
+        const response = await app.inject({
+          method: "POST",
+          url: "/v1/trust/reports",
+          remoteAddress,
+          headers: jsonHeaders(),
+          cookies: reporter.cookies,
+          payload: {
+            requestId: randomUUID(),
+            targetHandle: target.handle,
+            reason: "SPAM",
+            details: `Shared IP occurrence ${index}`,
+          },
+        });
+        expect(response.statusCode).toBe(201);
+      }
+    }
+
+    const limitedReporter = reporters[2];
+    if (!limitedReporter) {
+      throw new Error("Expected a third shared-IP reporter");
+    }
+    const limited = await app.inject({
+      method: "POST",
+      url: "/v1/trust/reports",
+      remoteAddress,
+      headers: jsonHeaders(),
+      cookies: limitedReporter.cookies,
+      payload: {
+        requestId: randomUUID(),
+        targetHandle: target.handle,
+        reason: "SPAM",
+      },
+    });
+    expect(limited.statusCode).toBe(429);
+  });
+
+  it("trusts forwarded report IPs only from configured ingress proxies", async () => {
+    const target = await registerVerifiedUser(
+      app,
+      "trust-proxy-rate-target",
+    );
+    const reporters = await Promise.all(
+      ["a", "b", "c", "d", "e", "f"].map((suffix) =>
+        registerVerifiedUser(
+          app,
+          `trust-proxy-rate-reporter-${suffix}`,
+        ),
+      ),
+    );
+    const trustedProxyAddress = "127.0.0.1";
+    const firstClientIp = "198.51.100.31";
+    const secondClientIp = "198.51.100.32";
+
+    for (const reporter of reporters.slice(0, 2)) {
+      for (let index = 0; index < 6; index += 1) {
+        const response = await app.inject({
+          method: "POST",
+          url: "/v1/trust/reports",
+          remoteAddress: trustedProxyAddress,
+          headers: {
+            ...jsonHeaders(),
+            "x-forwarded-for": firstClientIp,
+          },
+          cookies: reporter.cookies,
+          payload: {
+            requestId: randomUUID(),
+            targetHandle: target.handle,
+            reason: "SPAM",
+          },
+        });
+        expect(response.statusCode).toBe(201);
+      }
+    }
+
+    const thirdReporter = reporters[2];
+    if (!thirdReporter) {
+      throw new Error("Expected trusted-proxy reporter");
+    }
+    const firstClientLimited = await app.inject({
+      method: "POST",
+      url: "/v1/trust/reports",
+      remoteAddress: trustedProxyAddress,
+      headers: {
+        ...jsonHeaders(),
+        "x-forwarded-for": firstClientIp,
+      },
+      cookies: thirdReporter.cookies,
+      payload: {
+        requestId: randomUUID(),
+        targetHandle: target.handle,
+        reason: "SPAM",
+      },
+    });
+    expect(firstClientLimited.statusCode).toBe(429);
+
+    const secondClientAllowed = await app.inject({
+      method: "POST",
+      url: "/v1/trust/reports",
+      remoteAddress: trustedProxyAddress,
+      headers: {
+        ...jsonHeaders(),
+        "x-forwarded-for": secondClientIp,
+      },
+      cookies: thirdReporter.cookies,
+      payload: {
+        requestId: randomUUID(),
+        targetHandle: target.handle,
+        reason: "SPAM",
+      },
+    });
+    expect(secondClientAllowed.statusCode).toBe(201);
+
+    const untrustedRemote = "203.0.113.88";
+    for (const reporter of reporters.slice(3, 5)) {
+      for (let index = 0; index < 6; index += 1) {
+        const response = await app.inject({
+          method: "POST",
+          url: "/v1/trust/reports",
+          remoteAddress: untrustedRemote,
+          headers: {
+            ...jsonHeaders(),
+            "x-forwarded-for": `192.0.2.${index + 1}`,
+          },
+          cookies: reporter.cookies,
+          payload: {
+            requestId: randomUUID(),
+            targetHandle: target.handle,
+            reason: "SPAM",
+          },
+        });
+        expect(response.statusCode).toBe(201);
+      }
+    }
+
+    const spoofReporter = reporters[5];
+    if (!spoofReporter) {
+      throw new Error("Expected untrusted-proxy reporter");
+    }
+    const spoofed = await app.inject({
+      method: "POST",
+      url: "/v1/trust/reports",
+      remoteAddress: untrustedRemote,
+      headers: {
+        ...jsonHeaders(),
+        "x-forwarded-for": "192.0.2.250",
+      },
+      cookies: spoofReporter.cookies,
+      payload: {
+        requestId: randomUUID(),
+        targetHandle: target.handle,
+        reason: "SPAM",
+      },
+    });
+    expect(spoofed.statusCode).toBe(429);
+  });
+
+  it("rate-limits report abuse independently from ordinary safety reads", async () => {
+    const reporter = await registerVerifiedUser(
+      app,
+      "trust-rate-reporter",
+    );
+    const target = await registerVerifiedUser(
+      app,
+      "trust-rate-target",
+    );
+    const remoteAddress = "203.0.113.152";
+
+    for (let index = 0; index < 6; index += 1) {
+      const response = await app.inject({
+        method: "POST",
+        url: "/v1/trust/reports",
+        remoteAddress,
+        headers: jsonHeaders(),
+        cookies: reporter.cookies,
+        payload: {
+          requestId: randomUUID(),
+          targetHandle: target.handle,
+          reason: "SPAM",
+          details: `Occurrence ${index}`,
+        },
+      });
+      expect(response.statusCode).toBe(201);
+    }
+
+    const limited = await app.inject({
+      method: "POST",
+      url: "/v1/trust/reports",
+      remoteAddress,
+      headers: jsonHeaders(),
+      cookies: reporter.cookies,
+      payload: {
+        requestId: randomUUID(),
+        targetHandle: target.handle,
+        reason: "SPAM",
+      },
+    });
+    expect(limited.statusCode).toBe(429);
+
+    const readsStillWork = await app.inject({
+      method: "GET",
+      url: "/v1/trust/blocks",
+      headers: { origin },
+      cookies: reporter.cookies,
+    });
+    expect(readsStillWork.statusCode).toBe(200);
+  });
+});
+
+function jsonHeaders(): Record<string, string> {
+  return {
+    origin,
+    "content-type": "application/json",
+  };
+}

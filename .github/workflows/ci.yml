@@ -149,7 +149,10 @@ jobs:
   web-e2e:
     name: web-browser-e2e / ${{ matrix.label }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    # Cold cross-browser installs can consume ~24 minutes before Playwright starts.
+    # Keep the browser-test step at 20 minutes as the hang guard; this outer budget
+    # also has to cover services, builds, migrations and browser installation.
+    timeout-minutes: 50
     strategy:
       fail-fast: false
       matrix:
@@ -213,6 +216,20 @@ jobs:
           pnpm --filter @vimla/database ensure-test-db
           DATABASE_URL="$TEST_DATABASE_URL" pnpm --filter @vimla/billing seed
           DATABASE_URL="$TEST_DATABASE_URL" pnpm --filter @vimla/ai seed
+      - name: Harden apt networking for Playwright
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo tee /etc/apt/apt.conf.d/99-vimla-ci-network >/dev/null <<'EOF'
+          Acquire::Retries "3";
+          Acquire::http::Timeout "30";
+          Acquire::https::Timeout "30";
+          EOF
+          if [[ -f /etc/apt/apt-mirrors.txt ]]; then
+            sudo sed -i \
+              's#http://azure.archive.ubuntu.com/ubuntu#https://archive.ubuntu.com/ubuntu#g' \
+              /etc/apt/apt-mirrors.txt
+          fi
       - name: Install browser engines required by lane
         shell: bash
         run: |
@@ -323,6 +340,20 @@ jobs:
           pnpm --filter @vimla/database ensure-test-db
           DATABASE_URL="$TEST_DATABASE_URL" pnpm --filter @vimla/billing seed
           DATABASE_URL="$TEST_DATABASE_URL" pnpm --filter @vimla/ai seed
+      - name: Harden apt networking for Playwright
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo tee /etc/apt/apt.conf.d/99-vimla-ci-network >/dev/null <<'EOF'
+          Acquire::Retries "3";
+          Acquire::http::Timeout "30";
+          Acquire::https::Timeout "30";
+          EOF
+          if [[ -f /etc/apt/apt-mirrors.txt ]]; then
+            sudo sed -i \
+              's#http://azure.archive.ubuntu.com/ubuntu#https://archive.ubuntu.com/ubuntu#g' \
+              /etc/apt/apt-mirrors.txt
+          fi
       - name: Install browser engines
         run: pnpm --filter @vimla/admin-web exec playwright install --with-deps chromium webkit firefox
       - name: Admin Playwright

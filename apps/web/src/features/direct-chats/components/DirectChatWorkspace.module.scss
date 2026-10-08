@@ -48,3 +48,18 @@
   min-width: 0;
   overflow: auto;
 }
+
+
+.headerActions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--vimla-space-1);
+  min-width: 0;
+}
+
+@media (max-width: 420px) {
+  .headerActions {
+    max-width: 12rem;
+  }
+}

@@ -25,6 +25,7 @@ describe("i18n dictionaries", () => {
     expect(ruKeys).toContain("projects.ownerPlanLockedTitle");
     expect(ruKeys).toContain("direct.newChat");
     expect(ruKeys).toContain("errors.direct_chats_disabled");
+    expect(ruKeys).toContain("errors.direct_chat_interaction_stale");
     expect(ruKeys).toContain("work.today");
     expect(ruKeys).toContain("work.noDelivery");
     expect(ruKeys).toContain("work.deliveryEnabled");

@@ -28,6 +28,9 @@ export function SettingsNavigationPane({ selectedSection }: { selectedSection?: 
         <LocalNavLink href="/settings/appearance" active={selectedSection === "appearance"}>
           {t("nav.appearance")}
         </LocalNavLink>
+        <LocalNavLink href="/settings/safety" active={selectedSection === "safety"}>
+          {t("nav.safety")}
+        </LocalNavLink>
         {CONSUMER_FEATURES.notificationsSettings ? (
           <LocalNavLink href="/settings/notifications" active={selectedSection === "notifications"}>
             {t("nav.notifications")}

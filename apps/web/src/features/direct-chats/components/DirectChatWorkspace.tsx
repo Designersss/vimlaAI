@@ -7,6 +7,7 @@ import { DIRECT_CHAT_LIMITS } from "@vimla/contracts";
 import type {
   DirectConversationView,
   DirectMessageKind,
+  DirectMessageReportEvidence,
   DirectMessageView,
   MentionSuggestionsResponse,
   MessageMentionInput,
@@ -19,6 +20,7 @@ import {
   Button,
   Card,
   ChatComposer,
+  Dialog,
   EmptyState,
   MentionPicker,
   Switch,
@@ -44,6 +46,12 @@ import {
   type ComposerMention,
 } from "../../chat/services/composer-mentions";
 import { CONSUMER_FEATURES } from "../../../shared/config/consumer-features";
+import { ReportUserDialog } from "../../trust/components/ReportUserDialog";
+import {
+  blockUser,
+  fetchSurfacePreference,
+  updateSurfacePreference,
+} from "../../trust/services/api";
 import { apiErrorMessageKey } from "../../../shared/errors/error-keys";
 import { tx } from "../../../shared/i18n/translate";
 import { readLocaleCookie, syncAuthenticatedLocale } from "../../../shared/i18n/persist-locale";
@@ -52,11 +60,12 @@ import {
   fetchDirectConversation,
   fetchDirectMessages,
   markDirectChatRead,
-  sendDirectMessage,
+  prepareDirectMessageSend,
   updateDirectChatPrivacy,
 } from "../services/api";
 import {
   PendingOperatorInvocationGoneError,
+  cancelPendingSendsForTrust,
   loadConversationPlaintexts,
   loadPendingSends,
   type StoredOperatorIntent,
@@ -73,12 +82,14 @@ import {
 import { decodeDirectPlaintext, encodeDirectPlaintext, type DirectPlaintextPayload } from "../services/payload";
 import {
   decryptMessageWithStatus,
+  discardPendingOperatorInvocation,
   encryptForDevices,
   ensureLocalDevice,
   finalizePendingOperatorInvocation,
   finalizePendingSend,
   loadPendingOperatorInvocations,
   recoverPendingSends,
+  sendPendingDirectMessage,
   stagePendingOperatorInvocationDelivery,
   withPendingOperatorInvocationLock,
   type PendingOperatorInvocation,
@@ -201,6 +212,17 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
   const [pendingRun, setPendingRun] = useState<OperatorRunView | null>(null);
   const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
+  const [muted, setMuted] = useState(false);
+  const [muteBusy, setMuteBusy] = useState(false);
+  const [muteStatus, setMuteStatus] = useState<
+    "loading" | "ready" | "error"
+  >("loading");
+  const blockedByMe = conversation?.blockedByMe ?? false;
+  const [blockOpen, setBlockOpen] = useState(false);
+  const [blockBusy, setBlockBusy] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportEvidence, setReportEvidence] =
+    useState<DirectMessageReportEvidence | undefined>(undefined);
 
   const applyOperatorDelivery = useCallback(
     (
@@ -247,6 +269,13 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         await prepareDevice();
         const device = await ensureLocalDevice();
         const detail = await fetchDirectConversation(conversationId);
+        if (detail.blockedByMe) {
+          await cancelPendingSendsForTrust({
+            conversationId,
+            senderDeviceId: device.deviceId,
+            peerUserId: detail.peer.userId,
+          });
+        }
         const page = await fetchLatestDecryptedPage(
           detail,
           device.deviceId,
@@ -254,6 +283,21 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         if (cancelled) return;
         setUserId(currentUser.id);
         setConversation(detail);
+        try {
+          const preference =
+            await fetchSurfacePreference(detail.surfaceId);
+          if (!cancelled) {
+            setMuted(preference.muted);
+            setMuteStatus("ready");
+          }
+        } catch (caught: unknown) {
+          if (caught instanceof AuthRequiredError) {
+            throw caught;
+          }
+          if (!cancelled) {
+            setMuteStatus("error");
+          }
+        }
         const visibleRows = [...page.decrypted].reverse();
         updateRows(visibleRows);
         setNextCursor(page.nextCursor);
@@ -804,6 +848,8 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
               conversationId: conversation.id,
               senderDeviceId:
                 sourceMessage.senderDeviceId,
+              interactionEpoch:
+                sourceMessage.interactionEpoch,
               messageId: sourceMessage.id,
               messageCreatedAt:
                 sourceMessage.createdAt,
@@ -841,6 +887,97 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
     } finally {
       setOperatorBusy(false);
     }
+  }
+
+  async function retryMutePreference(): Promise<void> {
+    if (!conversation || muteStatus === "loading") return;
+    setMuteStatus("loading");
+    try {
+      const preference = await fetchSurfacePreference(
+        conversation.surfaceId,
+      );
+      setMuted(preference.muted);
+      setMuteStatus("ready");
+    } catch (caught: unknown) {
+      if (caught instanceof AuthRequiredError) {
+        router.replace("/sign-in");
+        return;
+      }
+      setMuteStatus("error");
+    }
+  }
+
+  async function toggleMute(nextMuted: boolean): Promise<void> {
+    if (!conversation || muteBusy || muteStatus !== "ready") return;
+    const previousMuted = muted;
+    setMuted(nextMuted);
+    setMuteBusy(true);
+    try {
+      const preference = await updateSurfacePreference(
+        conversation.surfaceId,
+        { muted: nextMuted },
+      );
+      setMuted(preference.muted);
+    } catch (caught: unknown) {
+      setMuted(previousMuted);
+      if (caught instanceof AuthRequiredError) {
+        router.replace("/sign-in");
+        return;
+      }
+      setMuteStatus("error");
+    } finally {
+      setMuteBusy(false);
+    }
+  }
+
+  async function confirmBlock(): Promise<void> {
+    if (!conversation || blockBusy) return;
+    setBlockBusy(true);
+    try {
+      await blockUser(conversation.peer.handle);
+      setConversation((current) =>
+        current
+          ? { ...current, blockedByMe: true }
+          : current,
+      );
+      draftRef.current = "";
+      setDraft("");
+      setComposerMentions([]);
+      setPendingRun(null);
+      setBlockOpen(false);
+      try {
+        const device = await ensureLocalDevice();
+        await cancelPendingSendsForTrust({
+          conversationId: conversation.id,
+          senderDeviceId: device.deviceId,
+          peerUserId: conversation.peer.userId,
+        });
+      } catch {
+        // The server block is authoritative. Keep the UI blocked even if
+        // local outbox quarantine needs to be retried on the next chat load.
+        setError("internal_error");
+      }
+    } catch (caught: unknown) {
+      if (caught instanceof AuthRequiredError) {
+        router.replace("/sign-in");
+        return;
+      }
+      setError("internal_error");
+    } finally {
+      setBlockBusy(false);
+    }
+  }
+
+  function openGenericReport(): void {
+    setReportEvidence(undefined);
+    setReportOpen(true);
+  }
+
+  function openMessageReport(
+    evidence: DirectMessageReportEvidence,
+  ): void {
+    setReportEvidence(evidence);
+    setReportOpen(true);
   }
 
   async function onLoadOlder(): Promise<void> {
@@ -914,9 +1051,53 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
       <ChatConversationHeader
         title={conversation.peer.name}
         subtitle={`@${conversation.peer.handle} · ${t("direct.e2eeSubtitle")}`}
+        trailing={
+          <div className={styles.headerActions}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={openGenericReport}
+            >
+              {t("trust.report")}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={blockedByMe}
+              onClick={() => setBlockOpen(true)}
+            >
+              {t("trust.block")}
+            </Button>
+          </div>
+        }
       />
       <div className={styles.thread}>
         <div className={styles.privacy}>
+          {muteStatus === "ready" ? (
+            <Switch
+              label={t("trust.mute")}
+              checked={muted}
+              disabled={muteBusy}
+              onChange={(event) => {
+                void toggleMute(event.currentTarget.checked);
+              }}
+            />
+          ) : muteStatus === "error" ? (
+            <div>
+              <Alert variant="error">
+                {t("trust.muteUnavailable")}
+              </Alert>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => void retryMutePreference()}
+              >
+                {t("common.retry")}
+              </Button>
+            </div>
+          ) : (
+            <Text tone="caption">{t("common.loading")}</Text>
+          )}
           <Switch
             label={t("direct.shareOwn")}
             checked={conversation.privacy.shareOwnHistoryWithVimla}
@@ -948,7 +1129,14 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
           {error ? <Alert variant="error">{tx(t, apiErrorMessageKey(error))}</Alert> : null}
           {rows.length === 0 ? <EmptyState title={t("direct.empty")} /> : null}
           {rows.map((row) => (
-            <DirectRow key={row.message.id} row={row} self={row.message.senderUserId === userId} youLabel={t("chat.you")} peerName={conversation.peer.name} />
+            <DirectRow
+              key={row.message.id}
+              row={row}
+              self={row.message.senderUserId === userId}
+              youLabel={t("chat.you")}
+              peerName={conversation.peer.name}
+              onReport={openMessageReport}
+            />
           ))}
           {pendingRun ? (
             <OperatorRunPanel
@@ -1050,10 +1238,36 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
           onSubmit={() => void onSend()}
           placeholder={t("direct.placeholder")}
           sendLabel={t("chat.send")}
+          disabled={blockedByMe}
           sending={sending || operatorBusy}
           highlights={composerMentions}
         />
       </div>
+      <ReportUserDialog
+        open={reportOpen}
+        onOpenChange={setReportOpen}
+        targetHandle={conversation.peer.handle}
+        evidence={reportEvidence}
+      />
+      <Dialog
+        open={blockOpen}
+        onOpenChange={setBlockOpen}
+        title={t("trust.blockConfirmTitle", {
+          handle: conversation.peer.handle,
+        })}
+        description={t("trust.blockConfirmDescription")}
+        closeLabel={t("common.close")}
+        actions={
+          <>
+            <Button variant="ghost" onClick={() => setBlockOpen(false)}>
+              {t("common.cancel")}
+            </Button>
+            <Button disabled={blockBusy} onClick={() => void confirmBlock()}>
+              {t("trust.block")}
+            </Button>
+          </>
+        }
+      />
     </div>
   );
 }
@@ -1068,6 +1282,7 @@ async function sendEncryptedDirectMessage(input: {
   operatorIntent?: StoredOperatorIntent;
   operatorOutput?: StoredOperatorOutputLink;
   recoverPending?: boolean;
+  expectedInteractionEpoch?: number;
 }): Promise<{
   message: DirectMessageView;
   latest: DirectConversationView;
@@ -1089,12 +1304,30 @@ async function sendEncryptedDirectMessage(input: {
       );
     }
   }
+  const interaction = await prepareDirectMessageSend(
+    input.conversationId,
+    {
+      senderDeviceId: device.deviceId,
+    },
+  );
+  if (
+    input.expectedInteractionEpoch !== undefined &&
+    interaction.interactionEpoch !==
+      input.expectedInteractionEpoch
+  ) {
+    throw new DirectChatsApiError(
+      "direct_chat_interaction_stale",
+      409,
+    );
+  }
   const latest = await fetchDirectConversation(
     input.conversationId,
   );
   const pending = await encryptForDevices({
     conversationId: latest.id,
+    interactionEpoch: interaction.interactionEpoch,
     senderUserId: input.userId,
+    peerUserId: latest.peer.userId,
     clientMessageId:
       input.clientMessageId ?? crypto.randomUUID(),
     localDevice: device,
@@ -1109,13 +1342,8 @@ async function sendEncryptedDirectMessage(input: {
       ? { operatorOutput: input.operatorOutput }
       : {}),
   });
-  const message = await sendDirectMessage(latest.id, {
-    clientMessageId: pending.clientMessageId,
-    senderDeviceId: pending.senderDeviceId,
-    kind: pending.kind,
-    envelopes: pending.envelopes,
-    mentions: pending.mentions,
-  });
+  const message =
+    await sendPendingDirectMessage(pending);
   await finalizePendingSend(pending, message);
   return { message, latest };
 }
@@ -1136,6 +1364,9 @@ async function confirmDirectOperatorRun(input: {
       input.runId,
       { signal: operatorRequestSignal() },
     );
+    if (fresh.status !== "AWAITING_CONFIRMATION") {
+      return fresh;
+    }
     const token = fresh.confirmationToken;
     if (!token) {
       throw new OperatorRequestError(
@@ -1242,6 +1473,37 @@ async function recoverDirectOperatorInvocations(input: {
   return deliveries;
 }
 
+async function ensurePendingOperatorInvocationCurrent(
+  invocation: PendingOperatorInvocation,
+): Promise<boolean> {
+  try {
+    const interaction = await prepareDirectMessageSend(
+      invocation.conversationId,
+      {
+        senderDeviceId: invocation.senderDeviceId,
+      },
+    );
+    if (
+      interaction.interactionEpoch ===
+      invocation.interactionEpoch
+    ) {
+      return true;
+    }
+  } catch (caught: unknown) {
+    if (
+      !(caught instanceof DirectChatsApiError) ||
+      caught.code !== "forbidden"
+    ) {
+      throw caught;
+    }
+  }
+
+  await discardPendingOperatorInvocation(
+    invocation.pendingClientMessageId,
+  );
+  return false;
+}
+
 async function resumeDirectOperatorInvocation(
   invocation: PendingOperatorInvocation,
   actorUserId: string,
@@ -1264,6 +1526,13 @@ async function resumeDirectOperatorInvocation(
           invocation.pendingClientMessageId,
       );
       if (!current) {
+        return null;
+      }
+      if (
+        !(await ensurePendingOperatorInvocationCurrent(
+          current,
+        ))
+      ) {
         return null;
       }
 
@@ -1317,28 +1586,50 @@ async function resumeDirectOperatorInvocation(
             current.messageCreatedAt,
             actorUserId,
           );
-        run = await createOperatorRun(
-          {
-            clientRequestId:
-              current.intent.clientRequestId,
-            content: current.intent.content,
-            invocationScope: "DIRECT_CHAT",
-            directConversationId:
-              current.conversationId,
-            directSourceMessageId:
-              current.messageId,
-            ...(sourceBoundContext.contextBundle.messages
-              .length > 0
-              ? {
-                  contextBundle:
-                    sourceBoundContext.contextBundle,
-                }
-              : {}),
-          },
-          { signal: operatorRequestSignal() },
-        );
+        try {
+          run = await createOperatorRun(
+            {
+              clientRequestId:
+                current.intent.clientRequestId,
+              content: current.intent.content,
+              invocationScope: "DIRECT_CHAT",
+              directConversationId:
+                current.conversationId,
+              directSourceMessageId:
+                current.messageId,
+              ...(sourceBoundContext.contextBundle.messages
+                .length > 0
+                ? {
+                    contextBundle:
+                      sourceBoundContext.contextBundle,
+                  }
+                : {}),
+            },
+            { signal: operatorRequestSignal() },
+          );
+        } catch (caught: unknown) {
+          if (
+            caught instanceof OperatorRequestError &&
+            (caught.code === "conflict" ||
+              caught.code ===
+                "direct_chat_context_revoked") &&
+            !(await ensurePendingOperatorInvocationCurrent(
+              current,
+            ))
+          ) {
+            return null;
+          }
+          throw caught;
+        }
       }
 
+      if (
+        !(await ensurePendingOperatorInvocationCurrent(
+          current,
+        ))
+      ) {
+        return null;
+      }
       if (isTransientOperatorRun(run)) {
         throw new Error(
           "Direct Chat operator run is still in progress",
@@ -1411,6 +1702,8 @@ async function resumeDirectOperatorInvocation(
             outputId: output.id,
           },
           recoverPending: false,
+          expectedInteractionEpoch:
+            current.interactionEpoch,
         });
         latest = result.latest;
         rows.push({
@@ -1453,6 +1746,17 @@ async function resumeDirectOperatorInvocation(
         PendingOperatorInvocationGoneError ||
       caught instanceof RatchetLockLostError
     ) {
+      return null;
+    }
+    if (
+      caught instanceof DirectChatsApiError &&
+      (caught.code === "forbidden" ||
+        caught.code ===
+          "direct_chat_interaction_stale")
+    ) {
+      await discardPendingOperatorInvocation(
+        invocation.pendingClientMessageId,
+      );
       return null;
     }
     throw caught;
@@ -1774,7 +2078,19 @@ function directActionStatusLabel(
   return tx(t, "operator.completed");
 }
 
-function DirectRow({ row, self, youLabel, peerName }: { row: DecryptedRow; self: boolean; youLabel: string; peerName: string }): ReactElement {
+function DirectRow({
+  row,
+  self,
+  youLabel,
+  peerName,
+  onReport,
+}: {
+  row: DecryptedRow;
+  self: boolean;
+  youLabel: string;
+  peerName: string;
+  onReport: (evidence: DirectMessageReportEvidence) => void;
+}): ReactElement {
   const t = useTranslations();
   const label = self ? youLabel : peerName;
   if (!row.payload) {
@@ -1784,7 +2100,30 @@ function DirectRow({ row, self, youLabel, peerName }: { row: DecryptedRow; self:
     return self ? (
       <UserMessage label={label}><span data-testid="direct-message-human">{row.payload.text}</span></UserMessage>
     ) : (
-      <AssistantMessage label={label}><span data-testid="direct-message-human">{row.payload.text}</span></AssistantMessage>
+      <AssistantMessage label={label}>
+        <span data-testid="direct-message-human">{row.payload.text}</span>
+        {row.message.kind === "HUMAN" ? (
+          <>
+            <br />
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() =>
+                onReport({
+                  kind: "DIRECT_MESSAGE",
+                  conversationId: row.message.conversationId,
+                  messageId: row.message.id,
+                  disclosedText: row.payload!.type === "human"
+                    ? row.payload!.text
+                    : "",
+                })
+              }
+            >
+              {t("trust.reportMessage")}
+            </Button>
+          </>
+        ) : null}
+      </AssistantMessage>
     );
   }
   if (row.payload.type === "invoke") {
@@ -1795,6 +2134,24 @@ function DirectRow({ row, self, youLabel, peerName }: { row: DecryptedRow; self:
           {row.payload.contextShared ? <Badge>{t("direct.contextShared")}</Badge> : <Badge>{t("direct.contextDenied")}</Badge>}
         </div>
         <Text>{row.payload.text}</Text>
+        {!self ? (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() =>
+              onReport({
+                kind: "DIRECT_MESSAGE",
+                conversationId: row.message.conversationId,
+                messageId: row.message.id,
+                disclosedText: row.payload!.type === "invoke"
+                  ? row.payload!.text
+                  : "",
+              })
+            }
+          >
+            {t("trust.reportMessage")}
+          </Button>
+        ) : null}
       </Card>
     );
   }

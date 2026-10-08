@@ -4,13 +4,17 @@ import {
   directConversationViewSchema,
   directMessageViewSchema,
   directMessagesResponseSchema,
+  directMessageSendPreflightSchema,
+  prepareDirectMessageSendSchema,
   prekeyBundlesResponseSchema,
   type CreateDirectConversation,
   type CryptoDeviceView,
   type DirectConversationView,
   type DirectMessageView,
   type DirectMessagesResponse,
+  type DirectMessageSendPreflight,
   type MarkDirectChatRead,
+  type PrepareDirectMessageSend,
   type PrekeyBundlesResponse,
   type RegisterCryptoDevice,
   type SendDirectMessage,
@@ -126,6 +130,23 @@ export function createDirectChatsClient(
       );
     },
 
+    prepareDirectMessageSend(
+      id: string,
+      input: PrepareDirectMessageSend,
+      options: DirectChatRequestOptions = {},
+    ): Promise<DirectMessageSendPreflight> {
+      const body = prepareDirectMessageSendSchema.parse(input);
+      return transport.request(
+        `/v1/direct-chats/${encodeURIComponent(id)}/send-preflight`,
+        {
+          init: jsonRequestInit("POST", body, options.signal),
+          parse: (payload) =>
+            directMessageSendPreflightSchema.parse(payload),
+          errorFactory,
+        },
+      );
+    },
+
     sendDirectMessage(
       id: string,
       input: SendDirectMessage,
@@ -191,7 +212,7 @@ export function createDirectChatsClient(
       return transport.request(
         `/v1/direct-chats/users/${encodeURIComponent(userId)}/prekeys`,
         {
-          init: signalInit(options.signal),
+          init: jsonRequestInit("POST", {}, options.signal),
           parse: (payload) =>
             prekeyBundlesResponseSchema.parse(payload),
           errorFactory,

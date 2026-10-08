@@ -8,6 +8,7 @@ import {
 
 export const DIRECT_CHAT_LIMITS = {
   ciphertextMax: 65_536,
+  interactionEpochMax: 2_000_000_000,
   headerMax: 4_096,
   signatureMax: 256,
   envelopesMax: 32,
@@ -28,6 +29,13 @@ export const directMessageKindSchema = z.enum([
   "OPERATOR_ACTION",
 ]);
 export type DirectMessageKind = z.infer<typeof directMessageKindSchema>;
+
+export const directInteractionEpochSchema = z
+  .number()
+  .int()
+  .min(0)
+  .max(DIRECT_CHAT_LIMITS.interactionEpochMax);
+export type DirectInteractionEpoch = z.infer<typeof directInteractionEpochSchema>;
 
 const b64Schema = z.string().min(8).max(DIRECT_CHAT_LIMITS.ciphertextMax);
 
@@ -106,10 +114,25 @@ export const createDirectConversationSchema = z
   .strict();
 export type CreateDirectConversation = z.infer<typeof createDirectConversationSchema>;
 
+export const prepareDirectMessageSendSchema = z
+  .object({
+    senderDeviceId: z.string().uuid(),
+  })
+  .strict();
+export type PrepareDirectMessageSend = z.infer<typeof prepareDirectMessageSendSchema>;
+
+export const directMessageSendPreflightSchema = z
+  .object({
+    interactionEpoch: directInteractionEpochSchema,
+  })
+  .strict();
+export type DirectMessageSendPreflight = z.infer<typeof directMessageSendPreflightSchema>;
+
 export const sendDirectMessageSchema = z
   .object({
     clientMessageId: z.string().uuid(),
     senderDeviceId: z.string().uuid(),
+    interactionEpoch: directInteractionEpochSchema,
     kind: directMessageKindSchema,
     envelopes: z.array(wireEnvelopeSchema).min(1).max(DIRECT_CHAT_LIMITS.envelopesMax),
     mentions: z.array(messageMentionInputSchema).max(DIRECT_CHAT_LIMITS.mentionsMax).default([]),
@@ -205,6 +228,8 @@ export const directConversationSummarySchema = z.object({
   lastKind: directMessageKindSchema.nullable(),
   lastSenderUserId: z.string().nullable(),
   createdAt: z.string(),
+  interactionEpoch: directInteractionEpochSchema,
+  blockedByMe: z.boolean(),
   privacy: directConversationPrivacySchema,
 });
 export type DirectConversationSummary = z.infer<typeof directConversationSummarySchema>;
@@ -234,6 +259,7 @@ export const directMessageViewSchema = z.object({
   senderDeviceId: z.string().uuid(),
   clientMessageId: z.string().uuid(),
   kind: directMessageKindSchema,
+  interactionEpoch: directInteractionEpochSchema,
   createdAt: z.string(),
   envelope: directEnvelopeViewSchema.nullable(),
   mentions: z.array(messageMentionViewSchema).default([]),

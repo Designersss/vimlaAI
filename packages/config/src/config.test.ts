@@ -55,6 +55,7 @@ describe("loadApiConfig", () => {
 
     expect(config.port).toBe(3001);
     expect(config.adminOrigin).toBe("http://localhost:3002");
+    expect(config.trustedProxyRanges).toEqual([]);
     expect(config.adminRequireTotp).toBe(true);
     expect(config.adminRequirePasskey).toBe(false);
     expect(config.adminReportingTimezone).toBe("Europe/Moscow");
@@ -75,6 +76,12 @@ describe("loadApiConfig", () => {
     expect(config.memoryDerivedAuditRetentionDays).toBe(180);
     expect(config.directChatsEnabled).toBe(false);
     expect(config.directChatsMutationLimitPerMinute).toBe(60);
+    expect(config.directChatsPreflightLimitPerMinute).toBe(120);
+    expect(config.directChatsPrekeyLimitPerMinute).toBe(6);
+    expect(config.trustReadLimitPerMinute).toBe(120);
+    expect(config.trustMutationLimitPerMinute).toBe(60);
+    expect(config.trustReportLimitPerMinute).toBe(6);
+    expect(config.trustReportIpLimitPerMinute).toBe(60);
     expect(config.aiTextProvider).toBe("mock");
     expect(config.semanticPlannerProvider).toBe("mock");
     expect(config.semanticPlannerBaseUrl).toBeUndefined();
@@ -109,6 +116,32 @@ describe("loadApiConfig", () => {
     expect(config.realtimeHandshakeLimitPerMinute).toBe(120);
     expect(config.realtimeClientFramesPerMinute).toBe(60);
     expect(config.syncReadLimitPerMinute).toBe(120);
+  });
+
+  it("parses only explicit trusted proxy IP and CIDR ranges", () => {
+    const config = loadApiConfig({
+      ...validSharedEnv,
+      TRUSTED_PROXY_RANGES:
+        "127.0.0.1,10.20.0.0/16,2001:db8::/32",
+    });
+    expect(config.trustedProxyRanges).toEqual([
+      "127.0.0.1",
+      "10.20.0.0/16",
+      "2001:db8::/32",
+    ]);
+
+    expect(() =>
+      loadApiConfig({
+        ...validSharedEnv,
+        TRUSTED_PROXY_RANGES: "not-a-proxy",
+      }),
+    ).toThrow(/TRUSTED_PROXY_RANGES/);
+    expect(() =>
+      loadApiConfig({
+        ...validSharedEnv,
+        TRUSTED_PROXY_RANGES: "10.0.0.0/99",
+      }),
+    ).toThrow(/TRUSTED_PROXY_RANGES/);
   });
 
   it("requires realtime heartbeat timeout to exceed its interval", () => {

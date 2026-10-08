@@ -104,6 +104,12 @@ test.describe("Public profile", () => {
     await expect(profile).toContainText("Available for a chat");
     await expect(profile).toContainText("Public bio visible to discoverable people.");
     await expect(profile).not.toContainText(bobEmail);
+    await expect(
+      profile.getByRole("button", { name: "Report" }),
+    ).toBeVisible();
+    await expect(
+      profile.getByRole("button", { name: "Block" }),
+    ).toBeVisible();
 
     await alicePage.setViewportSize({ width: 390, height: 844 });
     await expect(profile).toBeVisible();
@@ -120,6 +126,7 @@ test.describe("Public profile", () => {
     await expect(
       alicePage.getByPlaceholder("Message this person"),
     ).toBeVisible({ timeout: 30_000 });
+    const directUrl = alicePage.url();
 
     const directShell = alicePage.getByTestId(
       "direct-chat-shell",
@@ -129,11 +136,291 @@ test.describe("Public profile", () => {
     );
 
     await alicePage.goto("/app");
+    const directRow = alicePage
+      .getByTestId("direct-conversation-row")
+      .filter({ hasText: `@${bobHandle}` });
+    await expect(directRow).toBeVisible({ timeout: 20_000 });
+    let failMutePreferenceLoad = true;
+    await alicePage.route(
+      "**/v1/trust/surfaces/*/preference",
+      async (route) => {
+        if (
+          failMutePreferenceLoad &&
+          route.request().method() === "GET"
+        ) {
+          failMutePreferenceLoad = false;
+          await route.abort("failed");
+          return;
+        }
+        await route.continue();
+      },
+    );
+    await directRow.click();
+    await expect(
+      alicePage.getByTestId("direct-chat-shell"),
+    ).toBeVisible({ timeout: 20_000 });
+    await expect(
+      alicePage.getByText(
+        "Mute setting is temporarily unavailable. Retry to load the current value.",
+      ),
+    ).toBeVisible();
+    await expect(
+      alicePage.getByRole("switch", {
+        name: "Mute this chat",
+      }),
+    ).toHaveCount(0);
+    await alicePage.getByRole("button", { name: "Try again" }).click();
+
+    const mute = alicePage.getByRole("switch", {
+      name: "Mute this chat",
+    });
+    await expect(mute).toBeVisible();
+    await alicePage.unroute(
+      "**/v1/trust/surfaces/*/preference",
+    );
+    await mute.check();
+    await expect(mute).toBeChecked();
+
+    await alicePage
+      .getByTestId("direct-chat-shell")
+      .getByRole("button", { name: "Report", exact: true })
+      .click();
+    const reportDialog = alicePage.getByRole("dialog", {
+      name: `Report @${bobHandle}`,
+    });
+    await expect(reportDialog).toBeVisible();
+    const reportReason = reportDialog.locator("#trust-report-reason");
+    const reportDetails = reportDialog.locator("#trust-report-details");
+    const originalDetails =
+      "Keep this report unchanged while the server processes it.";
+    await reportReason.selectOption("SPAM");
+    await reportDetails.fill(originalDetails);
+    let releaseReport!: () => void;
+    let signalReportHeld!: () => void;
+    const reportHeld = new Promise<void>((resolve) => {
+      signalReportHeld = resolve;
+    });
+    const reportRelease = new Promise<void>((resolve) => {
+      releaseReport = resolve;
+    });
+    const reportRequests: Array<{
+      requestId?: string;
+      reason?: string;
+      details?: string;
+    }> = [];
+    let loseFirstReportResponse = true;
+    await alicePage.route(
+      "**/v1/trust/reports",
+      async (route) => {
+        if (route.request().method() === "POST") {
+          const payload = route.request().postDataJSON() as {
+            requestId?: string;
+            reason?: string;
+            details?: string;
+          } | null;
+          if (payload) {
+            reportRequests.push(payload);
+          }
+          if (loseFirstReportResponse) {
+            loseFirstReportResponse = false;
+            signalReportHeld();
+            await reportRelease;
+            const response = await route.fetch();
+            expect(response.ok()).toBe(true);
+            await route.abort("failed");
+            return;
+          }
+        }
+        await route.continue();
+      },
+    );
+    const submitReport = reportDialog.getByRole("button", {
+      name: "Submit report",
+    });
+    await submitReport.click();
+    await reportHeld;
+    await expect(reportReason).toBeDisabled();
+    await expect(reportDetails).toBeDisabled();
+    await expect(reportReason).toHaveValue("SPAM");
+    await expect(reportDetails).toHaveValue(originalDetails);
+    await alicePage.keyboard.press("Escape");
+    await expect(reportDialog).toBeVisible();
+    await expect(submitReport).toBeDisabled();
+    releaseReport();
+    await expect(submitReport).toBeEnabled();
+    await expect(reportReason).toBeEnabled();
+    await expect(reportDetails).toBeEnabled();
+    await submitReport.click();
+    await expect(
+      reportDialog.getByText("Report submitted."),
+    ).toBeVisible();
+    expect(reportRequests).toHaveLength(2);
+    expect(reportRequests[0]?.requestId).toBe(reportRequests[1]?.requestId);
+    expect(reportRequests).toEqual([
+      expect.objectContaining({
+        reason: "SPAM",
+        details: originalDetails,
+      }),
+      expect.objectContaining({
+        reason: "SPAM",
+        details: originalDetails,
+      }),
+    ]);
+    expect(reportRequests[0]?.requestId).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    );
+    await alicePage.unroute("**/v1/trust/reports");
+    await reportDialog
+      .getByRole("button", { name: "Done" })
+      .click();
+
+    let abortPendingSend = true;
+    await alicePage.route(
+      "**/v1/direct-chats/*/messages",
+      async (route) => {
+        if (
+          abortPendingSend &&
+          route.request().method() === "POST"
+        ) {
+          abortPendingSend = false;
+          await route.abort("failed");
+          return;
+        }
+        await route.continue();
+      },
+    );
+    const pendingBeforeOwnBlock =
+      "pending must not survive own block";
+    await alicePage
+      .getByPlaceholder("Message this person")
+      .fill(pendingBeforeOwnBlock);
+    await alicePage
+      .getByTestId("chat-composer-send")
+      .click();
+    await expect.poll(() => abortPendingSend).toBe(false);
+    await alicePage.unroute(
+      "**/v1/direct-chats/*/messages",
+    );
+
+    await alicePage
+      .getByTestId("direct-chat-shell")
+      .getByRole("button", { name: "Block", exact: true })
+      .click();
+    const blockDialog = alicePage.getByRole("dialog", {
+      name: `Block @${bobHandle}?`,
+    });
+    await expect(blockDialog).toBeVisible();
+    await blockDialog
+      .getByRole("button", { name: "Block", exact: true })
+      .click();
+    await expect(
+      alicePage.getByPlaceholder("Message this person"),
+    ).toBeDisabled();
+
+    await alicePage.reload();
+    await expect(
+      alicePage.getByTestId("direct-chat-shell"),
+    ).toBeVisible({ timeout: 20_000 });
+    await expect(
+      alicePage.getByPlaceholder("Message this person"),
+    ).toBeDisabled();
     await expect(
       alicePage
-        .getByTestId("direct-conversation-row")
-        .filter({ hasText: `@${bobHandle}` }),
+        .getByTestId("direct-chat-shell")
+        .getByRole("button", {
+          name: "Block",
+          exact: true,
+        }),
+    ).toBeDisabled();
+
+    let allowBlockedListLoad = false;
+    let loseFirstUnblockResponse = true;
+    // A single '*' does not cross '/', so the old glob intercepted the
+    // list GET but silently missed DELETE /blocks/:handle.
+    const blocksRoute =
+      /\/v1\/trust\/blocks(?:\/[^/?]+)?(?:\?.*)?$/;
+    await alicePage.route(
+      blocksRoute,
+      async (route) => {
+        if (
+          !allowBlockedListLoad &&
+          route.request().method() === "GET"
+        ) {
+          await route.abort("failed");
+          return;
+        }
+        if (
+          loseFirstUnblockResponse &&
+          route.request().method() === "DELETE"
+        ) {
+          loseFirstUnblockResponse = false;
+          const response = await route.fetch();
+          expect(response.ok()).toBe(true);
+          await route.fulfill({
+            status: 503,
+            contentType: "application/json",
+            body: JSON.stringify({
+              error: {
+                code: "internal_error",
+                message: "Synthetic lost unblock response",
+              },
+            }),
+          });
+          return;
+        }
+        await route.continue();
+      },
+    );
+    await alicePage.goto("/settings/safety");
+    await expect(
+      alicePage.getByRole("heading", { name: "Safety" }),
+    ).toBeVisible();
+    await expect(
+      alicePage.getByText("You have not blocked anyone."),
+    ).toHaveCount(0);
+    const retryBlockedList = alicePage.getByRole("button", {
+      name: "Try again",
+    });
+    await expect(retryBlockedList).toBeVisible();
+    allowBlockedListLoad = true;
+    await retryBlockedList.click();
+    const blockedCard = alicePage
+      .getByTestId("blocked-user-row")
+      .filter({ hasText: `@${bobHandle}` });
+    await expect(blockedCard).toContainText("Bobby Profile");
+    const unblockButton = blockedCard.getByRole("button", {
+      name: "Unblock",
+    });
+    const lostResponse = alicePage.waitForResponse(
+      (response) =>
+        response.request().method() === "DELETE" &&
+        response.url().endsWith(`/v1/trust/blocks/${bobHandle}`) &&
+        response.status() === 503,
+    );
+    await unblockButton.click();
+    await lostResponse;
+    await expect.poll(() => loseFirstUnblockResponse).toBe(false);
+    await expect(blockedCard).toBeVisible();
+    await expect(unblockButton).toBeEnabled();
+    await unblockButton.click();
+    await expect(blockedCard).toHaveCount(0);
+    await alicePage.unroute(blocksRoute);
+
+    await alicePage.goto(directUrl);
+    await expect(
+      alicePage.getByTestId("direct-chat-shell"),
     ).toBeVisible({ timeout: 20_000 });
+    await expect(
+      alicePage
+        .getByTestId("direct-message-human")
+        .filter({ hasText: pendingBeforeOwnBlock }),
+    ).toHaveCount(0);
+    await alicePage.waitForTimeout(1_000);
+    await expect(
+      alicePage
+        .getByTestId("direct-message-human")
+        .filter({ hasText: pendingBeforeOwnBlock }),
+    ).toHaveCount(0);
 
     await bobContext.close();
     await aliceContext.close();

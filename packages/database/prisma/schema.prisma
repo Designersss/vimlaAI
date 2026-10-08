@@ -60,6 +60,12 @@ model User {
   memoryItems          MemoryItem[]             @relation("MemoryOwner")
   compactedStates      CompactedContextState[]  @relation("CompactedStateOwner")
   memoryExtractionReceipts MemoryExtractionReceipt[] @relation("MemoryExtractionOwner")
+  blocksCreated             UserBlock[] @relation("UserBlockBlocker")
+  blocksReceived            UserBlock[] @relation("UserBlockBlocked")
+  abuseReportsCreated       AbuseReport[] @relation("AbuseReportReporter")
+  abuseReportsReceived      AbuseReport[] @relation("AbuseReportTarget")
+  abuseReportEvidenceSent   AbuseReport[] @relation("AbuseReportEvidenceSender")
+  communicationSurfacePreferences CommunicationSurfacePreference[]
 
   @@unique([email])
   @@unique([phoneNumber])
@@ -443,6 +449,7 @@ model CommunicationSurface {
   directConversation   DirectConversation? @relation("DirectCommunicationSurface", fields: [directConversationId], references: [id], onDelete: Cascade)
   createdAt            DateTime            @default(now())
   updatedAt            DateTime            @updatedAt
+  preferences          CommunicationSurfacePreference[]
 
   @@index([status, lastActivityAt, id])
   @@map("communication_surface")
@@ -1041,6 +1048,7 @@ model OperatorRun {
   invocationScope          String   @default("PERSONAL")
   directConversationId     String?
   directConversation       DirectConversation? @relation(fields: [directConversationId], references: [id], onDelete: Restrict)
+  directInteractionEpoch   Int?
   contextOwnIncluded       Boolean  @default(false)
   contextPeerIncluded      Boolean  @default(false)
   contextPeerDenied        Boolean  @default(false)
@@ -1119,6 +1127,7 @@ model UserCryptoDevice {
   oneTimePrekeys          DirectOneTimePrekey[]
   sentMessages            DirectMessage[]
   receivedEnvelopes       DirectMessageEnvelope[]
+  abuseReportEvidence      AbuseReport[]
 
   @@index([userId, revokedAt])
   @@map("user_crypto_device")
@@ -1146,9 +1155,11 @@ model DirectConversation {
   updatedAt     DateTime @updatedAt
   lastMessageAt       DateTime @default(now())
   lastMessageSequence  BigInt   @default(0)
+  interactionEpoch     Int      @default(0)
   members             DirectConversationMember[]
   messages      DirectMessage[]
   operatorRuns  OperatorRun[]
+  abuseReportEvidence AbuseReport[]
 
   @@index([lastMessageAt])
   @@map("direct_conversation")
@@ -1182,9 +1193,11 @@ model DirectMessage {
   senderDevice   UserCryptoDevice   @relation(fields: [senderDeviceId], references: [id], onDelete: Restrict)
   clientMessageId String
   kind           String
+  interactionEpoch Int              @default(0)
   sequence       BigInt             @default(0)
   createdAt      DateTime           @default(now())
   envelopes      DirectMessageEnvelope[]
+  abuseReportEvidence AbuseReport[]
 
   @@unique([conversationId, senderUserId, clientMessageId])
   @@unique([conversationId, sequence])
@@ -1388,9 +1401,10 @@ model ContextSnapshot {
   id            String         @id @default(uuid())
   planId        String?        @unique
   plan          ExecutionPlan? @relation(fields: [planId], references: [id], onDelete: Restrict)
-  operatorRunId String?        @unique
-  operatorRun   OperatorRun?   @relation(fields: [operatorRunId], references: [id], onDelete: Restrict)
-  version       Int            @default(1)
+  operatorRunId          String?        @unique
+  operatorRun            OperatorRun?   @relation(fields: [operatorRunId], references: [id], onDelete: Restrict)
+  directInteractionEpoch Int?
+  version                Int            @default(1)
   fingerprint  String
   createdAt    DateTime      @default(now())
   items        ContextSnapshotItem[]

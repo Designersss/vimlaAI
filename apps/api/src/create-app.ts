@@ -25,6 +25,10 @@ export async function createVimlaApiApp(
   const adapter = new FastifyAdapter({
     genReqId: (request: IncomingMessage) => resolveRequestId(request.headers),
     requestIdHeader: "x-request-id",
+    trustProxy:
+      config.trustedProxyRanges.length > 0
+        ? config.trustedProxyRanges
+        : false,
   });
 
   const app = await NestFactory.create<NestFastifyApplication>(

@@ -25,6 +25,7 @@ import { RealtimeModule } from "./realtime/realtime.module.js";
 import { SyncModule } from "./sync/sync.module.js";
 import { InboxModule } from "./inbox/inbox.module.js";
 import { PeopleModule } from "./people/people.module.js";
+import { TrustModule } from "./trust/trust.module.js";
 import { createPinoHttpOptions } from "./observability/logger.js";
 import { ObservabilityModule } from "./observability/observability.module.js";
 
@@ -52,6 +53,7 @@ export class AppModule {
       OperatorModule,
       OrchestrationModule,
       ProjectsModule,
+      TrustModule,
       PeopleModule,
       DirectChatsModule,
       MentionsModule,

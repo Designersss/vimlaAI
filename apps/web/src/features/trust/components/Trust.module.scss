@@ -1,0 +1,54 @@
+.dialogBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--vimla-space-4);
+}
+
+.evidencePreview {
+  min-width: 0;
+  padding: var(--vimla-space-3);
+  border: 1px solid var(--vimla-border-subtle);
+  border-radius: var(--vimla-radius-card);
+  background: var(--vimla-surface-2);
+}
+
+.evidencePreview blockquote {
+  margin: var(--vimla-space-2) 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.blockedList {
+  display: flex;
+  flex-direction: column;
+  gap: var(--vimla-space-3);
+}
+
+.blockedRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--vimla-space-3);
+  min-width: 0;
+}
+
+.blockedIdentity {
+  display: flex;
+  align-items: center;
+  gap: var(--vimla-space-3);
+  min-width: 0;
+}
+
+.blockedText {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 420px) {
+  .blockedRow {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

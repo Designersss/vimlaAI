@@ -1,3 +1,4 @@
+import { isIP } from "node:net";
 import { resolveEmbeddingConfig } from "./embeddings.js";
 import { loadEnvFiles } from "./load-env.js";
 import {
@@ -32,6 +33,9 @@ export function loadApiConfig(
     port: parsed.API_PORT,
     webOrigin: parsed.WEB_ORIGIN,
     adminOrigin: parsed.ADMIN_ORIGIN,
+    trustedProxyRanges: parseTrustedProxyRanges(
+      parsed.TRUSTED_PROXY_RANGES,
+    ),
     adminSessionTtlSeconds: parsed.ADMIN_SESSION_TTL_SECONDS,
     adminSessionIdleSeconds: parsed.ADMIN_SESSION_IDLE_SECONDS,
     adminStepUpSeconds: parsed.ADMIN_STEP_UP_SECONDS,
@@ -147,6 +151,12 @@ export function loadApiConfig(
       parsed.MEMORY_DERIVED_AUDIT_RETENTION_DAYS ?? 180,
     directChatsEnabled: parsed.DIRECT_CHATS_ENABLED === "true",
     directChatsMutationLimitPerMinute: parsed.DIRECT_CHATS_MUTATION_LIMIT_PER_MINUTE,
+    directChatsPreflightLimitPerMinute: parsed.DIRECT_CHATS_PREFLIGHT_LIMIT_PER_MINUTE,
+    directChatsPrekeyLimitPerMinute: parsed.DIRECT_CHATS_PREKEY_LIMIT_PER_MINUTE,
+    trustReadLimitPerMinute: parsed.TRUST_READ_LIMIT_PER_MINUTE,
+    trustMutationLimitPerMinute: parsed.TRUST_MUTATION_LIMIT_PER_MINUTE,
+    trustReportLimitPerMinute: parsed.TRUST_REPORT_LIMIT_PER_MINUTE,
+    trustReportIpLimitPerMinute: parsed.TRUST_REPORT_IP_LIMIT_PER_MINUTE,
     directChatsMaxCiphertextBytes: parsed.DIRECT_CHATS_MAX_CIPHERTEXT_BYTES,
     notifyInboxLimitPerMinute: parsed.NOTIFY_INBOX_LIMIT_PER_MINUTE,
     reminderReconcileIntervalSeconds: parsed.REMINDER_RECONCILE_INTERVAL_SECONDS,
@@ -398,4 +408,48 @@ export function loadWorkerConfig(
     tbankPassword: parsed.TBANK_PASSWORD ?? "local-dev-only-tbank-password",
     tbankApiBaseUrl: resolveTbankApiBaseUrl(parsed.TBANK_ENV, parsed.TBANK_API_BASE_URL),
   });
+}
+
+
+function parseTrustedProxyRanges(value: string): string[] {
+  const ranges = value
+    .split(",")
+    .map((item) => item.trim())
+    .filter((item) => item.length > 0);
+  if (ranges.length > 64) {
+    throw new Error(
+      "TRUSTED_PROXY_RANGES must contain at most 64 entries",
+    );
+  }
+
+  for (const range of ranges) {
+    const slash = range.lastIndexOf("/");
+    const address =
+      slash === -1 ? range : range.slice(0, slash);
+    const version = isIP(address);
+    if (version === 0) {
+      throw new Error(
+        `TRUSTED_PROXY_RANGES contains an invalid IP or CIDR: ${range}`,
+      );
+    }
+    if (slash === -1) {
+      continue;
+    }
+
+    const prefixRaw = range.slice(slash + 1);
+    if (!/^\d{1,3}$/.test(prefixRaw)) {
+      throw new Error(
+        `TRUSTED_PROXY_RANGES contains an invalid CIDR prefix: ${range}`,
+      );
+    }
+    const prefix = Number(prefixRaw);
+    const maxPrefix = version === 4 ? 32 : 128;
+    if (prefix < 0 || prefix > maxPrefix) {
+      throw new Error(
+        `TRUSTED_PROXY_RANGES contains an invalid CIDR prefix: ${range}`,
+      );
+    }
+  }
+
+  return ranges;
 }

@@ -23,6 +23,10 @@ import {
   type ApiRuntimeConfig,
 } from "../config/api-config.js";
 import { PrismaService } from "../persistence/prisma.service.js";
+import {
+  PEOPLE_ACCESS_POLICY,
+  type PeopleAccessPolicy,
+} from "../people/people-access-policy.js";
 
 const CURSOR_VERSION = 1 as const;
 const UUID_PATTERN =
@@ -98,6 +102,8 @@ export class InboxService {
     private readonly prismaService: PrismaService,
     @Inject(API_CONFIG)
     private readonly config: ApiRuntimeConfig,
+    @Inject(PEOPLE_ACCESS_POLICY)
+    private readonly peopleAccess: PeopleAccessPolicy,
   ) {}
 
   private get prisma(): PrismaClient {
@@ -379,6 +385,11 @@ export class InboxService {
           )
         )`
       : Prisma.sql``;
+    const discoveryPredicate =
+      this.peopleAccess.discoveryAllowedSql(
+        userId,
+        Prisma.sql`peer."userId"`,
+      );
 
     const rows = await this.prisma.$queryRaw<
       Array<{ surfaceId: string }>
@@ -400,6 +411,7 @@ export class InboxService {
         AND mine."userId" = ${userId}
         AND handle."kind" = 'USER'
         AND handle."status" = 'ACTIVE'
+        AND ${discoveryPredicate}
         AND ${matchPredicate}
         ${cursorPredicate}
       GROUP BY

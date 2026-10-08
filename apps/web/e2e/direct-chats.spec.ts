@@ -155,9 +155,34 @@ test.describe("Secure Direct Chats", () => {
 
     await composer.fill("live from alice");
     await alicePage.getByTestId("chat-composer-send").click();
-    await expect(nikitaPage.getByTestId("direct-message-human").filter({ hasText: "live from alice" })).toBeVisible({
+    const liveFromAlice = nikitaPage
+      .getByTestId("direct-message-human")
+      .filter({ hasText: "live from alice" });
+    await expect(liveFromAlice).toBeVisible({
       timeout: 20_000,
     });
+    const liveBubble = liveFromAlice.locator("..");
+    await liveBubble
+      .getByRole("button", {
+        name: /пожаловаться на сообщение|report message/i,
+      })
+      .click();
+    const evidenceDialog = nikitaPage.getByRole("dialog");
+    await expect(evidenceDialog).toContainText("live from alice");
+    await expect(evidenceDialog).toContainText(
+      /раскрыт|disclos/i,
+    );
+    await evidenceDialog
+      .getByRole("button", {
+        name: /отправить жалобу|submit report/i,
+      })
+      .click();
+    await expect(evidenceDialog).toContainText(
+      /жалоба отправлена|report submitted/i,
+    );
+    await evidenceDialog
+      .getByRole("button", { name: /готово|done/i })
+      .click();
 
     let abortBeforeServer = true;
     await alicePage.route(
@@ -241,6 +266,18 @@ test.describe("Secure Direct Chats", () => {
     );
     const recoveryConversationId =
       directConversationId(directUrl);
+    const recoveryDetailResponse =
+      await alicePage.request.get(
+        `${apiBase}/v1/direct-chats/${recoveryConversationId}`,
+      );
+    expect(recoveryDetailResponse.ok()).toBe(true);
+    const recoveryInteractionEpoch = Number(
+      (await recoveryDetailResponse.json()).interactionEpoch,
+    );
+    expect(
+      Number.isSafeInteger(recoveryInteractionEpoch) &&
+        recoveryInteractionEpoch >= 0,
+    ).toBe(true);
     const pendingRecoveryLockKey = [
       "vimla-pending-send-recovery",
       recoveryConversationId,
@@ -268,6 +305,7 @@ test.describe("Secure Direct Chats", () => {
           recoveryConversationId,
           aliceRecoveryDeviceId,
           peerDeviceId,
+          `epoch-${recoveryInteractionEpoch}`,
         ].join(":"),
         leaseTiming,
       );
@@ -396,6 +434,7 @@ test.describe("Secure Direct Chats", () => {
     expect(detailResponse.ok()).toBe(true);
     const detailPayload = (await detailResponse.json()) as {
       devices: Array<{ id: string }>;
+      interactionEpoch: number;
     };
     const peerDeviceId = detailPayload.devices.find(
       (device) => device.id !== aliceLocalDeviceId,
@@ -409,6 +448,7 @@ test.describe("Secure Direct Chats", () => {
       directConversationId(directUrl),
       aliceLocalDeviceId,
       peerDeviceId,
+      `epoch-${detailPayload.interactionEpoch}`,
     ].join(":");
     await holdWebLock(alicePage, heldWebLockKey);
     try {
@@ -429,6 +469,7 @@ test.describe("Secure Direct Chats", () => {
       conversationId: directConversationId(directUrl),
       localDeviceId: aliceLocalDeviceId,
       peerDeviceId,
+      interactionEpoch: detailPayload.interactionEpoch,
     });
 
     const primaryComposer = alicePage.getByPlaceholder(
@@ -585,6 +626,7 @@ test.describe("Secure Direct Chats", () => {
         conversationId: directConversationId(directUrl),
         localDeviceId: legacyFixture.deviceId,
         peerDeviceId,
+        interactionEpoch: detailPayload.interactionEpoch,
       },
     );
     expect(migratedRatchet.schemaVersion).toBe(2);
@@ -746,6 +788,628 @@ test.describe("Secure Direct Chats", () => {
     await nikitaSecondContext.close();
     await aliceContext.close();
     await nikitaContext.close();
+  });
+
+  test("reports only the visible bounded excerpt from a long E2EE Direct message", async ({
+    browser,
+    request,
+  }) => {
+    test.setTimeout(120_000);
+    const password = "correct-horse-battery";
+    const aliceEmail = uniqueEmail("e2e-long-evidence-alice");
+    const bobEmail = uniqueEmail("e2e-long-evidence-bob");
+    const aliceHandle = uniqueHandle("longevidencealice");
+    const bobHandle = uniqueHandle("longevidencebob");
+
+    const aliceContext = await browser.newContext();
+    const bobContext = await browser.newContext();
+    const alicePage = await aliceContext.newPage();
+    const bobPage = await bobContext.newPage();
+
+    await signUp(alicePage, {
+      name: "Evidence Alice",
+      email: aliceEmail,
+      password,
+      handle: aliceHandle,
+    });
+    await verifyEmail(alicePage, request, aliceEmail);
+    await purchasePro(alicePage);
+
+    await signUp(bobPage, {
+      name: "Evidence Bob",
+      email: bobEmail,
+      password,
+      handle: bobHandle,
+    });
+    await verifyEmail(bobPage, request, bobEmail);
+    await purchasePro(bobPage);
+
+    const created = await alicePage.request.post(
+      `${apiBase}/v1/direct-chats`,
+      {
+        data: { peerHandle: bobHandle },
+        headers: {
+          origin: webOrigin,
+          "content-type": "application/json",
+        },
+      },
+    );
+    expect(created.ok()).toBe(true);
+    const conversationId = String(
+      (await created.json()).id,
+    );
+    const directUrl = `/app/direct/${conversationId}`;
+
+    await Promise.all([
+      alicePage.goto(directUrl),
+      bobPage.goto(directUrl),
+    ]);
+    await expect(
+      alicePage.getByTestId("direct-chat-shell"),
+    ).toBeVisible({ timeout: 20_000 });
+    await expect(
+      bobPage.getByTestId("direct-chat-shell"),
+    ).toBeVisible({ timeout: 20_000 });
+
+    const evidencePrefix = "long evidence ";
+    const longEvidenceText =
+      `${evidencePrefix}${"x".repeat(
+        3_999 - evidencePrefix.length,
+      )}😀${"y".repeat(500)}`;
+    const composer = alicePage.getByPlaceholder(
+      /сообщение этому человеку|message this person/i,
+    );
+    await composer.fill(longEvidenceText);
+    await expect(
+      alicePage.getByTestId("chat-composer-send"),
+    ).toBeEnabled();
+    await alicePage
+      .getByTestId("chat-composer-send")
+      .click();
+
+    const longEvidenceMessage = bobPage
+      .getByTestId("direct-message-human")
+      .filter({ hasText: "long evidence" });
+    await expect(longEvidenceMessage).toBeVisible({
+      timeout: 20_000,
+    });
+    await longEvidenceMessage
+      .locator("..")
+      .getByRole("button", {
+        name: /пожаловаться на сообщение|report message/i,
+      })
+      .click();
+
+    const dialog = bobPage.getByRole("dialog");
+    const evidenceEditor =
+      dialog.locator("#trust-report-evidence");
+    await expect(evidenceEditor).toBeVisible();
+    const boundedExcerpt =
+      await evidenceEditor.inputValue();
+    expect(boundedExcerpt).toHaveLength(3_999);
+    expect(
+      longEvidenceText.startsWith(boundedExcerpt),
+    ).toBe(true);
+    expect(
+      /[\uD800-\uDBFF]$/.test(boundedExcerpt),
+    ).toBe(false);
+    await expect(dialog).toContainText(
+      /4000|4[\s,.]?000/,
+    );
+
+    const editedEvidence =
+      `${boundedExcerpt.slice(0, 3_980)} [edited]`;
+    await evidenceEditor.fill(editedEvidence);
+    const reasonEditor = dialog.locator("#trust-report-reason");
+    const detailsEditor = dialog.locator("#trust-report-details");
+    const originalDetails =
+      "Selected evidence should remain unchanged during submission.";
+    await reasonEditor.selectOption("THREATS");
+    await detailsEditor.fill(originalDetails);
+
+    let releaseReport!: () => void;
+    let signalReportHeld!: () => void;
+    const reportHeld = new Promise<void>((resolve) => {
+      signalReportHeld = resolve;
+    });
+    const reportRelease = new Promise<void>((resolve) => {
+      releaseReport = resolve;
+    });
+    await bobPage.route("**/v1/trust/reports", async (route) => {
+      if (route.request().method() === "POST") {
+        signalReportHeld();
+        await reportRelease;
+      }
+      await route.continue();
+    });
+
+    const reportRequestPromise =
+      bobPage.waitForRequest(
+        (outgoing) =>
+          outgoing.method() === "POST" &&
+          outgoing.url() ===
+            `${apiBase}/v1/trust/reports`,
+      );
+    await dialog
+      .getByRole("button", {
+        name: /отправить жалобу|submit report/i,
+      })
+      .click();
+    const reportRequest =
+      await reportRequestPromise;
+    await reportHeld;
+    await expect(reasonEditor).toBeDisabled();
+    await expect(detailsEditor).toBeDisabled();
+    await expect(evidenceEditor).toBeDisabled();
+    await expect(reasonEditor).toHaveValue("THREATS");
+    await expect(detailsEditor).toHaveValue(originalDetails);
+    await expect(evidenceEditor).toHaveValue(editedEvidence);
+    const reportPayload =
+      reportRequest.postDataJSON() as {
+        reason?: string;
+        details?: string;
+        evidence?: { disclosedText?: string };
+      };
+    expect(reportPayload.reason).toBe("THREATS");
+    expect(reportPayload.details).toBe(originalDetails);
+    expect(
+      reportPayload.evidence?.disclosedText,
+    ).toBe(editedEvidence);
+    releaseReport();
+    await expect(dialog).toContainText(
+      /жалоба отправлена|report submitted/i,
+    );
+    await bobPage.unroute("**/v1/trust/reports");
+
+    await aliceContext.close();
+    await bobContext.close();
+  });
+
+  test("does not resurrect a trust-rejected pending message after unblock", async ({
+    browser,
+    request,
+  }) => {
+    test.setTimeout(150_000);
+    const password = "correct-horse-battery";
+    const aliceEmail = uniqueEmail("e2e-block-pending-alice");
+    const bobEmail = uniqueEmail("e2e-block-pending-bob");
+    const aliceHandle = uniqueHandle("blockpendingalice");
+    const bobHandle = uniqueHandle("blockpendingbob");
+
+    const aliceContext = await browser.newContext();
+    const bobContext = await browser.newContext();
+    const alicePage = await aliceContext.newPage();
+    const bobPage = await bobContext.newPage();
+
+    await signUp(alicePage, {
+      name: "Pending Alice",
+      email: aliceEmail,
+      password,
+      handle: aliceHandle,
+    });
+    await verifyEmail(alicePage, request, aliceEmail);
+    await purchasePro(alicePage);
+
+    await signUp(bobPage, {
+      name: "Pending Bob",
+      email: bobEmail,
+      password,
+      handle: bobHandle,
+    });
+    await verifyEmail(bobPage, request, bobEmail);
+    await purchasePro(bobPage);
+
+    const created = await alicePage.request.post(
+      `${apiBase}/v1/direct-chats`,
+      {
+        data: { peerHandle: bobHandle },
+        headers: {
+          origin: webOrigin,
+          "content-type": "application/json",
+        },
+      },
+    );
+    expect(created.ok()).toBe(true);
+    const conversationId = String(
+      (await created.json()).id,
+    );
+    const directUrl = `/app/direct/${conversationId}`;
+
+    await Promise.all([
+      alicePage.goto(directUrl),
+      bobPage.goto(directUrl),
+    ]);
+    await expect(
+      alicePage.getByTestId("direct-chat-shell"),
+    ).toBeVisible({ timeout: 20_000 });
+    await expect(
+      bobPage.getByTestId("direct-chat-shell"),
+    ).toBeVisible({ timeout: 20_000 });
+
+    const composer = alicePage.getByPlaceholder(
+      /сообщение этому человеку|message this person/i,
+    );
+
+    let signalSendHeld!: () => void;
+    let releaseSend!: () => void;
+    let signalSendForwarded!: () => void;
+    const sendHeld = new Promise<void>((resolve) => {
+      signalSendHeld = resolve;
+    });
+    const sendRelease = new Promise<void>((resolve) => {
+      releaseSend = resolve;
+    });
+    const sendForwarded = new Promise<void>((resolve) => {
+      signalSendForwarded = resolve;
+    });
+    let held = false;
+    await alicePage.route(
+      "**/v1/direct-chats/*/messages",
+      async (route) => {
+        if (
+          !held &&
+          route.request().method() === "POST"
+        ) {
+          held = true;
+          signalSendHeld();
+          await sendRelease;
+          await route.continue();
+          signalSendForwarded();
+          return;
+        }
+        await route.continue();
+      },
+    );
+
+    const rejectedText =
+      "must stay cancelled after unblock";
+    await composer.fill(rejectedText);
+    await alicePage
+      .getByTestId("chat-composer-send")
+      .click();
+    await sendHeld;
+    await expect
+      .poll(() => readPendingSendCount(alicePage))
+      .toBe(1);
+
+    const block = await bobPage.request.post(
+      `${apiBase}/v1/trust/blocks`,
+      {
+        data: { handle: aliceHandle },
+        headers: {
+          origin: webOrigin,
+          "content-type": "application/json",
+        },
+      },
+    );
+    expect(block.ok()).toBe(true);
+
+    releaseSend();
+    await sendForwarded;
+    await alicePage.unroute(
+      "**/v1/direct-chats/*/messages",
+    );
+    await expect
+      .poll(() => readPendingSendCount(alicePage), {
+        timeout: 20_000,
+      })
+      .toBe(0);
+
+    const unblock = await bobPage.request.delete(
+      `${apiBase}/v1/trust/blocks/${aliceHandle}`,
+      { headers: { origin: webOrigin } },
+    );
+    expect(unblock.ok()).toBe(true);
+
+    await alicePage.reload();
+    await expect(
+      alicePage.getByTestId("direct-chat-shell"),
+    ).toBeVisible({ timeout: 20_000 });
+    await expect(
+      alicePage
+        .getByTestId("direct-message-human")
+        .filter({ hasText: rejectedText }),
+    ).toHaveCount(0);
+
+    const freshText = "fresh after explicit unblock";
+    await alicePage
+      .getByPlaceholder(
+        /сообщение этому человеку|message this person/i,
+      )
+      .fill(freshText);
+    await alicePage
+      .getByTestId("chat-composer-send")
+      .click();
+    await expect(
+      bobPage
+        .getByTestId("direct-message-human")
+        .filter({ hasText: freshText }),
+    ).toBeVisible({ timeout: 20_000 });
+    await expect(
+      bobPage
+        .getByTestId("direct-message-human")
+        .filter({ hasText: rejectedText }),
+    ).toHaveCount(0);
+
+    const localDeviceId =
+      await readLocalDeviceId(alicePage);
+    await insertAgedTrustCancelledPendingSend(
+      alicePage,
+      {
+        conversationId,
+        senderDeviceId: localDeviceId,
+      },
+    );
+    await expect
+      .poll(() => readPendingSendCount(alicePage))
+      .toBe(1);
+    await alicePage.reload();
+    await expect(
+      alicePage.getByTestId("direct-chat-shell"),
+    ).toBeVisible({ timeout: 20_000 });
+    await expect
+      .poll(() => readPendingSendCount(alicePage), {
+        timeout: 20_000,
+      })
+      .toBe(1);
+
+    await aliceContext.close();
+    await bobContext.close();
+  });
+
+
+  test("keeps Direct @Vimla recovery bound to the source trust epoch and clears stale confirmation UI", async ({
+    browser,
+    request,
+  }) => {
+    test.setTimeout(180_000);
+    const password = "correct-horse-battery";
+    const aliceEmail = uniqueEmail("e2e-operator-epoch-alice");
+    const bobEmail = uniqueEmail("e2e-operator-epoch-bob");
+    const aliceHandle = uniqueHandle("opepochalice");
+    const bobHandle = uniqueHandle("opepochbob");
+
+    const aliceContext = await browser.newContext();
+    const bobContext = await browser.newContext();
+    const alicePage = await aliceContext.newPage();
+    const bobPage = await bobContext.newPage();
+
+    await signUp(alicePage, {
+      name: "Operator Epoch Alice",
+      email: aliceEmail,
+      password,
+      handle: aliceHandle,
+    });
+    await verifyEmail(alicePage, request, aliceEmail);
+    await purchasePro(alicePage);
+    await alicePage.request.patch(
+      `${apiBase}/v1/me/preferences`,
+      {
+        data: { timezone: "Europe/Moscow" },
+        headers: {
+          origin: webOrigin,
+          "content-type": "application/json",
+        },
+      },
+    );
+
+    await signUp(bobPage, {
+      name: "Operator Epoch Bob",
+      email: bobEmail,
+      password,
+      handle: bobHandle,
+    });
+    await verifyEmail(bobPage, request, bobEmail);
+    await purchasePro(bobPage);
+
+    const created = await alicePage.request.post(
+      `${apiBase}/v1/direct-chats`,
+      {
+        data: { peerHandle: bobHandle },
+        headers: {
+          origin: webOrigin,
+          "content-type": "application/json",
+        },
+      },
+    );
+    expect(created.ok()).toBe(true);
+    const conversationId = String(
+      (await created.json()).id,
+    );
+    const directUrl = `/app/direct/${conversationId}`;
+
+    await Promise.all([
+      alicePage.goto(directUrl),
+      bobPage.goto(directUrl),
+    ]);
+    await expect(
+      alicePage.getByTestId("direct-chat-shell"),
+    ).toBeVisible({ timeout: 20_000 });
+    await expect(
+      bobPage.getByTestId("direct-chat-shell"),
+    ).toBeVisible({ timeout: 20_000 });
+
+    const composer = alicePage.getByPlaceholder(
+      /сообщение этому человеку|message this person/i,
+    );
+    const responsesBeforeEpochChange =
+      await bobPage
+        .getByTestId("direct-message-response")
+        .count();
+
+    await installHeldOperatorRunResponse(alicePage);
+    await composer.fill(
+      "@vimla ответь коротко: этот ответ не должен пережить смену trust epoch",
+    );
+    await alicePage
+      .getByTestId("chat-composer-send")
+      .click();
+    await expect.poll(
+      () => isOperatorRunResponseHeld(alicePage),
+    ).toBe(true);
+
+    const peerInvoke = bobPage
+      .getByTestId("direct-message-invoke")
+      .filter({
+        hasText:
+          "этот ответ не должен пережить смену trust epoch",
+      });
+    await expect(peerInvoke).toBeVisible({
+      timeout: 20_000,
+    });
+    await peerInvoke
+      .getByRole("button", {
+        name: /пожаловаться на сообщение|report message/i,
+      })
+      .click();
+    const invokeReportDialog =
+      bobPage.getByRole("dialog");
+    const invokeEvidence =
+      invokeReportDialog.locator(
+        "#trust-report-evidence",
+      );
+    await expect(invokeEvidence).toHaveValue(
+      /этот ответ не должен пережить смену trust epoch/i,
+    );
+    const invokeReportRequestPromise =
+      bobPage.waitForRequest(
+        (outgoing) =>
+          outgoing.method() === "POST" &&
+          outgoing.url() ===
+            `${apiBase}/v1/trust/reports`,
+      );
+    await invokeReportDialog
+      .getByRole("button", {
+        name: /отправить жалобу|submit report/i,
+      })
+      .click();
+    const invokeReportRequest =
+      await invokeReportRequestPromise;
+    const invokeReportPayload =
+      invokeReportRequest.postDataJSON() as {
+        evidence?: {
+          kind?: string;
+          disclosedText?: string;
+        };
+      };
+    expect(invokeReportPayload.evidence?.kind).toBe(
+      "DIRECT_MESSAGE",
+    );
+    expect(
+      invokeReportPayload.evidence?.disclosedText,
+    ).toContain(
+      "этот ответ не должен пережить смену trust epoch",
+    );
+    await expect(invokeReportDialog).toContainText(
+      /жалоба отправлена|report submitted/i,
+    );
+    await invokeReportDialog
+      .getByRole("button", {
+        name: /готово|done/i,
+      })
+      .click();
+
+    const block = await bobPage.request.post(
+      `${apiBase}/v1/trust/blocks`,
+      {
+        data: { handle: aliceHandle },
+        headers: {
+          origin: webOrigin,
+          "content-type": "application/json",
+        },
+      },
+    );
+    expect(block.ok()).toBe(true);
+    const unblock = await bobPage.request.delete(
+      `${apiBase}/v1/trust/blocks/${aliceHandle}`,
+      { headers: { origin: webOrigin } },
+    );
+    expect(unblock.ok()).toBe(true);
+
+    await releaseHeldOperatorRunResponse(alicePage);
+    await expect.poll(
+      () => readPendingOperatorIntentCount(alicePage),
+      { timeout: 20_000 },
+    ).toBe(0);
+    await alicePage.waitForTimeout(500);
+    await expect(
+      bobPage.getByTestId("direct-message-response"),
+    ).toHaveCount(responsesBeforeEpochChange);
+
+    let mockStaleConfirmation = true;
+    await alicePage.route(
+      "**/v1/operator/runs",
+      async (route) => {
+        if (
+          !mockStaleConfirmation ||
+          route.request().method() !== "POST"
+        ) {
+          await route.continue();
+          return;
+        }
+        const response = await route.fetch();
+        const payload = (await response.json()) as Record<
+          string,
+          unknown
+        >;
+        await route.fulfill({
+          response,
+          json: {
+            ...payload,
+            status: "AWAITING_CONFIRMATION",
+            publicMessage: "Synthetic confirmation became terminal.",
+            clarificationQuestion: null,
+            confirmationRequired: true,
+            confirmationToken: "synthetic-confirmation-token",
+            errorCode: null,
+            actions: [
+              {
+                kind: "task",
+                operation: "created",
+                title: "Synthetic stale confirmation",
+                detail: null,
+                status: "pending_confirmation",
+                navigationTarget: {
+                  version: 1,
+                  kind: "TASKS",
+                },
+              },
+            ],
+          },
+        });
+        mockStaleConfirmation = false;
+      },
+    );
+
+    await composer.fill(
+      "@vimla ответь одним словом: готово",
+    );
+    await alicePage
+      .getByTestId("chat-composer-send")
+      .click();
+    await expect.poll(
+      () => mockStaleConfirmation,
+    ).toBe(false);
+    await alicePage.unroute("**/v1/operator/runs");
+
+    const confirmButton = alicePage.getByRole(
+      "button",
+      { name: /подтвердить|confirm/i },
+    );
+    await expect(confirmButton).toBeVisible({
+      timeout: 20_000,
+    });
+    await confirmButton.click();
+    await expect(confirmButton).toHaveCount(0, {
+      timeout: 20_000,
+    });
+    await expect.poll(
+      () => readPendingOperatorIntentCount(alicePage),
+      { timeout: 20_000 },
+    ).toBe(0);
+
+    await aliceContext.close();
+    await bobContext.close();
   });
 
   test("recovers operator intent and fails closed on IndexedDB commit abort", async ({ browser, request }) => {
@@ -1997,6 +2661,130 @@ async function restoreIndexedDbPut(
   });
 }
 
+async function insertAgedTrustCancelledPendingSend(
+  page: Page,
+  input: {
+    conversationId: string;
+    senderDeviceId: string;
+  },
+): Promise<void> {
+  await page.evaluate(async (value) => {
+    const db = await new Promise<IDBDatabase>(
+      (resolve, reject) => {
+        const request = indexedDB.open(
+          "vimla-direct-e2ee",
+        );
+        request.onsuccess = () =>
+          resolve(request.result);
+        request.onerror = () =>
+          reject(
+            request.error ??
+              new Error(
+                "Pending send database open failed",
+              ),
+          );
+      },
+    );
+    try {
+      await new Promise<void>(
+        (resolve, reject) => {
+          const tx = db.transaction(
+            "pendingSends",
+            "readwrite",
+          );
+          const clientMessageId =
+            `aged-trust-${crypto.randomUUID()}`;
+          tx.objectStore("pendingSends").put(
+            {
+              revision: 1,
+              conversationId: value.conversationId,
+              clientMessageId,
+              senderUserId: "synthetic-user",
+              senderDeviceId: value.senderDeviceId,
+              interactionEpoch: 0,
+              kind: "HUMAN",
+              envelopes: [],
+              mentions: [],
+              plaintext: "aged trust tombstone",
+              createdAt: new Date(
+                Date.now() - 11 * 60_000,
+              ).toISOString(),
+              trustCancelledAt: new Date(
+                Date.now() - 10 * 60_000,
+              ).toISOString(),
+            },
+            clientMessageId,
+          );
+          tx.oncomplete = () => resolve();
+          tx.onabort = () =>
+            reject(
+              tx.error ??
+                new Error(
+                  "Aged trust tombstone insert aborted",
+                ),
+            );
+          tx.onerror = () =>
+            reject(
+              tx.error ??
+                new Error(
+                  "Aged trust tombstone insert failed",
+                ),
+            );
+        },
+      );
+    } finally {
+      db.close();
+    }
+  }, input);
+}
+
+async function readPendingSendCount(
+  page: Page,
+): Promise<number> {
+  return page.evaluate(async () => {
+    const db = await new Promise<IDBDatabase>(
+      (resolve, reject) => {
+        const request = indexedDB.open(
+          "vimla-direct-e2ee",
+        );
+        request.onsuccess = () =>
+          resolve(request.result);
+        request.onerror = () =>
+          reject(
+            request.error ??
+              new Error(
+                "Pending send database read failed",
+              ),
+          );
+      },
+    );
+    try {
+      return await new Promise<number>(
+        (resolve, reject) => {
+          const tx = db.transaction(
+            "pendingSends",
+            "readonly",
+          );
+          const request = tx
+            .objectStore("pendingSends")
+            .count();
+          request.onsuccess = () =>
+            resolve(request.result);
+          request.onerror = () =>
+            reject(
+              request.error ??
+                new Error(
+                  "Pending send count failed",
+                ),
+            );
+        },
+      );
+    } finally {
+      db.close();
+    }
+  });
+}
+
 async function readPendingOperatorIntentCount(
   page: Page,
 ): Promise<number> {
@@ -2983,13 +3771,26 @@ async function readLegacyV2Fixture(
             | Record<string, unknown>
             | undefined;
           if (key.startsWith(prefix) && value) {
-            const peerDeviceId = key.slice(
-              prefix.length,
-            );
+            const suffix = key.slice(prefix.length);
+            const scoped =
+              /^(.*):epoch-(\d+)$/.exec(suffix);
+            if (!scoped) {
+              cursor.continue();
+              return;
+            }
+            const peerDeviceId = scoped[1];
+            const interactionEpoch = Number(scoped[2]);
+            if (
+              !peerDeviceId ||
+              !Number.isSafeInteger(interactionEpoch) ||
+              interactionEpoch < 0
+            ) {
+              cursor.continue();
+              return;
+            }
             if (value.state !== undefined) {
               rows.push({
-                key:
-                  `${targetConversationId}:${peerDeviceId}`,
+                key,
                 state: value.state,
               });
             } else if (
@@ -3005,13 +3806,13 @@ async function readLegacyV2Fixture(
                     targetConversationId,
                     deviceId,
                     peerDeviceId,
+                    `epoch-${interactionEpoch}`,
                     String(value.stateVersion),
                   ].join(":"),
                   wrappingKey,
                 ).then((plaintext) => {
                   rows.push({
-                    key:
-                      `${targetConversationId}:${peerDeviceId}`,
+                    key,
                     state: JSON.parse(
                       plaintext,
                     ) as unknown,
@@ -3121,6 +3922,7 @@ async function readRatchetRecordVersion(
     conversationId: string;
     localDeviceId: string;
     peerDeviceId: string;
+    interactionEpoch: number;
   },
 ): Promise<{ schemaVersion: number; stateVersion: number }> {
   return page.evaluate(async (value) => {
@@ -3140,6 +3942,7 @@ async function readRatchetRecordVersion(
           value.conversationId,
           value.localDeviceId,
           value.peerDeviceId,
+          `epoch-${value.interactionEpoch}`,
         ].join(":");
         const request = tx.objectStore("ratchets").get(key);
         request.onsuccess = () => {
@@ -3174,6 +3977,7 @@ async function seedExpiredRatchetLease(
     conversationId: string;
     localDeviceId: string;
     peerDeviceId: string;
+    interactionEpoch: number;
   },
 ): Promise<void> {
   await page.evaluate(async (value) => {
@@ -3196,6 +4000,7 @@ async function seedExpiredRatchetLease(
             value.conversationId,
             value.localDeviceId,
             value.peerDeviceId,
+            `epoch-${value.interactionEpoch}`,
           ].join(":"),
         );
         tx.oncomplete = () => resolve();

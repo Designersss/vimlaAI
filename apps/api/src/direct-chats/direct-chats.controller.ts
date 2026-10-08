@@ -18,9 +18,11 @@ import {
   directConversationViewSchema,
   directMessageViewSchema,
   directMessagesResponseSchema,
+  directMessageSendPreflightSchema,
   listDirectMessagesQuerySchema,
   markDirectChatReadSchema,
   prekeyBundlesResponseSchema,
+  prepareDirectMessageSendSchema,
   registerCryptoDeviceSchema,
   rotatePrekeysSchema,
   sendDirectMessageSchema,
@@ -30,6 +32,7 @@ import {
   type DirectConversationView,
   type DirectMessageView,
   type DirectMessagesResponse,
+  type DirectMessageSendPreflight,
   type PrekeyBundlesResponse,
 } from "@vimla/contracts";
 import { AuthGuard } from "../auth/auth.guard.js";
@@ -95,11 +98,14 @@ export class DirectChatDevicesController {
 export class DirectChatPrekeysController {
   constructor(@Inject(DirectChatsFacade) private readonly directChats: DirectChatsFacade) {}
 
-  @Get(":userId/prekeys")
+  @Post(":userId/prekeys")
+  @HttpCode(200)
   async prekeys(@AuthUser() user: AuthenticatedUser, @Param("userId") userId: string): Promise<PrekeyBundlesResponse> {
     this.directChats.assertEnabled();
-    await this.directChats.chats.assertCanFetchPrekeys(user.id, userId);
-    const bundles = await this.directChats.devices.prekeyBundlesForUser(userId);
+    const bundles = await this.directChats.chats.prekeyBundles(
+      user.id,
+      userId,
+    );
     return prekeyBundlesResponseSchema.parse({ userId, bundles });
   }
 }
@@ -162,6 +168,28 @@ export class DirectChatsController {
     );
     this.directChats.logMutation("conversation.read", user.id, id);
     return directConversationViewSchema.parse(updated);
+  }
+
+  @Post(":id/send-preflight")
+  @HttpCode(200)
+  async sendPreflight(
+    @AuthUser() user: AuthenticatedUser,
+    @Param("id") id: string,
+    @Body() body: unknown,
+  ): Promise<DirectMessageSendPreflight> {
+    this.directChats.assertEnabled();
+    const input = parseRequest(
+      prepareDirectMessageSendSchema,
+      body,
+      "Invalid Direct Chat send preflight payload",
+    );
+    return directMessageSendPreflightSchema.parse(
+      await this.directChats.chats.prepareSend(
+        this.directChats.actor(user),
+        id,
+        input.senderDeviceId,
+      ),
+    );
   }
 
   @Get(":id/messages")

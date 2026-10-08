@@ -35,6 +35,7 @@ import type { DirectConversationView, MessageMentionInput } from "@vimla/contrac
 import { seedVimlaPlans } from "@vimla/billing";
 import { loadApiConfig } from "@vimla/config/server";
 import { createPrismaClient } from "@vimla/database";
+import { lockTrustUserPair } from "@vimla/trust";
 import { createVimlaApiApp } from "../create-app.js";
 import { PrismaService } from "../persistence/prisma.service.js";
 import { DirectMentionRoutingService } from "./direct-mention-routing.service.js";
@@ -66,6 +67,7 @@ describe("direct chats API", () => {
     process.env.OPERATOR_ENABLED = "true";
     process.env.OPERATOR_RATE_LIMIT_PER_MINUTE = "200";
     process.env.DIRECT_CHATS_MUTATION_LIMIT_PER_MINUTE = "500";
+    process.env.DIRECT_CHATS_PREFLIGHT_LIMIT_PER_MINUTE = "500";
     process.env.AI_TEXT_ENABLED = "true";
     process.env.AI_TEXT_PROVIDER = "mock";
 
@@ -106,6 +108,165 @@ describe("direct chats API", () => {
       });
       expect(created.statusCode).toBe(503);
       expect(errorCode(created)).toBe("direct_chats_disabled");
+    } finally {
+      await isolated.close();
+    }
+  });
+
+  it("rate-limits send preflight independently from Direct Chat mutations", async () => {
+    const config = loadApiConfig({
+      ...process.env,
+      DIRECT_CHATS_ENABLED: "true",
+      DIRECT_CHATS_MUTATION_LIMIT_PER_MINUTE: "50",
+      DIRECT_CHATS_PREFLIGHT_LIMIT_PER_MINUTE: "2",
+    });
+    const isolated = await createVimlaApiApp(config, {
+      quiet: true,
+    });
+    await isolated.init();
+    await isolated
+      .getHttpAdapter()
+      .getInstance()
+      .ready();
+    try {
+      const alice = await readyUser(
+        isolated,
+        "dc-preflight-rate-alice",
+        "Alice",
+      );
+      const nikita = await readyUser(
+        isolated,
+        "dc-preflight-rate-nikita",
+        "Nikita",
+      );
+      const aliceDevice = await registerHarness(
+        isolated,
+        alice,
+      );
+      await registerHarness(isolated, nikita);
+      const chat = await createChat(
+        isolated,
+        alice.cookies,
+        nikita.handle,
+      );
+
+      const preflight = () =>
+        isolated.inject({
+          method: "POST",
+          url: `/v1/direct-chats/${chat.id}/send-preflight`,
+          headers: jsonHeaders(),
+          cookies: alice.cookies,
+          payload: {
+            senderDeviceId: aliceDevice.deviceId,
+          },
+        });
+
+      expect((await preflight()).statusCode).toBe(200);
+      expect((await preflight()).statusCode).toBe(200);
+      const limited = await preflight();
+      expect(limited.statusCode).toBe(429);
+
+      const mutationStillAllowed = await isolated.inject({
+        method: "PATCH",
+        url: `/v1/direct-chats/${chat.id}/privacy`,
+        headers: jsonHeaders(),
+        cookies: alice.cookies,
+        payload: {
+          shareOwnHistoryWithVimla: true,
+          includePeerHistoryWhenInvoking: false,
+        },
+      });
+      expect(mutationStillAllowed.statusCode).toBe(200);
+    } finally {
+      await isolated.close();
+    }
+  });
+
+  it("claims an OTK once across distinct concurrent initiators", async () => {
+    const recipient = await readyUser(app, "dc-otk-atomic-recipient", "Recipient");
+    const alice = await readyUser(app, "dc-otk-atomic-alice", "Alice");
+    const bob = await readyUser(app, "dc-otk-atomic-bob", "Bob");
+    const device = await registerHarness(app, recipient);
+    await createChat(app, alice.cookies, recipient.handle);
+    await createChat(app, bob.cookies, recipient.handle);
+
+    const claim = (cookies: typeof alice.cookies) =>
+      app.inject({
+        method: "POST",
+        url: `/v1/direct-chats/users/${recipient.id}/prekeys`,
+        headers: jsonHeaders(),
+        payload: {},
+        cookies,
+      });
+    const [aliceClaim, bobClaim] = await Promise.all([
+      claim(alice.cookies),
+      claim(bob.cookies),
+    ]);
+    expect(aliceClaim.statusCode).toBe(200);
+    expect(bobClaim.statusCode).toBe(200);
+    const ids = [aliceClaim, bobClaim].map((response) => {
+      const bundle = (response.json().bundles as Array<{
+        deviceId: string;
+        oneTimePrekeyId: number | null;
+      }>).find((item) => item.deviceId === device.deviceId);
+      expect(bundle).toBeDefined();
+      return bundle?.oneTimePrekeyId ?? null;
+    });
+    expect(ids.filter((id) => id !== null)).toEqual([1]);
+    const stored = await app.get(PrismaService).client.directOneTimePrekey.findMany({
+      where: { deviceId: device.deviceId },
+      select: { consumedAt: true },
+    });
+    expect(stored).toHaveLength(1);
+    expect(stored[0]?.consumedAt).not.toBeNull();
+  });
+
+  it("caps per-pair prekey claims, denies unsafe GET and preserves other mutations", async () => {
+    const config = loadApiConfig({
+      ...process.env,
+      DIRECT_CHATS_ENABLED: "true",
+      DIRECT_CHATS_PREKEY_LIMIT_PER_MINUTE: "2",
+      DIRECT_CHATS_MUTATION_LIMIT_PER_MINUTE: "50",
+    });
+    const isolated = await createVimlaApiApp(config, { quiet: true });
+    await isolated.init();
+    await isolated.getHttpAdapter().getInstance().ready();
+    try {
+      const alice = await readyUser(isolated, "dc-otk-limit-alice", "Alice");
+      const bob = await readyUser(isolated, "dc-otk-limit-bob", "Bob");
+      await registerHarness(isolated, bob);
+      const chat = await createChat(isolated, alice.cookies, bob.handle);
+      const claim = () => isolated.inject({
+        method: "POST",
+        url: `/v1/direct-chats/users/${bob.id}/prekeys`,
+        headers: jsonHeaders(),
+        payload: {},
+        cookies: alice.cookies,
+      });
+      expect((await claim()).statusCode).toBe(200);
+      expect((await claim()).statusCode).toBe(200);
+      expect((await claim()).statusCode).toBe(429);
+      const updated = await isolated.inject({
+        method: "PATCH",
+        url: `/v1/direct-chats/${chat.id}/privacy`,
+        headers: jsonHeaders(),
+        cookies: alice.cookies,
+        payload: { shareOwnHistoryWithVimla: true, includePeerHistoryWhenInvoking: false },
+      });
+      expect(updated.statusCode).toBe(200);
+      const unsafeGet = await isolated.inject({
+        method: "GET",
+        url: `/v1/direct-chats/users/${bob.id}/prekeys`,
+        headers: { origin },
+        cookies: alice.cookies,
+      });
+      expect(unsafeGet.statusCode).toBe(404);
+      const originDenied = await isolated.inject({
+        method: "POST",
+        url: `/v1/direct-chats/users/${bob.id}/prekeys`,
+        cookies: alice.cookies,
+      });
+      expect(originDenied.statusCode).toBe(403);
     } finally {
       await isolated.close();
     }
@@ -389,6 +550,7 @@ describe("direct chats API", () => {
       payload: {
         clientMessageId: randomUUID(),
         senderDeviceId: nikitaDevice.deviceId,
+        interactionEpoch: chat.interactionEpoch,
         kind: "HUMAN",
         envelopes: sent.json().envelope ? [asWire(sent.json().envelope, nikitaDevice.deviceId)] : [],
       },
@@ -727,6 +889,7 @@ describe("direct chats API", () => {
       payload: {
         clientMessageId: randomUUID(),
         senderDeviceId: aliceDevice.deviceId,
+        interactionEpoch: chat.interactionEpoch,
         kind: "OPERATOR_INVOKE",
         envelopes: signedEnvelopes,
         mentions: [{ ...vimlaMention, endOffset: 7 }],
@@ -764,6 +927,7 @@ describe("direct chats API", () => {
       payload: {
         clientMessageId: randomUUID(),
         senderDeviceId: aliceDevice.deviceId,
+        interactionEpoch: chat.interactionEpoch,
         kind: "HUMAN",
         envelopes: outsideEnvelopes,
         mentions: [outsideMention],
@@ -779,6 +943,7 @@ describe("direct chats API", () => {
       payload: {
         clientMessageId: randomUUID(),
         senderDeviceId: aliceDevice.deviceId,
+        interactionEpoch: chat.interactionEpoch,
         kind: "HUMAN",
         envelopes: outsideEnvelopes,
         mentions: [{ ...vimlaMention, kind: "AI_MODEL" }],
@@ -813,6 +978,7 @@ describe("direct chats API", () => {
     const payload = {
       clientMessageId,
       senderDeviceId: aliceDevice.deviceId,
+      interactionEpoch: chat.interactionEpoch,
       kind: "HUMAN" as const,
       envelopes,
       mentions: [],
@@ -905,6 +1071,7 @@ describe("direct chats API", () => {
         payload: {
           clientMessageId: raceClientMessageId,
           senderDeviceId: aliceDevice.deviceId,
+          interactionEpoch: chat.interactionEpoch,
           kind: "HUMAN",
           envelopes: raceEnvelopesA,
           mentions: [],
@@ -918,6 +1085,7 @@ describe("direct chats API", () => {
         payload: {
           clientMessageId: raceClientMessageId,
           senderDeviceId: aliceDevice.deviceId,
+          interactionEpoch: chat.interactionEpoch,
           kind: "HUMAN",
           envelopes: raceEnvelopesB,
           mentions: [],
@@ -1079,6 +1247,7 @@ describe("direct chats API", () => {
     const payload = {
       clientMessageId: randomUUID(),
       senderDeviceId: aliceDevice.deviceId,
+      interactionEpoch: chat.interactionEpoch,
       kind: "HUMAN" as const,
       envelopes,
       mentions: [],
@@ -1199,6 +1368,448 @@ describe("direct chats API", () => {
     expect(validInvoke.statusCode).toBe(201);
     expect(validInvoke.json().mentions).toHaveLength(1);
     expect(validInvoke.json().mentions[0]?.targetId).toBe("VIMLA");
+  });
+
+  it("serializes a queued block ahead of concurrent Direct Chat creation", async () => {
+    const alice = await readyUser(
+      app,
+      "dc-block-create-race-alice",
+      "Block Create Race Alice",
+    );
+    const nikita = await readyUser(
+      app,
+      "dc-block-create-race-nikita",
+      "Block Create Race Nikita",
+    );
+    const db = app.get(PrismaService).client;
+
+    let releasePairLock!: () => void;
+    let notifyPairLocked!: () => void;
+    const pairLockedPromise = new Promise<void>((resolve) => {
+      notifyPairLocked = () => resolve();
+    });
+    const releasePairLockPromise = new Promise<void>((resolve) => {
+      releasePairLock = () => resolve();
+    });
+    const gate = db.$transaction(async (tx) => {
+      expect(
+        await lockTrustUserPair(tx, alice.id, nikita.id),
+      ).toBe(true);
+      notifyPairLocked();
+      await releasePairLockPromise;
+    });
+    await pairLockedPromise;
+
+    let blockSettled = false;
+    const blockPromise = app.inject({
+      method: "POST",
+      url: "/v1/trust/blocks",
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: { handle: nikita.handle },
+    }).then((response) => {
+      blockSettled = true;
+      return response;
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(blockSettled).toBe(false);
+
+    const createPromise = app.inject({
+      method: "POST",
+      url: "/v1/direct-chats",
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: { peerHandle: nikita.handle },
+    });
+
+    releasePairLock();
+    await gate;
+
+    const block = await blockPromise;
+    const created = await createPromise;
+    expect(block.statusCode).toBe(200);
+    expect(created.statusCode).toBe(404);
+    expect(
+      await db.directConversationMember.count({
+        where: { userId: { in: [alice.id, nikita.id] } },
+      }),
+    ).toBe(0);
+  });
+
+  it("keeps the trust lock pair-scoped when one user talks to different peers", async () => {
+    const alice = await readyUser(
+      app,
+      "dc-pair-lock-alice",
+      "Pair Lock Alice",
+    );
+    const bob = await readyUser(
+      app,
+      "dc-pair-lock-bob",
+      "Pair Lock Bob",
+    );
+    const charlie = await readyUser(
+      app,
+      "dc-pair-lock-charlie",
+      "Pair Lock Charlie",
+    );
+    const db = app.get(PrismaService).client;
+
+    let releasePairLock!: () => void;
+    let notifyPairLocked!: () => void;
+    const pairLockedPromise = new Promise<void>((resolve) => {
+      notifyPairLocked = () => resolve();
+    });
+    const releasePairLockPromise = new Promise<void>((resolve) => {
+      releasePairLock = () => resolve();
+    });
+    const gate = db.$transaction(async (tx) => {
+      expect(
+        await lockTrustUserPair(tx, alice.id, bob.id),
+      ).toBe(true);
+      notifyPairLocked();
+      await releasePairLockPromise;
+    });
+    await pairLockedPromise;
+
+    const createPromise = app.inject({
+      method: "POST",
+      url: "/v1/direct-chats",
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: { peerHandle: charlie.handle },
+    });
+    const settled = await Promise.race([
+      createPromise.then(() => true),
+      new Promise<boolean>((resolve) =>
+        setTimeout(() => resolve(false), 5_000),
+      ),
+    ]);
+
+    releasePairLock();
+    await gate;
+    expect(settled).toBe(true);
+    expect((await createPromise).statusCode).toBe(201);
+  });
+
+  it("returns an exact committed replay after a later block", async () => {
+    const alice = await readyUser(
+      app,
+      "dc-block-replay-alice",
+      "Block Replay Alice",
+    );
+    const bob = await readyUser(
+      app,
+      "dc-block-replay-bob",
+      "Block Replay Bob",
+    );
+    const aliceDevice = await registerHarness(app, alice);
+    await registerHarness(app, bob);
+    const chat = await createChat(
+      app,
+      alice.cookies,
+      bob.handle,
+    );
+
+    const envelopes = [];
+    for (const device of chat.devices) {
+      envelopes.push(
+        await encryptTo(
+          app,
+          alice,
+          aliceDevice,
+          device,
+          chat.id,
+          "HUMAN",
+          "committed before block",
+        ),
+      );
+    }
+    const payload = {
+      clientMessageId: randomUUID(),
+      senderDeviceId: aliceDevice.deviceId,
+      interactionEpoch: chat.interactionEpoch,
+      kind: "HUMAN" as const,
+      envelopes,
+      mentions: [],
+    };
+
+    const first = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/${chat.id}/messages`,
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload,
+    });
+    expect(first.statusCode).toBe(201);
+
+    const block = await app.inject({
+      method: "POST",
+      url: "/v1/trust/blocks",
+      headers: jsonHeaders(),
+      cookies: bob.cookies,
+      payload: { handle: alice.handle },
+    });
+    expect(block.statusCode).toBe(200);
+
+    const replay = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/${chat.id}/messages`,
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload,
+    });
+    expect(replay.statusCode).toBe(201);
+    expect(replay.json().id).toBe(first.json().id);
+  });
+
+  it("rejects stale ciphertext after block and reboots E2EE after unblock", async () => {
+    const alice = await readyUser(
+      app,
+      "dc-epoch-alice",
+      "Epoch Alice",
+    );
+    const bob = await readyUser(
+      app,
+      "dc-epoch-bob",
+      "Epoch Bob",
+    );
+    const aliceDevice = await registerHarness(app, alice);
+    const bobDevice = await registerHarness(app, bob);
+    const chat = await createChat(
+      app,
+      alice.cookies,
+      bob.handle,
+    );
+
+    const staleEnvelopes = [];
+    for (const device of chat.devices) {
+      staleEnvelopes.push(
+        await encryptTo(
+          app,
+          alice,
+          aliceDevice,
+          device,
+          chat.id,
+          "HUMAN",
+          "stale before block",
+          [],
+          chat.interactionEpoch,
+        ),
+      );
+    }
+    const stalePayload = {
+      clientMessageId: randomUUID(),
+      senderDeviceId: aliceDevice.deviceId,
+      interactionEpoch: chat.interactionEpoch,
+      kind: "HUMAN" as const,
+      envelopes: staleEnvelopes,
+      mentions: [],
+    };
+
+    const block = await app.inject({
+      method: "POST",
+      url: "/v1/trust/blocks",
+      headers: jsonHeaders(),
+      cookies: bob.cookies,
+      payload: { handle: alice.handle },
+    });
+    expect(block.statusCode).toBe(200);
+
+    const unblock = await app.inject({
+      method: "DELETE",
+      url: `/v1/trust/blocks/${encodeURIComponent(alice.handle)}`,
+      headers: { origin },
+      cookies: bob.cookies,
+    });
+    expect(unblock.statusCode).toBe(200);
+
+    const stale = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/${chat.id}/messages`,
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: stalePayload,
+    });
+    expect(stale.statusCode).toBe(409);
+    expect(errorCode(stale)).toBe("conflict");
+
+    const refreshed = await app.inject({
+      method: "GET",
+      url: `/v1/direct-chats/${chat.id}`,
+      headers: { origin },
+      cookies: alice.cookies,
+    });
+    expect(refreshed.statusCode).toBe(200);
+    const latest = refreshed.json() as DirectConversationView;
+    expect(latest.interactionEpoch).toBe(
+      chat.interactionEpoch + 2,
+    );
+
+    const freshEnvelopes = [];
+    for (const device of latest.devices) {
+      freshEnvelopes.push(
+        await encryptTo(
+          app,
+          alice,
+          aliceDevice,
+          device,
+          chat.id,
+          "HUMAN",
+          "fresh after unblock",
+          [],
+          latest.interactionEpoch,
+        ),
+      );
+    }
+    expect(
+      freshEnvelopes.every(
+        (envelope) => envelope.x3dhInit !== null,
+      ),
+    ).toBe(true);
+
+    const fresh = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/${chat.id}/messages`,
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: {
+        clientMessageId: randomUUID(),
+        senderDeviceId: aliceDevice.deviceId,
+        interactionEpoch: latest.interactionEpoch,
+        kind: "HUMAN",
+        envelopes: freshEnvelopes,
+        mentions: [],
+      },
+    });
+    expect(fresh.statusCode).toBe(201);
+    expect(fresh.json().interactionEpoch).toBe(
+      latest.interactionEpoch,
+    );
+
+    const page = await listMessages(
+      app,
+      bob,
+      bobDevice.deviceId,
+      chat.id,
+    );
+    const received = page.items.find(
+      (item) => item.id === fresh.json().id,
+    );
+    expect(received?.envelope).toBeTruthy();
+    if (!received?.envelope) {
+      throw new Error("Expected fresh epoch envelope");
+    }
+    expect(
+      decryptFor(
+        bobDevice,
+        aliceDevice,
+        chat.id,
+        alice.id,
+        "HUMAN",
+        received.envelope,
+        latest.interactionEpoch,
+      ),
+    ).toBe("fresh after unblock");
+  });
+
+  it("serializes a queued block ahead of a concurrent Direct Chat send", async () => {
+    const alice = await readyUser(
+      app,
+      "dc-block-race-alice",
+      "Block Race Alice",
+    );
+    const nikita = await readyUser(
+      app,
+      "dc-block-race-nikita",
+      "Block Race Nikita",
+    );
+    const aliceDevice = await registerHarness(app, alice);
+    await registerHarness(app, nikita);
+    const chat = await createChat(
+      app,
+      alice.cookies,
+      nikita.handle,
+    );
+
+    const envelopes = [];
+    for (const device of chat.devices) {
+      envelopes.push(
+        await encryptTo(
+          app,
+          alice,
+          aliceDevice,
+          device,
+          chat.id,
+          "HUMAN",
+          "must not pass a completed block",
+        ),
+      );
+    }
+
+    const db = app.get(PrismaService).client;
+    let releasePairLock!: () => void;
+    let notifyPairLocked!: () => void;
+    const pairLockedPromise = new Promise<void>((resolve) => {
+      notifyPairLocked = () => resolve();
+    });
+    const releasePairLockPromise = new Promise<void>((resolve) => {
+      releasePairLock = () => resolve();
+    });
+    const gate = db.$transaction(async (tx) => {
+      expect(
+        await lockTrustUserPair(tx, alice.id, nikita.id),
+      ).toBe(true);
+      notifyPairLocked();
+      await releasePairLockPromise;
+    });
+    await pairLockedPromise;
+
+    let blockSettled = false;
+    const blockPromise = app.inject({
+      method: "POST",
+      url: "/v1/trust/blocks",
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: { handle: nikita.handle },
+    }).then((response) => {
+      blockSettled = true;
+      return response;
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(blockSettled).toBe(false);
+
+    const sendPromise = app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/${chat.id}/messages`,
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: {
+        clientMessageId: randomUUID(),
+        senderDeviceId: aliceDevice.deviceId,
+        interactionEpoch: chat.interactionEpoch,
+        kind: "HUMAN",
+        envelopes,
+        mentions: [],
+      },
+    });
+
+    releasePairLock();
+    await gate;
+
+    const block = await blockPromise;
+    const send = await sendPromise;
+    expect(block.statusCode).toBe(200);
+    expect(send.statusCode).toBe(403);
+    expect(
+      await db.directMessage.count({
+        where: {
+          conversationId: chat.id,
+          senderUserId: alice.id,
+        },
+      }),
+    ).toBe(0);
   });
 
   it("lets @Vimla answer in-thread, freezes consented E2EE context, and rejects spoofed provenance", async () => {
@@ -1903,6 +2514,77 @@ describe("direct chats API", () => {
       cookies: nikita.cookies,
       payload: { shareOwnHistoryWithVimla: true },
     });
+    const blockRecovery = await runDirect(
+      "@Vimla block recovery",
+      {
+        messages: [
+          {
+            messageId: peerAllowed.id,
+            senderUserId: nikita.id,
+            sentAt: peerAllowed.createdAt,
+            text: "peer allowed history",
+          },
+        ],
+      },
+    );
+    await db.operatorRun.update({
+      where: { id: blockRecovery.response.json().id },
+      data: { status: "EXECUTING", errorCode: null },
+    });
+    await db.operatorRunStep.deleteMany({
+      where: { runId: blockRecovery.response.json().id },
+    });
+    await db.operatorRunStep.create({
+      data: {
+        runId: blockRecovery.response.json().id,
+        sequence: 0,
+        toolName: "tasks.create",
+        status: "PENDING",
+        inputJson: { title: "MUST NOT EXECUTE AFTER BLOCK" },
+        publicKind: "task",
+        publicTitle: "MUST NOT EXECUTE AFTER BLOCK",
+        publicDetail: null,
+        publicNavigationTarget: { version: 1, kind: "TASKS" },
+        idempotencyKey: "block-revoked-direct-context",
+      },
+    });
+    const blockBeforeResume = await app.inject({
+      method: "POST",
+      url: "/v1/trust/blocks",
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: { handle: nikita.handle },
+    });
+    expect(blockBeforeResume.statusCode).toBe(200);
+    const blockedResume = await app.inject({
+      method: "POST",
+      url: "/v1/operator/runs",
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: blockRecovery.payload,
+    });
+    expect(blockedResume.statusCode).toBe(201);
+    expect(blockedResume.json().status).toBe("FAILED");
+    expect(blockedResume.json().errorCode).toBe(
+      "direct_chat_context_revoked",
+    );
+    const tasksAfterBlock = await app.inject({
+      method: "GET",
+      url: "/v1/workspace/tasks",
+      headers: { origin },
+      cookies: alice.cookies,
+    });
+    expect(JSON.stringify(tasksAfterBlock.json())).not.toContain(
+      "MUST NOT EXECUTE AFTER BLOCK",
+    );
+    const unblockBeforeContinuing = await app.inject({
+      method: "DELETE",
+      url: `/v1/trust/blocks/${nikita.handle}`,
+      headers: { origin },
+      cookies: alice.cookies,
+    });
+    expect(unblockBeforeContinuing.statusCode).toBe(200);
+
     const actorPeerRecovery = await runDirect(
       "@Vimla actor peer consent recovery",
       {
@@ -2147,6 +2829,249 @@ describe("direct chats API", () => {
     });
     expect(afterContinue.userText).toBe(beforeContinue.userText);
   });
+  it("permanently revokes stale Direct @Vimla intents and dormant runs after block-unblock", async () => {
+    const alice = await readyUser(
+      app,
+      "dc-epoch-operator-alice",
+      "Alice",
+    );
+    const nikita = await readyUser(
+      app,
+      "dc-epoch-operator-nikita",
+      "Nikita",
+    );
+    const aliceDevice = await registerHarness(app, alice);
+    await registerHarness(app, nikita);
+    const chat = await createChat(
+      app,
+      alice.cookies,
+      nikita.handle,
+    );
+    const db = app.get(PrismaService).client;
+    const vimlaHandle = await db.handle.findUnique({
+      where: { systemKey: "VIMLA" },
+    });
+    expect(vimlaHandle).toBeTruthy();
+    if (!vimlaHandle) {
+      throw new Error("expected seeded Vimla handle");
+    }
+    const vimlaMention: MessageMentionInput = {
+      handleId: vimlaHandle.id,
+      kind: "SYSTEM_AGENT",
+      canonicalHandle: vimlaHandle.normalized,
+      startOffset: 0,
+      endOffset: 6,
+    };
+
+    const sendInvoke = async (content: string) => {
+      const response = await sendPlain(
+        app,
+        alice,
+        aliceDevice,
+        chat.id,
+        "OPERATOR_INVOKE",
+        content,
+        [vimlaMention],
+      );
+      expect(response.statusCode).toBe(201);
+      return response.json() as {
+        id: string;
+        createdAt: string;
+      };
+    };
+    const createRun = async (
+      source: { id: string },
+      content: string,
+      clientRequestId: string,
+    ) =>
+      app.inject({
+        method: "POST",
+        url: "/v1/operator/runs",
+        headers: jsonHeaders(),
+        cookies: alice.cookies,
+        payload: {
+          clientRequestId,
+          content,
+          invocationScope: "DIRECT_CHAT",
+          directConversationId: chat.id,
+          directSourceMessageId: source.id,
+        },
+      });
+    const cycleEpoch = async () => {
+      const blocked = await app.inject({
+        method: "POST",
+        url: "/v1/trust/blocks",
+        headers: jsonHeaders(),
+        cookies: alice.cookies,
+        payload: { handle: nikita.handle },
+      });
+      expect(blocked.statusCode).toBe(200);
+      const unblocked = await app.inject({
+        method: "DELETE",
+        url: `/v1/trust/blocks/${nikita.handle}`,
+        headers: { origin },
+        cookies: alice.cookies,
+      });
+      expect(unblocked.statusCode).toBe(200);
+    };
+
+    const staleIntentText =
+      "@Vimla кто победил в гран-при 2026?";
+    const staleSource = await sendInvoke(staleIntentText);
+    const staleRequestId = randomUUID();
+    await cycleEpoch();
+    const staleCreate = await createRun(
+      staleSource,
+      staleIntentText,
+      staleRequestId,
+    );
+    expect(staleCreate.statusCode).toBe(409);
+    expect(
+      await db.operatorRun.count({
+        where: {
+          userId: alice.id,
+          clientRequestId: staleRequestId,
+        },
+      }),
+    ).toBe(0);
+
+    const executingText =
+      "@Vimla кто победил в гран-при 2026?";
+    const executingSource = await sendInvoke(executingText);
+    const executingRequestId = randomUUID();
+    const executingCreated = await createRun(
+      executingSource,
+      executingText,
+      executingRequestId,
+    );
+    expect(executingCreated.statusCode).toBe(201);
+    const executingRunId = executingCreated.json().id as string;
+    const [boundRun, boundSnapshot, sourceRow] =
+      await Promise.all([
+        db.operatorRun.findUniqueOrThrow({
+          where: { id: executingRunId },
+          select: { directInteractionEpoch: true },
+        }),
+        db.contextSnapshot.findUniqueOrThrow({
+          where: { operatorRunId: executingRunId },
+          select: { directInteractionEpoch: true },
+        }),
+        db.directMessage.findUniqueOrThrow({
+          where: { id: executingSource.id },
+          select: { interactionEpoch: true },
+        }),
+      ]);
+    expect(boundRun.directInteractionEpoch).toBe(
+      sourceRow.interactionEpoch,
+    );
+    expect(boundSnapshot.directInteractionEpoch).toBe(
+      sourceRow.interactionEpoch,
+    );
+
+    await db.operatorRun.update({
+      where: { id: executingRunId },
+      data: {
+        status: "EXECUTING",
+        errorCode: null,
+        publicMessage: null,
+      },
+    });
+    await db.operatorRunStep.deleteMany({
+      where: { runId: executingRunId },
+    });
+    await db.operatorRunStep.create({
+      data: {
+        runId: executingRunId,
+        sequence: 0,
+        toolName: "tasks.create",
+        status: "PENDING",
+        inputJson: {
+          title: "MUST NOT EXECUTE AFTER EPOCH CHANGE",
+        },
+        publicKind: "task",
+        publicTitle:
+          "MUST NOT EXECUTE AFTER EPOCH CHANGE",
+        publicDetail: null,
+        publicNavigationTarget: {
+          version: 1,
+          kind: "TASKS",
+        },
+        idempotencyKey:
+          "operator-epoch-block-unblock-executing",
+      },
+    });
+    await cycleEpoch();
+    const executingResume = await createRun(
+      executingSource,
+      executingText,
+      executingRequestId,
+    );
+    expect(executingResume.statusCode).toBe(201);
+    expect(executingResume.json().status).toBe("FAILED");
+    expect(executingResume.json().errorCode).toBe(
+      "direct_chat_context_revoked",
+    );
+    const tasksAfterExecutingResume = await app.inject({
+      method: "GET",
+      url: "/v1/workspace/tasks",
+      headers: { origin },
+      cookies: alice.cookies,
+    });
+    expect(
+      JSON.stringify(tasksAfterExecutingResume.json()),
+    ).not.toContain(
+      "MUST NOT EXECUTE AFTER EPOCH CHANGE",
+    );
+
+    const confirmationText =
+      "@Vimla кто победил в гран-при 2026?";
+    const confirmationSource =
+      await sendInvoke(confirmationText);
+    const confirmationRequestId = randomUUID();
+    const confirmationCreated = await createRun(
+      confirmationSource,
+      confirmationText,
+      confirmationRequestId,
+    );
+    expect(confirmationCreated.statusCode).toBe(201);
+    const confirmationRunId =
+      confirmationCreated.json().id as string;
+    await db.operatorRun.update({
+      where: { id: confirmationRunId },
+      data: {
+        status: "AWAITING_CONFIRMATION",
+        errorCode: null,
+      },
+    });
+    await cycleEpoch();
+    const confirmationResume = await createRun(
+      confirmationSource,
+      confirmationText,
+      confirmationRequestId,
+    );
+    expect(confirmationResume.statusCode).toBe(201);
+    expect(confirmationResume.json().status).toBe(
+      "FAILED",
+    );
+    expect(confirmationResume.json().errorCode).toBe(
+      "direct_chat_context_revoked",
+    );
+    const revokedConfirmation =
+      await db.operatorRun.findUniqueOrThrow({
+        where: { id: confirmationRunId },
+        select: {
+          confirmationTokenHash: true,
+          confirmationExpiresAt: true,
+        },
+      });
+    expect(
+      revokedConfirmation.confirmationTokenHash,
+    ).toBeNull();
+    expect(
+      revokedConfirmation.confirmationExpiresAt,
+    ).toBeNull();
+  });
+
 });
 
 interface Harness {
@@ -2259,10 +3184,24 @@ async function sendPlain(
     headers: { origin },
     cookies: sender.cookies,
   });
-  const devices = chat.json().devices as Array<{ id: string; userId: string }>;
+  const chatView = chat.json() as DirectConversationView;
+  const devices = chatView.devices;
+  const interactionEpoch = chatView.interactionEpoch;
   const envelopes = [];
   for (const device of devices) {
-    envelopes.push(await encryptTo(app, sender, senderDevice, device, conversationId, kind, plaintext, mentions));
+    envelopes.push(
+      await encryptTo(
+        app,
+        sender,
+        senderDevice,
+        device,
+        conversationId,
+        kind,
+        plaintext,
+        mentions,
+        interactionEpoch,
+      ),
+    );
   }
   return app.inject({
     method: "POST",
@@ -2272,6 +3211,7 @@ async function sendPlain(
     payload: {
       clientMessageId: randomUUID(),
       senderDeviceId: senderDevice.deviceId,
+      interactionEpoch,
       kind,
       envelopes,
       mentions,
@@ -2292,10 +3232,22 @@ async function sendWithMutatedCipher(
     headers: { origin },
     cookies: sender.cookies,
   });
-  const devices = chat.json().devices as Array<{ id: string; userId: string }>;
+  const chatView = chat.json() as DirectConversationView;
+  const devices = chatView.devices;
+  const interactionEpoch = chatView.interactionEpoch;
   const envelopes = [];
   for (const device of devices) {
-    const envelope = await encryptTo(app, sender, senderDevice, device, conversationId, "HUMAN", plaintext);
+    const envelope = await encryptTo(
+      app,
+      sender,
+      senderDevice,
+      device,
+      conversationId,
+      "HUMAN",
+      plaintext,
+      [],
+      interactionEpoch,
+    );
     envelopes.push({
       ...envelope,
       ciphertextB64: flipB64(envelope.ciphertextB64),
@@ -2309,6 +3261,7 @@ async function sendWithMutatedCipher(
     payload: {
       clientMessageId: randomUUID(),
       senderDeviceId: senderDevice.deviceId,
+      interactionEpoch,
       kind: "HUMAN",
       envelopes,
     },
@@ -2324,14 +3277,17 @@ async function encryptTo(
   kind: "HUMAN" | "OPERATOR_INVOKE" | "OPERATOR_RESPONSE" | "OPERATOR_ACTION",
   plaintext: string,
   mentions: MessageMentionInput[] = [],
+  interactionEpoch = 0,
 ): Promise<WireEnvelope & { recipientDeviceId: string }> {
-  let state = senderDevice.ratchets.get(recipient.id) ?? null;
+  const ratchetKey = `${recipient.id}:${interactionEpoch}`;
+  let state = senderDevice.ratchets.get(ratchetKey) ?? null;
   let x3dhInit: WireEnvelope["x3dhInit"] = null;
   if (!state) {
     const bundles = await app.inject({
-      method: "GET",
+      method: "POST",
       url: `/v1/direct-chats/users/${recipient.userId}/prekeys`,
-      headers: { origin },
+      headers: jsonHeaders(),
+      payload: {},
       cookies: sender.cookies,
     });
     expect(bundles.statusCode).toBe(200);
@@ -2361,11 +3317,12 @@ async function encryptTo(
       senderDeviceId: senderDevice.deviceId,
       recipientDeviceId: recipient.id,
       kind,
+      interactionEpoch,
       routingContext,
     },
     x3dhInit,
   });
-  senderDevice.ratchets.set(recipient.id, state);
+  senderDevice.ratchets.set(ratchetKey, state);
   return { ...envelope, recipientDeviceId: recipient.id };
 }
 
@@ -2385,8 +3342,10 @@ function decryptFor(
     senderSignatureB64: string;
     x3dhInit: WireEnvelope["x3dhInit"];
   },
+  interactionEpoch = 0,
 ): string {
-  let state = recipient.ratchets.get(sender.deviceId) ?? null;
+  const ratchetKey = `${sender.deviceId}:${interactionEpoch}`;
+  let state = recipient.ratchets.get(ratchetKey) ?? null;
   if (!state && envelope.x3dhInit) {
     const oneTimePrekeyId =
       envelope.x3dhInit.oneTimePrekeyId;
@@ -2429,9 +3388,10 @@ function decryptFor(
       senderDeviceId: sender.deviceId,
       recipientDeviceId: envelope.recipientDeviceId,
       kind,
+      interactionEpoch,
     },
   });
-  recipient.ratchets.set(sender.deviceId, state);
+  recipient.ratchets.set(ratchetKey, state);
   return new TextDecoder().decode(opened);
 }
 

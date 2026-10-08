@@ -168,6 +168,8 @@ export const ConversationListPane = observer(
     ]);
     const inboxRequestKeyRef =
       useRef(inboxRequestKey);
+    const lastAppliedInboxRequestKeyRef =
+      useRef<string | null>(null);
 
     useLayoutEffect(() => {
       inboxRequestKeyRef.current =
@@ -196,6 +198,12 @@ export const ConversationListPane = observer(
             bootRefreshRevision
           ) {
             store.setInboxPage(page);
+            lastAppliedInboxRequestKeyRef.current =
+              JSON.stringify([
+                inboxKindFor("all") ?? null,
+                null,
+                bootRefreshRevision,
+              ]);
           }
           setBoot("ready");
 
@@ -241,8 +249,15 @@ export const ConversationListPane = observer(
         return;
       }
 
-      let cancelled = false;
       const requestKey = inboxRequestKey;
+      if (
+        lastAppliedInboxRequestKeyRef.current ===
+        requestKey
+      ) {
+        return;
+      }
+
+      let cancelled = false;
       const requestRefreshRevision =
         refreshRevision;
       const timer = window.setTimeout(() => {
@@ -262,6 +277,8 @@ export const ConversationListPane = observer(
               return;
             }
             store.setInboxPage(page);
+            lastAppliedInboxRequestKeyRef.current =
+              requestKey;
             setListError(false);
           })
           .catch((error: unknown) => {

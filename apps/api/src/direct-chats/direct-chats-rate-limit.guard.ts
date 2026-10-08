@@ -22,7 +22,11 @@ export class DirectChatsRateLimitGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<FastifyRequest>();
-    if (request.method === "GET" || request.method === "HEAD" || request.method === "OPTIONS") {
+    if (
+      request.method === "GET" ||
+      request.method === "HEAD" ||
+      request.method === "OPTIONS"
+    ) {
       return true;
     }
 
@@ -31,9 +35,23 @@ export class DirectChatsRateLimitGuard implements CanActivate {
       return true;
     }
 
+    const preflight =
+      request.method === "POST" &&
+      request.routeOptions.url?.endsWith("/send-preflight") === true;
+    const claimingPrekeys =
+      request.method === "POST" &&
+      request.routeOptions.url === "/v1/direct-chats/users/:userId/prekeys";
     const allowed = await this.hit(
-      `ratelimit:direct-chats:user:${userId}`,
-      this.config.directChatsMutationLimitPerMinute,
+      claimingPrekeys
+        ? `ratelimit:direct-chats:prekeys:user:${userId}`
+        : preflight
+          ? `ratelimit:direct-chats:preflight:user:${userId}`
+          : `ratelimit:direct-chats:user:${userId}`,
+      claimingPrekeys
+        ? this.config.directChatsPreflightLimitPerMinute
+        : preflight
+          ? this.config.directChatsPreflightLimitPerMinute
+          : this.config.directChatsMutationLimitPerMinute,
     );
     if (!allowed) {
       throw new HttpException(
@@ -42,6 +60,25 @@ export class DirectChatsRateLimitGuard implements CanActivate {
       );
     }
 
+    if (claimingPrekeys) {
+      const peerId = (request.params as { userId?: unknown } | undefined)?.userId;
+      if (typeof peerId !== "string" || peerId.length === 0 || peerId.length > 128) {
+        throw new HttpException(
+          { code: "invalid_request", message: "Invalid Direct Chat prekey target" },
+          HttpStatus.BAD_REQUEST,
+        );
+      }
+      const pair = JSON.stringify([userId, peerId]);
+      if (!(await this.hit(
+        `ratelimit:direct-chats:prekeys:pair:${pair}`,
+        this.config.directChatsPrekeyLimitPerMinute,
+      ))) {
+        throw new HttpException(
+          { code: "rate_limited", message: "Too many Direct Chat prekey claims" },
+          HttpStatus.TOO_MANY_REQUESTS,
+        );
+      }
+    }
     return true;
   }
 

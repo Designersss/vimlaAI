@@ -16,6 +16,7 @@ export function SettingsRouteShell({ children }: { children: ReactNode }): React
     : segment === "billing" ? t("nav.billing")
     : segment === "appearance" ? t("nav.appearance")
     : segment === "notifications" ? t("nav.notifications")
+    : segment === "safety" ? t("nav.safety")
     : t("nav.settings");
 
   return (
