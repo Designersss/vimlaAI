@@ -141,7 +141,13 @@ review and negative tests before production implementation.
 - Local verification checks full event commitment, exact source
   provenance and index-tag consistency. The reducer accepts verified
   event records and orders add/remove by authoritative server sequence,
-  with conflicting duplicate IDs/sequence failing closed.
+  with conflicting duplicate IDs/sequence failing closed. The reducer's
+  replay identity is `(reactorUserId, eventClientMessageId)`, whereas the
+  conversation sequence must be globally unique across all senders.
+- The final provenance gate now requires the target lookup tag in the
+  **sender-signed associated metadata**; a caller-supplied unsigned tag
+  is no longer sufficient. This is a portable contract, not yet a shipped
+  AD or server API schema.
 - Unit tests include malformed inputs, target forgery, full-commitment
   tamper beyond the UUID prefix, multi-device sender equivocation and
   out-of-order/duplicate projection.
@@ -191,6 +197,34 @@ recovery, or resurrect a removed reaction during cold-start replay.
 The server cannot safely compact on emoji/action it cannot decrypt.
 Do not invent a lossy TTL or drop old ratchet envelopes without a proof
 of state recovery. Abuse rate limits alone do not prove bounded storage.
+
+### Verified SQL/event-stream interaction (October 8)
+
+The existing `direct_message_assign_sequence` BEFORE INSERT trigger assigns
+an authoritative sequence **and advances `direct_conversation.lastMessageAt`**.
+The `direct_message_touch_communication_surface_activity` AFTER INSERT trigger
+also touches `communication_surface.lastActivityAt`. Both must exclude
+REACTION from product activity while continuing to allocate a unique causal
+sequence, otherwise reactions reorder the inbox and fabricate recent chat
+activity. The Direct unread count query currently counts **all** peer
+`direct_message` rows; it and `markRead` must distinguish visible chat
+messages from control events. The common Direct message history cannot
+simply filter reaction envelopes out: that can break Double Ratchet
+message-number progression and offline/reconnect decryption.
+
+A target-index query alone is **not proof that the recipient can decrypt
+an arbitrary old reaction envelope**: recipient ratchet state may need
+preceding envelopes, especially on a new device. The server design must
+supply a bounded, recoverable chronological decryption path or a separately
+reviewed cryptographic reaction-state mechanism before claiming complete
+historical reactions. A materialized server reaction-count table derived
+from untrusted client plaintext is forbidden.
+
+At present, keep the append-only encrypted event log authoritative. A
+compaction policy requires a separate proof that ratchet-dependent records,
+offline clients and remove tombstones survive. The proposed opaque
+index only bounds **lookup cost**; it does not solve safe compaction or
+E2EE decryption dependencies.
 
 ## Required test matrix
 
