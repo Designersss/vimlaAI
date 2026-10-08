@@ -71,6 +71,7 @@ import {
 import {
   RatchetLockLostError,
   directHumanClientMessageId,
+  directHumanContentCommitment,
   cachedDirectPlaintextMatchesMessage,
   RatchetStateConflictError,
 } from "@vimla/client-core";
@@ -214,6 +215,7 @@ export async function encryptForDevices(input: {
   senderUserId: string;
   peerUserId?: string;
   clientMessageId: string;
+  contentCommitmentB64: string | null;
   localDevice: StoredDeviceMaterial;
   kind: DirectMessageKind;
   plaintext: string;
@@ -228,9 +230,13 @@ export async function encryptForDevices(input: {
   // arbitrary plaintext to an unrelated, sender-chosen clientMessageId.
   if (
     input.kind === "HUMAN" &&
-    directHumanClientMessageId(input.plaintext) !== input.clientMessageId
+    (directHumanClientMessageId(input.plaintext) !== input.clientMessageId ||
+      directHumanContentCommitment(input.plaintext) !== input.contentCommitmentB64)
   ) {
     throw new Error("Direct HUMAN content identity mismatch");
+  }
+  if (input.kind !== "HUMAN" && input.contentCommitmentB64 !== null) {
+    throw new Error("Unexpected content commitment");
   }
   const material = input.localDevice;
   const identity = identityFromMaterial(material);
@@ -304,6 +310,7 @@ export async function encryptForDevices(input: {
           senderUserId: input.senderUserId,
           senderDeviceId: material.deviceId,
           clientMessageId: input.clientMessageId,
+          contentCommitmentB64: input.contentCommitmentB64,
           recipientDeviceId: device.id,
           kind: input.kind,
           interactionEpoch: input.interactionEpoch,
@@ -338,6 +345,7 @@ export async function encryptForDevices(input: {
           : expectedPendingRevision + 1,
       conversationId: input.conversationId,
       clientMessageId: input.clientMessageId,
+      contentCommitmentB64: input.contentCommitmentB64,
       senderUserId: input.senderUserId,
       senderDeviceId: material.deviceId,
       interactionEpoch: input.interactionEpoch,
@@ -589,6 +597,7 @@ export async function recoverPendingSends(input: {
                 : {}),
               clientMessageId:
                 row.clientMessageId,
+              contentCommitmentB64: row.contentCommitmentB64,
               localDevice: input.localDevice,
               kind: row.kind,
               plaintext: row.plaintext,
@@ -1054,6 +1063,7 @@ export async function decryptMessageWithStatus(input: {
             senderUserId: input.message.senderUserId,
             senderDeviceId: input.message.senderDeviceId,
             clientMessageId: input.message.clientMessageId,
+            contentCommitmentB64: input.message.contentCommitmentB64,
             recipientDeviceId: envelope.recipientDeviceId,
             kind: input.message.kind,
             interactionEpoch:

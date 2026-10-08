@@ -906,7 +906,11 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         "HUMAN",
         prepared.plaintext,
         mentions,
-        { clientMessageId: prepared.clientMessageId, onDurablyStaged },
+        {
+          clientMessageId: prepared.clientMessageId,
+          contentCommitmentB64: prepared.contentCommitmentB64,
+          onDurablyStaged,
+        },
       );
     } finally {
       sendingLockRef.current = false;
@@ -919,6 +923,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
     mentions: MessageMentionInput[] = [],
     options: {
       clientMessageId?: string;
+      contentCommitmentB64?: string | null;
       operatorIntent?: StoredOperatorIntent;
       onDurablyStaged?: () => void;
     } = {},
@@ -1528,6 +1533,7 @@ async function sendEncryptedDirectMessage(input: {
   plaintext: string;
   mentions?: MessageMentionInput[];
   clientMessageId?: string;
+  contentCommitmentB64?: string | null;
   operatorIntent?: StoredOperatorIntent;
   operatorOutput?: StoredOperatorOutputLink;
   recoverPending?: boolean;
@@ -1580,6 +1586,7 @@ async function sendEncryptedDirectMessage(input: {
     peerUserId: latest.peer.userId,
     clientMessageId:
       input.clientMessageId ?? crypto.randomUUID(),
+    contentCommitmentB64: input.contentCommitmentB64 ?? null,
     localDevice: device,
     kind: input.kind,
     plaintext: input.plaintext,

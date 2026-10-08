@@ -20,6 +20,7 @@ import {
   b64ToBytes,
   buildAssociatedData,
   serializeDirectRoutingMentions,
+  humanClientIdFromCommitment,
   signaturePayload,
   verifyDirectMessage,
 } from "@vimla/e2ee";
@@ -494,6 +495,16 @@ export class DirectChatService {
       throw new DirectChatError("VALIDATION_ERROR", "Envelopes must cover every active member device");
     }
 
+    // Validate once at the authoritative message boundary, then sign
+    // exactly this message-wide commitment into EVERY recipient envelope.
+    if (input.kind === "HUMAN") {
+      if (!input.contentCommitmentB64 ||
+          humanClientIdFromCommitment(input.contentCommitmentB64) !== input.clientMessageId) {
+        throw new DirectChatError("TAMPERED", "HUMAN content commitment is invalid");
+      }
+    } else if (input.contentCommitmentB64 !== null) {
+      throw new DirectChatError("TAMPERED", "Unexpected content commitment");
+    }
     const routingContext = input.mentions.length > 0
       ? serializeDirectRoutingMentions(input.mentions)
       : undefined;
@@ -503,6 +514,7 @@ export class DirectChatService {
         senderUserId: actor.userId,
         senderDeviceId: senderDevice.id,
         clientMessageId: input.clientMessageId,
+        contentCommitmentB64: input.contentCommitmentB64,
         kind: input.kind,
         interactionEpoch: input.interactionEpoch,
         routingContext,
@@ -580,6 +592,7 @@ export class DirectChatService {
             senderUserId: actor.userId,
             senderDeviceId: senderDevice.id,
             clientMessageId: input.clientMessageId,
+            contentCommitmentB64: input.contentCommitmentB64,
             kind: input.kind,
             interactionEpoch: input.interactionEpoch,
             envelopes: {
@@ -916,6 +929,7 @@ export class DirectChatService {
       senderUserId: string;
       senderDeviceId: string;
       clientMessageId: string;
+      contentCommitmentB64: string | null;
       kind: SendDirectMessage["kind"];
       interactionEpoch: number;
       routingContext?: string;
@@ -933,6 +947,7 @@ export class DirectChatService {
       senderUserId: ad.senderUserId,
       senderDeviceId: ad.senderDeviceId,
       clientMessageId: ad.clientMessageId,
+      contentCommitmentB64: ad.contentCommitmentB64,
       recipientDeviceId: envelope.recipientDeviceId,
       kind: ad.kind,
       interactionEpoch: ad.interactionEpoch,
@@ -1168,6 +1183,7 @@ function toMessageView(
     senderUserId: string;
     senderDeviceId: string;
     clientMessageId: string;
+    contentCommitmentB64: string | null;
     kind: string;
     interactionEpoch: number;
     createdAt: Date;
@@ -1195,6 +1211,7 @@ function toMessageView(
     senderUserId: row.senderUserId,
     senderDeviceId: row.senderDeviceId,
     clientMessageId: row.clientMessageId,
+    contentCommitmentB64: row.contentCommitmentB64,
     kind: isKind(row.kind) ? row.kind : "HUMAN",
     interactionEpoch: row.interactionEpoch,
     createdAt: row.createdAt.toISOString(),
