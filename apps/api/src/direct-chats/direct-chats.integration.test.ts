@@ -187,6 +187,71 @@ describe("direct chats API", () => {
       cookies: alice.cookies,
     });
     expect(malformed.statusCode).toBe(400);
+
+    // An idempotency key is actor-owned AND bound to its original device.
+    // A second device of the same authenticated user cannot reinterpret it
+    // as an uncommitted send, even after device-set changes.
+    const anotherAliceDevice = await registerHarness(app, alice);
+    const wrongDevice = await app.inject({
+      method: "GET",
+      url: url(anotherAliceDevice.deviceId, committed.clientMessageId),
+      headers: { origin },
+      cookies: alice.cookies,
+    });
+    expect(wrongDevice.statusCode).toBe(409);
+
+    const block = await app.inject({
+      method: "POST",
+      url: "/v1/trust/blocks",
+      headers: jsonHeaders(),
+      cookies: bob.cookies,
+      payload: { handle: alice.handle },
+    });
+    expect(block.statusCode).toBe(200);
+    const afterBlock = await app.inject({
+      method: "GET",
+      url: url(aliceDevice.deviceId, committed.clientMessageId),
+      headers: { origin },
+      cookies: alice.cookies,
+    });
+    expect(afterBlock.statusCode).toBe(200);
+    expect(afterBlock.json()).toMatchObject({
+      status: "COMMITTED",
+      message: { id: committed.id },
+    });
+    const unblock = await app.inject({
+      method: "DELETE",
+      url: `/v1/trust/blocks/${alice.handle}`,
+      headers: { origin },
+      cookies: bob.cookies,
+    });
+    expect(unblock.statusCode).toBe(200);
+    const afterUnblock = await app.inject({
+      method: "GET",
+      url: url(aliceDevice.deviceId, committed.clientMessageId),
+      headers: { origin },
+      cookies: alice.cookies,
+    });
+    expect(afterUnblock.statusCode).toBe(200);
+    expect(afterUnblock.json()).toMatchObject({
+      status: "COMMITTED",
+      message: { id: committed.id },
+    });
+
+    const revoked = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/devices/${aliceDevice.deviceId}/revoke`,
+      headers: { origin },
+      cookies: alice.cookies,
+    });
+    expect(revoked.statusCode).toBe(200);
+    const afterRevoke = await app.inject({
+      method: "GET",
+      url: url(aliceDevice.deviceId, committed.clientMessageId),
+      headers: { origin },
+      cookies: alice.cookies,
+    });
+    expect(afterRevoke.statusCode).toBe(403);
   });
 
   it("rate-limits send preflight independently from Direct Chat mutations", async () => {

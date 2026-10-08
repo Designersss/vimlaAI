@@ -1143,6 +1143,29 @@ test.describe("Secure Direct Chats", () => {
     await expect
       .poll(() => readPendingSendCount(alicePage))
       .toBe(1);
+
+    // Offline/ambiguous lookup is NOT proof of non-commit. Keep the row
+    // through a failed recovery, then retry automatically on next open.
+    let interruptedLookups = 0;
+    await alicePage.route(
+      "**/v1/direct-chats/*/messages/lookup*",
+      async (route) => {
+        interruptedLookups += 1;
+        await route.abort("failed");
+      },
+    );
+    await alicePage.reload();
+    await expect(
+      alicePage.getByTestId("direct-chat-shell"),
+    ).toBeVisible({ timeout: 20_000 });
+    await expect
+      .poll(() => interruptedLookups, { timeout: 20_000 })
+      .toBeGreaterThan(0);
+    expect(await readPendingSendCount(alicePage)).toBe(1);
+
+    await alicePage.unroute(
+      "**/v1/direct-chats/*/messages/lookup*",
+    );
     await alicePage.reload();
     await expect(
       alicePage.getByTestId("direct-chat-shell"),
@@ -2695,6 +2718,9 @@ async function insertAgedTrustCancelledPendingSend(
           const clientMessageId = crypto.randomUUID();
           tx.objectStore("pendingSends").put(
             {
+              // Valid legacy v0 row. An omitted version is corruption and
+              // must stay fail-closed instead of being auto-interpreted as v0.
+              protectionVersion: 0,
               revision: 1,
               conversationId: value.conversationId,
               clientMessageId,

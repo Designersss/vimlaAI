@@ -31,7 +31,10 @@ GC occurs only when ALL the following hold:
    until those outputs are reconciled.
 
 Ambiguous, tampered, offline, unauthorized or unavailable responses retain
-the local row for later retry. Reconciliation is capped per recovery
+the local row for later retry. Persisted rows without an explicit supported
+local protection version are invalid; tests inject a valid v0 legacy record
+to exercise its migration and subsequent reconciliation, never a fake
+unversioned plaintext row.  Reconciliation is capped per recovery
 invocation, performed under existing pending-send recovery serialization,
 and never exposes a crypto-maintenance button to the user.
 
