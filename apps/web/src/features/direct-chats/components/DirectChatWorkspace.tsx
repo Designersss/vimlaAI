@@ -81,6 +81,7 @@ import {
 } from "@vimla/client-core";
 import {
   decodeDirectPlaintext,
+  directPlaintextPreview,
   encodeDirectPlaintext,
   type DirectPlaintextPayload,
   type DirectReplyReference,
@@ -929,7 +930,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
           row.kind === "HUMAN"
             ? {
                 ...row,
-                text: decodeDirectPlaintext("HUMAN", row.text).text,
+                text: directPlaintextPreview("HUMAN", row.text) ?? row.text,
               }
             : row,
         ),
