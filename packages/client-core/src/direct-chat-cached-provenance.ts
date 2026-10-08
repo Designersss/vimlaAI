@@ -8,6 +8,8 @@ export interface CachedDirectPlaintextProvenance {
   messageId: string;
   conversationId: string;
   senderUserId: string;
+  senderDeviceId?: string;
+  interactionEpoch?: number;
   kind: string;
   createdAt: string;
 }
@@ -20,6 +22,10 @@ export function cachedDirectPlaintextMatchesMessage(
     cached.messageId === expected.messageId &&
     cached.conversationId === expected.conversationId &&
     cached.senderUserId === expected.senderUserId &&
+    typeof cached.senderDeviceId === "string" &&
+    cached.senderDeviceId === expected.senderDeviceId &&
+    typeof cached.interactionEpoch === "number" &&
+    cached.interactionEpoch === expected.interactionEpoch &&
     cached.kind === expected.kind &&
     cached.createdAt === expected.createdAt
   );

@@ -5,6 +5,8 @@ const original = {
   messageId: "id-1",
   conversationId: "chat-1",
   senderUserId: "alice",
+  senderDeviceId: "device-A",
+  interactionEpoch: 3,
   kind: "HUMAN",
   createdAt: "2026-10-08T14:00:00.000Z",
 };
@@ -16,6 +18,10 @@ describe("cached Direct plaintext provenance", () => {
       { messageId: "id-2" },
       { conversationId: "chat-2" },
       { senderUserId: "bob" },
+      { senderDeviceId: "device-B" },
+      { senderDeviceId: undefined },
+      { interactionEpoch: 4 },
+      { interactionEpoch: undefined },
       { kind: "OPERATOR_RESPONSE" },
       { createdAt: "2026-10-08T14:00:01.000Z" },
     ]) {

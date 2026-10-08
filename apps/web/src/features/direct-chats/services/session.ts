@@ -888,6 +888,8 @@ export async function decryptMessageWithStatus(input: {
       messageId: input.message.id,
       conversationId: input.conversationId,
       senderUserId: input.message.senderUserId,
+      senderDeviceId: input.message.senderDeviceId,
+      interactionEpoch: input.message.interactionEpoch,
       kind: input.message.kind,
       createdAt: input.message.createdAt,
     })) {
@@ -959,6 +961,8 @@ export async function decryptMessageWithStatus(input: {
             messageId: input.message.id,
             conversationId: input.conversationId,
             senderUserId: input.message.senderUserId,
+            senderDeviceId: input.message.senderDeviceId,
+            interactionEpoch: input.message.interactionEpoch,
             kind: input.message.kind,
             createdAt: input.message.createdAt,
           })) {
@@ -1047,6 +1051,8 @@ export async function decryptMessageWithStatus(input: {
           text,
           kind: input.message.kind,
           senderUserId: input.message.senderUserId,
+          senderDeviceId: input.message.senderDeviceId,
+          interactionEpoch: input.message.interactionEpoch,
           createdAt: input.message.createdAt,
         };
         await commitDecryptedRatchet({

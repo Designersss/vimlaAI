@@ -93,6 +93,9 @@ export interface StoredPlaintext {
   text: string;
   kind: string;
   senderUserId: string;
+  // Old caches without signed-AD source device/epoch are not reusable.
+  senderDeviceId?: string;
+  interactionEpoch?: number;
   createdAt: string;
 }
 
@@ -1426,6 +1429,8 @@ export async function completePendingSend(input: {
     text: input.pending.plaintext,
     kind: input.pending.kind,
     senderUserId: input.pending.senderUserId,
+    senderDeviceId: input.pending.senderDeviceId,
+    interactionEpoch: input.pending.interactionEpoch,
     createdAt: input.serverCreatedAt,
   });
   const protectedPending =
