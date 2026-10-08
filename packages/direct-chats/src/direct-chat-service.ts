@@ -20,6 +20,7 @@ import {
   b64ToBytes,
   buildAssociatedData,
   serializeDirectRoutingMentions,
+  serializeDirectReactionTargetTag,
   humanClientIdFromCommitment,
   signaturePayload,
   verifyDirectMessage,
@@ -191,6 +192,7 @@ export class DirectChatService {
             id: true,
             sequence: true,
             senderUserId: true,
+            kind: true,
           },
         });
         if (
@@ -206,6 +208,7 @@ export class DirectChatService {
         const observedPeerSequence = messages.reduce(
           (max, message) =>
             message.senderUserId !== actor.userId &&
+            message.kind !== "REACTION" &&
             message.sequence > max
               ? message.sequence
               : max,
@@ -497,17 +500,26 @@ export class DirectChatService {
 
     // Validate once at the authoritative message boundary, then sign
     // exactly this message-wide commitment into EVERY recipient envelope.
-    if (input.kind === "HUMAN") {
+    if (input.kind === "HUMAN" || input.kind === "REACTION") {
       if (!input.contentCommitmentB64 ||
           humanClientIdFromCommitment(input.contentCommitmentB64) !== input.clientMessageId) {
-        throw new DirectChatError("TAMPERED", "HUMAN content commitment is invalid");
+        throw new DirectChatError("TAMPERED", "E2EE content commitment is invalid");
       }
     } else if (input.contentCommitmentB64 !== null) {
       throw new DirectChatError("TAMPERED", "Unexpected content commitment");
     }
-    const routingContext = input.mentions.length > 0
-      ? serializeDirectRoutingMentions(input.mentions)
-      : undefined;
+    if (input.kind === "REACTION") {
+      if (!input.reactionTargetTagB64 || input.mentions.length > 0) {
+        throw new DirectChatError("VALIDATION_ERROR", "Invalid encrypted reaction routing");
+      }
+    } else if (input.reactionTargetTagB64 != null) {
+      throw new DirectChatError("VALIDATION_ERROR", "Unexpected reaction target tag");
+    }
+    const routingContext = input.kind === "REACTION"
+      ? serializeDirectReactionTargetTag(input.reactionTargetTagB64 ?? "")
+      : input.mentions.length > 0
+        ? serializeDirectRoutingMentions(input.mentions)
+        : undefined;
     for (const envelope of input.envelopes) {
       this.assertEnvelope(envelope, senderDevice, devicesById, {
         conversationId,
@@ -593,6 +605,7 @@ export class DirectChatService {
             senderDeviceId: senderDevice.id,
             clientMessageId: input.clientMessageId,
             contentCommitmentB64: input.contentCommitmentB64,
+            reactionTargetTagB64: input.reactionTargetTagB64 ?? null,
             kind: input.kind,
             interactionEpoch: input.interactionEpoch,
             envelopes: {
@@ -872,6 +885,7 @@ export class DirectChatService {
     if (
       existing.kind !== input.kind ||
       existing.contentCommitmentB64 !== input.contentCommitmentB64 ||
+      existing.reactionTargetTagB64 !== (input.reactionTargetTagB64 ?? null) ||
       existing.interactionEpoch !== input.interactionEpoch ||
       !sameReplayEnvelopes(
         existing.envelopes,
@@ -1086,6 +1100,7 @@ export class DirectChatService {
       WHERE
         message."conversationId" = ${conversationId}
         AND message."senderUserId" <> ${actorUserId}
+        AND message."kind" <> 'REACTION'
         AND (
           member."lastReadMessageSequence" IS NULL
           OR message."sequence" > member."lastReadMessageSequence"
@@ -1145,6 +1160,7 @@ const conversationInclude = {
     },
   },
   messages: {
+    where: { kind: { not: "REACTION" } },
     orderBy: [
       { createdAt: "desc" as const },
       { id: "desc" as const },
@@ -1185,6 +1201,7 @@ function toMessageView(
     senderDeviceId: string;
     clientMessageId: string;
     contentCommitmentB64: string | null;
+    reactionTargetTagB64: string | null;
     kind: string;
     interactionEpoch: number;
     createdAt: Date;
@@ -1213,6 +1230,7 @@ function toMessageView(
     senderDeviceId: row.senderDeviceId,
     clientMessageId: row.clientMessageId,
     contentCommitmentB64: row.contentCommitmentB64,
+    reactionTargetTagB64: row.reactionTargetTagB64,
     kind: isKind(row.kind) ? row.kind : "HUMAN",
     interactionEpoch: row.interactionEpoch,
     createdAt: row.createdAt.toISOString(),
@@ -1251,6 +1269,7 @@ function toEnvelopeView(envelope: {
 function isKind(value: string | undefined): value is DirectMessageView["kind"] {
   return (
     value === "HUMAN" ||
+    value === "REACTION" ||
     value === "OPERATOR_INVOKE" ||
     value === "OPERATOR_RESPONSE" ||
     value === "OPERATOR_ACTION"
