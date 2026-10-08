@@ -7,9 +7,11 @@ import {
 } from "./direct-chat-replies.js";
 
 const id = "11111111-1111-4111-8111-111111111111";
+const commitment = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
 const human: LocalDirectReplySource = {
   message: {
     clientMessageId: id,
+    contentCommitmentB64: commitment,
     conversationId: "chat-1",
     senderUserId: "alice",
     senderDeviceId: "22222222-2222-4222-8222-222222222222",
@@ -21,15 +23,20 @@ const human: LocalDirectReplySource = {
 describe("Direct quoted-message source verification", () => {
   it("resolves only a decrypted HUMAN with exact id, chat and author", () => {
     const ref = directReplyReference(human);
+    if (!ref) throw new Error("Missing fixture source");
     expect(resolveDirectReplySource(human, "chat-1", ref)).toBe(human);
     expect(resolveDirectReplySource(undefined, "chat-1", ref)).toBeNull();
     expect(resolveDirectReplySource(human, "chat-2", ref)).toBeNull();
     expect(resolveDirectReplySource(human, "chat-1", { ...ref, senderUserId: "mallory" })).toBeNull();
     expect(resolveDirectReplySource(human, "chat-1", { ...ref, clientMessageId: "33333333-3333-4333-8333-333333333333" })).toBeNull();
+    expect(resolveDirectReplySource(human, "chat-1", {
+      ...ref, contentCommitmentB64: "BAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+    })).toBeNull();
   });
 
   it("does not attribute undecryptable, malformed or forged Operator content as a quotation", () => {
     const ref = directReplyReference(human);
+    if (!ref) throw new Error("Missing fixture source");
     expect(resolveDirectReplySource({ ...human, payload: { type: "human" } }, "chat-1", ref)).toBeNull();
     expect(resolveDirectReplySource({ ...human, payload: null }, "chat-1", ref)).toBeNull();
     expect(resolveDirectReplySource({
@@ -44,6 +51,7 @@ describe("Direct quoted-message source verification", () => {
 describe("encrypted Direct reply reference parser", () => {
   const valid = {
     clientMessageId: "11111111-1111-4111-8111-111111111111",
+    contentCommitmentB64: commitment,
     senderUserId: "alice",
     senderDeviceId: "22222222-2222-4222-8222-222222222222",
   };
@@ -51,6 +59,8 @@ describe("encrypted Direct reply reference parser", () => {
     expect(readDirectReplyReference(valid)).toEqual(valid);
     expect(readDirectReplyReference({ ...valid, extra: "spoof" })).toBeNull();
     expect(readDirectReplyReference({ ...valid, clientMessageId: "bad" })).toBeNull();
+    expect(readDirectReplyReference({ ...valid, contentCommitmentB64: null })).toBeNull();
+    expect(readDirectReplyReference({ ...valid, contentCommitmentB64: "fake" })).toBeNull();
     expect(readDirectReplyReference({ ...valid, senderUserId: "" })).toBeNull();
     expect(readDirectReplyReference({ ...valid, senderDeviceId: "fake-device" })).toBeNull();
     expect(resolveDirectReplySource({

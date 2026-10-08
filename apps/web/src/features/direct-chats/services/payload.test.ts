@@ -110,6 +110,7 @@ describe("authenticated Direct HUMAN replies", () => {
   const originalId = "11111111-1111-4111-8111-111111111111";
   const reference = {
     clientMessageId: originalId,
+    contentCommitmentB64: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
     senderUserId: "person-1",
     senderDeviceId: "22222222-2222-4222-8222-222222222222",
   };
