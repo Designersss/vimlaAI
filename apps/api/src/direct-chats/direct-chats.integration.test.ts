@@ -1087,6 +1087,7 @@ describe("direct chats API", () => {
       cookies: alice.cookies,
       payload: {
         clientMessageId: outsideClientMessageId,
+          contentCommitmentB64: testCommitmentForClientId(outsideClientMessageId),
         senderDeviceId: aliceDevice.deviceId,
         interactionEpoch: chat.interactionEpoch,
         kind: "HUMAN",
@@ -1103,6 +1104,7 @@ describe("direct chats API", () => {
       cookies: alice.cookies,
       payload: {
         clientMessageId: outsideClientMessageId,
+          contentCommitmentB64: testCommitmentForClientId(outsideClientMessageId),
         senderDeviceId: aliceDevice.deviceId,
         interactionEpoch: chat.interactionEpoch,
         kind: "HUMAN",
@@ -1257,6 +1259,7 @@ describe("direct chats API", () => {
         cookies: alice.cookies,
         payload: {
           clientMessageId: raceClientMessageId,
+          contentCommitmentB64: testCommitmentForClientId(raceClientMessageId),
           senderDeviceId: aliceDevice.deviceId,
           interactionEpoch: chat.interactionEpoch,
           kind: "HUMAN",
@@ -1271,6 +1274,7 @@ describe("direct chats API", () => {
         cookies: alice.cookies,
         payload: {
           clientMessageId: raceClientMessageId,
+          contentCommitmentB64: testCommitmentForClientId(raceClientMessageId),
           senderDeviceId: aliceDevice.deviceId,
           interactionEpoch: chat.interactionEpoch,
           kind: "HUMAN",
@@ -1437,6 +1441,7 @@ describe("direct chats API", () => {
     }
     const payload = {
       clientMessageId: preflightReplayClientId,
+          contentCommitmentB64: testCommitmentForClientId(preflightReplayClientId),
       senderDeviceId: aliceDevice.deviceId,
       interactionEpoch: chat.interactionEpoch,
       kind: "HUMAN" as const,
@@ -1722,6 +1727,7 @@ describe("direct chats API", () => {
     }
     const payload = {
       clientMessageId: blockedReplayClientId,
+          contentCommitmentB64: testCommitmentForClientId(blockedReplayClientId),
       senderDeviceId: aliceDevice.deviceId,
       interactionEpoch: chat.interactionEpoch,
       kind: "HUMAN" as const,
@@ -1797,6 +1803,7 @@ describe("direct chats API", () => {
     }
     const stalePayload = {
       clientMessageId: staleClientId,
+          contentCommitmentB64: testCommitmentForClientId(staleClientId),
       senderDeviceId: aliceDevice.deviceId,
       interactionEpoch: chat.interactionEpoch,
       kind: "HUMAN" as const,
@@ -1874,6 +1881,7 @@ describe("direct chats API", () => {
       cookies: alice.cookies,
       payload: {
         clientMessageId: freshClientId,
+          contentCommitmentB64: testCommitmentForClientId(freshClientId),
         senderDeviceId: aliceDevice.deviceId,
         interactionEpoch: latest.interactionEpoch,
         kind: "HUMAN",
@@ -1991,6 +1999,7 @@ describe("direct chats API", () => {
       cookies: alice.cookies,
       payload: {
         clientMessageId: queuedBlockClientId,
+          contentCommitmentB64: testCommitmentForClientId(queuedBlockClientId),
         senderDeviceId: aliceDevice.deviceId,
         interactionEpoch: chat.interactionEpoch,
         kind: "HUMAN",
@@ -3373,6 +3382,15 @@ async function createChat(
   return created.json();
 }
 
+
+// API tests inspect ciphertext/signatures, not the inner HUMAN codec.
+// This opaque fixture binds arbitrary test plaintext to a syntactically
+// valid full 256-bit commitment whose UUID prefix matches the send ID.
+function testCommitmentForClientId(id: string): string {
+  const original = Buffer.from(id.replace(/-/g, ""), "hex");
+  return Buffer.concat([original, Buffer.alloc(16)]).toString("base64");
+}
+
 async function sendPlain(
   app: NestFastifyApplication,
   sender: { cookies: Record<string, string>; id: string },
@@ -3416,6 +3434,7 @@ async function sendPlain(
     cookies: sender.cookies,
     payload: {
       clientMessageId,
+      contentCommitmentB64: kind === "HUMAN" ? testCommitmentForClientId(clientMessageId) : null,
       senderDeviceId: senderDevice.deviceId,
       interactionEpoch,
       kind,
@@ -3468,6 +3487,7 @@ async function sendWithMutatedCipher(
     cookies: sender.cookies,
     payload: {
       clientMessageId,
+      contentCommitmentB64: testCommitmentForClientId(clientMessageId),
       senderDeviceId: senderDevice.deviceId,
       interactionEpoch,
       kind: "HUMAN",
@@ -3525,6 +3545,7 @@ async function encryptTo(
       senderUserId: sender.id,
       senderDeviceId: senderDevice.deviceId,
       clientMessageId,
+      contentCommitmentB64: kind === "HUMAN" ? testCommitmentForClientId(clientMessageId) : null,
       recipientDeviceId: recipient.id,
       kind,
       interactionEpoch,
@@ -3598,6 +3619,7 @@ function decryptFor(
       senderUserId,
       senderDeviceId: sender.deviceId,
       clientMessageId,
+      contentCommitmentB64: testCommitmentForClientId(clientMessageId),
       recipientDeviceId: envelope.recipientDeviceId,
       kind,
       interactionEpoch,
