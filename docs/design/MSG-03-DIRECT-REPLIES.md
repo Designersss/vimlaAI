@@ -11,18 +11,23 @@ inside the same authenticated, per-device end-to-end encrypted HUMAN
 plaintext as the reply body. Every newly composed HUMAN payload is versioned
 (`version: 2`), with optional `replyTo` and a uniformly random, 256-bit
 `bindingKey` *inside the encrypted plaintext*. The clientMessageId is
-an RFC4122-v4-shaped, 122-bit-truncated HMAC-SHA256 of the canonical text
-and reply reference, keyed by that secret. The sender generates ONE payload
+a full 256-bit HMAC-SHA256 of the canonical text and reply reference,
+keyed by that secret. The full opaque commitment is stored in the
+nullable message-level `contentCommitmentB64` API/database field and signed
+in AD5 for every recipient. A UUID-v4-shaped 122-bit prefix remains the
+existing `clientMessageId` idempotency key, **not** the sole security binding. The sender generates ONE payload
 and ONE derived ID for the entire device fan-out. Literal user-typed JSON
 remains text rather than control metadata.
 No untyped/v1 HUMAN format is accepted: Vimla is preproduction, with no
 released-client compatibility boundary. Missing keys, invalid versions or
 invalid content-to-ID bindings fail closed as undecryptable. The Direct
-API/storage schema is unchanged; the existing `clientMessageId` field now
-carries the opaque content-bound identifier in authenticated AD v4:
-the server sees only ciphertext, sender, epoch and preexisting routing
-metadata; neither quoted text nor reference IDs appear in server-readable
-fields.
+API/storage schema adds a nullable 32-byte (Base64) opaque
+`contentCommitmentB64` field on `DirectMessage` (not per-device envelopes).
+HUMAN requires the commitment, all OPERATOR_* kinds require null. API validates
+that the UUID prefix matches the full commitment and verifies each sender
+signature over AD5, which covers BOTH identifiers. The server sees ciphertext,
+opaque HMAC, sender, epoch and existing routing metadata; neither the quoted
+text, binding secret nor reply reference IDs appear in server-readable fields.
 
 The sender of a reply can author an arbitrary reference. A valid E2EE sender
 signature authenticates that sender's claim but **does not attest the source
@@ -84,7 +89,7 @@ The sending lock is synchronous, before any mention-network await. A pre-persist
 
 ### E2EE authenticated identity
 
-Direct AD v4 binds `clientMessageId` and the existing sender user/device, conversation, recipient device, kind, epoch and routing context. This prevents a server from swapping signed ciphertext between distinct message identities. A reply points to the signed client message ID, not to the server-generated record ID. Server-generated IDs are used only for message pagination/report navigation and must not be cryptographic quote identities. The binding applies to HUMAN and OPERATOR envelope kinds alike; the existing Operator-origin verification gate #74 remains separate. Multi-recipient envelopes of one send use the *same* signed client message ID.
+Direct AD v5 binds the full `contentCommitmentB64` and `clientMessageId` alongside the existing sender user/device, conversation, recipient device, kind, epoch and routing context. This prevents a server from swapping signed ciphertext between distinct message identities. A reply points to the signed client message ID, not to the server-generated record ID. Server-generated IDs are used only for message pagination/report navigation and must not be cryptographic quote identities. The binding applies to HUMAN and OPERATOR envelope kinds alike; the existing Operator-origin verification gate #74 remains separate. Multi-recipient envelopes of one send use the *same* signed client message ID.
 
 Sender-user and sender-device are included alongside signed client ID in the Web quote index. The server uniqueness constraint is per-conversation/per-author; a malicious sender with the same chosen UUID must not shadow another author's original in local reply resolution. Malformed HUMAN content is omitted from consent-gated @Vimla context, never copied as raw serialized control metadata.
 
@@ -101,18 +106,24 @@ before a body or reply reference can be displayed as a verified HUMAN message.
 - The unguessable, 256-bit `bindingKey` stays inside the ciphertext. A
   server-visible SHA256 (even one with a public random salt) would enable
   offline dictionary guessing of short messages; this keyed design does not.
-- The signed ID encodes 122 bits of an HMAC-SHA256 commitment. The UUID
-  version/variant bits are fixed by the API contract. Deliberately finding a
-  second preimage for the same committed ID is computationally infeasible.
+- **A UUID alone does not provide 128-bit collision resistance:** its
+  122-bit prefix has about 2^61 birthday security against a malicious sender
+  able to preselect two messages/secrets. The independent, signed 256-bit
+  commitment retains ~2^128 generic collision security, while the derived
+  UUID remains the established idempotency/lookup key. The server verifies
+  their relationship and retains one commitment per authoritative message.
+  A receiver checks the entire 256-bit HMAC, not just the 122-bit prefix.
 - The canonical commitment covers the **full original text and reply
   identity**. Every device sees and checks the same client ID, although
   recipient ciphertext, ratchet state and nonce legitimately differ.
-- All read paths (new ratchet decrypt, protected cache and local pending
-  finalization) validate the content ID. The outbound multi-device encryption
-  boundary rejects a mismatch before persisting ratchets or ciphertext.
-- The server does not learn either the secret or plaintext. It verifies the
-  client's per-device signatures over AD v4, while recipients additionally
-  verify the keyed content commitment on decrypted HUMAN bytes.
+- All read paths (new ratchet decrypt, protected cache, unified inbox,
+  consent-gated AI context and local pending finalization) validate the FULL
+  signed 256-bit commitment and derived UUID. The outbound multi-device
+  encryption boundary rejects a mismatch before persisting ratchets or ciphertext.
+- The server does not learn either the binding secret or plaintext. It
+  verifies every signature over AD5 and insists on a single authoritative
+  message-level commitment, while recipients verify the same 256-bit HMAC
+  after decrypting HUMAN plaintext.
 - Invalid, absent or mismatched binding data renders as unavailable, not
   spoofed peer content. Malicious senders can still intentionally author
   *ordinary* false text, omit a message to a recipient, or deny service; this
@@ -131,9 +142,13 @@ covered.
 The text input remains editable while the previous message waits for
 network/outbox completion. The send transaction captures an exact monotonically
 incrementing draft revision and reply-selection revision before the first
-await. Only if the draft revision remains unchanged may the staged outbox
-release the composer text; only if *both* revisions are unchanged may it clear
-the reply selection. An edit, even if it eventually restores identical text,
+await. Only if BOTH draft and reply-selection revisions remain unchanged may
+the staged outbox release composer text AND the selected reply together.
+Changing either field prevents the prior send from clearing either field. An edit, even if it eventually restores identical text,
 is not accidentally reclassified as the original staged draft. This
 prevents silently dropping the quote on a newer reply composed during an
 in-flight send.
+
+### Protocol migration
+
+Preproduction test/development Direct content predating AD5 and HUMAN v2 with the full signed commitment is intentionally not a released-client compatibility contract. Reset development ciphertext/ratchet histories as appropriate; do not silently accept legacy 122-bit-only HUMAN content in recipient clients. Migration `20261008213000_add_direct_human_content_commitment` introduces an optional PostgreSQL field to accommodate OPERATOR_* while HUMAN sends are strictly validated by the authoritative API.
