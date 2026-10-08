@@ -327,6 +327,55 @@ test.describe("Secure Direct Chats", () => {
         .getByTestId("direct-reply-context"),
     ).toContainText("hello from alice", { timeout: 20_000 });
 
+    // Regression: changing the selected reply WITHOUT editing the text
+    // must not let the older in-flight send clear the new composition.
+    await sourceAgain.getByTestId("direct-message-reply-action").click();
+    const switchText = "reply text retained across source switch";
+    let resolveSwitchPreflight!: () => void;
+    let notifySwitchPreflight!: () => void;
+    const switchPreflightStarted = new Promise<void>((resolve) => {
+      notifySwitchPreflight = resolve;
+    });
+    const switchPreflightGate = new Promise<void>((resolve) => {
+      resolveSwitchPreflight = resolve;
+    });
+    await nikitaPage.route("**/v1/direct-chats/*/send-preflight", async (route) => {
+      if (route.request().method() === "POST") {
+        notifySwitchPreflight();
+        await switchPreflightGate;
+      }
+      await route.continue();
+    });
+    await nikitaComposer.fill(switchText);
+    await nikitaPage.getByTestId("chat-composer-send").click();
+    await switchPreflightStarted;
+    const otherSource = nikitaPage.getByTestId("direct-message-row").filter({
+      has: nikitaPage.getByTestId("direct-message-human")
+        .filter({ hasText: "Nikita replying to original hello" }),
+    });
+    await otherSource.getByTestId("direct-message-reply-action").click();
+    await expect(replyComposer).toContainText("Nikita replying to original hello");
+    resolveSwitchPreflight();
+    await expect(
+      alicePage.getByTestId("direct-message-human").filter({ hasText: switchText }),
+    ).toHaveCount(1, { timeout: 20_000 });
+    await expect(nikitaComposer).toHaveValue(switchText);
+    await expect(replyComposer).toContainText("Nikita replying to original hello");
+    await nikitaPage.unroute("**/v1/direct-chats/*/send-preflight");
+    await nikitaPage.getByTestId("chat-composer-send").click();
+    await expect(
+      alicePage.getByTestId("direct-message-row")
+        .filter({ has: alicePage.getByTestId("direct-message-human")
+          .filter({ hasText: switchText }) }),
+    ).toHaveCount(2, { timeout: 20_000 });
+    // The second send must use the newly selected source, not the original.
+    const secondSwitchedReply = alicePage.getByTestId("direct-message-row").filter({
+      has: alicePage.getByTestId("direct-message-human")
+        .filter({ hasText: switchText }),
+    }).last();
+    await expect(secondSwitchedReply.getByTestId("direct-reply-context"))
+      .toContainText("Nikita replying to original hello");
+
     let abortBeforeServer = true;
     await alicePage.route(
       "**/v1/direct-chats/*/messages",
