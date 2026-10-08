@@ -212,8 +212,36 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
   );
   const [draft, setDraft] = useState("");
   const draftRef = useRef("");
-  const [replyTo, setReplyTo] = useState<DirectReplyReference | null>(null);
-  const [replyWarning, setReplyWarning] = useState<"unavailable" | "operator" | null>(null);
+  // Scope ephemeral UI state by conversation identity. A reused React
+  // component cannot accidentally send a reply selected in a prior chat.
+  const [replyDraft, setReplyDraft] = useState<{
+    conversationId: string;
+    reference: DirectReplyReference;
+  } | null>(null);
+  const replyTo = replyDraft?.conversationId === conversationId
+    ? replyDraft.reference
+    : null;
+  const setReplyTo = (reference: DirectReplyReference | null): void => {
+    setReplyDraft((current) => reference
+      ? { conversationId, reference }
+      : current?.conversationId === conversationId
+        ? null
+        : current);
+  };
+  const [replyWarningDraft, setReplyWarningDraft] = useState<{
+    conversationId: string;
+    code: "unavailable" | "operator";
+  } | null>(null);
+  const replyWarning = replyWarningDraft?.conversationId === conversationId
+    ? replyWarningDraft.code
+    : null;
+  const setReplyWarning = (code: "unavailable" | "operator" | null): void => {
+    setReplyWarningDraft((current) => code
+      ? { conversationId, code }
+      : current?.conversationId === conversationId
+        ? null
+        : current);
+  };
   const rowsById = useMemo(() => new Map(rows.map((row) => [row.message.id, row])), [rows]);
   const composerHostRef = useRef<HTMLDivElement | null>(null);
   const [activeMention, setActiveMention] = useState<ActiveMentionQuery | null>(null);
@@ -237,13 +265,6 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
   const [reportOpen, setReportOpen] = useState(false);
   const [reportEvidence, setReportEvidence] =
     useState<DirectMessageReportEvidence | undefined>(undefined);
-
-  // A surface route change may reuse this React component. A reply must
-  // never leak into another conversation's composer.
-  useEffect(() => {
-    setReplyTo(null);
-    setReplyWarning(null);
-  }, [conversationId]);
 
   const selectReply = (source: DecryptedRow): void => {
     const reference = directReplyReference(source);
