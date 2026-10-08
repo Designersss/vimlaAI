@@ -147,9 +147,14 @@ describe("authenticated Direct HUMAN replies", () => {
         type: "human", text: "msg",
       });
     }
-    expect(decodeDirectPlaintext("HUMAN", JSON.stringify({
+    const unsupportedVersion = JSON.stringify({
       type: "human", version: 2, text: "msg", replyTo: reference,
-    }))).toEqual({ type: "human", text: "msg" });
+    });
+    // Unknown protocol versions are not interpreted as valid reply metadata.
+    // Their raw bytes remain ordinary text until a reviewed codec exists.
+    expect(decodeDirectPlaintext("HUMAN", unsupportedVersion)).toEqual({
+      type: "human", text: unsupportedVersion,
+    });
     expect(() => encodeDirectPlaintext({
       type: "human", text: "msg", replyTo: { ...reference, messageId: "other" },
     })).toThrow("Invalid Direct reply reference");
