@@ -15,7 +15,7 @@ export interface LocalDirectReplySource {
     DirectMessageView,
     "id" | "conversationId" | "senderUserId" | "kind"
   >;
-  payload: { type: string } | null;
+  payload: { type: string; text?: unknown } | null;
 }
 
 export function readDirectReplyReference(input: unknown): DirectReplyReference | null {
@@ -60,7 +60,8 @@ export function resolveDirectReplySource<T extends LocalDirectReplySource>(
     source.message.conversationId !== conversationId ||
     source.message.senderUserId !== reference.senderUserId ||
     source.message.kind !== "HUMAN" ||
-    source.payload?.type !== "human"
+    source.payload?.type !== "human" ||
+    typeof source.payload.text !== "string"
   ) {
     return null;
   }
