@@ -52,12 +52,18 @@ export async function resolveWebInboxPreview(
     );
     const plaintext =
       resolveInboxPreview(item, local);
+    // An untrusted peer may validly sign different ciphertext to two
+    // devices, but HUMAN text must also match its content-bound sender ID.
+    // The inbox has a separate plaintext read path from the conversation:
+    // never project an unbound/mismatched local row as a valid preview.
     const displayText =
-      plaintext === null
+      plaintext === null ||
+      (item.preview.messageKind === "HUMAN" && !local?.clientMessageId)
         ? null
         : directPlaintextPreview(
             item.preview.messageKind,
             plaintext,
+            local?.clientMessageId,
           );
     return displayText === null
       ? null
