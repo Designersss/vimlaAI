@@ -189,6 +189,12 @@ test.describe("Public profile", () => {
       name: `Report @${bobHandle}`,
     });
     await expect(reportDialog).toBeVisible();
+    const reportReason = reportDialog.locator("#trust-report-reason");
+    const reportDetails = reportDialog.locator("#trust-report-details");
+    const originalDetails =
+      "Keep this report unchanged while the server processes it.";
+    await reportReason.selectOption("SPAM");
+    await reportDetails.fill(originalDetails);
     let releaseReport!: () => void;
     let signalReportHeld!: () => void;
     const reportHeld = new Promise<void>((resolve) => {
@@ -197,7 +203,11 @@ test.describe("Public profile", () => {
     const reportRelease = new Promise<void>((resolve) => {
       releaseReport = resolve;
     });
-    const reportRequestIds: string[] = [];
+    const reportRequests: Array<{
+      requestId?: string;
+      reason?: string;
+      details?: string;
+    }> = [];
     let loseFirstReportResponse = true;
     await alicePage.route(
       "**/v1/trust/reports",
@@ -205,9 +215,11 @@ test.describe("Public profile", () => {
         if (route.request().method() === "POST") {
           const payload = route.request().postDataJSON() as {
             requestId?: string;
+            reason?: string;
+            details?: string;
           } | null;
-          if (payload?.requestId) {
-            reportRequestIds.push(payload.requestId);
+          if (payload) {
+            reportRequests.push(payload);
           }
           if (loseFirstReportResponse) {
             loseFirstReportResponse = false;
@@ -227,18 +239,34 @@ test.describe("Public profile", () => {
     });
     await submitReport.click();
     await reportHeld;
+    await expect(reportReason).toBeDisabled();
+    await expect(reportDetails).toBeDisabled();
+    await expect(reportReason).toHaveValue("SPAM");
+    await expect(reportDetails).toHaveValue(originalDetails);
     await alicePage.keyboard.press("Escape");
     await expect(reportDialog).toBeVisible();
     await expect(submitReport).toBeDisabled();
     releaseReport();
     await expect(submitReport).toBeEnabled();
+    await expect(reportReason).toBeEnabled();
+    await expect(reportDetails).toBeEnabled();
     await submitReport.click();
     await expect(
       reportDialog.getByText("Report submitted."),
     ).toBeVisible();
-    expect(reportRequestIds).toHaveLength(2);
-    expect(reportRequestIds[0]).toBe(reportRequestIds[1]);
-    expect(reportRequestIds[0]).toMatch(
+    expect(reportRequests).toHaveLength(2);
+    expect(reportRequests[0]?.requestId).toBe(reportRequests[1]?.requestId);
+    expect(reportRequests).toEqual([
+      expect.objectContaining({
+        reason: "SPAM",
+        details: originalDetails,
+      }),
+      expect.objectContaining({
+        reason: "SPAM",
+        details: originalDetails,
+      }),
+    ]);
+    expect(reportRequests[0]?.requestId).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
     );
     await alicePage.unroute("**/v1/trust/reports");
