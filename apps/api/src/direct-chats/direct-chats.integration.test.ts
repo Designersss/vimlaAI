@@ -1174,6 +1174,26 @@ describe("direct chats API", () => {
     expect((swappedIdentity.json() as { error: { message: string } }).error.message)
       .toBe("Envelope signature is invalid");
 
+    // The full AD5 commitment is authenticated independently of its
+    // truncated UUID. Changing only its low-order 128 bits still invalidates
+    // every legitimate recipient-envelope signature.
+    const changedCommitment = Buffer.from(payload.contentCommitmentB64, "base64");
+    changedCommitment[31] = (changedCommitment[31] ?? 0) ^ 0x01;
+    const tamperedCommitment = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/${chat.id}/messages`,
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: {
+        ...payload,
+        contentCommitmentB64: changedCommitment.toString("base64"),
+      },
+    });
+    expect(tamperedCommitment.statusCode).toBe(400);
+    expect(errorCode(tamperedCommitment)).toBe("validation_error");
+    expect((tamperedCommitment.json() as { error: { message: string } }).error.message)
+      .toBe("Envelope signature is invalid");
+
     const sent = await app.inject({
       method: "POST",
       url: `/v1/direct-chats/${chat.id}/messages`,

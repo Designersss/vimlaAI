@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
-  decryptEnvelope, encryptEnvelope, generateIdentity, generateSignedPreKey,
+  b64ToBytes, bytesToB64, decryptEnvelope, encryptEnvelope,
+  generateIdentity, generateSignedPreKey, humanClientIdFromCommitment,
   initRatchetInitiator, initRatchetResponder, publicBundleFrom,
   utf8, x3dhInitiate, x3dhRespond,
 } from "@vimla/e2ee";
@@ -42,6 +43,22 @@ describe("portable Direct HUMAN E2EE content commitment", () => {
       prepared.plaintext, prepared.clientMessageId, differentCommitment.contentCommitmentB64,
     )).toBeNull();
     expect(JSON.stringify(message)).not.toContain(wire.bindingKey as string);
+  });
+
+  it("does not confuse the same 122-bit UUID prefix with full source commitment equality", () => {
+    const original = createDirectHumanMessage({ type: "human", text: "source" });
+    const altered = b64ToBytes(original.contentCommitmentB64);
+    // Change only bits beyond the 122-bit UUID projection.
+    altered[31] = (altered[31] ?? 0) ^ 0x01;
+    const collisionPrefix = bytesToB64(altered);
+    expect(collisionPrefix).not.toBe(original.contentCommitmentB64);
+    expect(humanClientIdFromCommitment(collisionPrefix)).toBe(original.clientMessageId);
+    expect(decodeDirectHumanPayload(
+      original.plaintext, original.clientMessageId, collisionPrefix,
+    )).toBeNull();
+    expect(decodeDirectHumanPayload(
+      original.plaintext, original.clientMessageId, original.contentCommitmentB64,
+    )).toEqual({ type: "human", text: "source" });
   });
 
   it("rejects equivocation: different signed ciphertexts for same claimed sender ID", () => {

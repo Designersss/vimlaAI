@@ -11,13 +11,14 @@ export function generateHumanBindingKey(): string {
 
 /**
  * A uniformly random per-message secret travels ONLY in the E2EE plaintext.
- * The server-visible 122-bit UUID is a truncated keyed HMAC commitment to
- * the exact canonical content. The server cannot run an offline dictionary
- * against its identifier without the 256-bit encrypted secret.
+ * The server sees a complete 256-bit keyed HMAC commitment to canonical
+ * content but never its encrypted 256-bit key or the plaintext. Each device
+ * verifies all 256 bits after ratchet decryption; the UUID is ONLY the
+ * idempotency/index prefix and does NOT establish content equality.
  *
- * Every recipient device verifies the identifier after ratchet decryption.
- * A malicious sender cannot choose different plaintexts / different secrets
- * for the same signed clientMessageId without a 122-bit second preimage.
+ * A malicious sender who precomputes both candidate messages faces the
+ * generic 2^128 birthday bound of a 256-bit full commitment, rather than
+ * the much weaker 2^61 collision bound of the 122-bit UUID prefix.
  */
 export function boundHumanClientMessageId(
   secretB64: string,
