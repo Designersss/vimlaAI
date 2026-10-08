@@ -1225,6 +1225,9 @@ describe("direct chats API", () => {
           chat.id,
           "HUMAN",
           "race payload A",
+          [],
+          chat.interactionEpoch,
+          raceClientMessageId,
         ),
       );
       raceEnvelopesB.push(
@@ -1236,6 +1239,9 @@ describe("direct chats API", () => {
           chat.id,
           "HUMAN",
           "race payload B",
+          [],
+          chat.interactionEpoch,
+          raceClientMessageId,
         ),
       );
     }
