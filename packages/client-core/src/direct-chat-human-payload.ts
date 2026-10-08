@@ -69,7 +69,7 @@ function canonicalContent(payload: HumanPayload): string {
   return JSON.stringify([
     payload.text,
     ref
-      ? [ref.clientMessageId, ref.senderUserId, ref.senderDeviceId]
+      ? [ref.clientMessageId, ref.contentCommitmentB64, ref.senderUserId, ref.senderDeviceId]
       : null,
   ]);
 }

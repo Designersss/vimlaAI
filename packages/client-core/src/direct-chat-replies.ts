@@ -9,6 +9,8 @@ export interface DirectReplyReference {
   // The client-generated id is signed into each sender E2EE envelope;
   // unlike server-generated message.id it cannot be relabelled by the server.
   clientMessageId: string;
+  // Signed 256-bit source commitment, necessary to avoid 122-bit UUID collisions.
+  contentCommitmentB64: string;
   senderUserId: string;
   senderDeviceId: string;
 }
@@ -16,7 +18,7 @@ export interface DirectReplyReference {
 export interface LocalDirectReplySource {
   message: Pick<
     DirectMessageView,
-    "clientMessageId" | "conversationId" | "senderUserId" | "senderDeviceId" | "kind"
+    "clientMessageId" | "contentCommitmentB64" | "conversationId" | "senderUserId" | "senderDeviceId" | "kind"
   >;
   payload: { type: string; text?: unknown } | null;
 }
@@ -28,7 +30,9 @@ export function readDirectReplyReference(input: unknown): DirectReplyReference |
   const value = input as Record<string, unknown>;
   const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   if (
-    Object.keys(value).length !== 3 ||
+    Object.keys(value).length !== 4 ||
+    typeof value.contentCommitmentB64 !== "string" ||
+    !/^[A-Za-z0-9+/]{43}=$/.test(value.contentCommitmentB64) ||
     typeof value.clientMessageId !== "string" ||
     !uuid.test(value.clientMessageId) ||
     typeof value.senderUserId !== "string" ||
@@ -41,6 +45,7 @@ export function readDirectReplyReference(input: unknown): DirectReplyReference |
   }
   return {
     clientMessageId: value.clientMessageId,
+    contentCommitmentB64: value.contentCommitmentB64,
     senderUserId: value.senderUserId,
     senderDeviceId: value.senderDeviceId,
   };
@@ -48,9 +53,11 @@ export function readDirectReplyReference(input: unknown): DirectReplyReference |
 
 export function directReplyReference(
   source: LocalDirectReplySource,
-): DirectReplyReference {
+): DirectReplyReference | null {
+  if (source.message.kind !== "HUMAN" || !source.message.contentCommitmentB64) return null;
   return {
     clientMessageId: source.message.clientMessageId,
+    contentCommitmentB64: source.message.contentCommitmentB64,
     senderUserId: source.message.senderUserId,
     senderDeviceId: source.message.senderDeviceId,
   };
@@ -64,6 +71,7 @@ export function resolveDirectReplySource<T extends LocalDirectReplySource>(
   if (
     !source ||
     source.message.clientMessageId !== reference.clientMessageId ||
+    source.message.contentCommitmentB64 !== reference.contentCommitmentB64 ||
     source.message.conversationId !== conversationId ||
     source.message.senderUserId !== reference.senderUserId ||
     source.message.senderDeviceId !== reference.senderDeviceId ||

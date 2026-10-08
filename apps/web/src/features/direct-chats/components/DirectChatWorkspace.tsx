@@ -255,6 +255,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         row.message.senderUserId,
         row.message.senderDeviceId,
         row.message.clientMessageId,
+        row.message.contentCommitmentB64,
       ]),
       row,
     ])),
@@ -265,6 +266,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
       reference.senderUserId,
       reference.senderDeviceId,
       reference.clientMessageId,
+      reference.contentCommitmentB64,
     ]));
   const composerHostRef = useRef<HTMLDivElement | null>(null);
   const [activeMention, setActiveMention] = useState<ActiveMentionQuery | null>(null);
@@ -291,7 +293,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
 
   const selectReply = (source: DecryptedRow): void => {
     const reference = directReplyReference(source);
-    if (!resolveDirectReplySource(source, conversationId, reference)) return;
+    if (!reference || !resolveDirectReplySource(source, conversationId, reference)) return;
     setReplyTo(reference);
     setReplyWarning(null);
     // Keep ordinary keyboard flow: the reply action focuses the composer.
@@ -882,7 +884,8 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         rowsRef.current.find((row) =>
           row.message.clientMessageId === selectedReply.clientMessageId &&
           row.message.senderDeviceId === selectedReply.senderDeviceId &&
-          row.message.senderUserId === selectedReply.senderUserId,
+          row.message.senderUserId === selectedReply.senderUserId &&
+          row.message.contentCommitmentB64 === selectedReply.contentCommitmentB64,
         ),
         conversationId,
         selectedReply,
