@@ -70,6 +70,9 @@ import {
 } from "./crypto-store";
 import {
   RatchetLockLostError,
+  directHumanClientMessageId,
+  directHumanContentCommitment,
+  cachedDirectPlaintextMatchesMessage,
   RatchetStateConflictError,
 } from "@vimla/client-core";
 import { decodeDirectPlaintext, encodeDirectPlaintext, type DirectPlaintextPayload } from "./payload";
@@ -212,6 +215,7 @@ export async function encryptForDevices(input: {
   senderUserId: string;
   peerUserId?: string;
   clientMessageId: string;
+  contentCommitmentB64: string | null;
   localDevice: StoredDeviceMaterial;
   kind: DirectMessageKind;
   plaintext: string;
@@ -221,6 +225,19 @@ export async function encryptForDevices(input: {
   operatorOutput?: StoredOperatorOutputLink;
   expectedPendingRevision?: number | null;
 }): Promise<StoredPendingSend> {
+  // The same canonical HUMAN v2 bytes MUST be used for every recipient
+  // envelope. Do not allow an alternate sending/recovery call path to bind
+  // arbitrary plaintext to an unrelated, sender-chosen clientMessageId.
+  if (
+    input.kind === "HUMAN" &&
+    (directHumanClientMessageId(input.plaintext) !== input.clientMessageId ||
+      directHumanContentCommitment(input.plaintext) !== input.contentCommitmentB64)
+  ) {
+    throw new Error("Direct HUMAN content identity mismatch");
+  }
+  if (input.kind !== "HUMAN" && input.contentCommitmentB64 !== null) {
+    throw new Error("Unexpected content commitment");
+  }
   const material = input.localDevice;
   const identity = identityFromMaterial(material);
   const activeDevices = input.devices
@@ -292,6 +309,8 @@ export async function encryptForDevices(input: {
           conversationId: input.conversationId,
           senderUserId: input.senderUserId,
           senderDeviceId: material.deviceId,
+          clientMessageId: input.clientMessageId,
+          contentCommitmentB64: input.contentCommitmentB64,
           recipientDeviceId: device.id,
           kind: input.kind,
           interactionEpoch: input.interactionEpoch,
@@ -326,6 +345,7 @@ export async function encryptForDevices(input: {
           : expectedPendingRevision + 1,
       conversationId: input.conversationId,
       clientMessageId: input.clientMessageId,
+      contentCommitmentB64: input.contentCommitmentB64,
       senderUserId: input.senderUserId,
       senderDeviceId: material.deviceId,
       interactionEpoch: input.interactionEpoch,
@@ -367,6 +387,7 @@ export async function encryptForDevices(input: {
           conversationId: input.conversationId,
           senderUserId: input.senderUserId,
           senderDeviceId: material.deviceId,
+          contentCommitmentB64: input.contentCommitmentB64,
           interactionEpoch: input.interactionEpoch,
           kind: input.kind,
           plaintext: input.plaintext,
@@ -577,6 +598,7 @@ export async function recoverPendingSends(input: {
                 : {}),
               clientMessageId:
                 row.clientMessageId,
+              contentCommitmentB64: row.contentCommitmentB64,
               localDevice: input.localDevice,
               kind: row.kind,
               plaintext: row.plaintext,
@@ -799,6 +821,7 @@ export async function sendPendingDirectMessage(
       row.conversationId,
       {
         clientMessageId: row.clientMessageId,
+        contentCommitmentB64: row.contentCommitmentB64,
         senderDeviceId: row.senderDeviceId,
         interactionEpoch: row.interactionEpoch,
         kind: row.kind,
@@ -880,10 +903,28 @@ export async function decryptMessageWithStatus(input: {
 }): Promise<DecryptMessageResult> {
   const cached = await loadPlaintext(input.message.id);
   if (cached) {
+    // The cache was authenticated against this identity on first decrypt.
+    // Never attribute it to a relabelled message or an E2EE kind whose
+    // ciphertext was not cryptographically verified under that metadata.
+    if (!cachedDirectPlaintextMatchesMessage(cached, {
+      messageId: input.message.id,
+      conversationId: input.conversationId,
+      senderUserId: input.message.senderUserId,
+      clientMessageId: input.message.clientMessageId,
+      contentCommitmentB64: input.message.contentCommitmentB64,
+      senderDeviceId: input.message.senderDeviceId,
+      interactionEpoch: input.message.interactionEpoch,
+      kind: input.message.kind,
+      createdAt: input.message.createdAt,
+    })) {
+      return { payload: null, needsBootstrap: false };
+    }
     return {
       payload: decodeDirectPlaintext(
         input.message.kind,
         cached.text,
+        input.message.clientMessageId,
+        input.message.contentCommitmentB64,
       ),
       needsBootstrap: false,
     };
@@ -915,6 +956,8 @@ export async function decryptMessageWithStatus(input: {
         payload: decodeDirectPlaintext(
           input.message.kind,
           pending.plaintext,
+          input.message.clientMessageId,
+          input.message.contentCommitmentB64,
         ),
         needsBootstrap: false,
       };
@@ -942,10 +985,25 @@ export async function decryptMessageWithStatus(input: {
       async () => {
         const committed = await loadPlaintext(input.message.id);
         if (committed) {
+          if (!cachedDirectPlaintextMatchesMessage(committed, {
+            messageId: input.message.id,
+            conversationId: input.conversationId,
+            senderUserId: input.message.senderUserId,
+            clientMessageId: input.message.clientMessageId,
+            contentCommitmentB64: input.message.contentCommitmentB64,
+            senderDeviceId: input.message.senderDeviceId,
+            interactionEpoch: input.message.interactionEpoch,
+            kind: input.message.kind,
+            createdAt: input.message.createdAt,
+          })) {
+            return { payload: null, needsBootstrap: false };
+          }
           return {
             payload: decodeDirectPlaintext(
               input.message.kind,
               committed.text,
+              input.message.clientMessageId,
+              input.message.contentCommitmentB64,
             ),
             needsBootstrap: false,
           };
@@ -1011,6 +1069,8 @@ export async function decryptMessageWithStatus(input: {
             conversationId: input.conversationId,
             senderUserId: input.message.senderUserId,
             senderDeviceId: input.message.senderDeviceId,
+            clientMessageId: input.message.clientMessageId,
+            contentCommitmentB64: input.message.contentCommitmentB64,
             recipientDeviceId: envelope.recipientDeviceId,
             kind: input.message.kind,
             interactionEpoch:
@@ -1025,6 +1085,10 @@ export async function decryptMessageWithStatus(input: {
           text,
           kind: input.message.kind,
           senderUserId: input.message.senderUserId,
+          clientMessageId: input.message.clientMessageId,
+          contentCommitmentB64: input.message.contentCommitmentB64,
+          senderDeviceId: input.message.senderDeviceId,
+          interactionEpoch: input.message.interactionEpoch,
           createdAt: input.message.createdAt,
         };
         await commitDecryptedRatchet({
@@ -1043,6 +1107,8 @@ export async function decryptMessageWithStatus(input: {
           payload: decodeDirectPlaintext(
             input.message.kind,
             text,
+            input.message.clientMessageId,
+            input.message.contentCommitmentB64,
           ),
           needsBootstrap: false,
         };
@@ -1141,6 +1207,7 @@ function pendingSendMatchesCommittedMessage(
     !envelope ||
     pending.conversationId !== message.conversationId ||
     pending.clientMessageId !== message.clientMessageId ||
+    pending.contentCommitmentB64 !== message.contentCommitmentB64 ||
     pending.senderUserId !== message.senderUserId ||
     pending.senderDeviceId !== message.senderDeviceId ||
     pending.interactionEpoch !== message.interactionEpoch ||
@@ -1174,6 +1241,7 @@ function pendingSendMatchesInput(
     conversationId: string;
     senderUserId: string;
     senderDeviceId: string;
+    contentCommitmentB64: string | null;
     interactionEpoch: number;
     kind: DirectMessageKind;
     plaintext: string;
@@ -1186,6 +1254,7 @@ function pendingSendMatchesInput(
     pending.conversationId === input.conversationId &&
     pending.senderUserId === input.senderUserId &&
     pending.senderDeviceId === input.senderDeviceId &&
+    pending.contentCommitmentB64 === input.contentCommitmentB64 &&
     pending.interactionEpoch === input.interactionEpoch &&
     pending.kind === input.kind &&
     pending.plaintext === input.plaintext &&

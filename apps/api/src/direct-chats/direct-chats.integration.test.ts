@@ -685,6 +685,7 @@ describe("direct chats API", () => {
       bobMessage.senderUserId,
       "HUMAN",
       bobMessage.envelope,
+      bobMessage.clientMessageId,
     );
     expect(opened).toBe(secret);
 
@@ -1020,6 +1021,7 @@ describe("direct chats API", () => {
     });
     const devices = chatView.json().devices as Array<{ id: string; userId: string }>;
 
+    const signedClientMessageId = randomUUID();
     const signedEnvelopes = [];
     for (const device of devices) {
       signedEnvelopes.push(
@@ -1032,6 +1034,8 @@ describe("direct chats API", () => {
           "OPERATOR_INVOKE",
           "@vimla signed",
           [vimlaMention],
+          chat.interactionEpoch,
+          signedClientMessageId,
         ),
       );
     }
@@ -1041,7 +1045,7 @@ describe("direct chats API", () => {
       headers: jsonHeaders(),
       cookies: alice.cookies,
       payload: {
-        clientMessageId: randomUUID(),
+        clientMessageId: signedClientMessageId,
         senderDeviceId: aliceDevice.deviceId,
         interactionEpoch: chat.interactionEpoch,
         kind: "OPERATOR_INVOKE",
@@ -1058,6 +1062,7 @@ describe("direct chats API", () => {
       startOffset: 0,
       endOffset: Math.min(8, oscarHandle.normalized.length + 1),
     };
+    const outsideClientMessageId = randomUUID();
     const outsideEnvelopes = [];
     for (const device of devices) {
       outsideEnvelopes.push(
@@ -1070,6 +1075,8 @@ describe("direct chats API", () => {
           "HUMAN",
           `@${oscarHandle.normalized} ping`,
           [outsideMention],
+          chat.interactionEpoch,
+          outsideClientMessageId,
         ),
       );
     }
@@ -1079,7 +1086,8 @@ describe("direct chats API", () => {
       headers: jsonHeaders(),
       cookies: alice.cookies,
       payload: {
-        clientMessageId: randomUUID(),
+        clientMessageId: outsideClientMessageId,
+          contentCommitmentB64: testCommitmentForClientId(outsideClientMessageId),
         senderDeviceId: aliceDevice.deviceId,
         interactionEpoch: chat.interactionEpoch,
         kind: "HUMAN",
@@ -1095,7 +1103,8 @@ describe("direct chats API", () => {
       headers: jsonHeaders(),
       cookies: alice.cookies,
       payload: {
-        clientMessageId: randomUUID(),
+        clientMessageId: outsideClientMessageId,
+          contentCommitmentB64: testCommitmentForClientId(outsideClientMessageId),
         senderDeviceId: aliceDevice.deviceId,
         interactionEpoch: chat.interactionEpoch,
         kind: "HUMAN",
@@ -1114,6 +1123,7 @@ describe("direct chats API", () => {
     const chat = await createChat(app, alice.cookies, nikita.handle);
 
     const devices = chat.devices;
+    const clientMessageId = randomUUID();
     const envelopes = [];
     for (const device of devices) {
       envelopes.push(
@@ -1125,18 +1135,65 @@ describe("direct chats API", () => {
           chat.id,
           "HUMAN",
           "durable replay",
+          [],
+          chat.interactionEpoch,
+          clientMessageId,
         ),
       );
     }
-    const clientMessageId = randomUUID();
     const payload = {
       clientMessageId,
+      contentCommitmentB64: testCommitmentForClientId(clientMessageId),
       senderDeviceId: aliceDevice.deviceId,
       interactionEpoch: chat.interactionEpoch,
       kind: "HUMAN" as const,
       envelopes,
       mentions: [],
     };
+    // These are genuinely sender-signed ciphertexts, but their signatures
+    // were made for clientMessageId. Altering only the HTTP metadata must
+    // fail even before idempotent server message creation.
+    const swappedIdentity = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/${chat.id}/messages`,
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: (() => {
+        const forgedId = randomUUID();
+        return {
+          ...payload,
+          clientMessageId: forgedId,
+          contentCommitmentB64: testCommitmentForClientId(forgedId),
+        };
+      })(),
+    });
+    expect(swappedIdentity.statusCode).toBe(400);
+    // Public API intentionally maps TAMPERED to validation_error to avoid
+    // exposing verification internals; assert the signature guard was hit.
+    expect(errorCode(swappedIdentity)).toBe("validation_error");
+    expect((swappedIdentity.json() as { error: { message: string } }).error.message)
+      .toBe("Envelope signature is invalid");
+
+    // The full AD5 commitment is authenticated independently of its
+    // truncated UUID. Changing only its low-order 128 bits still invalidates
+    // every legitimate recipient-envelope signature.
+    const changedCommitment = Buffer.from(payload.contentCommitmentB64, "base64");
+    changedCommitment[31] = (changedCommitment[31] ?? 0) ^ 0x01;
+    const tamperedCommitment = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/${chat.id}/messages`,
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: {
+        ...payload,
+        contentCommitmentB64: changedCommitment.toString("base64"),
+      },
+    });
+    expect(tamperedCommitment.statusCode).toBe(400);
+    expect(errorCode(tamperedCommitment)).toBe("validation_error");
+    expect((tamperedCommitment.json() as { error: { message: string } }).error.message)
+      .toBe("Envelope signature is invalid");
+
     const sent = await app.inject({
       method: "POST",
       url: `/v1/direct-chats/${chat.id}/messages`,
@@ -1202,6 +1259,9 @@ describe("direct chats API", () => {
           chat.id,
           "HUMAN",
           "race payload A",
+          [],
+          chat.interactionEpoch,
+          raceClientMessageId,
         ),
       );
       raceEnvelopesB.push(
@@ -1213,6 +1273,9 @@ describe("direct chats API", () => {
           chat.id,
           "HUMAN",
           "race payload B",
+          [],
+          chat.interactionEpoch,
+          raceClientMessageId,
         ),
       );
     }
@@ -1224,6 +1287,7 @@ describe("direct chats API", () => {
         cookies: alice.cookies,
         payload: {
           clientMessageId: raceClientMessageId,
+          contentCommitmentB64: testCommitmentForClientId(raceClientMessageId),
           senderDeviceId: aliceDevice.deviceId,
           interactionEpoch: chat.interactionEpoch,
           kind: "HUMAN",
@@ -1238,6 +1302,7 @@ describe("direct chats API", () => {
         cookies: alice.cookies,
         payload: {
           clientMessageId: raceClientMessageId,
+          contentCommitmentB64: testCommitmentForClientId(raceClientMessageId),
           senderDeviceId: aliceDevice.deviceId,
           interactionEpoch: chat.interactionEpoch,
           kind: "HUMAN",
@@ -1384,6 +1449,7 @@ describe("direct chats API", () => {
       alice.cookies,
       nikita.handle,
     );
+    const preflightReplayClientId = randomUUID();
     const envelopes = [];
     for (const device of chat.devices) {
       envelopes.push(
@@ -1395,11 +1461,15 @@ describe("direct chats API", () => {
           chat.id,
           "HUMAN",
           "preflight replay race",
+          [],
+          chat.interactionEpoch,
+          preflightReplayClientId,
         ),
       );
     }
     const payload = {
-      clientMessageId: randomUUID(),
+      clientMessageId: preflightReplayClientId,
+          contentCommitmentB64: testCommitmentForClientId(preflightReplayClientId),
       senderDeviceId: aliceDevice.deviceId,
       interactionEpoch: chat.interactionEpoch,
       kind: "HUMAN" as const,
@@ -1665,6 +1735,7 @@ describe("direct chats API", () => {
       bob.handle,
     );
 
+    const blockedReplayClientId = randomUUID();
     const envelopes = [];
     for (const device of chat.devices) {
       envelopes.push(
@@ -1676,11 +1747,15 @@ describe("direct chats API", () => {
           chat.id,
           "HUMAN",
           "committed before block",
+          [],
+          chat.interactionEpoch,
+          blockedReplayClientId,
         ),
       );
     }
     const payload = {
-      clientMessageId: randomUUID(),
+      clientMessageId: blockedReplayClientId,
+          contentCommitmentB64: testCommitmentForClientId(blockedReplayClientId),
       senderDeviceId: aliceDevice.deviceId,
       interactionEpoch: chat.interactionEpoch,
       kind: "HUMAN" as const,
@@ -1736,6 +1811,7 @@ describe("direct chats API", () => {
       bob.handle,
     );
 
+    const staleClientId = randomUUID();
     const staleEnvelopes = [];
     for (const device of chat.devices) {
       staleEnvelopes.push(
@@ -1749,11 +1825,13 @@ describe("direct chats API", () => {
           "stale before block",
           [],
           chat.interactionEpoch,
+          staleClientId,
         ),
       );
     }
     const stalePayload = {
-      clientMessageId: randomUUID(),
+      clientMessageId: staleClientId,
+          contentCommitmentB64: testCommitmentForClientId(staleClientId),
       senderDeviceId: aliceDevice.deviceId,
       interactionEpoch: chat.interactionEpoch,
       kind: "HUMAN" as const,
@@ -1800,6 +1878,7 @@ describe("direct chats API", () => {
       chat.interactionEpoch + 2,
     );
 
+    const freshClientId = randomUUID();
     const freshEnvelopes = [];
     for (const device of latest.devices) {
       freshEnvelopes.push(
@@ -1813,6 +1892,7 @@ describe("direct chats API", () => {
           "fresh after unblock",
           [],
           latest.interactionEpoch,
+          freshClientId,
         ),
       );
     }
@@ -1828,7 +1908,8 @@ describe("direct chats API", () => {
       headers: jsonHeaders(),
       cookies: alice.cookies,
       payload: {
-        clientMessageId: randomUUID(),
+        clientMessageId: freshClientId,
+          contentCommitmentB64: testCommitmentForClientId(freshClientId),
         senderDeviceId: aliceDevice.deviceId,
         interactionEpoch: latest.interactionEpoch,
         kind: "HUMAN",
@@ -1862,6 +1943,7 @@ describe("direct chats API", () => {
         alice.id,
         "HUMAN",
         received.envelope,
+        received.clientMessageId,
         latest.interactionEpoch,
       ),
     ).toBe("fresh after unblock");
@@ -1886,6 +1968,7 @@ describe("direct chats API", () => {
       nikita.handle,
     );
 
+    const queuedBlockClientId = randomUUID();
     const envelopes = [];
     for (const device of chat.devices) {
       envelopes.push(
@@ -1897,6 +1980,9 @@ describe("direct chats API", () => {
           chat.id,
           "HUMAN",
           "must not pass a completed block",
+          [],
+          chat.interactionEpoch,
+          queuedBlockClientId,
         ),
       );
     }
@@ -1940,7 +2026,8 @@ describe("direct chats API", () => {
       headers: jsonHeaders(),
       cookies: alice.cookies,
       payload: {
-        clientMessageId: randomUUID(),
+        clientMessageId: queuedBlockClientId,
+          contentCommitmentB64: testCommitmentForClientId(queuedBlockClientId),
         senderDeviceId: aliceDevice.deviceId,
         interactionEpoch: chat.interactionEpoch,
         kind: "HUMAN",
@@ -3323,6 +3410,15 @@ async function createChat(
   return created.json();
 }
 
+
+// API tests inspect ciphertext/signatures, not the inner HUMAN codec.
+// This opaque fixture binds arbitrary test plaintext to a syntactically
+// valid full 256-bit commitment whose UUID prefix matches the send ID.
+function testCommitmentForClientId(id: string): string {
+  const original = Buffer.from(id.replace(/-/g, ""), "hex");
+  return Buffer.concat([original, Buffer.alloc(16)]).toString("base64");
+}
+
 async function sendPlain(
   app: NestFastifyApplication,
   sender: { cookies: Record<string, string>; id: string },
@@ -3341,6 +3437,7 @@ async function sendPlain(
   const chatView = chat.json() as DirectConversationView;
   const devices = chatView.devices;
   const interactionEpoch = chatView.interactionEpoch;
+  const clientMessageId = randomUUID();
   const envelopes = [];
   for (const device of devices) {
     envelopes.push(
@@ -3354,6 +3451,7 @@ async function sendPlain(
         plaintext,
         mentions,
         interactionEpoch,
+        clientMessageId,
       ),
     );
   }
@@ -3363,7 +3461,8 @@ async function sendPlain(
     headers: jsonHeaders(),
     cookies: sender.cookies,
     payload: {
-      clientMessageId: randomUUID(),
+      clientMessageId,
+      contentCommitmentB64: kind === "HUMAN" ? testCommitmentForClientId(clientMessageId) : null,
       senderDeviceId: senderDevice.deviceId,
       interactionEpoch,
       kind,
@@ -3389,6 +3488,7 @@ async function sendWithMutatedCipher(
   const chatView = chat.json() as DirectConversationView;
   const devices = chatView.devices;
   const interactionEpoch = chatView.interactionEpoch;
+  const clientMessageId = randomUUID();
   const envelopes = [];
   for (const device of devices) {
     const envelope = await encryptTo(
@@ -3401,6 +3501,7 @@ async function sendWithMutatedCipher(
       plaintext,
       [],
       interactionEpoch,
+      clientMessageId,
     );
     envelopes.push({
       ...envelope,
@@ -3413,7 +3514,8 @@ async function sendWithMutatedCipher(
     headers: jsonHeaders(),
     cookies: sender.cookies,
     payload: {
-      clientMessageId: randomUUID(),
+      clientMessageId,
+      contentCommitmentB64: testCommitmentForClientId(clientMessageId),
       senderDeviceId: senderDevice.deviceId,
       interactionEpoch,
       kind: "HUMAN",
@@ -3432,6 +3534,7 @@ async function encryptTo(
   plaintext: string,
   mentions: MessageMentionInput[] = [],
   interactionEpoch = 0,
+  clientMessageId = randomUUID(),
 ): Promise<WireEnvelope & { recipientDeviceId: string }> {
   const ratchetKey = `${recipient.id}:${interactionEpoch}`;
   let state = senderDevice.ratchets.get(ratchetKey) ?? null;
@@ -3469,6 +3572,8 @@ async function encryptTo(
       conversationId,
       senderUserId: sender.id,
       senderDeviceId: senderDevice.deviceId,
+      clientMessageId,
+      contentCommitmentB64: kind === "HUMAN" ? testCommitmentForClientId(clientMessageId) : null,
       recipientDeviceId: recipient.id,
       kind,
       interactionEpoch,
@@ -3496,6 +3601,7 @@ function decryptFor(
     senderSignatureB64: string;
     x3dhInit: WireEnvelope["x3dhInit"];
   },
+  clientMessageId: string,
   interactionEpoch = 0,
 ): string {
   const ratchetKey = `${sender.deviceId}:${interactionEpoch}`;
@@ -3540,6 +3646,8 @@ function decryptFor(
       conversationId,
       senderUserId,
       senderDeviceId: sender.deviceId,
+      clientMessageId,
+      contentCommitmentB64: testCommitmentForClientId(clientMessageId),
       recipientDeviceId: envelope.recipientDeviceId,
       kind,
       interactionEpoch,
@@ -3565,6 +3673,7 @@ async function listMessages(
   return page.json() as {
     items: Array<{
       id: string;
+      clientMessageId: string;
       senderUserId: string;
       envelope: Parameters<typeof decryptFor>[5];
     }>;

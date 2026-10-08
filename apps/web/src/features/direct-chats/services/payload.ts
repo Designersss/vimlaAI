@@ -1,9 +1,10 @@
 import type { DirectMessageKind } from "@vimla/contracts";
-
-export interface HumanPayload {
-  type: "human";
-  text: string;
-}
+import {
+  decodeDirectHumanPayload,
+  encodeDirectHumanPayload,
+  type HumanPayload,
+} from "@vimla/client-core";
+export type { HumanPayload, DirectReplyReference } from "@vimla/client-core";
 
 export interface InvokePayload {
   type: "invoke";
@@ -30,18 +31,19 @@ export type DirectPlaintextPayload = HumanPayload | InvokePayload | ResponsePayl
 
 export function encodeDirectPlaintext(payload: DirectPlaintextPayload): string {
   if (payload.type === "human") {
-    return payload.text;
+    return encodeDirectHumanPayload(payload);
   }
   return JSON.stringify(payload);
 }
 
-export function decodeDirectPlaintext(kind: DirectMessageKind, text: string): DirectPlaintextPayload {
+export function decodeDirectPlaintext(
+  kind: DirectMessageKind,
+  text: string,
+  expectedClientMessageId?: string,
+  expectedContentCommitmentB64?: string | null,
+): DirectPlaintextPayload | null {
   if (kind === "HUMAN") {
-    const parsed = tryJson(text);
-    if (parsed && parsed.type === "human" && typeof parsed.text === "string") {
-      return { type: "human", text: parsed.text };
-    }
-    return { type: "human", text };
+    return decodeDirectHumanPayload(text, expectedClientMessageId, expectedContentCommitmentB64);
   }
   const parsed = tryJson(text);
   if (kind === "OPERATOR_INVOKE" && parsed?.type === "invoke" && typeof parsed.text === "string") {
@@ -77,8 +79,16 @@ export function decodeDirectPlaintext(kind: DirectMessageKind, text: string): Di
 export function directPlaintextPreview(
   kind: DirectMessageKind,
   text: string,
+  expectedClientMessageId?: string,
+  expectedContentCommitmentB64?: string | null,
 ): string | null {
-  const payload = decodeDirectPlaintext(kind, text);
+  // This helper also feeds AI-consent history and the unified inbox.
+  // A HUMAN whose actual signed ID is unknown must not become preview text.
+  if (kind === "HUMAN" && (!expectedClientMessageId || !expectedContentCommitmentB64)) return null;
+  const payload = decodeDirectPlaintext(
+    kind, text, expectedClientMessageId, expectedContentCommitmentB64,
+  );
+  if (!payload) return null;
 
   if (kind === "HUMAN") {
     return payload.type === "human" ? payload.text : null;

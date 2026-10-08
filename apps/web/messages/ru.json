@@ -250,7 +250,15 @@
     "contextShared": "Контекст чата передан @Vimla",
     "contextDenied": "История чата не передана",
     "action": "Действие @Vimla",
-    "encryptedPreview": "Зашифрованное сообщение"
+    "encryptedPreview": "Зашифрованное сообщение",
+    "reply": "Ответить",
+    "replyTo": "Ответ на сообщение {name}",
+    "replyReference": "Ответ на сообщение",
+    "replyUnavailable": "Исходное сообщение сейчас недоступно",
+    "cancelReply": "Отменить ответ",
+    "replyReferenceMissing": "Исходное сообщение больше недоступно. Отмените ответ или загрузите историю.",
+    "replyCannotInvoke": "Отмените ответ, прежде чем вызывать @Vimla.",
+    "replyToYou": "Ответ на ваше сообщение"
   },
   "operator": {
     "title": "@Vimla",

@@ -131,6 +131,7 @@ export type DirectMessageSendPreflight = z.infer<typeof directMessageSendPreflig
 export const sendDirectMessageSchema = z
   .object({
     clientMessageId: z.string().uuid(),
+    contentCommitmentB64: z.string().length(44).nullable().default(null),
     senderDeviceId: z.string().uuid(),
     interactionEpoch: directInteractionEpochSchema,
     kind: directMessageKindSchema,
@@ -258,6 +259,7 @@ export const directMessageViewSchema = z.object({
   senderUserId: z.string(),
   senderDeviceId: z.string().uuid(),
   clientMessageId: z.string().uuid(),
+  contentCommitmentB64: z.string().length(44).nullable(),
   kind: directMessageKindSchema,
   interactionEpoch: directInteractionEpochSchema,
   createdAt: z.string(),

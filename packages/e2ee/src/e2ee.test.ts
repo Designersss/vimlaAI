@@ -21,6 +21,7 @@ function ad(kind: EnvelopeAssociatedData["kind"] = "HUMAN"): EnvelopeAssociatedD
     conversationId: "11111111-1111-4111-8111-111111111111",
     senderUserId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
     senderDeviceId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    clientMessageId: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
     recipientDeviceId: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
     kind,
     interactionEpoch: 0,
@@ -33,10 +34,12 @@ describe("Vimla X3DH + Double Ratchet", () => {
       buildAssociatedData(ad()),
     );
     expect(JSON.parse(decoded)).toEqual([
-      "VimlaDirectAD3",
+      "VimlaDirectAD5",
       "11111111-1111-4111-8111-111111111111",
       "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
       "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+      null,
       "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
       "HUMAN",
       0,
@@ -239,6 +242,51 @@ describe("Vimla X3DH + Double Ratchet", () => {
         ad: ad(),
       }),
     ).toThrow();
+  });
+
+  it("rejects relabelling of correctly signed ciphertexts with different client IDs", () => {
+    const sender = generateIdentity();
+    const recipient = generateIdentity();
+    const signed = generateSignedPreKey(recipient, 1);
+    const bundle = publicBundleFrom("recipient", recipient, signed, null);
+    const init = x3dhInitiate(sender, bundle);
+    const outbound = initRatchetInitiator(init.sharedKey, init.remoteRatchetPublic);
+    const receiveShared = x3dhRespond(recipient, signed.secret, null, init.initHeader);
+    const inbound = initRatchetResponder(receiveShared.sharedKey, {
+      secret: signed.secret, publicKey: signed.publicKey,
+    });
+    const firstAd = { ...ad(), clientMessageId: "11111111-1111-4111-8111-111111111111" };
+    const secondAd = { ...ad(), clientMessageId: "22222222-2222-4222-8222-222222222222" };
+    const first = encryptEnvelope({
+      identity: sender, state: outbound,
+      plaintext: new TextEncoder().encode("first signed human"),
+      ad: firstAd, x3dhInit: init.initHeader,
+    });
+    const second = encryptEnvelope({
+      identity: sender, state: outbound,
+      plaintext: new TextEncoder().encode("second signed human"),
+      ad: secondAd,
+    });
+    // Both are genuine sender-signed encrypted messages. A malicious relay
+    // swapping either associated client ID cannot preserve their signature.
+    expect(() => decryptEnvelope({
+      senderIdentityEd25519Public: sender.ed25519Public,
+      state: deserializeRatchet(serializeRatchet(inbound)),
+      envelope: first, ad: secondAd,
+    })).toThrow(/signature/i);
+    expect(() => decryptEnvelope({
+      senderIdentityEd25519Public: sender.ed25519Public,
+      state: deserializeRatchet(serializeRatchet(inbound)),
+      envelope: second, ad: firstAd,
+    })).toThrow(/signature/i);
+    expect(new TextDecoder().decode(decryptEnvelope({
+      senderIdentityEd25519Public: sender.ed25519Public,
+      state: inbound, envelope: first, ad: firstAd,
+    }))).toBe("first signed human");
+    expect(new TextDecoder().decode(decryptEnvelope({
+      senderIdentityEd25519Public: sender.ed25519Public,
+      state: inbound, envelope: second, ad: secondAd,
+    }))).toBe("second signed human");
   });
 
   it("derives distinct message keys and nonces for sequential chain steps", () => {

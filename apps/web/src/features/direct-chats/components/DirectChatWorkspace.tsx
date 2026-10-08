@@ -78,8 +78,17 @@ import {
   pageUnlocksHistoryBootstrap,
   prepareDirectChatContext,
   shouldContinueDeepHistoryBootstrap,
+  directReplyReference,
+  createDirectHumanMessage,
+  resolveDirectReplySource,
+  type DirectReplyReference,
 } from "@vimla/client-core";
-import { decodeDirectPlaintext, encodeDirectPlaintext, type DirectPlaintextPayload } from "../services/payload";
+import {
+  decodeDirectPlaintext,
+  directPlaintextPreview,
+  encodeDirectPlaintext,
+  type DirectPlaintextPayload,
+} from "../services/payload";
 import {
   decryptMessageWithStatus,
   discardPendingOperatorInvocation,
@@ -205,6 +214,61 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
   );
   const [draft, setDraft] = useState("");
   const draftRef = useRef("");
+  // A staged send only owns the exact composer revision it began with.
+  // Editing to the same text still creates a new independent revision.
+  const draftRevisionRef = useRef(0);
+  const replyRevisionRef = useRef(0);
+  // Scope ephemeral UI state by conversation identity. A reused React
+  // component cannot accidentally send a reply selected in a prior chat.
+  const [replyDraft, setReplyDraft] = useState<{
+    conversationId: string;
+    reference: DirectReplyReference;
+  } | null>(null);
+  const replyTo = replyDraft?.conversationId === conversationId
+    ? replyDraft.reference
+    : null;
+  const setReplyTo = (reference: DirectReplyReference | null): void => {
+    replyRevisionRef.current += 1;
+    setReplyDraft((current) => reference
+      ? { conversationId, reference }
+      : current?.conversationId === conversationId
+        ? null
+        : current);
+  };
+  const [replyWarningDraft, setReplyWarningDraft] = useState<{
+    conversationId: string;
+    code: "unavailable" | "operator";
+  } | null>(null);
+  const replyWarning = replyWarningDraft?.conversationId === conversationId
+    ? replyWarningDraft.code
+    : null;
+  const setReplyWarning = (code: "unavailable" | "operator" | null): void => {
+    setReplyWarningDraft((current) => code
+      ? { conversationId, code }
+      : current?.conversationId === conversationId
+        ? null
+        : current);
+  };
+  const rowsByClientId = useMemo(
+    () => new Map(rows.map((row) => [
+      JSON.stringify([
+        row.message.senderUserId,
+        row.message.senderDeviceId,
+        row.message.clientMessageId,
+        row.message.contentCommitmentB64,
+      ]),
+      row,
+    ])),
+    [rows],
+  );
+  const resolveRowByReference = (reference: DirectReplyReference): DecryptedRow | undefined =>
+    rowsByClientId.get(JSON.stringify([
+      reference.senderUserId,
+      reference.senderDeviceId,
+      reference.clientMessageId,
+      reference.contentCommitmentB64,
+    ]));
+  const composerHostRef = useRef<HTMLDivElement | null>(null);
   const [activeMention, setActiveMention] = useState<ActiveMentionQuery | null>(null);
   const [mentionSuggestions, setMentionSuggestions] = useState<MentionSuggestionsResponse | null>(null);
   const [mentionOptionIndex, setMentionOptionIndex] = useState(0);
@@ -226,6 +290,17 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
   const [reportOpen, setReportOpen] = useState(false);
   const [reportEvidence, setReportEvidence] =
     useState<DirectMessageReportEvidence | undefined>(undefined);
+
+  const selectReply = (source: DecryptedRow): void => {
+    const reference = directReplyReference(source);
+    if (!reference || !resolveDirectReplySource(source, conversationId, reference)) return;
+    setReplyTo(reference);
+    setReplyWarning(null);
+    // Keep ordinary keyboard flow: the reply action focuses the composer.
+    requestAnimationFrame(() => {
+      composerHostRef.current?.querySelector<HTMLTextAreaElement>("textarea")?.focus();
+    });
+  };
 
   const applyOperatorDelivery = useCallback(
     (
@@ -697,6 +772,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
       reconciled = upsertComposerMention(reconciled, recognized);
       return reconciled;
     });
+    draftRevisionRef.current += 1;
     draftRef.current = value;
     setDraft(value);
     setMentionSuggestions(null);
@@ -714,6 +790,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
       canonicalHandle: option.handle,
       startOffset: activeMention.start,
     });
+    draftRevisionRef.current += 1;
     draftRef.current = nextValue;
     setDraft(nextValue);
     setComposerMentions((current) => upsertComposerMention(current, selected));
@@ -747,40 +824,97 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
 
   async function onSend(): Promise<void> {
     const text = draftRef.current;
-    if (sendingLockRef.current || sending || operatorBusy || text.trim().length === 0 || !conversation || !userId) return;
-    closeMentionPicker();
-    let resolvedComposerMentions = composerMentions;
-    if (text.includes("@")) {
-      try {
-        const suggestions = await fetchMentionSuggestions({ q: "", directConversationId: conversationId });
-        resolvedComposerMentions = resolveTypedComposerMentions(text, [
-          ...suggestions.people,
-          ...suggestions.vimla,
-          ...suggestions.ai,
-        ]);
-      } catch (caught: unknown) {
-        if (caught instanceof AuthRequiredError) {
-          router.replace("/sign-in");
+    if (sendingLockRef.current || sending || operatorBusy || !text.trim() || !conversation || !userId) return;
+    // Must lock before the first await (mention resolution is network-bound).
+    sendingLockRef.current = true;
+    const selectedReply = replyTo;
+    const startedDraftRevision = draftRevisionRef.current;
+    const startedReplyRevision = replyRevisionRef.current;
+    const onDurablyStaged = (): void => {
+      // Once the exact ciphertext/outbox is persisted, never retain another
+      // sendable copy: HTTP errors may be ambiguous and recovery is idempotent.
+      if (
+        draftRevisionRef.current !== startedDraftRevision ||
+        replyRevisionRef.current !== startedReplyRevision
+      ) return;
+      // A newly selected reply and its current draft are one composer state.
+      // If either changed, staging an older send must not clear either one.
+      draftRevisionRef.current += 1;
+      draftRef.current = "";
+      setDraft("");
+      setComposerMentions([]);
+      closeMentionPicker();
+      if (replyRevisionRef.current === startedReplyRevision) {
+        replyRevisionRef.current += 1;
+        setReplyDraft((current) =>
+          current?.conversationId === conversationId &&
+          current.reference === selectedReply
+            ? null
+            : current,
+        );
+        setReplyWarning(null);
+      }
+    };
+
+    try {
+      closeMentionPicker();
+      let resolvedComposerMentions = composerMentions;
+      if (text.includes("@")) {
+        try {
+          const suggestions = await fetchMentionSuggestions({ q: "", directConversationId: conversationId });
+          resolvedComposerMentions = resolveTypedComposerMentions(text, [
+            ...suggestions.people, ...suggestions.vimla, ...suggestions.ai,
+          ]);
+        } catch (caught: unknown) {
+          if (caught instanceof AuthRequiredError) {
+            router.replace("/sign-in");
+            return;
+          }
+          setError("internal_error");
+          // No persisted send yet: retain the original draft and reply.
           return;
         }
-        setError("internal_error");
+      }
+      const mentions = toMessageMentionInputs(resolvedComposerMentions);
+      const shouldInvokeVimla = CONSUMER_FEATURES.vimlaOperator &&
+        resolvedComposerMentions.some((candidate) =>
+          candidate.kind === "SYSTEM_AGENT" && candidate.canonicalHandle === "vimla",
+        );
+      if (selectedReply && !resolveDirectReplySource(
+        rowsRef.current.find((row) =>
+          row.message.clientMessageId === selectedReply.clientMessageId &&
+          row.message.senderDeviceId === selectedReply.senderDeviceId &&
+          row.message.senderUserId === selectedReply.senderUserId &&
+          row.message.contentCommitmentB64 === selectedReply.contentCommitmentB64,
+        ),
+        conversationId,
+        selectedReply,
+      )) {
+        setReplyWarning("unavailable");
         return;
       }
-    }
-    const mentions = toMessageMentionInputs(resolvedComposerMentions);
-    const shouldInvokeVimla = CONSUMER_FEATURES.vimlaOperator && resolvedComposerMentions.some(
-      (candidate) => candidate.kind === "SYSTEM_AGENT" && candidate.canonicalHandle === "vimla",
-    );
-    sendingLockRef.current = true;
-    draftRef.current = "";
-    setDraft("");
-    setComposerMentions([]);
-    try {
+      if (selectedReply && shouldInvokeVimla) {
+        setReplyWarning("operator");
+        return;
+      }
+      setReplyWarning(null);
       if (shouldInvokeVimla) {
-        await invokeOperator(text, mentions);
+        await invokeOperator(text, mentions, onDurablyStaged);
         return;
       }
-      await postEncrypted("HUMAN", encodeDirectPlaintext({ type: "human", text }), mentions);
+      const prepared = createDirectHumanMessage({
+        type: "human", text, ...(selectedReply ? { replyTo: selectedReply } : {}),
+      });
+      await postEncrypted(
+        "HUMAN",
+        prepared.plaintext,
+        mentions,
+        {
+          clientMessageId: prepared.clientMessageId,
+          contentCommitmentB64: prepared.contentCommitmentB64,
+          onDurablyStaged,
+        },
+      );
     } finally {
       sendingLockRef.current = false;
     }
@@ -792,7 +926,9 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
     mentions: MessageMentionInput[] = [],
     options: {
       clientMessageId?: string;
+      contentCommitmentB64?: string | null;
       operatorIntent?: StoredOperatorIntent;
+      onDurablyStaged?: () => void;
     } = {},
   ): Promise<DirectMessageView | null> {
     if (!userId) return null;
@@ -814,6 +950,8 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
             payload: decodeDirectPlaintext(
               kind,
               plaintext,
+              result.message.clientMessageId,
+              result.message.contentCommitmentB64,
             ),
             needsBootstrap: false,
           },
@@ -859,6 +997,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
   async function invokeOperator(
     text: string,
     mentions: MessageMentionInput[],
+    onDurablyStaged?: () => void,
   ): Promise<void> {
     if (!conversation || !userId) return;
     setOperatorBusy(true);
@@ -873,7 +1012,18 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         actorUserId: userId,
         privacy: conversation.privacy,
         query: text,
-        messages: localPlaintexts,
+        // The local cache holds the complete E2EE payload. Disclose only
+        // decoded HUMAN text (under existing participant consent), never
+        // serialized reply IDs/author metadata as AI context.
+        messages: localPlaintexts.flatMap((row) => {
+          if (row.kind !== "HUMAN") return [row];
+          const text = directPlaintextPreview(
+            "HUMAN", row.text, row.clientMessageId, row.contentCommitmentB64,
+          );
+          // A malformed/future HUMAN payload must never reveal its raw
+          // serialized control fields to the AI history context.
+          return text === null ? [] : [{ ...row, text }];
+        }),
       });
       const sourceClientMessageId =
         crypto.randomUUID();
@@ -896,6 +1046,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         {
           clientMessageId: sourceClientMessageId,
           operatorIntent,
+          onDurablyStaged,
         },
       );
 
@@ -1200,6 +1351,13 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
               youLabel={t("chat.you")}
               peerName={conversation.peer.name}
               onReport={openMessageReport}
+              onReply={blockedByMe ? undefined : selectReply}
+              sourceRow={
+                row.payload?.type === "human" && row.payload.replyTo
+                  ? resolveRowByReference(row.payload.replyTo)
+                  : undefined
+              }
+              selfUserId={userId ?? ""}
             />
           ))}
           {pendingRun ? (
@@ -1282,7 +1440,45 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
           ) : null}
         </div>
       </div>
-      <div style={{ position: "relative" }} onKeyDown={handleComposerKeyDown}>
+      <div ref={composerHostRef} style={{ position: "relative" }} onKeyDown={handleComposerKeyDown}>
+        {replyTo ? (
+          <div className={styles.replyComposer} data-testid="direct-reply-composer">
+            <div className={styles.replyComposerText}>
+              <Text weight="semibold">
+                {replyTo.senderUserId === userId
+                  ? t("direct.replyToYou")
+                  : t("direct.replyTo", { name: conversation.peer.name })}
+              </Text>
+              <Text tone="secondary">
+                {(() => {
+                  const source = resolveDirectReplySource(
+                    resolveRowByReference(replyTo),
+                    conversationId,
+                    replyTo,
+                  );
+                  return source?.payload?.type === "human"
+                    ? source.payload.text
+                    : t("direct.replyUnavailable");
+                })()}
+              </Text>
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setReplyTo(null);
+                setReplyWarning(null);
+              }}
+            >
+              {t("direct.cancelReply")}
+            </Button>
+          </div>
+        ) : null}
+        {replyWarning ? (
+          <Alert variant="error">
+            {t(replyWarning === "operator" ? "direct.replyCannotInvoke" : "direct.replyReferenceMissing")}
+          </Alert>
+        ) : null}
         <MentionPicker
           open={activeMention !== null}
           ariaLabel="Mentions"
@@ -1343,10 +1539,12 @@ async function sendEncryptedDirectMessage(input: {
   plaintext: string;
   mentions?: MessageMentionInput[];
   clientMessageId?: string;
+  contentCommitmentB64?: string | null;
   operatorIntent?: StoredOperatorIntent;
   operatorOutput?: StoredOperatorOutputLink;
   recoverPending?: boolean;
   expectedInteractionEpoch?: number;
+  onDurablyStaged?: () => void;
 }): Promise<{
   message: DirectMessageView;
   latest: DirectConversationView;
@@ -1394,6 +1592,7 @@ async function sendEncryptedDirectMessage(input: {
     peerUserId: latest.peer.userId,
     clientMessageId:
       input.clientMessageId ?? crypto.randomUUID(),
+    contentCommitmentB64: input.contentCommitmentB64 ?? null,
     localDevice: device,
     kind: input.kind,
     plaintext: input.plaintext,
@@ -1406,6 +1605,7 @@ async function sendEncryptedDirectMessage(input: {
       ? { operatorOutput: input.operatorOutput }
       : {}),
   });
+  input.onDurablyStaged?.();
   const message =
     await sendPendingDirectMessage(pending);
   await finalizePendingSend(pending, message);
@@ -2148,12 +2348,18 @@ function DirectRow({
   youLabel,
   peerName,
   onReport,
+  onReply,
+  sourceRow,
+  selfUserId,
 }: {
   row: DecryptedRow;
   self: boolean;
   youLabel: string;
   peerName: string;
   onReport: (evidence: DirectMessageReportEvidence) => void;
+  onReply?: (source: DecryptedRow) => void;
+  sourceRow?: DecryptedRow;
+  selfUserId: string;
 }): ReactElement {
   const t = useTranslations();
   const label = self ? youLabel : peerName;
@@ -2161,33 +2367,75 @@ function DirectRow({
     return <article className={styles.undecryptable} data-testid="direct-message-undecryptable"><Text tone="caption">{t("direct.undecryptable")}</Text></article>;
   }
   if (row.payload.type === "human") {
-    return self ? (
-      <UserMessage label={label}><span data-testid="direct-message-human">{row.payload.text}</span></UserMessage>
-    ) : (
-      <AssistantMessage label={label}>
-        <span data-testid="direct-message-human">{row.payload.text}</span>
-        {row.message.kind === "HUMAN" ? (
-          <>
-            <br />
+    const text = row.payload.text;
+    const reference = row.payload.replyTo;
+    const source = reference
+      ? resolveDirectReplySource(sourceRow, row.message.conversationId, reference)
+      : null;
+    const quote = reference ? (
+      <div className={styles.replyContext} data-testid="direct-reply-context">
+        <Text weight="semibold">
+          {source
+            ? reference.senderUserId === selfUserId
+              ? t("direct.replyToYou")
+              : t("direct.replyTo", { name: peerName })
+            : t("direct.replyReference")}
+        </Text>
+        <Text tone="secondary">
+          {source?.payload?.type === "human"
+            ? source.payload.text
+            : t("direct.replyUnavailable")}
+        </Text>
+      </div>
+    ) : null;
+    return (
+      <div
+        className={styles.messageRow}
+        id={`direct-message-${row.message.id}`}
+        data-testid="direct-message-row"
+        data-message-id={row.message.id}
+        tabIndex={-1}
+      >
+        {quote}
+        {self ? (
+          <UserMessage label={label}>
+            <span data-testid="direct-message-human">{text}</span>
+          </UserMessage>
+        ) : (
+          <AssistantMessage label={label}>
+            <span data-testid="direct-message-human">{text}</span>
+            {row.message.kind === "HUMAN" ? (
+              <>
+                <br />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => onReport({
+                    kind: "DIRECT_MESSAGE",
+                    conversationId: row.message.conversationId,
+                    messageId: row.message.id,
+                    disclosedText: text,
+                  })}
+                >
+                  {t("trust.reportMessage")}
+                </Button>
+              </>
+            ) : null}
+          </AssistantMessage>
+        )}
+        {row.message.kind === "HUMAN" && onReply ? (
+          <div className={styles.replyActions}>
             <Button
               variant="ghost"
               size="sm"
-              onClick={() =>
-                onReport({
-                  kind: "DIRECT_MESSAGE",
-                  conversationId: row.message.conversationId,
-                  messageId: row.message.id,
-                  disclosedText: row.payload!.type === "human"
-                    ? row.payload!.text
-                    : "",
-                })
-              }
+              data-testid="direct-message-reply-action"
+              onClick={() => onReply(row)}
             >
-              {t("trust.reportMessage")}
+              {t("direct.reply")}
             </Button>
-          </>
+          </div>
         ) : null}
-      </AssistantMessage>
+      </div>
     );
   }
   if (row.payload.type === "invoke") {

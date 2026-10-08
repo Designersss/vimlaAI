@@ -37,3 +37,11 @@ export {
   type EnvelopeAssociatedData,
   type WireEnvelope,
 } from "./envelope.js";
+
+export {
+  boundHumanClientMessageId,
+  boundHumanContentCommitment,
+  humanClientIdFromCommitment,
+  isBoundHumanClientMessageId,
+  generateHumanBindingKey,
+} from "./human-content-identity.js";

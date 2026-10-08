@@ -63,3 +63,57 @@
     max-width: 12rem;
   }
 }
+
+.messageRow {
+  display: flex;
+  flex-direction: column;
+  gap: var(--vimla-space-1);
+  min-width: 0;
+  scroll-margin-block: var(--vimla-space-6);
+}
+
+.replyContext {
+  display: flex;
+  flex-direction: column;
+  gap: var(--vimla-space-1);
+  border-inline-start: 3px solid var(--vimla-color-border, currentColor);
+  padding-inline-start: var(--vimla-space-3);
+  max-width: min(100%, 34rem);
+  overflow-wrap: anywhere;
+}
+
+.replyContext > :last-child {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}
+
+.replyActions {
+  display: flex;
+  flex-wrap: wrap;
+}
+
+.replyComposer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--vimla-space-3);
+  padding: var(--vimla-space-2) var(--vimla-page-pad);
+}
+
+.replyComposerText {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--vimla-space-1);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.replyComposerText > :last-child {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+}

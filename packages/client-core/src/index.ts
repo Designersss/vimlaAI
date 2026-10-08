@@ -44,3 +44,22 @@ export {
   resolveInboxPreview,
   type InboxLocalPlaintextRecord,
 } from "./inbox-preview.js";
+export {
+  directReplyReference,
+  readDirectReplyReference,
+  resolveDirectReplySource,
+  type DirectReplyReference,
+  type LocalDirectReplySource,
+} from "./direct-chat-replies.js";
+export {
+  cachedDirectPlaintextMatchesMessage,
+  type CachedDirectPlaintextProvenance,
+} from "./direct-chat-cached-provenance.js";
+export {
+  encodeDirectHumanPayload,
+  decodeDirectHumanPayload,
+  directHumanClientMessageId,
+  directHumanContentCommitment,
+  createDirectHumanMessage,
+  type HumanPayload,
+} from "./direct-chat-human-payload.js";

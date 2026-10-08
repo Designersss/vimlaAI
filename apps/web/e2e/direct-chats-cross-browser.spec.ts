@@ -400,4 +400,73 @@ test.describe("Direct Chat cross-browser coordination", () => {
       await nikitaContext.close();
     }
   });
+  test("resolves source-authenticated replies on multiple enrolled devices", async ({ browser, request }) => {
+    test.setTimeout(150_000);
+    const password = "correct-horse-battery";
+    const aliceEmail = uniqueEmail("e2e-multidevice-reply-alice");
+    const bobEmail = uniqueEmail("e2e-multidevice-reply-bob");
+    const bobHandle = uniqueHandle("replypeer");
+    const aliceContext = await browser.newContext();
+    const bobContext = await browser.newContext();
+    let secondaryContext: Awaited<ReturnType<typeof browser.newContext>> | null = null;
+    try {
+      const alicePage = await aliceContext.newPage();
+      const bobPage = await bobContext.newPage();
+      await signUp(alicePage, { name: "Alice Replies", email: aliceEmail, password });
+      await verifyEmail(alicePage, request, aliceEmail);
+      await purchasePro(alicePage);
+      await signUp(bobPage, { name: "Bob Replies", email: bobEmail, password, handle: bobHandle });
+      await verifyEmail(bobPage, request, bobEmail);
+      await purchasePro(bobPage);
+      await alicePage.goto("/app");
+      await alicePage.getByRole("button", { name: /новый личный чат|new direct chat/i }).click();
+      await alicePage.getByPlaceholder("@handle").fill(`@${bobHandle}`);
+      const person = alicePage.getByTestId("people-search-results")
+        .getByRole("button").filter({ hasText: `@${bobHandle}` });
+      await expect(person).toBeVisible({ timeout: 20_000 });
+      await person.click();
+      await alicePage.getByRole("button", { name: /начать чат|start chat/i }).click();
+      await expect(alicePage.getByTestId("direct-chat-shell")).toBeVisible({ timeout: 20_000 });
+      const url = alicePage.url();
+
+      await bobPage.goto(url);
+      await expect(bobPage.getByTestId("direct-chat-shell")).toBeVisible({ timeout: 20_000 });
+      secondaryContext = await browser.newContext({ storageState: await bobContext.storageState() });
+      const bobSecondaryPage = await secondaryContext.newPage();
+      await bobSecondaryPage.goto(url);
+      await expect(bobSecondaryPage.getByTestId("direct-chat-shell")).toBeVisible({ timeout: 20_000 });
+
+      const sourceText = "multi-device cryptographic reply original";
+      await alicePage.getByPlaceholder(/сообщение этому человеку|message this person/i).fill(sourceText);
+      await alicePage.getByTestId("chat-composer-send").click();
+      for (const page of [bobPage, bobSecondaryPage]) {
+        await expect(page.getByTestId("direct-message-row")
+          .filter({ hasText: sourceText })).toBeVisible({ timeout: 20_000 });
+      }
+      await bobSecondaryPage.getByTestId("direct-message-row")
+        .filter({ hasText: sourceText })
+        .getByTestId("direct-message-reply-action").click();
+      const responseText = "reply authored from second Bob crypto device";
+      await bobSecondaryPage.getByPlaceholder(/сообщение этому человеку|message this person/i).fill(responseText);
+      await bobSecondaryPage.getByTestId("chat-composer-send").click();
+      for (const page of [alicePage, bobPage, bobSecondaryPage]) {
+        const reply = page.getByTestId("direct-message-row")
+          .filter({ hasText: responseText });
+        await expect(reply).toBeVisible({ timeout: 20_000 });
+        await expect(reply.getByTestId("direct-reply-context"))
+          .toContainText(sourceText);
+      }
+      await bobSecondaryPage.reload();
+      await expect(bobSecondaryPage.getByTestId("direct-chat-shell")).toBeVisible({ timeout: 20_000 });
+      await expect(bobSecondaryPage.getByTestId("direct-message-row")
+        .filter({ hasText: responseText })
+        .getByTestId("direct-reply-context"))
+        .toContainText(sourceText, { timeout: 20_000 });
+    } finally {
+      await secondaryContext?.close();
+      await aliceContext.close();
+      await bobContext.close();
+    }
+  });
+
 });
