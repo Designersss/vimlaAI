@@ -18,6 +18,7 @@ import {
   initRatchetInitiator,
   initRatchetResponder,
   serializeDirectRoutingMentions,
+  serializeDirectReactionTargetTag,
   utf8,
   x3dhInitiate,
   x3dhRespond,
@@ -3530,11 +3531,12 @@ async function encryptTo(
   senderDevice: Harness,
   recipient: { id: string; userId: string },
   conversationId: string,
-  kind: "HUMAN" | "OPERATOR_INVOKE" | "OPERATOR_RESPONSE" | "OPERATOR_ACTION",
+  kind: "HUMAN" | "REACTION" | "OPERATOR_INVOKE" | "OPERATOR_RESPONSE" | "OPERATOR_ACTION",
   plaintext: string,
   mentions: MessageMentionInput[] = [],
   interactionEpoch = 0,
   clientMessageId = randomUUID(),
+  reactionTargetTagB64?: string,
 ): Promise<WireEnvelope & { recipientDeviceId: string }> {
   const ratchetKey = `${recipient.id}:${interactionEpoch}`;
   let state = senderDevice.ratchets.get(ratchetKey) ?? null;
@@ -3563,7 +3565,9 @@ async function encryptTo(
     state = initRatchetInitiator(initiated.sharedKey, initiated.remoteRatchetPublic);
     x3dhInit = initiated.initHeader;
   }
-  const routingContext = mentions.length > 0 ? serializeDirectRoutingMentions(mentions) : undefined;
+  const routingContext = kind === "REACTION"
+    ? serializeDirectReactionTargetTag(reactionTargetTagB64 ?? "")
+    : mentions.length > 0 ? serializeDirectRoutingMentions(mentions) : undefined;
   const envelope = encryptEnvelope({
     identity: senderDevice.identity,
     state,
@@ -3573,7 +3577,8 @@ async function encryptTo(
       senderUserId: sender.id,
       senderDeviceId: senderDevice.deviceId,
       clientMessageId,
-      contentCommitmentB64: kind === "HUMAN" ? testCommitmentForClientId(clientMessageId) : null,
+      contentCommitmentB64: kind === "HUMAN" || kind === "REACTION"
+        ? testCommitmentForClientId(clientMessageId) : null,
       recipientDeviceId: recipient.id,
       kind,
       interactionEpoch,
