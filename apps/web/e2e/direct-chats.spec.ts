@@ -900,6 +900,29 @@ test.describe("Secure Direct Chats", () => {
     const editedEvidence =
       `${boundedExcerpt.slice(0, 3_980)} [edited]`;
     await evidenceEditor.fill(editedEvidence);
+    const reasonEditor = dialog.locator("#trust-report-reason");
+    const detailsEditor = dialog.locator("#trust-report-details");
+    const originalDetails =
+      "Selected evidence should remain unchanged during submission.";
+    await reasonEditor.selectOption("THREATS");
+    await detailsEditor.fill(originalDetails);
+
+    let releaseReport!: () => void;
+    let signalReportHeld!: () => void;
+    const reportHeld = new Promise<void>((resolve) => {
+      signalReportHeld = resolve;
+    });
+    const reportRelease = new Promise<void>((resolve) => {
+      releaseReport = resolve;
+    });
+    await bobPage.route("**/v1/trust/reports", async (route) => {
+      if (route.request().method() === "POST") {
+        signalReportHeld();
+        await reportRelease;
+      }
+      await route.continue();
+    });
+
     const reportRequestPromise =
       bobPage.waitForRequest(
         (outgoing) =>
@@ -914,16 +937,29 @@ test.describe("Secure Direct Chats", () => {
       .click();
     const reportRequest =
       await reportRequestPromise;
+    await reportHeld;
+    await expect(reasonEditor).toBeDisabled();
+    await expect(detailsEditor).toBeDisabled();
+    await expect(evidenceEditor).toBeDisabled();
+    await expect(reasonEditor).toHaveValue("THREATS");
+    await expect(detailsEditor).toHaveValue(originalDetails);
+    await expect(evidenceEditor).toHaveValue(editedEvidence);
     const reportPayload =
       reportRequest.postDataJSON() as {
+        reason?: string;
+        details?: string;
         evidence?: { disclosedText?: string };
       };
+    expect(reportPayload.reason).toBe("THREATS");
+    expect(reportPayload.details).toBe(originalDetails);
     expect(
       reportPayload.evidence?.disclosedText,
     ).toBe(editedEvidence);
+    releaseReport();
     await expect(dialog).toContainText(
       /жалоба отправлена|report submitted/i,
     );
+    await bobPage.unroute("**/v1/trust/reports");
 
     await aliceContext.close();
     await bobContext.close();
