@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { directHumanClientMessageId } from "@vimla/client-core";
 import {
   decodeDirectPlaintext,
   directPlaintextPreview,
@@ -132,7 +133,12 @@ describe("authenticated Direct HUMAN replies", () => {
     expect(decodeDirectPlaintext("HUMAN", encrypted)).toEqual({
       type: "human", text: "reply from Alice", replyTo: reference,
     });
-    expect(directPlaintextPreview("HUMAN", encrypted)).toBe("reply from Alice");
+    expect(directPlaintextPreview("HUMAN", encrypted)).toBeNull();
+    expect(directPlaintextPreview(
+      "HUMAN",
+      encrypted,
+      directHumanClientMessageId(encrypted) ?? undefined,
+    )).toBe("reply from Alice");
   });
 
   it("does not interpret malformed, unknown-version or additional-field references", () => {

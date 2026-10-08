@@ -80,6 +80,9 @@ export function directPlaintextPreview(
   text: string,
   expectedClientMessageId?: string,
 ): string | null {
+  // This helper also feeds AI-consent history and the unified inbox.
+  // A HUMAN whose actual signed ID is unknown must not become preview text.
+  if (kind === "HUMAN" && !expectedClientMessageId) return null;
   const payload = decodeDirectPlaintext(kind, text, expectedClientMessageId);
   if (!payload) return null;
 
