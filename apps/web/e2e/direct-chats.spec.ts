@@ -223,6 +223,63 @@ test.describe("Secure Direct Chats", () => {
     await expect(reloadedReply.getByTestId("direct-reply-context"))
       .toContainText("hello from alice", { timeout: 20_000 });
 
+    // A pre-outbox failure must keep the text and selected source; retry
+    // cannot silently downgrade this reply into an ordinary message.
+    const sourceAgain = nikitaPage.getByTestId("direct-message-row")
+      .filter({ hasText: "hello from alice" });
+    await sourceAgain.getByTestId("direct-message-reply-action").click();
+    const failedDraft = "reply @offline mention preflight failure";
+    await nikitaComposer.fill(failedDraft);
+    await nikitaPage.route("**/v1/direct-chats/*/send-preflight", async (route) => {
+      if (route.request().method() === "POST") {
+        await route.abort("failed");
+      } else {
+        await route.continue();
+      }
+    });
+    await nikitaPage.getByTestId("chat-composer-send").click();
+    await expect(nikitaComposer).toHaveValue(failedDraft);
+    await expect(replyComposer).toContainText("hello from alice");
+    await nikitaPage.unroute("**/v1/direct-chats/*/send-preflight");
+
+    // Two send clicks while the first is waiting for the mention directory
+    // must produce only one client ID / one authoritative HUMAN message.
+    let resolveLookup!: () => void;
+    let markLookupStarted!: () => void;
+    const lookupStarted = new Promise<void>((resolve) => {
+      markLookupStarted = resolve;
+    });
+    const heldLookup = new Promise<void>((resolve) => {
+      resolveLookup = resolve;
+    });
+    await nikitaPage.route("**/v1/mentions?**", async (route) => {
+      const url = new URL(route.request().url());
+      if (
+        url.searchParams.get("q") === "" &&
+        url.searchParams.has("directConversationId")
+      ) {
+        markLookupStarted();
+        await heldLookup;
+      }
+      await route.continue();
+    });
+    const raceText = "Nikita @nobody reply with delayed mention lookup";
+    await nikitaComposer.fill(raceText);
+    await nikitaPage.getByTestId("chat-composer-send").click();
+    await lookupStarted;
+    await nikitaPage.getByTestId("chat-composer-send").click();
+    resolveLookup();
+    await expect(
+      alicePage.getByTestId("direct-message-human")
+        .filter({ hasText: raceText }),
+    ).toHaveCount(1, { timeout: 20_000 });
+    await expect(
+      alicePage.getByTestId("direct-message-row")
+        .filter({ hasText: raceText })
+        .getByTestId("direct-reply-context"),
+    ).toContainText("hello from alice");
+    await nikitaPage.unroute("**/v1/mentions?**");
+
     let abortBeforeServer = true;
     await alicePage.route(
       "**/v1/direct-chats/*/messages",
