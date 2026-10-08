@@ -717,6 +717,108 @@ describe("trust safety API", () => {
     ).toBe(1);
   });
 
+  it("does not bypass report limits through alternate request URLs", async () => {
+    const reporter = await registerVerifiedUser(
+      app,
+      "trust-report-route-reporter",
+    );
+    const target = await registerVerifiedUser(
+      app,
+      "trust-report-route-target",
+    );
+    const remoteAddress = "203.0.113.159";
+
+    for (let index = 0; index < 6; index += 1) {
+      const accepted = await app.inject({
+        method: "POST",
+        url: "/v1/trust/reports",
+        remoteAddress,
+        headers: jsonHeaders(),
+        cookies: reporter.cookies,
+        payload: {
+          requestId: randomUUID(),
+          targetHandle: target.handle,
+          reason: "SPAM",
+        },
+      });
+      expect(accepted.statusCode).toBe(201);
+    }
+
+    // A non-canonical spelling either does not match any route (400/404),
+    // or reaches the reports handler and must be limited just as strictly.
+    for (const url of [
+      "/v1/trust/%72eports",
+      "/v1/%74rust/reports",
+      "/v1/trust/reports?source=alternate-url",
+    ]) {
+      const response = await app.inject({
+        method: "POST",
+        url,
+        remoteAddress,
+        headers: jsonHeaders(),
+        cookies: reporter.cookies,
+        payload: {
+          requestId: randomUUID(),
+          targetHandle: target.handle,
+          reason: "SPAM",
+        },
+      });
+      expect([400, 404, 429]).toContain(response.statusCode);
+    }
+  });
+
+  it("does not exhaust another user's IP report quota after a user-level 429", async () => {
+    const target = await registerVerifiedUser(
+      app,
+      "trust-ip-quota-target",
+    );
+    const [saturatedReporter, neighborReporter, finalReporter] =
+      await Promise.all(
+        ["saturated", "neighbor", "final"].map((suffix) =>
+          registerVerifiedUser(
+            app,
+            "trust-ip-quota-" + suffix,
+          ),
+        ),
+      );
+    if (!saturatedReporter || !neighborReporter || !finalReporter) {
+      throw new Error("Expected all three report accounts");
+    }
+
+    const remoteAddress = "203.0.113.160";
+    const submit = (cookies: typeof saturatedReporter.cookies) =>
+      app.inject({
+        method: "POST",
+        url: "/v1/trust/reports",
+        remoteAddress,
+        headers: jsonHeaders(),
+        cookies,
+        payload: {
+          requestId: randomUUID(),
+          targetHandle: target.handle,
+          reason: "SPAM",
+        },
+      });
+
+    for (let index = 0; index < 6; index += 1) {
+      const response = await submit(saturatedReporter.cookies);
+      expect(response.statusCode).toBe(201);
+    }
+    for (let index = 0; index < 12; index += 1) {
+      const response = await submit(saturatedReporter.cookies);
+      expect(response.statusCode).toBe(429);
+    }
+
+    // The six rejected attempts above must not consume this shared IP's
+    // remaining six report slots.
+    for (let index = 0; index < 6; index += 1) {
+      const response = await submit(neighborReporter.cookies);
+      expect(response.statusCode).toBe(201);
+    }
+    const exhausted = await submit(finalReporter.cookies);
+    expect(exhausted.statusCode).toBe(429);
+  });
+
   it("rate-limits abuse reports across different users sharing one IP", async () => {
     const target = await registerVerifiedUser(
       app,
