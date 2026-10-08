@@ -79,6 +79,7 @@ import {
   prepareDirectChatContext,
   shouldContinueDeepHistoryBootstrap,
   directReplyReference,
+  createDirectHumanMessage,
   resolveDirectReplySource,
   type DirectReplyReference,
 } from "@vimla/client-core";
@@ -213,6 +214,10 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
   );
   const [draft, setDraft] = useState("");
   const draftRef = useRef("");
+  // A staged send only owns the exact composer revision it began with.
+  // Editing to the same text still creates a new independent revision.
+  const draftRevisionRef = useRef(0);
+  const replyRevisionRef = useRef(0);
   // Scope ephemeral UI state by conversation identity. A reused React
   // component cannot accidentally send a reply selected in a prior chat.
   const [replyDraft, setReplyDraft] = useState<{
@@ -223,6 +228,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
     ? replyDraft.reference
     : null;
   const setReplyTo = (reference: DirectReplyReference | null): void => {
+    replyRevisionRef.current += 1;
     setReplyDraft((current) => reference
       ? { conversationId, reference }
       : current?.conversationId === conversationId
@@ -764,6 +770,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
       reconciled = upsertComposerMention(reconciled, recognized);
       return reconciled;
     });
+    draftRevisionRef.current += 1;
     draftRef.current = value;
     setDraft(value);
     setMentionSuggestions(null);
@@ -781,6 +788,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
       canonicalHandle: option.handle,
       startOffset: activeMention.start,
     });
+    draftRevisionRef.current += 1;
     draftRef.current = nextValue;
     setDraft(nextValue);
     setComposerMentions((current) => upsertComposerMention(current, selected));
@@ -818,26 +826,29 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
     // Must lock before the first await (mention resolution is network-bound).
     sendingLockRef.current = true;
     const selectedReply = replyTo;
+    const startedDraftRevision = draftRevisionRef.current;
+    const startedReplyRevision = replyRevisionRef.current;
     const onDurablyStaged = (): void => {
       // Once the exact ciphertext/outbox is persisted, never retain another
       // sendable copy: HTTP errors may be ambiguous and recovery is idempotent.
-      if (draftRef.current === text) {
-        draftRef.current = "";
-        setDraft("");
-        setComposerMentions([]);
-        closeMentionPicker();
-      }
-      if (selectedReply) {
+      if (draftRevisionRef.current !== startedDraftRevision) return;
+      // Only an untouched draft is surrendered to the durable outbox.
+      // A newer draft retains its text, mentions and chosen reply.
+      draftRevisionRef.current += 1;
+      draftRef.current = "";
+      setDraft("");
+      setComposerMentions([]);
+      closeMentionPicker();
+      if (replyRevisionRef.current === startedReplyRevision) {
+        replyRevisionRef.current += 1;
         setReplyDraft((current) =>
           current?.conversationId === conversationId &&
-          current.reference.clientMessageId === selectedReply.clientMessageId &&
-          current.reference.senderUserId === selectedReply.senderUserId &&
-          current.reference.senderDeviceId === selectedReply.senderDeviceId
+          current.reference === selectedReply
             ? null
             : current,
         );
+        setReplyWarning(null);
       }
-      setReplyWarning(null);
     };
 
     try {
@@ -885,11 +896,14 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         await invokeOperator(text, mentions, onDurablyStaged);
         return;
       }
+      const prepared = createDirectHumanMessage({
+        type: "human", text, ...(selectedReply ? { replyTo: selectedReply } : {}),
+      });
       await postEncrypted(
         "HUMAN",
-        encodeDirectPlaintext({ type: "human", text, ...(selectedReply ? { replyTo: selectedReply } : {}) }),
+        prepared.plaintext,
         mentions,
-        { onDurablyStaged },
+        { clientMessageId: prepared.clientMessageId, onDurablyStaged },
       );
     } finally {
       sendingLockRef.current = false;
@@ -925,6 +939,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
             payload: decodeDirectPlaintext(
               kind,
               plaintext,
+              result.message.clientMessageId,
             ),
             needsBootstrap: false,
           },
