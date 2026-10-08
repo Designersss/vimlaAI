@@ -146,6 +146,9 @@ describe("portable Direct reactions crypto and provenance", () => {
       )).toBeNull();
     }
     expect(decodeDirectReaction(
+      " ".repeat(2049), prepared.clientMessageId, prepared.contentCommitmentB64,
+    )).toBeNull();
+    expect(decodeDirectReaction(
       "not JSON", prepared.clientMessageId, prepared.contentCommitmentB64,
     )).toBeNull();
     expect(decodeDirectReaction(
@@ -249,5 +252,10 @@ describe("deterministic Direct reaction reducer", () => {
     expect(() => reduceVerifiedDirectReactions([
       va, { ...vb, eventClientMessageId: va.eventClientMessageId, sequence: 2n },
     ])).toThrow("replay");
+    // Different sender users have independent idempotency namespaces;
+    // identical reaction bytes/client IDs must not shadow each other.
+    expect(reduceVerifiedDirectReactions([
+      va, { ...va, reactorUserId: originalUserId, sequence: 2n },
+    ])).toHaveLength(2);
   });
 });
