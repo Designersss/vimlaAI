@@ -278,6 +278,8 @@ export const directMessageViewSchema = z.object({
   reactionTargetTagB64: z.string().regex(/^[A-Za-z0-9+/]{43}=$/).nullable(),
   kind: directMessageKindSchema,
   interactionEpoch: directInteractionEpochSchema,
+  // PostgreSQL-authoritative causal order, serialized as decimal for bigint safety.
+  sequence: z.string().regex(/^[1-9][0-9]*$/),
   createdAt: z.string(),
   envelope: directEnvelopeViewSchema.nullable(),
   mentions: z.array(messageMentionViewSchema).default([]),
