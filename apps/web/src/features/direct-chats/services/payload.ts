@@ -41,18 +41,18 @@ export type DirectPlaintextPayload = HumanPayload | InvokePayload | ResponsePayl
 
 export function encodeDirectPlaintext(payload: DirectPlaintextPayload): string {
   if (payload.type === "human") {
-    if (!payload.replyTo) return payload.text;
-    // The reply reference is inside authenticated E2EE plaintext. The
-    // server-visible kind remains HUMAN; no message ids or quotes leak via
-    // API routing metadata. Version explicitly distinguishes typed payloads.
-    if (!readReplyReference(payload.replyTo)) {
+    // All newly authored HUMAN messages use one canonical versioned
+    // plaintext envelope. The user's literal JSON text stays user text:
+    // it cannot be misinterpreted as a reply reference on another device.
+    // The reference is entirely inside signed E2EE ciphertext.
+    if (payload.replyTo && !readReplyReference(payload.replyTo)) {
       throw new Error("Invalid Direct reply reference");
     }
     return JSON.stringify({
       type: "human",
       version: 1,
       text: payload.text,
-      replyTo: payload.replyTo,
+      ...(payload.replyTo ? { replyTo: payload.replyTo } : {}),
     });
   }
   return JSON.stringify(payload);
@@ -64,14 +64,10 @@ export function decodeDirectPlaintext(kind: DirectMessageKind, text: string): Di
     if (parsed && parsed.type === "human" && typeof parsed.text === "string") {
       if (parsed.version === 1) {
         const replyTo = readReplyReference(parsed.replyTo);
-        // Reject malformed or future typed envelopes as unstructured text:
-        // never convert attacker-controlled metadata into a trusted quote.
+        // Invalid/unknown references never create a source attribution.
         return replyTo
           ? { type: "human", text: parsed.text, replyTo }
           : { type: "human", text: parsed.text };
-      }
-      if (parsed.version === undefined && parsed.replyTo === undefined) {
-        return { type: "human", text: parsed.text };
       }
     }
     return { type: "human", text };

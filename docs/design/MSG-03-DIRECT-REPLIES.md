@@ -8,8 +8,10 @@ or completion of the epic.
 
 A reply to a **HUMAN** message includes `{messageId, senderUserId}`
 inside the same authenticated, per-device end-to-end encrypted HUMAN
-plaintext as the reply body. Structured reply payloads have `version: 1`.
-An ordinary HUMAN message remains a raw plaintext string. The Direct
+plaintext as the reply body. Every newly composed HUMAN payload is versioned
+(`version: 1`), with optional `replyTo`; this preserves literal user-typed
+JSON instead of mistaking it for control metadata. Untyped previous Direct
+plaintext is still rendered as ordinary user text. The Direct
 API/storage schema and ciphertext-associated-data signature are unchanged:
 the server sees only ciphertext, sender, epoch and preexisting routing
 metadata; neither quoted text nor reference IDs appear in server-readable

@@ -28,7 +28,9 @@ describe("direct chat plaintext payloads", () => {
   });
 
   it("keeps human text as ciphertext payload and marks @Vimla kinds", () => {
-    expect(encodeDirectPlaintext({ type: "human", text: "hello" })).toBe("hello");
+    expect(decodeDirectPlaintext("HUMAN", encodeDirectPlaintext({
+      type: "human", text: "hello",
+    }))).toEqual({ type: "human", text: "hello" });
     const invoke = encodeDirectPlaintext({
       type: "invoke",
       text: "who won",
@@ -108,10 +110,16 @@ describe("authenticated Direct HUMAN replies", () => {
   const reference = { messageId: originalId, senderUserId: "person-1" };
 
   it("keeps ordinary text untouched and round-trips a typed encrypted reply", () => {
-    const original = encodeDirectPlaintext({ type: "human", text: '{"json":true}' });
-    expect(original).toBe('{"json":true}');
+    const literalJson = '{"type":"human","version":1,"text":"literal","replyTo":{"messageId":"fake"}}';
+    const original = encodeDirectPlaintext({ type: "human", text: literalJson });
+    expect(JSON.parse(original)).toEqual({
+      type: "human", version: 1, text: literalJson,
+    });
     expect(decodeDirectPlaintext("HUMAN", original)).toEqual({
-      type: "human", text: original,
+      type: "human", text: literalJson,
+    });
+    expect(decodeDirectPlaintext("HUMAN", "an older raw plaintext")).toEqual({
+      type: "human", text: "an older raw plaintext",
     });
     const encrypted = encodeDirectPlaintext({
       type: "human", text: "reply from Alice", replyTo: reference,
