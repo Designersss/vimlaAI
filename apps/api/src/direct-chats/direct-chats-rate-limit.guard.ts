@@ -22,8 +22,14 @@ export class DirectChatsRateLimitGuard implements CanActivate {
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<FastifyRequest>();
+    // Reconciliation looks up individual sender-owned idempotency keys.
+    // Unlike ordinary inbox/history GETs, this is a probe endpoint and
+    // requires its own Redis-backed per-actor budget.
+    const lookup =
+      request.method === "GET" &&
+      request.routeOptions.url?.endsWith("/messages/lookup") === true;
     if (
-      request.method === "GET" ||
+      (request.method === "GET" && !lookup) ||
       request.method === "HEAD" ||
       request.method === "OPTIONS"
     ) {
@@ -46,12 +52,12 @@ export class DirectChatsRateLimitGuard implements CanActivate {
         ? `ratelimit:direct-chats:prekeys:user:${userId}`
         : preflight
           ? `ratelimit:direct-chats:preflight:user:${userId}`
-          : `ratelimit:direct-chats:user:${userId}`,
-      claimingPrekeys
+          : lookup
+            ? `ratelimit:direct-chats:lookup:user:${userId}`
+            : `ratelimit:direct-chats:user:${userId}`,
+      claimingPrekeys || preflight || lookup
         ? this.config.directChatsPreflightLimitPerMinute
-        : preflight
-          ? this.config.directChatsPreflightLimitPerMinute
-          : this.config.directChatsMutationLimitPerMinute,
+        : this.config.directChatsMutationLimitPerMinute,
     );
     if (!allowed) {
       throw new HttpException(

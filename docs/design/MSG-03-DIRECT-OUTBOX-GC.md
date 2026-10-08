@@ -13,7 +13,9 @@ unblock. In #104, blocking/unblocking advances the server-authoritative
 Direct interaction epoch; send commits and block changes serialize through
 the same trust-pair transaction lock.
 
-The non-mutating actor-owned lookup reads exactly one `clientMessageId` from
+The non-mutating actor-owned lookup is rate-limited per authenticated
+actor with a separate budget from writes and send preflight. It reads
+exactly one `clientMessageId` from
 the authoritative Direct message store. It requires authenticated Direct
 membership and ownership of the active sending device; no peer's message may
 be queried by clientMessageId. The response is only a normal ciphertext

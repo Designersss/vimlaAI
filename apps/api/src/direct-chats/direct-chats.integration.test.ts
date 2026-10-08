@@ -307,6 +307,19 @@ describe("direct chats API", () => {
       const limited = await preflight();
       expect(limited.statusCode).toBe(429);
 
+      // The read-only idempotency probe needs its own bounded budget,
+      // independent of send preflight and of ordinary Direct mutations.
+      const lookup = () =>
+        isolated.inject({
+          method: "GET",
+          url: `/v1/direct-chats/${chat.id}/messages/lookup?senderDeviceId=${aliceDevice.deviceId}&clientMessageId=${randomUUID()}`,
+          headers: { origin },
+          cookies: alice.cookies,
+        });
+      expect((await lookup()).statusCode).toBe(200);
+      expect((await lookup()).statusCode).toBe(200);
+      expect((await lookup()).statusCode).toBe(429);
+
       const mutationStillAllowed = await isolated.inject({
         method: "PATCH",
         url: `/v1/direct-chats/${chat.id}/privacy`,
