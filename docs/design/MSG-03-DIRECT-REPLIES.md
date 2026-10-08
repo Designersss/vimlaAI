@@ -28,6 +28,11 @@ echoing attacker-authored quoted text**. When history is loaded and a valid
 source becomes available, the quote can resolve locally. Never use a
 sender-supplied plaintext snapshot as the displayed source quote.
 
+The portable HUMAN wire codec and quote-provenance verifier live in
+`@vimla/client-core`, so future Desktop/Mobile clients share exactly the
+same authenticated-envelope interpretation and source validation. Web owns
+only its platform-specific composition and rendering UI.
+
 The composing UI only offers replies to decrypted HUMAN messages in the
 current chat. It revalidates that original source before send; an invalid
 source cannot silently turn into an ordinary send. Mixing a pending reply

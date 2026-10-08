@@ -1,12 +1,10 @@
 import type { DirectMessageKind } from "@vimla/contracts";
-import { readDirectReplyReference, type DirectReplyReference } from "@vimla/client-core";
-export type { DirectReplyReference } from "@vimla/client-core";
-
-export interface HumanPayload {
-  type: "human";
-  text: string;
-  replyTo?: DirectReplyReference;
-}
+import {
+  decodeDirectHumanPayload,
+  encodeDirectHumanPayload,
+  type HumanPayload,
+} from "@vimla/client-core";
+export type { HumanPayload, DirectReplyReference } from "@vimla/client-core";
 
 export interface InvokePayload {
   type: "invoke";
@@ -33,36 +31,14 @@ export type DirectPlaintextPayload = HumanPayload | InvokePayload | ResponsePayl
 
 export function encodeDirectPlaintext(payload: DirectPlaintextPayload): string {
   if (payload.type === "human") {
-    // All newly authored HUMAN messages use one canonical versioned
-    // plaintext envelope. The user's literal JSON text stays user text:
-    // it cannot be misinterpreted as a reply reference on another device.
-    // The reference is entirely inside signed E2EE ciphertext.
-    if (payload.replyTo && !readDirectReplyReference(payload.replyTo)) {
-      throw new Error("Invalid Direct reply reference");
-    }
-    return JSON.stringify({
-      type: "human",
-      version: 1,
-      text: payload.text,
-      ...(payload.replyTo ? { replyTo: payload.replyTo } : {}),
-    });
+    return encodeDirectHumanPayload(payload);
   }
   return JSON.stringify(payload);
 }
 
 export function decodeDirectPlaintext(kind: DirectMessageKind, text: string): DirectPlaintextPayload {
   if (kind === "HUMAN") {
-    const parsed = tryJson(text);
-    if (parsed && parsed.type === "human" && typeof parsed.text === "string") {
-      if (parsed.version === 1) {
-        const replyTo = readDirectReplyReference(parsed.replyTo);
-        // Invalid/unknown references never create a source attribution.
-        return replyTo
-          ? { type: "human", text: parsed.text, replyTo }
-          : { type: "human", text: parsed.text };
-      }
-    }
-    return { type: "human", text };
+    return decodeDirectHumanPayload(text);
   }
   const parsed = tryJson(text);
   if (kind === "OPERATOR_INVOKE" && parsed?.type === "invoke" && typeof parsed.text === "string") {

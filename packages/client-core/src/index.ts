@@ -51,3 +51,8 @@ export {
   type DirectReplyReference,
   type LocalDirectReplySource,
 } from "./direct-chat-replies.js";
+export {
+  encodeDirectHumanPayload,
+  decodeDirectHumanPayload,
+  type HumanPayload,
+} from "./direct-chat-human-payload.js";
