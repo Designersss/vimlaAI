@@ -801,61 +801,83 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
 
   async function onSend(): Promise<void> {
     const text = draftRef.current;
-    if (sendingLockRef.current || sending || operatorBusy || text.trim().length === 0 || !conversation || !userId) return;
-    closeMentionPicker();
-    let resolvedComposerMentions = composerMentions;
-    if (text.includes("@")) {
-      try {
-        const suggestions = await fetchMentionSuggestions({ q: "", directConversationId: conversationId });
-        resolvedComposerMentions = resolveTypedComposerMentions(text, [
-          ...suggestions.people,
-          ...suggestions.vimla,
-          ...suggestions.ai,
-        ]);
-      } catch (caught: unknown) {
-        if (caught instanceof AuthRequiredError) {
-          router.replace("/sign-in");
+    if (sendingLockRef.current || sending || operatorBusy || !text.trim() || !conversation || !userId) return;
+    // Must lock before the first await (mention resolution is network-bound).
+    sendingLockRef.current = true;
+    const selectedReply = replyTo;
+    const onDurablyStaged = (): void => {
+      // Once the exact ciphertext/outbox is persisted, never retain another
+      // sendable copy: HTTP errors may be ambiguous and recovery is idempotent.
+      if (draftRef.current === text) {
+        draftRef.current = "";
+        setDraft("");
+        setComposerMentions([]);
+        closeMentionPicker();
+      }
+      if (selectedReply) {
+        setReplyDraft((current) =>
+          current?.conversationId === conversationId &&
+          current.reference.clientMessageId === selectedReply.clientMessageId &&
+          current.reference.senderUserId === selectedReply.senderUserId &&
+          current.reference.senderDeviceId === selectedReply.senderDeviceId
+            ? null
+            : current,
+        );
+      }
+      setReplyWarning(null);
+    };
+
+    try {
+      closeMentionPicker();
+      let resolvedComposerMentions = composerMentions;
+      if (text.includes("@")) {
+        try {
+          const suggestions = await fetchMentionSuggestions({ q: "", directConversationId: conversationId });
+          resolvedComposerMentions = resolveTypedComposerMentions(text, [
+            ...suggestions.people, ...suggestions.vimla, ...suggestions.ai,
+          ]);
+        } catch (caught: unknown) {
+          if (caught instanceof AuthRequiredError) {
+            router.replace("/sign-in");
+            return;
+          }
+          setError("internal_error");
+          // No persisted send yet: retain the original draft and reply.
           return;
         }
-        setError("internal_error");
+      }
+      const mentions = toMessageMentionInputs(resolvedComposerMentions);
+      const shouldInvokeVimla = CONSUMER_FEATURES.vimlaOperator &&
+        resolvedComposerMentions.some((candidate) =>
+          candidate.kind === "SYSTEM_AGENT" && candidate.canonicalHandle === "vimla",
+        );
+      if (selectedReply && !resolveDirectReplySource(
+        rowsRef.current.find((row) =>
+          row.message.clientMessageId === selectedReply.clientMessageId &&
+          row.message.senderDeviceId === selectedReply.senderDeviceId &&
+          row.message.senderUserId === selectedReply.senderUserId,
+        ),
+        conversationId,
+        selectedReply,
+      )) {
+        setReplyWarning("unavailable");
         return;
       }
-    }
-    const mentions = toMessageMentionInputs(resolvedComposerMentions);
-    const shouldInvokeVimla = CONSUMER_FEATURES.vimlaOperator && resolvedComposerMentions.some(
-      (candidate) => candidate.kind === "SYSTEM_AGENT" && candidate.canonicalHandle === "vimla",
-    );
-    // Reply provenance is checked again at send-time, not only when the
-    // reply button was clicked. Realtime/history updates can remove rows.
-    if (replyTo && !resolveDirectReplySource(
-      rowsRef.current.find((row) => row.message.clientMessageId === replyTo.clientMessageId),
-      conversationId,
-      replyTo,
-    )) {
-      setReplyWarning("unavailable");
-      return;
-    }
-    if (replyTo && shouldInvokeVimla) {
-      // @Vimla invocations are a separate consent/origin-gated protocol.
-      setReplyWarning("operator");
-      return;
-    }
-    setReplyWarning(null);
-    sendingLockRef.current = true;
-    draftRef.current = "";
-    setDraft("");
-    setComposerMentions([]);
-    try {
+      if (selectedReply && shouldInvokeVimla) {
+        setReplyWarning("operator");
+        return;
+      }
+      setReplyWarning(null);
       if (shouldInvokeVimla) {
-        await invokeOperator(text, mentions);
+        await invokeOperator(text, mentions, onDurablyStaged);
         return;
       }
       await postEncrypted(
         "HUMAN",
-        encodeDirectPlaintext({ type: "human", text, ...(replyTo ? { replyTo } : {}) }),
+        encodeDirectPlaintext({ type: "human", text, ...(selectedReply ? { replyTo: selectedReply } : {}) }),
         mentions,
+        { onDurablyStaged },
       );
-      setReplyTo(null);
     } finally {
       sendingLockRef.current = false;
     }
@@ -868,6 +890,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
     options: {
       clientMessageId?: string;
       operatorIntent?: StoredOperatorIntent;
+      onDurablyStaged?: () => void;
     } = {},
   ): Promise<DirectMessageView | null> {
     if (!userId) return null;
@@ -934,6 +957,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
   async function invokeOperator(
     text: string,
     mentions: MessageMentionInput[],
+    onDurablyStaged?: () => void,
   ): Promise<void> {
     if (!conversation || !userId) return;
     setOperatorBusy(true);
@@ -981,6 +1005,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         {
           clientMessageId: sourceClientMessageId,
           operatorIntent,
+          onDurablyStaged,
         },
       );
 
@@ -1477,6 +1502,7 @@ async function sendEncryptedDirectMessage(input: {
   operatorOutput?: StoredOperatorOutputLink;
   recoverPending?: boolean;
   expectedInteractionEpoch?: number;
+  onDurablyStaged?: () => void;
 }): Promise<{
   message: DirectMessageView;
   latest: DirectConversationView;
@@ -1536,6 +1562,7 @@ async function sendEncryptedDirectMessage(input: {
       ? { operatorOutput: input.operatorOutput }
       : {}),
   });
+  input.onDurablyStaged?.();
   const message =
     await sendPendingDirectMessage(pending);
   await finalizePendingSend(pending, message);

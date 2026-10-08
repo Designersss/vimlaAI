@@ -70,3 +70,7 @@ misattributed quote without performing unverifiable duplicate decryption.
 Old plaintext caches without a signed-associated-data device/epoch provenance
 are not eligible for quoted source attribution. A missing provenance field
 must never be interpreted as a wildcard.
+
+## Durable composer ownership
+
+The sending lock is synchronous, before any mention-network await. A pre-persistence failure preserves the typed text and reply context. After outbound ratchets and the encrypted pending send commit atomically to IndexedDB, the composer relinquishes the original draft: only idempotent pending-send recovery owns any uncertain HTTP outcome. Text edited while sending is not cleared. @Vimla uses the same queue-ownership boundary.
