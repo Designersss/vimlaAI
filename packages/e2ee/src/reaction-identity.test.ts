@@ -19,7 +19,8 @@ describe("Direct reaction event identity and AD5 routing", () => {
     expect(commitment).toMatch(/^[A-Za-z0-9+/]{43}=$/);
     expect(targetTag).toMatch(/^[A-Za-z0-9+/]{43}=$/);
     expect(commitment).not.toBe(targetTag);
-    expect(reactionClientIdFromCommitment(commitment!)).toMatch(/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/);
+    if (!commitment) throw new Error("Expected full commitment");
+    expect(reactionClientIdFromCommitment(commitment)).toMatch(/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/);
     expect(boundReactionTargetTag("not base64", canonical)).toBeNull();
     expect(() => serializeDirectReactionTargetTag("bad")).toThrow();
   });
@@ -36,7 +37,7 @@ describe("Direct reaction event identity and AD5 routing", () => {
     });
     const secret = bytesToB64(new Uint8Array(32).fill(9));
     const full = boundReactionEventCommitment(secret, JSON.stringify(["add", "🔥", "target"]));
-    const id = reactionClientIdFromCommitment(full!);
+    const id = full ? reactionClientIdFromCommitment(full) : null;
     const tag = boundReactionTargetTag(secret, "original source");
     if (!full || !id || !tag) throw new Error("Invalid E2EE fixture");
     const ad = {
