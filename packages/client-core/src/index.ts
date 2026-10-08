@@ -58,5 +58,7 @@ export {
 export {
   encodeDirectHumanPayload,
   decodeDirectHumanPayload,
+  directHumanClientMessageId,
+  createDirectHumanMessage,
   type HumanPayload,
 } from "./direct-chat-human-payload.js";
