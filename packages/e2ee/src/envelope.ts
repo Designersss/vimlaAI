@@ -92,6 +92,15 @@ export function serializeDirectReactionTargetTag(tagB64: string): string {
   if (!/^[A-Za-z0-9+/]{43}=$/.test(tagB64)) {
     throw new Error("Invalid opaque Direct reaction target tag");
   }
+  let bytes: Uint8Array;
+  try {
+    bytes = b64ToBytes(tagB64);
+  } catch {
+    throw new Error("Invalid opaque Direct reaction target tag");
+  }
+  if (bytes.length !== 32 || bytesToB64(bytes) !== tagB64) {
+    throw new Error("Noncanonical opaque Direct reaction target tag");
+  }
   return JSON.stringify(["VimlaReactionRoutingV1", tagB64]);
 }
 
