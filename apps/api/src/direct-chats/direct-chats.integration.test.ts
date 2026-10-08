@@ -3600,6 +3600,7 @@ async function listMessages(
   return page.json() as {
     items: Array<{
       id: string;
+      clientMessageId: string;
       senderUserId: string;
       envelope: Parameters<typeof decryptFor>[5];
     }>;

@@ -230,14 +230,17 @@ test.describe("Secure Direct Chats", () => {
     await sourceAgain.getByTestId("direct-message-reply-action").click();
     const failedDraft = "reply @offline mention preflight failure";
     await nikitaComposer.fill(failedDraft);
+    let abortedReplyPreflight = false;
     await nikitaPage.route("**/v1/direct-chats/*/send-preflight", async (route) => {
       if (route.request().method() === "POST") {
+        abortedReplyPreflight = true;
         await route.abort("failed");
       } else {
         await route.continue();
       }
     });
     await nikitaPage.getByTestId("chat-composer-send").click();
+    await expect.poll(() => abortedReplyPreflight).toBe(true);
     await expect(nikitaComposer).toHaveValue(failedDraft);
     await expect(replyComposer).toContainText("hello from alice");
     await nikitaPage.unroute("**/v1/direct-chats/*/send-preflight");
@@ -255,7 +258,7 @@ test.describe("Secure Direct Chats", () => {
     await nikitaPage.route("**/v1/mentions?**", async (route) => {
       const url = new URL(route.request().url());
       if (
-        url.searchParams.get("q") === "" &&
+        !url.searchParams.has("q") &&
         url.searchParams.has("directConversationId")
       ) {
         markLookupStarted();
