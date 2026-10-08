@@ -1147,6 +1147,19 @@ describe("direct chats API", () => {
       envelopes,
       mentions: [],
     };
+    // These are genuinely sender-signed ciphertexts, but their signatures
+    // were made for clientMessageId. Altering only the HTTP metadata must
+    // fail even before idempotent server message creation.
+    const swappedIdentity = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/${chat.id}/messages`,
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: { ...payload, clientMessageId: randomUUID() },
+    });
+    expect(swappedIdentity.statusCode).toBe(400);
+    expect(errorCode(swappedIdentity)).toBe("tampered");
+
     const sent = await app.inject({
       method: "POST",
       url: `/v1/direct-chats/${chat.id}/messages`,
