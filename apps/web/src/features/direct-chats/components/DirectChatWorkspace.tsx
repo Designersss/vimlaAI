@@ -831,9 +831,12 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
     const onDurablyStaged = (): void => {
       // Once the exact ciphertext/outbox is persisted, never retain another
       // sendable copy: HTTP errors may be ambiguous and recovery is idempotent.
-      if (draftRevisionRef.current !== startedDraftRevision) return;
-      // Only an untouched draft is surrendered to the durable outbox.
-      // A newer draft retains its text, mentions and chosen reply.
+      if (
+        draftRevisionRef.current !== startedDraftRevision ||
+        replyRevisionRef.current !== startedReplyRevision
+      ) return;
+      // A newly selected reply and its current draft are one composer state.
+      // If either changed, staging an older send must not clear either one.
       draftRevisionRef.current += 1;
       draftRef.current = "";
       setDraft("");
