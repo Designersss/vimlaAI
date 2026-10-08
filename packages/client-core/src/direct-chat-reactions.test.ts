@@ -52,6 +52,7 @@ function metadata(prepared: ReturnType<typeof createDirectReaction>, sequence = 
     senderUserId: reactorUserId,
     clientMessageId: prepared.clientMessageId,
     contentCommitmentB64: prepared.contentCommitmentB64,
+    targetTagB64: prepared.targetTagB64,
     sequence,
   };
 }
@@ -79,7 +80,7 @@ describe("portable Direct reactions crypto and provenance", () => {
       },
     });
     const verified = verifyDirectReaction(
-      metadata(add), add.plaintext, source, human.plaintext, add.targetTagB64,
+      metadata(add), add.plaintext, source, human.plaintext,
     );
     expect(verified).toMatchObject({
       sequence: 1n, reactorUserId, action: "add", emoji: "👍",
@@ -93,7 +94,7 @@ describe("portable Direct reactions crypto and provenance", () => {
     const { human, source } = fixture();
     const event = createDirectReaction("add", "❤️", source, human.plaintext, conversationId);
     expect(verifyDirectReaction(
-      metadata(event), event.plaintext, source, human.plaintext, event.targetTagB64,
+      metadata(event), event.plaintext, source, human.plaintext,
     )).not.toBeNull();
     for (const bad of [
       { ...source, message: { ...source.message, kind: "OPERATOR_RESPONSE" } },
@@ -103,20 +104,20 @@ describe("portable Direct reactions crypto and provenance", () => {
       { ...source, payload: { type: "human", text: "Forged local text" } },
     ]) {
       expect(verifyDirectReaction(
-        metadata(event), event.plaintext, bad, human.plaintext, event.targetTagB64,
+        metadata(event), event.plaintext, bad, human.plaintext,
       )).toBeNull();
     }
     expect(verifyDirectReaction(
-      metadata(event), event.plaintext, source, human.plaintext,
-      createDirectHumanMessage({ type: "human", text: "different" }).contentCommitmentB64,
+      { ...metadata(event), targetTagB64: createDirectHumanMessage({ type: "human", text: "different" }).contentCommitmentB64 },
+      event.plaintext, source, human.plaintext,
     )).toBeNull();
     expect(verifyDirectReaction(
       { ...metadata(event), kind: "HUMAN" },
-      event.plaintext, source, human.plaintext, event.targetTagB64,
+      event.plaintext, source, human.plaintext,
     )).toBeNull();
     expect(verifyDirectReaction(
       { ...metadata(event), sequence: 0n },
-      event.plaintext, source, human.plaintext, event.targetTagB64,
+      event.plaintext, source, human.plaintext,
     )).toBeNull();
     const other = createDirectHumanMessage({ type: "human", text: "Different source" });
     expect(resolveDirectReactionSource(
@@ -232,7 +233,7 @@ describe("deterministic Direct reaction reducer", () => {
     const addAgain = createDirectReaction("add", "👍", source, human.plaintext, conversationId);
     const verified = [add, remove, addAgain].map((p, index) =>
       required(verifyDirectReaction(
-        metadata(p, BigInt(index + 1)), p.plaintext, source, human.plaintext, p.targetTagB64,
+        metadata(p, BigInt(index + 1)), p.plaintext, source, human.plaintext,
       ))
     );
     expect(reduceVerifiedDirectReactions([
@@ -246,8 +247,8 @@ describe("deterministic Direct reaction reducer", () => {
     const { human, source } = fixture();
     const a = createDirectReaction("add", "🔥", source, human.plaintext, conversationId);
     const b = createDirectReaction("remove", "🔥", source, human.plaintext, conversationId);
-    const va = required(verifyDirectReaction(metadata(a), a.plaintext, source, human.plaintext, a.targetTagB64));
-    const vb = required(verifyDirectReaction(metadata(b), b.plaintext, source, human.plaintext, b.targetTagB64));
+    const va = required(verifyDirectReaction(metadata(a), a.plaintext, source, human.plaintext));
+    const vb = required(verifyDirectReaction(metadata(b), b.plaintext, source, human.plaintext));
     expect(() => reduceVerifiedDirectReactions([va, vb])).toThrow("sequence");
     expect(() => reduceVerifiedDirectReactions([
       va, { ...vb, eventClientMessageId: va.eventClientMessageId, sequence: 2n },
