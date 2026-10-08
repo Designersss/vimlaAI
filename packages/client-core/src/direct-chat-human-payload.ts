@@ -23,32 +23,37 @@ export function encodeDirectHumanPayload(payload: HumanPayload): string {
   });
 }
 
-export function decodeDirectHumanPayload(text: string): HumanPayload {
+/**
+ * Clean preproduction Direct HUMAN wire protocol: ONLY strict version-1
+ * envelopes are accepted. A raw JSON string and a malformed/future typed
+ * envelope cannot masquerade as a legitimate authored message or quote.
+ * There are no released clients or production Direct history to migrate.
+ */
+export function decodeDirectHumanPayload(text: string): HumanPayload | null {
   let parsed: unknown;
   try {
     parsed = JSON.parse(text);
   } catch {
-    return { type: "human", text };
+    return null;
   }
-  if (
-    parsed === null ||
-    typeof parsed !== "object" ||
-    Array.isArray(parsed)
-  ) {
-    return { type: "human", text };
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return null;
   }
   const value = parsed as Record<string, unknown>;
+  const keys = Object.keys(value);
   if (
     value.type !== "human" ||
     value.version !== 1 ||
-    typeof value.text !== "string"
+    typeof value.text !== "string" ||
+    keys.some((key) => !["type", "version", "text", "replyTo"].includes(key))
   ) {
-    // Unknown protocol versions stay raw, including all control fields;
-    // do not attribute or interpret any unverifiable quoted content.
-    return { type: "human", text };
+    return null;
+  }
+  if (!Object.prototype.hasOwnProperty.call(value, "replyTo")) {
+    return { type: "human", text: value.text };
   }
   const replyTo = readDirectReplyReference(value.replyTo);
   return replyTo
     ? { type: "human", text: value.text, replyTo }
-    : { type: "human", text: value.text };
+    : null;
 }

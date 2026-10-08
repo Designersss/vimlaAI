@@ -6,13 +6,14 @@ or completion of the epic.
 
 ## Protocol and adversary model
 
-A reply to a **HUMAN** message includes `{messageId, senderUserId}`
+A reply to a **HUMAN** message includes `{clientMessageId, senderUserId, senderDeviceId}`
 inside the same authenticated, per-device end-to-end encrypted HUMAN
 plaintext as the reply body. Every newly composed HUMAN payload is versioned
 (`version: 1`), with optional `replyTo`; this preserves literal user-typed
-JSON instead of mistaking it for control metadata. Untyped previous Direct
-plaintext is still rendered as ordinary user text. The Direct
-API/storage schema and ciphertext-associated-data signature are unchanged:
+JSON instead of mistaking it for control metadata. No untyped/legacy HUMAN format is accepted: preproduction development
+history is not a released-client compatibility boundary. Malformed or future
+versions fail closed as undecryptable content. The Direct API/storage schema is unchanged; however, the E2EE associated
+data changes to bind the client-generated message identifier:
 the server sees only ciphertext, sender, epoch and preexisting routing
 metadata; neither quoted text nor reference IDs appear in server-readable
 fields.
@@ -20,8 +21,8 @@ fields.
 The sender of a reply can author an arbitrary reference. A valid E2EE sender
 signature authenticates that sender's claim but **does not attest the source
 message**. The recipient must resolve the reference against a locally
-authenticated decrypted HUMAN message with exact message ID, Direct chat ID
-and original sender ID before displaying a quote attributed to that sender.
+authenticated decrypted HUMAN message with exact authenticated client message ID, Direct chat ID, original sender ID
+and sender device before displaying a quote attributed to that sender.
 On missing history, missing device envelope, tampered references or a forged
 OPERATOR_* source kind, show a neutral unavailable-source label **without
 echoing attacker-authored quoted text**. When history is loaded and a valid
@@ -74,3 +75,7 @@ must never be interpreted as a wildcard.
 ## Durable composer ownership
 
 The sending lock is synchronous, before any mention-network await. A pre-persistence failure preserves the typed text and reply context. After outbound ratchets and the encrypted pending send commit atomically to IndexedDB, the composer relinquishes the original draft: only idempotent pending-send recovery owns any uncertain HTTP outcome. Text edited while sending is not cleared. @Vimla uses the same queue-ownership boundary.
+
+### E2EE authenticated identity
+
+Direct AD v4 binds `clientMessageId` and the existing sender user/device, conversation, recipient device, kind, epoch and routing context. This prevents a server from swapping signed ciphertext between distinct message identities. A reply points to the signed client message ID, not to the server-generated record ID. Server-generated IDs are used only for message pagination/report navigation and must not be cryptographic quote identities. The binding applies to HUMAN and OPERATOR envelope kinds alike; the existing Operator-origin verification gate #74 remains separate. Multi-recipient envelopes of one send use the *same* signed client message ID.

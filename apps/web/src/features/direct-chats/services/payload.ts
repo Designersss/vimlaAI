@@ -36,7 +36,7 @@ export function encodeDirectPlaintext(payload: DirectPlaintextPayload): string {
   return JSON.stringify(payload);
 }
 
-export function decodeDirectPlaintext(kind: DirectMessageKind, text: string): DirectPlaintextPayload {
+export function decodeDirectPlaintext(kind: DirectMessageKind, text: string): DirectPlaintextPayload | null {
   if (kind === "HUMAN") {
     return decodeDirectHumanPayload(text);
   }
@@ -76,6 +76,7 @@ export function directPlaintextPreview(
   text: string,
 ): string | null {
   const payload = decodeDirectPlaintext(kind, text);
+  if (!payload) return null;
 
   if (kind === "HUMAN") {
     return payload.type === "human" ? payload.text : null;

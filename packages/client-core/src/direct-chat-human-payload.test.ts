@@ -17,19 +17,20 @@ describe("portable Direct HUMAN E2EE payload", () => {
   it("round-trips authenticated reply references and old raw text", () => {
     const reply = { type: "human" as const, text: "answer", replyTo: reference };
     expect(decodeDirectHumanPayload(encodeDirectHumanPayload(reply))).toEqual(reply);
-    expect(decodeDirectHumanPayload("historical raw text")).toEqual({
-      type: "human", text: "historical raw text",
-    });
+    expect(decodeDirectHumanPayload("historical raw text")).toBeNull();
+    expect(decodeDirectHumanPayload(JSON.stringify({
+      type: "human", version: 1, text: "x", extra: "spoof",
+    }))).toBeNull();
   });
 
   it("rejects forged and unsupported references without quote attribution", () => {
     expect(decodeDirectHumanPayload(JSON.stringify({
       type: "human", version: 1, text: "answer", replyTo: { ...reference, senderUserId: "" },
-    }))).toEqual({ type: "human", text: "answer" });
+    }))).toBeNull();
     const unknown = JSON.stringify({
       type: "human", version: 2, text: "future", replyTo: reference,
     });
-    expect(decodeDirectHumanPayload(unknown)).toEqual({ type: "human", text: unknown });
+    expect(decodeDirectHumanPayload(unknown)).toBeNull();
     expect(() => encodeDirectHumanPayload({
       type: "human", text: "answer", replyTo: { ...reference, clientMessageId: "not-a-uuid" },
     })).toThrow("Invalid Direct reply reference");

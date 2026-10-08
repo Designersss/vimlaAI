@@ -122,9 +122,7 @@ describe("authenticated Direct HUMAN replies", () => {
     expect(decodeDirectPlaintext("HUMAN", original)).toEqual({
       type: "human", text: literalJson,
     });
-    expect(decodeDirectPlaintext("HUMAN", "an older raw plaintext")).toEqual({
-      type: "human", text: "an older raw plaintext",
-    });
+    expect(decodeDirectPlaintext("HUMAN", "an older raw plaintext")).toBeNull();
     const encrypted = encodeDirectPlaintext({
       type: "human", text: "reply from Alice", replyTo: reference,
     });
@@ -147,18 +145,14 @@ describe("authenticated Direct HUMAN replies", () => {
     ];
     for (const replyTo of cases) {
       const text = JSON.stringify({ type: "human", version: 1, text: "msg", replyTo });
-      expect(decodeDirectPlaintext("HUMAN", text)).toEqual({
-        type: "human", text: "msg",
-      });
+      expect(decodeDirectPlaintext("HUMAN", text)).toBeNull();
     }
     const unsupportedVersion = JSON.stringify({
       type: "human", version: 2, text: "msg", replyTo: reference,
     });
     // Unknown protocol versions are not interpreted as valid reply metadata.
     // Their raw bytes remain ordinary text until a reviewed codec exists.
-    expect(decodeDirectPlaintext("HUMAN", unsupportedVersion)).toEqual({
-      type: "human", text: unsupportedVersion,
-    });
+    expect(decodeDirectPlaintext("HUMAN", unsupportedVersion)).toBeNull();
     expect(() => encodeDirectPlaintext({
       type: "human", text: "msg", replyTo: { ...reference, clientMessageId: "other" },
     })).toThrow("Invalid Direct reply reference");
