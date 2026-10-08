@@ -70,6 +70,7 @@ import {
 } from "./crypto-store";
 import {
   RatchetLockLostError,
+  cachedDirectPlaintextMatchesMessage,
   RatchetStateConflictError,
 } from "@vimla/client-core";
 import { decodeDirectPlaintext, encodeDirectPlaintext, type DirectPlaintextPayload } from "./payload";
@@ -880,6 +881,18 @@ export async function decryptMessageWithStatus(input: {
 }): Promise<DecryptMessageResult> {
   const cached = await loadPlaintext(input.message.id);
   if (cached) {
+    // The cache was authenticated against this identity on first decrypt.
+    // Never attribute it to a relabelled message or an E2EE kind whose
+    // ciphertext was not cryptographically verified under that metadata.
+    if (!cachedDirectPlaintextMatchesMessage(cached, {
+      messageId: input.message.id,
+      conversationId: input.conversationId,
+      senderUserId: input.message.senderUserId,
+      kind: input.message.kind,
+      createdAt: input.message.createdAt,
+    })) {
+      return { payload: null, needsBootstrap: false };
+    }
     return {
       payload: decodeDirectPlaintext(
         input.message.kind,
@@ -942,6 +955,15 @@ export async function decryptMessageWithStatus(input: {
       async () => {
         const committed = await loadPlaintext(input.message.id);
         if (committed) {
+          if (!cachedDirectPlaintextMatchesMessage(committed, {
+            messageId: input.message.id,
+            conversationId: input.conversationId,
+            senderUserId: input.message.senderUserId,
+            kind: input.message.kind,
+            createdAt: input.message.createdAt,
+          })) {
+            return { payload: null, needsBootstrap: false };
+          }
           return {
             payload: decodeDirectPlaintext(
               input.message.kind,

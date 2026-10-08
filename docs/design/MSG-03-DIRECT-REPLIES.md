@@ -55,3 +55,14 @@ preproduction protocol may be refined before those separate security reviews.
 The consent-gated @Vimla local-history projection decodes HUMAN payloads
 before assembling AI context. It must never include serialized encrypted
 reply-reference metadata as if it were ordinary user text.
+
+## Cached E2EE provenance
+
+A decrypted IndexedDB plaintext must remain bound to the exact message ID,
+conversation, sender user, kind and creation time against which it was
+originally ratchet-decrypted or finalized from a verified outgoing send.
+A server-side relabelled record is never treated as an authenticated local
+source, even when the locally cached bytes decrypt as a HUMAN reply.
+Both the immediate cache hit and the ratchet-locked second read enforce this
+boundary. This prevents cross-chat/author relabelling from producing a
+misattributed quote without performing unverifiable duplicate decryption.

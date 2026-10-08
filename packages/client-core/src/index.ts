@@ -52,6 +52,10 @@ export {
   type LocalDirectReplySource,
 } from "./direct-chat-replies.js";
 export {
+  cachedDirectPlaintextMatchesMessage,
+  type CachedDirectPlaintextProvenance,
+} from "./direct-chat-cached-provenance.js";
+export {
   encodeDirectHumanPayload,
   decodeDirectHumanPayload,
   type HumanPayload,
