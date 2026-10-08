@@ -122,6 +122,36 @@ review and negative tests before production implementation.
   hint for bounded historical lookup must receive an explicit metadata
   privacy decision and itself be authenticated in AD (see gate below).
 
+## Implemented portable proof (not yet wired to API or UI)
+
+- `@vimla/e2ee` has two independently domain-separated HMAC-SHA256
+  helpers: one for each event's full content identity and one for an
+  opaque stable original-message lookup tag.
+- The opaque index tag is computed as
+  `HMAC(originalHumanBindingKey, "VimlaReactionTargetIndexV1\\0" || canonical[conversationId, clientMessageId, contentCommitmentB64, senderUserId, senderDeviceId])`.
+  The 256-bit source binding key is recoverable **only after** locally
+  authenticating and decrypting the original HUMAN v2 wire; it is
+  neither transmitted in API metadata nor persisted by the server.
+- A fresh per-reaction 256-bit key derives the full signed event
+  commitment from canonical [action, emoji, target], in a distinct domain.
+  The derived UUIDv4-shaped id is for idempotency, **not** content equality.
+- The pure codec currently accepts a deliberately bounded, seven-emoji
+  product set. There is no generic Unicode parser that silently accepts
+  multiple graphemes, controls or arbitrary oversized input.
+- Local verification checks full event commitment, exact source
+  provenance and index-tag consistency. The reducer accepts verified
+  event records and orders add/remove by authoritative server sequence,
+  with conflicting duplicate IDs/sequence failing closed.
+- Unit tests include malformed inputs, target forgery, full-commitment
+  tamper beyond the UUID prefix, multi-device sender equivocation and
+  out-of-order/duplicate projection.
+
+**Important:** The current Direct API does not yet have a REACTION kind,
+index column, reaction pagination endpoint, inbox projection exception,
+or a Web reaction control. These portable helpers must **not** be
+mistaken for a deployed feature. The event source's signed-envelope
+authentication remains a required precondition of local verification.
+
 ## Open design gates before implementing the mutation endpoints
 
 ### Historical reaction lookup and metadata leakage
@@ -129,6 +159,11 @@ review and negative tests before production implementation.
 An encrypted server cannot index reactions by arbitrary encrypted
 `target` for an old message. Scanning an unbounded whole-chat event
 history when paginating is not acceptable at million-user scale.
+
+**Preferred candidate for the next server slice: A (opaque tag).** The
+portable HMAC derivation is implemented as a proof, but API metadata
+exposure, index authorization and retention must pass the final protocol
+review before this tag is added to the authoritative persistence model.
 
 Evaluate and approve ONE bounded lookup design:
 
