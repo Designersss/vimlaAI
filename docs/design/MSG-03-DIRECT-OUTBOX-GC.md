@@ -38,8 +38,9 @@ unversioned plaintext row.  Reconciliation is capped per recovery
 invocation, performed under existing pending-send recovery serialization,
 and never exposes a crypto-maintenance button to the user. The mounted
 Direct Chat retries this recovery when the browser reports connectivity
-restored or the tab becomes visible again; duplicate events are coalesced
-and existing IndexedDB leases prevent competing outbox mutations.
+restored or the tab becomes visible again; duplicate events are coalesced; pending-free conversations do not
+perform a needless recovery network round-trip. Existing IndexedDB
+leases prevent competing outbox mutations.
 
 ## Limitations and remaining #102 work
 

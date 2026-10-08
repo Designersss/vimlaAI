@@ -398,7 +398,26 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
           if (cancelled || reconnectFlight || !navigator.onLine) {
             return;
           }
-          reconnectFlight = recoverInitialState(true).finally(() => {
+          reconnectFlight = (async () => {
+            try {
+              // Foreground/online events can be frequent. Avoid multiple
+              // network fetches if there is nothing to reconcile locally.
+              const pending = await loadPendingSends(
+                conversationId,
+                device.deviceId,
+              );
+              if (!cancelled && pending.length > 0) {
+                await recoverInitialState(true);
+              }
+            } catch (caught: unknown) {
+              if (cancelled) return;
+              if (caught instanceof AuthRequiredError) {
+                router.replace("/sign-in");
+                return;
+              }
+              setError("internal_error");
+            }
+          })().finally(() => {
             reconnectFlight = null;
           });
         };
