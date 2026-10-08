@@ -10,13 +10,15 @@ A reply to a **HUMAN** message includes `{clientMessageId, contentCommitmentB64,
 inside the same authenticated, per-device end-to-end encrypted HUMAN
 plaintext as the reply body. Every newly composed HUMAN payload is versioned
 (`version: 2`), with optional `replyTo` and a uniformly random, 256-bit
-`bindingKey` *inside the encrypted plaintext*. The clientMessageId is
-a full 256-bit HMAC-SHA256 of the canonical text and reply reference,
-keyed by that secret. The full opaque commitment is stored in the
-nullable message-level `contentCommitmentB64` API/database field and signed
-in AD5 for every recipient. A UUID-v4-shaped 122-bit prefix remains the
-existing `clientMessageId` idempotency key, **not** the sole security binding. The sender generates ONE payload
-and ONE derived ID for the entire device fan-out. Literal user-typed JSON
+`bindingKey` *inside the encrypted plaintext*. `contentCommitmentB64`
+is the **full 256-bit HMAC-SHA256** of the canonical text and reply reference,
+keyed by that secret. This opaque commitment is stored in the nullable
+message-level API/database field and signed in AD5 for every recipient.
+`clientMessageId` is a **UUID-v4-shaped 122-bit projection** of the first
+128 bits of that commitment (with the UUID version/variant bits set). It is
+used for idempotency and lookup, **not** as a substitute for full content
+identity verification. The sender generates ONE HUMAN plaintext, ONE full
+commitment, and ONE derived client ID for the entire device fan-out. Literal user-typed JSON
 remains text rather than control metadata.
 No untyped/v1 HUMAN format is accepted: Vimla is preproduction, with no
 released-client compatibility boundary. Missing keys, invalid versions or
