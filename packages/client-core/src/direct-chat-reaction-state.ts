@@ -52,11 +52,11 @@ export function reduceVerifiedDirectReactions(
       }
       continue;
     }
-    const otherId = bySequence.get(event.sequence);
-    if (otherId && otherId !== event.eventClientMessageId) {
+    const otherIdentity = bySequence.get(event.sequence);
+    if (otherIdentity && otherIdentity !== eventIdentity) {
       throw new Error("Conflicting Direct reaction sequence");
     }
-    bySequence.set(event.sequence, event.eventClientMessageId);
+    bySequence.set(event.sequence, eventIdentity);
     byEventId.set(eventIdentity, event);
     const target = event.target;
     const key = JSON.stringify([
