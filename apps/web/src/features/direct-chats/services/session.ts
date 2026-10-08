@@ -387,6 +387,7 @@ export async function encryptForDevices(input: {
           conversationId: input.conversationId,
           senderUserId: input.senderUserId,
           senderDeviceId: material.deviceId,
+          contentCommitmentB64: input.contentCommitmentB64,
           interactionEpoch: input.interactionEpoch,
           kind: input.kind,
           plaintext: input.plaintext,
@@ -820,6 +821,7 @@ export async function sendPendingDirectMessage(
       row.conversationId,
       {
         clientMessageId: row.clientMessageId,
+        contentCommitmentB64: row.contentCommitmentB64,
         senderDeviceId: row.senderDeviceId,
         interactionEpoch: row.interactionEpoch,
         kind: row.kind,
@@ -1239,6 +1241,7 @@ function pendingSendMatchesInput(
     conversationId: string;
     senderUserId: string;
     senderDeviceId: string;
+    contentCommitmentB64: string | null;
     interactionEpoch: number;
     kind: DirectMessageKind;
     plaintext: string;
@@ -1251,6 +1254,7 @@ function pendingSendMatchesInput(
     pending.conversationId === input.conversationId &&
     pending.senderUserId === input.senderUserId &&
     pending.senderDeviceId === input.senderDeviceId &&
+    pending.contentCommitmentB64 === input.contentCommitmentB64 &&
     pending.interactionEpoch === input.interactionEpoch &&
     pending.kind === input.kind &&
     pending.plaintext === input.plaintext &&
