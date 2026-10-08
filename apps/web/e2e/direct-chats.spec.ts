@@ -218,7 +218,7 @@ test.describe("Secure Direct Chats", () => {
     // The original was pushed beyond the first history page. An unverified
     // source never produces peer-attributed quoted text.
     await expect(reloadedReply.getByTestId("direct-reply-context"))
-      .toContainText(/исходное сообщение недоступно|original message unavailable/i);
+      .toContainText(/исходное сообщение сейчас недоступно|original message is not available here/i);
     await nikitaPage.getByTestId("direct-chat-load-older").click();
     await expect(reloadedReply.getByTestId("direct-reply-context"))
       .toContainText("hello from alice", { timeout: 20_000 });

@@ -1376,9 +1376,9 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
           <div className={styles.replyComposer} data-testid="direct-reply-composer">
             <div className={styles.replyComposerText}>
               <Text weight="semibold">
-                {t("direct.replyTo", {
-                  name: replyTo.senderUserId === userId ? t("chat.you") : conversation.peer.name,
-                })}
+                {replyTo.senderUserId === userId
+                  ? t("direct.replyToYou")
+                  : t("direct.replyTo", { name: conversation.peer.name })}
               </Text>
               <Text tone="secondary">
                 {(() => {
@@ -2303,9 +2303,9 @@ function DirectRow({
       <div className={styles.replyContext} data-testid="direct-reply-context">
         <Text weight="semibold">
           {source
-            ? t("direct.replyTo", {
-                name: reference.senderUserId === selfUserId ? youLabel : peerName,
-              })
+            ? reference.senderUserId === selfUserId
+              ? t("direct.replyToYou")
+              : t("direct.replyTo", { name: peerName })
             : t("direct.replyReference")}
         </Text>
         <Text tone="secondary">

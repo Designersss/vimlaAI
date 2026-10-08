@@ -254,10 +254,11 @@
     "reply": "Ответить",
     "replyTo": "Ответ на сообщение {name}",
     "replyReference": "Ответ на сообщение",
-    "replyUnavailable": "Исходное сообщение недоступно на этом устройстве",
+    "replyUnavailable": "Исходное сообщение сейчас недоступно",
     "cancelReply": "Отменить ответ",
     "replyReferenceMissing": "Исходное сообщение больше недоступно. Отмените ответ или загрузите историю.",
-    "replyCannotInvoke": "Отмените ответ, прежде чем вызывать @Vimla."
+    "replyCannotInvoke": "Отмените ответ, прежде чем вызывать @Vimla.",
+    "replyToYou": "Ответ на ваше сообщение"
   },
   "operator": {
     "title": "@Vimla",
