@@ -45,3 +45,9 @@ export {
   isBoundHumanClientMessageId,
   generateHumanBindingKey,
 } from "./human-content-identity.js";
+
+export {
+  boundReactionEventCommitment,
+  boundReactionTargetTag,
+  reactionClientIdFromCommitment,
+} from "./reaction-identity.js";
