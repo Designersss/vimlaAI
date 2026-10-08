@@ -502,6 +502,7 @@ export class DirectChatService {
         conversationId,
         senderUserId: actor.userId,
         senderDeviceId: senderDevice.id,
+        clientMessageId: input.clientMessageId,
         kind: input.kind,
         interactionEpoch: input.interactionEpoch,
         routingContext,
@@ -914,6 +915,7 @@ export class DirectChatService {
       conversationId: string;
       senderUserId: string;
       senderDeviceId: string;
+      clientMessageId: string;
       kind: SendDirectMessage["kind"];
       interactionEpoch: number;
       routingContext?: string;
@@ -930,6 +932,7 @@ export class DirectChatService {
       conversationId: ad.conversationId,
       senderUserId: ad.senderUserId,
       senderDeviceId: ad.senderDeviceId,
+      clientMessageId: ad.clientMessageId,
       recipientDeviceId: envelope.recipientDeviceId,
       kind: ad.kind,
       interactionEpoch: ad.interactionEpoch,
