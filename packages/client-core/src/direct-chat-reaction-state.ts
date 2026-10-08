@@ -36,7 +36,11 @@ export function reduceVerifiedDirectReactions(
       event.target.clientMessageId, event.target.contentCommitmentB64,
       event.target.senderUserId, event.target.senderDeviceId,
     ]);
-    const previous = byEventId.get(event.eventClientMessageId);
+    // Server idempotency is per (conversation, senderUser, clientId), not
+    // globally by clientId. Two legitimate actors may intentionally share
+    // signed payload bytes without sharing sender identity.
+    const eventIdentity = JSON.stringify([event.reactorUserId, event.eventClientMessageId]);
+    const previous = byEventId.get(eventIdentity);
     if (previous) {
       const previousFingerprint = JSON.stringify([
         previous.reactorUserId, previous.action, previous.emoji,
@@ -53,7 +57,7 @@ export function reduceVerifiedDirectReactions(
       throw new Error("Conflicting Direct reaction sequence");
     }
     bySequence.set(event.sequence, event.eventClientMessageId);
-    byEventId.set(event.eventClientMessageId, event);
+    byEventId.set(eventIdentity, event);
     const target = event.target;
     const key = JSON.stringify([
       target.clientMessageId, target.contentCommitmentB64,
