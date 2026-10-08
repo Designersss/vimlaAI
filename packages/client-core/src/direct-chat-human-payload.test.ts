@@ -94,9 +94,9 @@ describe("portable Direct HUMAN E2EE content commitment", () => {
         state: opening, envelope, ad,
       }));
     });
-    expect(decodeDirectHumanPayload(verified[0]!, prepared.clientMessageId))
+    expect(decodeDirectHumanPayload(verified[0] ?? "", prepared.clientMessageId))
       .toEqual({ type: "human", text: "authentic visible source", replyTo: reference });
-    expect(decodeDirectHumanPayload(verified[1]!, prepared.clientMessageId))
+    expect(decodeDirectHumanPayload(verified[1] ?? "", prepared.clientMessageId))
       .toBeNull();
   });
 
