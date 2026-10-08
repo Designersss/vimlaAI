@@ -250,7 +250,14 @@
     "contextShared": "Chat context sent to @Vimla",
     "contextDenied": "No extra chat history sent",
     "action": "@Vimla action",
-    "encryptedPreview": "Encrypted message"
+    "encryptedPreview": "Encrypted message",
+    "reply": "Reply",
+    "replyTo": "Reply to {name}",
+    "replyReference": "Reply to a message",
+    "replyUnavailable": "Original message unavailable on this device",
+    "cancelReply": "Cancel reply",
+    "replyReferenceMissing": "The original message is no longer available. Cancel this reply or load earlier messages.",
+    "replyCannotInvoke": "Cancel this reply before invoking @Vimla."
   },
   "operator": {
     "title": "@Vimla",
