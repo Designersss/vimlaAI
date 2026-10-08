@@ -654,6 +654,14 @@ async function reconcileTrustCancelledPendingSends(
         row.senderDeviceId === senderDeviceId
       );
     })
+    // Children must settle before their Operator parent, otherwise a
+    // bounded page of parents could starve their own dependent outputs.
+    .sort((left, right) =>
+      Number(Boolean(left.operatorIntent)) -
+        Number(Boolean(right.operatorIntent)) ||
+      Date.parse(left.createdAt) - Date.parse(right.createdAt) ||
+      left.clientMessageId.localeCompare(right.clientMessageId),
+    )
     .slice(0, TRUST_CANCELLED_GC_BATCH_MAX);
   if (candidates.length === 0) return "RESOLVED";
 

@@ -1539,6 +1539,7 @@ export async function completePendingSend(input: {
         pendingStore.put(
           {
             ...parent,
+            revision: pendingSendRevision(parent) + 1,
             operatorIntent: {
               ...parent.operatorIntent!,
               delivery: {
@@ -1712,6 +1713,7 @@ export async function stagePendingOperatorDelivery(input: {
         store.put(
           {
             ...parent,
+            revision: pendingSendRevision(parent) + 1,
             operatorIntent: result,
           } satisfies StoredPendingSend,
           input.parentClientMessageId,
