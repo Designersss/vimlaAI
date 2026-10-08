@@ -1,5 +1,6 @@
 import {
   boundHumanClientMessageId,
+  boundHumanContentCommitment,
   generateHumanBindingKey,
 } from "@vimla/e2ee";
 import { readDirectReplyReference, type DirectReplyReference } from "./direct-chat-replies.js";
@@ -77,6 +78,13 @@ function canonicalContent(payload: HumanPayload): string {
  * The ID and body are indivisible: derive the ID only from exactly the
  * E2EE bytes that will be staged to all recipients. Invalid wire yields null.
  */
+export function directHumanContentCommitment(plaintext: string): string | null {
+  const parsed = parseWire(plaintext);
+  return parsed
+    ? boundHumanContentCommitment(parsed.bindingKey, canonicalContent(parsed.payload))
+    : null;
+}
+
 export function directHumanClientMessageId(plaintext: string): string | null {
   const parsed = parseWire(plaintext);
   return parsed
@@ -89,14 +97,16 @@ export function directHumanClientMessageId(plaintext: string): string | null {
 
 export function createDirectHumanMessage(payload: HumanPayload): {
   clientMessageId: string;
+  contentCommitmentB64: string;
   plaintext: string;
 } {
   const plaintext = encodeDirectHumanPayload(payload);
   const clientMessageId = directHumanClientMessageId(plaintext);
-  if (!clientMessageId) {
+  const contentCommitmentB64 = directHumanContentCommitment(plaintext);
+  if (!clientMessageId || !contentCommitmentB64) {
     throw new Error("Cannot prepare authenticated Direct HUMAN identity");
   }
-  return { clientMessageId, plaintext };
+  return { clientMessageId, contentCommitmentB64, plaintext };
 }
 
 /**
@@ -107,14 +117,19 @@ export function createDirectHumanMessage(payload: HumanPayload): {
 export function decodeDirectHumanPayload(
   text: string,
   expectedClientMessageId?: string,
+  expectedContentCommitmentB64?: string | null,
 ): HumanPayload | null {
   const parsed = parseWire(text);
   if (!parsed) return null;
   const actualId = directHumanClientMessageId(text);
-  if (!actualId || (
-    expectedClientMessageId !== undefined &&
-    actualId !== expectedClientMessageId
-  )) {
+  const full = directHumanContentCommitment(text);
+  if (
+    !actualId || !full ||
+    (expectedClientMessageId !== undefined && actualId !== expectedClientMessageId) ||
+    (expectedClientMessageId !== undefined && !expectedContentCommitmentB64) ||
+    (expectedContentCommitmentB64 !== undefined &&
+      full !== expectedContentCommitmentB64)
+  ) {
     return null;
   }
   return parsed.payload;

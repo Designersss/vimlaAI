@@ -1192,6 +1192,7 @@ model DirectMessage {
   senderDeviceId String
   senderDevice   UserCryptoDevice   @relation(fields: [senderDeviceId], references: [id], onDelete: Restrict)
   clientMessageId String
+  contentCommitmentB64 String?
   kind           String
   interactionEpoch Int              @default(0)
   sequence       BigInt             @default(0)

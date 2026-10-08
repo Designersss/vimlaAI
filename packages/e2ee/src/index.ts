@@ -40,6 +40,8 @@ export {
 
 export {
   boundHumanClientMessageId,
+  boundHumanContentCommitment,
+  humanClientIdFromCommitment,
   isBoundHumanClientMessageId,
   generateHumanBindingKey,
 } from "./human-content-identity.js";
