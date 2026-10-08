@@ -24,6 +24,11 @@ const originalUserId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const originalDeviceId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
 const reactorUserId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
 
+function required<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) throw new Error("Expected valid reaction");
+  return value;
+}
+
 function fixture() {
   const human = createDirectHumanMessage({ type: "human", text: "Original signed source" });
   const source: LocalDirectReplySource = {
@@ -80,7 +85,7 @@ describe("portable Direct reactions crypto and provenance", () => {
       sequence: 1n, reactorUserId, action: "add", emoji: "👍",
     });
     expect(directReactionTargetTag(
-      human.plaintext, verified!.target, conversationId,
+      human.plaintext, required(verified).target, conversationId,
     )).toBe(add.targetTagB64);
   });
 
@@ -208,10 +213,10 @@ describe("portable Direct reactions crypto and provenance", () => {
       }));
     });
     expect(decodeDirectReaction(
-      verified[0]!, prepared.clientMessageId, prepared.contentCommitmentB64,
+      required(verified[0]), prepared.clientMessageId, prepared.contentCommitmentB64,
     )?.action).toBe("add");
     expect(decodeDirectReaction(
-      verified[1]!, prepared.clientMessageId, prepared.contentCommitmentB64,
+      required(verified[1]), prepared.clientMessageId, prepared.contentCommitmentB64,
     )).toBeNull();
   });
 });
@@ -228,9 +233,9 @@ describe("deterministic Direct reaction reducer", () => {
       )!
     );
     expect(reduceVerifiedDirectReactions([
-      verified[2]!, verified[0]!, verified[1]!, verified[0]!,
+      required(verified[2]), required(verified[0]), required(verified[1]), required(verified[0]),
     ])).toMatchObject([{ active: true, latestSequence: 3n, reactorUserId }]);
-    expect(reduceVerifiedDirectReactions([verified[1]!, verified[0]!]))
+    expect(reduceVerifiedDirectReactions([required(verified[1]), required(verified[0])]))
       .toMatchObject([{ active: false, latestSequence: 2n }]);
   });
 
