@@ -307,8 +307,12 @@ test.describe("Public profile", () => {
 
     let allowBlockedListLoad = false;
     let loseFirstUnblockResponse = true;
+    // A single '*' does not cross '/', so the old glob intercepted the
+    // list GET but silently missed DELETE /blocks/:handle.
+    const blocksRoute =
+      /\/v1\/trust\/blocks(?:\/[^/?]+)?(?:\?.*)?$/;
     await alicePage.route(
-      "**/v1/trust/blocks*",
+      blocksRoute,
       async (route) => {
         if (
           !allowBlockedListLoad &&
@@ -359,12 +363,20 @@ test.describe("Public profile", () => {
     const unblockButton = blockedCard.getByRole("button", {
       name: "Unblock",
     });
+    const lostResponse = alicePage.waitForResponse(
+      (response) =>
+        response.request().method() === "DELETE" &&
+        response.url().endsWith(`/v1/trust/blocks/${bobHandle}`) &&
+        response.status() === 503,
+    );
     await unblockButton.click();
+    await lostResponse;
+    await expect.poll(() => loseFirstUnblockResponse).toBe(false);
     await expect(blockedCard).toBeVisible();
     await expect(unblockButton).toBeEnabled();
     await unblockButton.click();
     await expect(blockedCard).toHaveCount(0);
-    await alicePage.unroute("**/v1/trust/blocks*");
+    await alicePage.unroute(blocksRoute);
 
     await alicePage.goto(directUrl);
     await expect(
