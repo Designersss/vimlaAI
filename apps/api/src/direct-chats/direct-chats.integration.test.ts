@@ -1768,7 +1768,6 @@ describe("direct chats API", () => {
           "stale before block",
           [],
           chat.interactionEpoch,
-          chat.interactionEpoch,
           staleClientId,
         ),
       );
@@ -1834,7 +1833,6 @@ describe("direct chats API", () => {
           "HUMAN",
           "fresh after unblock",
           [],
-          latest.interactionEpoch,
           latest.interactionEpoch,
           freshClientId,
         ),

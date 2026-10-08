@@ -244,9 +244,22 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         : current);
   };
   const rowsByClientId = useMemo(
-    () => new Map(rows.map((row) => [row.message.clientMessageId, row])),
+    () => new Map(rows.map((row) => [
+      JSON.stringify([
+        row.message.senderUserId,
+        row.message.senderDeviceId,
+        row.message.clientMessageId,
+      ]),
+      row,
+    ])),
     [rows],
   );
+  const resolveRowByReference = (reference: DirectReplyReference): DecryptedRow | undefined =>
+    rowsByClientId.get(JSON.stringify([
+      reference.senderUserId,
+      reference.senderDeviceId,
+      reference.clientMessageId,
+    ]));
   const composerHostRef = useRef<HTMLDivElement | null>(null);
   const [activeMention, setActiveMention] = useState<ActiveMentionQuery | null>(null);
   const [mentionSuggestions, setMentionSuggestions] = useState<MentionSuggestionsResponse | null>(null);
@@ -975,14 +988,13 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         // The local cache holds the complete E2EE payload. Disclose only
         // decoded HUMAN text (under existing participant consent), never
         // serialized reply IDs/author metadata as AI context.
-        messages: localPlaintexts.map((row) =>
-          row.kind === "HUMAN"
-            ? {
-                ...row,
-                text: directPlaintextPreview("HUMAN", row.text) ?? row.text,
-              }
-            : row,
-        ),
+        messages: localPlaintexts.flatMap((row) => {
+          if (row.kind !== "HUMAN") return [row];
+          const text = directPlaintextPreview("HUMAN", row.text);
+          // A malformed/future HUMAN payload must never reveal its raw
+          // serialized control fields to the AI history context.
+          return text === null ? [] : [{ ...row, text }];
+        }),
       });
       const sourceClientMessageId =
         crypto.randomUUID();
@@ -1313,7 +1325,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
               onReply={blockedByMe ? undefined : selectReply}
               sourceRow={
                 row.payload?.type === "human" && row.payload.replyTo
-                  ? rowsByClientId.get(row.payload.replyTo.clientMessageId)
+                  ? resolveRowByReference(row.payload.replyTo)
                   : undefined
               }
               selfUserId={userId ?? ""}
@@ -1411,7 +1423,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
               <Text tone="secondary">
                 {(() => {
                   const source = resolveDirectReplySource(
-                    rowsByClientId.get(replyTo.clientMessageId),
+                    resolveRowByReference(replyTo),
                     conversationId,
                     replyTo,
                   );

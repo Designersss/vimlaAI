@@ -79,3 +79,5 @@ The sending lock is synchronous, before any mention-network await. A pre-persist
 ### E2EE authenticated identity
 
 Direct AD v4 binds `clientMessageId` and the existing sender user/device, conversation, recipient device, kind, epoch and routing context. This prevents a server from swapping signed ciphertext between distinct message identities. A reply points to the signed client message ID, not to the server-generated record ID. Server-generated IDs are used only for message pagination/report navigation and must not be cryptographic quote identities. The binding applies to HUMAN and OPERATOR envelope kinds alike; the existing Operator-origin verification gate #74 remains separate. Multi-recipient envelopes of one send use the *same* signed client message ID.
+
+Sender-user and sender-device are included alongside signed client ID in the Web quote index. The server uniqueness constraint is per-conversation/per-author; a malicious sender with the same chosen UUID must not shadow another author's original in local reply resolution. Malformed HUMAN content is omitted from consent-gated @Vimla context, never copied as raw serialized control metadata.
