@@ -77,6 +77,7 @@ describe("loadApiConfig", () => {
     expect(config.directChatsEnabled).toBe(false);
     expect(config.directChatsMutationLimitPerMinute).toBe(60);
     expect(config.directChatsPreflightLimitPerMinute).toBe(120);
+    expect(config.directChatsPrekeyLimitPerMinute).toBe(6);
     expect(config.trustReadLimitPerMinute).toBe(120);
     expect(config.trustMutationLimitPerMinute).toBe(60);
     expect(config.trustReportLimitPerMinute).toBe(6);

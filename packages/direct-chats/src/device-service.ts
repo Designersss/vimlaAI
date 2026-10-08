@@ -231,7 +231,7 @@ function assertSignedPrekey(
 
 type PrekeyDb = Pick<
   Prisma.TransactionClient,
-  "userCryptoDevice" | "directOneTimePrekey"
+  "$queryRaw" | "userCryptoDevice" | "directOneTimePrekey"
 >;
 
 export async function consumePrekeyBundlesForUser(
@@ -240,17 +240,23 @@ export async function consumePrekeyBundlesForUser(
 ): Promise<PrekeyBundle[]> {
   const devices = await db.userCryptoDevice.findMany({
     where: { userId, revokedAt: null },
-    include: {
-      oneTimePrekeys: {
-        where: { consumedAt: null },
-        orderBy: { keyId: "asc" },
-        take: 1,
-      },
-    },
+    orderBy: { id: "asc" },
   });
   const bundles: PrekeyBundle[] = [];
   for (const device of devices) {
-    const otk = device.oneTimePrekeys[0];
+    // Concurrent requesters must never claim the same OTK. The selected row
+    // stays locked until the surrounding transaction commits.
+    const available = await db.$queryRaw<
+      Array<{ id: string; keyId: number; publicKey: string }>
+    >`
+      SELECT "id", "keyId", "publicKey"
+      FROM "direct_one_time_prekey"
+      WHERE "deviceId" = ${device.id} AND "consumedAt" IS NULL
+      ORDER BY "keyId" ASC
+      LIMIT 1
+      FOR UPDATE SKIP LOCKED
+    `;
+    const otk = available[0];
     if (otk) {
       await db.directOneTimePrekey.update({
         where: { id: otk.id },

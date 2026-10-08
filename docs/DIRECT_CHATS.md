@@ -12,7 +12,7 @@ Browser (protected IndexedDB E2EE state + local plaintext cache)
 ```
 
 - Unique 1:1 pair: `pairKey = sort(userIdA, userIdB).join(":")`. Creating the same pair returns the existing row.
-- Peer lookup is exact verified email. Missing/self → `not_found`.
+- Peer lookup resolves the canonical active public `@handle`, never email. Missing/self/blocked identities fail closed. User blocks are bidirectional for new interactions while stored history remains readable.
 - Server stores metadata only: sender ids, device ids, kind, timestamps, `lastMessageAt`, read cursors, consent flags.
 - Message kinds: `HUMAN`, `OPERATOR_INVOKE`, `OPERATOR_RESPONSE`, `OPERATOR_ACTION`.
 - Fan-out: one AEAD envelope per active member device (including the sender’s other/current devices). Incomplete fan-out is rejected.
@@ -31,7 +31,7 @@ Audited primitives (`@noble/curves`, `@noble/ciphers`, `@noble/hashes`):
 - HKDF-SHA256
 - ChaCha20-Poly1305 (IETF) with associated data
 
-Associated data binds `conversationId`, sender user/device, recipient device, and kind. Replay uniqueness is `(senderDeviceId, recipientDeviceId, dhPublicB64, messageNumber)`.
+Associated data uses `VimlaDirectAD3` and binds `conversationId`, sender user/device, recipient device, kind, the server-authoritative `interactionEpoch`, and canonical structured mention routing context. Block/unblock advances this epoch so stale pending ciphertext cannot be accepted after trust changes. Replay uniqueness is `(senderDeviceId, recipientDeviceId, dhPublicB64, messageNumber)`.
 
 In scope:
 
@@ -142,7 +142,7 @@ Config (default off):
 API (cookie + OriginGuard + SensitiveArea + mutation rate limit):
 
 - `POST/GET /v1/direct-chats/devices`, rotate, revoke
-- `GET /v1/direct-chats/users/:userId/prekeys` (self or shared-chat peer)
+- `POST /v1/direct-chats/users/:userId/prekeys` (self or unblocked shared-chat peer). Prekey claiming consumes one-time keys and is therefore an OriginGuard-protected POST, not a GET. OTK claims are atomic across initiators using PostgreSQL row locks; claims are rate-limited per requester and requester/peer pair (default 6 per minute per pair). Automatic OTK replenishment and comprehensive cryptographic hardening remain in #54.
 - `POST /v1/direct-chats`, `GET /v1/direct-chats/:id`, `PATCH /v1/direct-chats/:id/privacy`, `POST /v1/direct-chats/:id/read`
 - `GET/POST /v1/direct-chats/:id/messages`
 - `GET /v1/inbox` is the only communication collection/list API; there is no Direct-Chat-specific list fallback.
@@ -167,6 +167,26 @@ Lint, typecheck, unit, integration, e2e, and build for the touched packages/apps
 - No sealed-sender / metadata-hiding transport. No post-compromise recovery beyond Double Ratchet forward secrecy for later messages.
 - No QR/safety-number identity verification UX in this phase (TOFU on first prekey bundle).
 - The initiator ratchet cannot decrypt its own outbound envelope. Self-sent copies are normally read from the client plaintext cache; during the narrow server-commit-before-HTTP-response window, another same-device tab can use only the exact matching durable pending outbox row.
+
+### TRUST-01 report retries and mute semantics
+
+TRUST-01 provides server-authoritative UserBlock, bounded evidence/report storage,
+and per-user `CommunicationSurfacePreference.muted`. Mute currently represents
+durable **preference state**, not a claim that Direct Chat push notifications
+are already operational. Notification delivery integration in #103/#102 must
+respect the recipient's mute preference before generating an alert. The current
+notification service primarily handles reminders.
+
+New abuse reports are bounded by separate per-user and shared-IP creation
+quotas. An exact, already committed reporter-scoped `requestId` may return
+its stored receipt even after these quotas are exhausted; this read-only
+fallback is protected by independent per-user and per-IP replay quotas.
+Unknown or modified requests do not bypass normal report limits.
+
+The TRUST-01 development-only idempotency migration was consolidated into
+the initial schema migration before merging. Unreleased local/test databases
+created from the earlier draft migration chain must be reset to the final
+pre-production schema; no deployed production compatibility is asserted.
 
 ## 10. After merge
 

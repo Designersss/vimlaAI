@@ -20,6 +20,8 @@ CREATE INDEX "user_block_blockerUserId_createdAt_idx"
 
 CREATE TABLE "abuse_report" (
   "id" UUID NOT NULL,
+  "requestId" UUID NOT NULL,
+  "requestFingerprint" TEXT NOT NULL,
   "reporterUserId" TEXT NOT NULL,
   "targetUserId" TEXT NOT NULL,
   "reason" TEXT NOT NULL,
@@ -84,6 +86,8 @@ CREATE TABLE "abuse_report" (
     FOREIGN KEY ("evidenceSenderDeviceId") REFERENCES "user_crypto_device"("id") ON DELETE RESTRICT ON UPDATE CASCADE
 );
 
+CREATE UNIQUE INDEX "abuse_report_reporterUserId_requestId_key"
+  ON "abuse_report"("reporterUserId", "requestId");
 CREATE INDEX "abuse_report_reporterUserId_createdAt_idx"
   ON "abuse_report"("reporterUserId", "createdAt");
 CREATE INDEX "abuse_report_targetUserId_createdAt_idx"

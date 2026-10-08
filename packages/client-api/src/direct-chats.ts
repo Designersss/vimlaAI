@@ -212,7 +212,7 @@ export function createDirectChatsClient(
       return transport.request(
         `/v1/direct-chats/users/${encodeURIComponent(userId)}/prekeys`,
         {
-          init: signalInit(options.signal),
+          init: { ...signalInit(options.signal), method: "POST" },
           parse: (payload) =>
             prekeyBundlesResponseSchema.parse(payload),
           errorFactory,

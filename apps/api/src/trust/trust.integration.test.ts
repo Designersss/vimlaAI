@@ -717,6 +717,88 @@ describe("trust safety API", () => {
     ).toBe(1);
   });
 
+  it("returns the stored receipt after the user report quota is exhausted", async () => {
+    const reporter = await registerVerifiedUser(app, "trust-replay-exhausted-reporter");
+    const target = await registerVerifiedUser(app, "trust-replay-exhausted-target");
+    const remoteAddress = "203.0.113.166";
+    let lastPayload: { requestId: string; targetHandle: string; reason: "SPAM" } | null = null;
+    let lastReceipt: unknown = null;
+    for (let index = 0; index < 6; index += 1) {
+      lastPayload = { requestId: randomUUID(), targetHandle: target.handle, reason: "SPAM" };
+      const response = await app.inject({
+        method: "POST", url: "/v1/trust/reports", remoteAddress,
+        headers: jsonHeaders(), cookies: reporter.cookies, payload: lastPayload,
+      });
+      expect(response.statusCode).toBe(201);
+      lastReceipt = response.json();
+    }
+    if (!lastPayload) throw new Error("Expected committed report payload");
+    const retry = await app.inject({
+      method: "POST", url: "/v1/trust/reports", remoteAddress,
+      headers: jsonHeaders(), cookies: reporter.cookies, payload: lastPayload,
+    });
+    expect(retry.statusCode).toBe(201);
+    expect(retry.json()).toEqual(lastReceipt);
+    const fresh = await app.inject({
+      method: "POST", url: "/v1/trust/reports", remoteAddress,
+      headers: jsonHeaders(), cookies: reporter.cookies,
+      payload: { ...lastPayload, requestId: randomUUID() },
+    });
+    expect(fresh.statusCode).toBe(429);
+    const altered = await app.inject({
+      method: "POST", url: "/v1/trust/reports", remoteAddress,
+      headers: jsonHeaders(), cookies: reporter.cookies,
+      payload: { ...lastPayload, reason: "THREATS" },
+    });
+    expect(altered.statusCode).toBe(429);
+    expect(await app.get(PrismaService).client.abuseReport.count({
+      where: { reporterUserId: reporter.id },
+    })).toBe(6);
+  });
+
+  it("resolves exact committed retries after the shared IP quota is exhausted", async () => {
+    const target = await registerVerifiedUser(app, "trust-ip-replay-target");
+    const reporters = await Promise.all([
+      registerVerifiedUser(app, "trust-ip-replay-reporter-a"),
+      registerVerifiedUser(app, "trust-ip-replay-reporter-b"),
+      registerVerifiedUser(app, "trust-ip-replay-reporter-c"),
+    ]);
+    const remoteAddress = "203.0.113.167";
+    let lastPayload: { requestId: string; targetHandle: string; reason: "SPAM" } | null = null;
+    let receipt: unknown = null;
+    for (const reporter of reporters.slice(0, 2)) {
+      for (let index = 0; index < 6; index += 1) {
+        const payload = {
+          requestId: randomUUID(), targetHandle: target.handle, reason: "SPAM" as const,
+        };
+        const response = await app.inject({
+          method: "POST", url: "/v1/trust/reports", remoteAddress,
+          headers: jsonHeaders(), cookies: reporter.cookies, payload,
+        });
+        expect(response.statusCode).toBe(201);
+        if (reporter === reporters[1] && index === 5) {
+          lastPayload = payload;
+          receipt = response.json();
+        }
+      }
+    }
+    if (!lastPayload || !reporters[1] || !reporters[2]) {
+      throw new Error("Expected committed report and reporters");
+    }
+    const retry = await app.inject({
+      method: "POST", url: "/v1/trust/reports", remoteAddress,
+      headers: jsonHeaders(), cookies: reporters[1].cookies, payload: lastPayload,
+    });
+    expect(retry.statusCode).toBe(201);
+    expect(retry.json()).toEqual(receipt);
+    const fresh = await app.inject({
+      method: "POST", url: "/v1/trust/reports", remoteAddress,
+      headers: jsonHeaders(), cookies: reporters[2].cookies,
+      payload: { requestId: randomUUID(), targetHandle: target.handle, reason: "SPAM" },
+    });
+    expect(fresh.statusCode).toBe(429);
+  });
+
   it("does not bypass report limits through alternate request URLs", async () => {
     const reporter = await registerVerifiedUser(
       app,

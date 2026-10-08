@@ -330,6 +330,34 @@ export class TrustService {
     }
   }
 
+  // Read-only exact persisted replay for rate-limited committed report retries.
+  async findExactReportReplay(
+    actorUserId: string,
+    input: CreateAbuseReport,
+  ): Promise<AbuseReportReceipt | null> {
+    const existing = await this.db.abuseReport.findUnique({
+      where: {
+        reporterUserId_requestId: {
+          reporterUserId: actorUserId,
+          requestId: input.requestId,
+        },
+      },
+      select: {
+        id: true,
+        status: true,
+        createdAt: true,
+        requestFingerprint: true,
+      },
+    });
+    if (
+      !existing ||
+      existing.requestFingerprint !== abuseReportRequestFingerprint(input)
+    ) {
+      return null;
+    }
+    return reportReceipt(existing);
+  }
+
   async getSurfacePreference(
     actorUserId: string,
     surfaceId: string,

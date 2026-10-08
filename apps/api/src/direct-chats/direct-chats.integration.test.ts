@@ -182,6 +182,94 @@ describe("direct chats API", () => {
     }
   });
 
+  it("claims an OTK once across distinct concurrent initiators", async () => {
+    const recipient = await readyUser(app, "dc-otk-atomic-recipient", "Recipient");
+    const alice = await readyUser(app, "dc-otk-atomic-alice", "Alice");
+    const bob = await readyUser(app, "dc-otk-atomic-bob", "Bob");
+    const device = await registerHarness(app, recipient);
+    await createChat(app, alice.cookies, recipient.handle);
+    await createChat(app, bob.cookies, recipient.handle);
+
+    const claim = (cookies: typeof alice.cookies) =>
+      app.inject({
+        method: "POST",
+        url: `/v1/direct-chats/users/${recipient.id}/prekeys`,
+        headers: jsonHeaders(),
+        cookies,
+      });
+    const [aliceClaim, bobClaim] = await Promise.all([
+      claim(alice.cookies),
+      claim(bob.cookies),
+    ]);
+    expect(aliceClaim.statusCode).toBe(200);
+    expect(bobClaim.statusCode).toBe(200);
+    const ids = [aliceClaim, bobClaim].map((response) => {
+      const bundle = (response.json().bundles as Array<{
+        deviceId: string;
+        oneTimePrekeyId: number | null;
+      }>).find((item) => item.deviceId === device.deviceId);
+      expect(bundle).toBeDefined();
+      return bundle?.oneTimePrekeyId ?? null;
+    });
+    expect(ids.filter((id) => id !== null)).toEqual([1]);
+    const stored = await app.get(PrismaService).client.directOneTimePrekey.findMany({
+      where: { deviceId: device.deviceId },
+      select: { consumedAt: true },
+    });
+    expect(stored).toHaveLength(1);
+    expect(stored[0]?.consumedAt).not.toBeNull();
+  });
+
+  it("caps per-pair prekey claims, denies unsafe GET and preserves other mutations", async () => {
+    const config = loadApiConfig({
+      ...process.env,
+      DIRECT_CHATS_ENABLED: "true",
+      DIRECT_CHATS_PREKEY_LIMIT_PER_MINUTE: "2",
+      DIRECT_CHATS_MUTATION_LIMIT_PER_MINUTE: "50",
+    });
+    const isolated = await createVimlaApiApp(config, { quiet: true });
+    await isolated.init();
+    await isolated.getHttpAdapter().getInstance().ready();
+    try {
+      const alice = await readyUser(isolated, "dc-otk-limit-alice", "Alice");
+      const bob = await readyUser(isolated, "dc-otk-limit-bob", "Bob");
+      await registerHarness(isolated, bob);
+      const chat = await createChat(isolated, alice.cookies, bob.handle);
+      const claim = () => isolated.inject({
+        method: "POST",
+        url: `/v1/direct-chats/users/${bob.id}/prekeys`,
+        headers: jsonHeaders(),
+        cookies: alice.cookies,
+      });
+      expect((await claim()).statusCode).toBe(200);
+      expect((await claim()).statusCode).toBe(200);
+      expect((await claim()).statusCode).toBe(429);
+      const updated = await isolated.inject({
+        method: "PATCH",
+        url: `/v1/direct-chats/${chat.id}/privacy`,
+        headers: jsonHeaders(),
+        cookies: alice.cookies,
+        payload: { shareOwnHistoryWithVimla: true, includePeerHistoryWhenInvoking: false },
+      });
+      expect(updated.statusCode).toBe(200);
+      const unsafeGet = await isolated.inject({
+        method: "GET",
+        url: `/v1/direct-chats/users/${bob.id}/prekeys`,
+        headers: { origin },
+        cookies: alice.cookies,
+      });
+      expect(unsafeGet.statusCode).toBe(404);
+      const originDenied = await isolated.inject({
+        method: "POST",
+        url: `/v1/direct-chats/users/${bob.id}/prekeys`,
+        cookies: alice.cookies,
+      });
+      expect(originDenied.statusCode).toBe(403);
+    } finally {
+      await isolated.close();
+    }
+  });
+
   it("keeps repeated crypto-device registration identity-bound", async () => {
     const user = await readyUser(
       app,
@@ -3194,9 +3282,9 @@ async function encryptTo(
   let x3dhInit: WireEnvelope["x3dhInit"] = null;
   if (!state) {
     const bundles = await app.inject({
-      method: "GET",
+      method: "POST",
       url: `/v1/direct-chats/users/${recipient.userId}/prekeys`,
-      headers: { origin },
+      headers: jsonHeaders(),
       cookies: sender.cookies,
     });
     expect(bundles.statusCode).toBe(200);

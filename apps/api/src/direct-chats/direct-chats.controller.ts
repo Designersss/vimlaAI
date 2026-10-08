@@ -98,7 +98,8 @@ export class DirectChatDevicesController {
 export class DirectChatPrekeysController {
   constructor(@Inject(DirectChatsFacade) private readonly directChats: DirectChatsFacade) {}
 
-  @Get(":userId/prekeys")
+  @Post(":userId/prekeys")
+  @HttpCode(200)
   async prekeys(@AuthUser() user: AuthenticatedUser, @Param("userId") userId: string): Promise<PrekeyBundlesResponse> {
     this.directChats.assertEnabled();
     const bundles = await this.directChats.chats.prekeyBundles(
