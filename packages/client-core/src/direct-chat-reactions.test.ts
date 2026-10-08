@@ -112,6 +112,10 @@ describe("portable Direct reactions crypto and provenance", () => {
       event.plaintext, source, human.plaintext,
     )).toBeNull();
     expect(verifyDirectReaction(
+      { ...metadata(event), targetTagB64: null },
+      event.plaintext, source, human.plaintext,
+    )).toBeNull();
+    expect(verifyDirectReaction(
       { ...metadata(event), kind: "HUMAN" },
       event.plaintext, source, human.plaintext,
     )).toBeNull();
