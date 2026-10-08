@@ -167,6 +167,7 @@ export function ReportUserDialog({
               <NativeSelect
                 id="trust-report-reason"
                 value={reason}
+                disabled={submitting}
                 onChange={(event) => {
                   resetRetryIdentity();
                   setReason(event.currentTarget.value as AbuseReportReason);
@@ -184,6 +185,7 @@ export function ReportUserDialog({
                 id="trust-report-details"
                 rows={4}
                 value={details}
+                disabled={submitting}
                 maxLength={TRUST_LIMITS.reportDetailsMax}
                 onChange={(event) => {
                   resetRetryIdentity();
@@ -209,6 +211,7 @@ export function ReportUserDialog({
                     id="trust-report-evidence"
                     rows={6}
                     value={evidenceText}
+                    disabled={submitting}
                     maxLength={TRUST_LIMITS.evidenceTextMax}
                     onChange={(event) => {
                       const messageId = evidence.messageId;
