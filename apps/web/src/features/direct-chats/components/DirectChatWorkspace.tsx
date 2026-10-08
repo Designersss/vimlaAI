@@ -1005,7 +1005,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         // serialized reply IDs/author metadata as AI context.
         messages: localPlaintexts.flatMap((row) => {
           if (row.kind !== "HUMAN") return [row];
-          const text = directPlaintextPreview("HUMAN", row.text);
+          const text = directPlaintextPreview("HUMAN", row.text, row.clientMessageId);
           // A malformed/future HUMAN payload must never reveal its raw
           // serialized control fields to the AI history context.
           return text === null ? [] : [{ ...row, text }];

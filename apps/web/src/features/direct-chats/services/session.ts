@@ -901,6 +901,7 @@ export async function decryptMessageWithStatus(input: {
       payload: decodeDirectPlaintext(
         input.message.kind,
         cached.text,
+        input.message.clientMessageId,
       ),
       needsBootstrap: false,
     };
@@ -932,6 +933,7 @@ export async function decryptMessageWithStatus(input: {
         payload: decodeDirectPlaintext(
           input.message.kind,
           pending.plaintext,
+          input.message.clientMessageId,
         ),
         needsBootstrap: false,
       };
@@ -975,6 +977,7 @@ export async function decryptMessageWithStatus(input: {
             payload: decodeDirectPlaintext(
               input.message.kind,
               committed.text,
+              input.message.clientMessageId,
             ),
             needsBootstrap: false,
           };
@@ -1076,6 +1079,7 @@ export async function decryptMessageWithStatus(input: {
           payload: decodeDirectPlaintext(
             input.message.kind,
             text,
+            input.message.clientMessageId,
           ),
           needsBootstrap: false,
         };

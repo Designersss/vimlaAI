@@ -36,9 +36,13 @@ export function encodeDirectPlaintext(payload: DirectPlaintextPayload): string {
   return JSON.stringify(payload);
 }
 
-export function decodeDirectPlaintext(kind: DirectMessageKind, text: string): DirectPlaintextPayload | null {
+export function decodeDirectPlaintext(
+  kind: DirectMessageKind,
+  text: string,
+  expectedClientMessageId?: string,
+): DirectPlaintextPayload | null {
   if (kind === "HUMAN") {
-    return decodeDirectHumanPayload(text);
+    return decodeDirectHumanPayload(text, expectedClientMessageId);
   }
   const parsed = tryJson(text);
   if (kind === "OPERATOR_INVOKE" && parsed?.type === "invoke" && typeof parsed.text === "string") {
@@ -74,8 +78,9 @@ export function decodeDirectPlaintext(kind: DirectMessageKind, text: string): Di
 export function directPlaintextPreview(
   kind: DirectMessageKind,
   text: string,
+  expectedClientMessageId?: string,
 ): string | null {
-  const payload = decodeDirectPlaintext(kind, text);
+  const payload = decodeDirectPlaintext(kind, text, expectedClientMessageId);
   if (!payload) return null;
 
   if (kind === "HUMAN") {
