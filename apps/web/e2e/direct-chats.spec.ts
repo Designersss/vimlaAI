@@ -288,6 +288,45 @@ test.describe("Secure Direct Chats", () => {
     ).toContainText("hello from alice");
     await nikitaPage.unroute("**/v1/mentions?**");
 
+    // A second draft composed during an in-flight reply must retain both
+    // its own text AND the selected quote after the first send is staged.
+    await sourceAgain.getByTestId("direct-message-reply-action").click();
+    const firstText = "first reply to stage while editing next draft";
+    const nextText = "next draft must preserve reply context";
+    let releasePreflight!: () => void;
+    let signalPreflight!: () => void;
+    const preflightStarted = new Promise<void>((resolve) => {
+      signalPreflight = resolve;
+    });
+    const gatePreflight = new Promise<void>((resolve) => {
+      releasePreflight = resolve;
+    });
+    await nikitaPage.route("**/v1/direct-chats/*/send-preflight", async (route) => {
+      if (route.request().method() === "POST") {
+        signalPreflight();
+        await gatePreflight;
+      }
+      await route.continue();
+    });
+    await nikitaComposer.fill(firstText);
+    await nikitaPage.getByTestId("chat-composer-send").click();
+    await preflightStarted;
+    await nikitaComposer.fill(nextText);
+    releasePreflight();
+    await expect(
+      alicePage.getByTestId("direct-message-human").filter({ hasText: firstText }),
+    ).toHaveCount(1, { timeout: 20_000 });
+    await expect(nikitaComposer).toHaveValue(nextText);
+    await expect(replyComposer).toContainText("hello from alice");
+    await nikitaPage.unroute("**/v1/direct-chats/*/send-preflight");
+    await nikitaPage.getByTestId("chat-composer-send").click();
+    await expect(
+      alicePage.getByTestId("direct-message-row")
+        .filter({ has: alicePage.getByTestId("direct-message-human")
+          .filter({ hasText: nextText }) })
+        .getByTestId("direct-reply-context"),
+    ).toContainText("hello from alice", { timeout: 20_000 });
+
     let abortBeforeServer = true;
     await alicePage.route(
       "**/v1/direct-chats/*/messages",
