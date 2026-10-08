@@ -1202,6 +1202,7 @@ function toMessageView(
     clientMessageId: string;
     contentCommitmentB64: string | null;
     reactionTargetTagB64: string | null;
+    sequence: bigint;
     kind: string;
     interactionEpoch: number;
     createdAt: Date;
@@ -1233,6 +1234,7 @@ function toMessageView(
     reactionTargetTagB64: row.reactionTargetTagB64,
     kind: isKind(row.kind) ? row.kind : "HUMAN",
     interactionEpoch: row.interactionEpoch,
+    sequence: row.sequence.toString(),
     createdAt: row.createdAt.toISOString(),
     envelope: envelope ? toEnvelopeView(envelope) : null,
     mentions,
