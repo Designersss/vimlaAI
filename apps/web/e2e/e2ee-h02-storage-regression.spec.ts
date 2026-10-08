@@ -908,7 +908,14 @@ test.describe("E2EE H02 storage regressions", () => {
         },
         {
           messageId: sent.id,
-          plaintext: legacyCacheText,
+          // H02 tests unprotected local STORAGE, not pre-release legacy
+          // HUMAN wire semantics. Seed a valid v1 E2EE plaintext inside
+          // a legacy protectionVersion:0 IndexedDB row.
+          plaintext: JSON.stringify({
+            type: "human",
+            version: 1,
+            text: legacyCacheText,
+          }),
         },
       );
 
@@ -1055,7 +1062,11 @@ test.describe("E2EE H02 storage regressions", () => {
             db.close();
           }
         },
-        legacyPendingText,
+        JSON.stringify({
+          type: "human",
+          version: 1,
+          text: legacyPendingText,
+        }),
       );
       await alicePage.unroute(
         "**/v1/direct-chats/*/messages",
