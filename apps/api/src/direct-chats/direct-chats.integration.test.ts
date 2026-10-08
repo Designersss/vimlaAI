@@ -195,6 +195,7 @@ describe("direct chats API", () => {
         method: "POST",
         url: `/v1/direct-chats/users/${recipient.id}/prekeys`,
         headers: jsonHeaders(),
+        payload: {},
         cookies,
       });
     const [aliceClaim, bobClaim] = await Promise.all([
@@ -239,6 +240,7 @@ describe("direct chats API", () => {
         method: "POST",
         url: `/v1/direct-chats/users/${bob.id}/prekeys`,
         headers: jsonHeaders(),
+        payload: {},
         cookies: alice.cookies,
       });
       expect((await claim()).statusCode).toBe(200);
@@ -3285,6 +3287,7 @@ async function encryptTo(
       method: "POST",
       url: `/v1/direct-chats/users/${recipient.userId}/prekeys`,
       headers: jsonHeaders(),
+      payload: {},
       cookies: sender.cookies,
     });
     expect(bundles.statusCode).toBe(200);
