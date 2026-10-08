@@ -6,7 +6,7 @@ or completion of the epic.
 
 ## Protocol and adversary model
 
-A reply to a **HUMAN** message includes `{clientMessageId, senderUserId, senderDeviceId}`
+A reply to a **HUMAN** message includes `{clientMessageId, contentCommitmentB64, senderUserId, senderDeviceId}`
 inside the same authenticated, per-device end-to-end encrypted HUMAN
 plaintext as the reply body. Every newly composed HUMAN payload is versioned
 (`version: 2`), with optional `replyTo` and a uniformly random, 256-bit
@@ -152,3 +152,7 @@ in-flight send.
 ### Protocol migration
 
 Preproduction test/development Direct content predating AD5 and HUMAN v2 with the full signed commitment is intentionally not a released-client compatibility contract. Reset development ciphertext/ratchet histories as appropriate; do not silently accept legacy 122-bit-only HUMAN content in recipient clients. Migration `20261008213000_add_direct_human_content_commitment` introduces an optional PostgreSQL field to accommodate OPERATOR_* while HUMAN sends are strictly validated by the authoritative API.
+
+### End-to-end source-reference strength
+
+An encrypted `replyTo` reference now carries **both** the full, signed 256-bit source commitment and the derived UUID client ID, plus original sender user/device. Quote resolution compares all of these against the locally verified HUMAN original. The 122-bit UUID alone is never sufficient evidence that the cited original is identical on all devices; even hypothetically colliding UUIDs with distinct full commitments cannot resolve as one quote. Source reference fields remain inside sender-encrypted HUMAN plaintext; they are never added as server-readable routing metadata.
