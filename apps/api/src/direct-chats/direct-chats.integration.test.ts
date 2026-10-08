@@ -218,6 +218,34 @@ describe("direct chats API", () => {
       },
     });
     expect(tampered.statusCode).toBe(400);
+
+    const signedForAnotherEventId = randomUUID();
+    const freshEnvelopes = [];
+    for (const recipient of view.devices) {
+      freshEnvelopes.push(await encryptTo(
+        app, alice, aliceDevice, recipient, chat.id, "REACTION",
+        ciphertext, [], view.interactionEpoch, signedForAnotherEventId, tag,
+      ));
+    }
+    const changedSignedRouting = await app.inject({
+      method: "POST", url: `/v1/direct-chats/${chat.id}/messages`,
+      headers: jsonHeaders(), cookies: alice.cookies,
+      payload: {
+        ...payload, clientMessageId: signedForAnotherEventId,
+        contentCommitmentB64: testCommitmentForClientId(signedForAnotherEventId),
+        reactionTargetTagB64: bytesToB64(new Uint8Array(32).fill(0x17)),
+        envelopes: freshEnvelopes,
+      },
+    });
+    expect(changedSignedRouting.statusCode).toBe(400);
+    expect(changedSignedRouting.body).toContain("Envelope signature is invalid");
+
+    const missingTag = await app.inject({
+      method: "POST", url: `/v1/direct-chats/${chat.id}/messages`,
+      headers: jsonHeaders(), cookies: alice.cookies,
+      payload: { ...payload, clientMessageId: randomUUID(), reactionTargetTagB64: null },
+    });
+    expect(missingTag.statusCode).toBe(400);
   });
 
   it("fails closed when Direct Chats are disabled", async () => {
