@@ -288,6 +288,42 @@ export class DirectChatService {
     };
   }
 
+  /**
+   * Read-only resolution of an ambiguous send by the original actor/device.
+   * No re-send, no trust-policy bypass, and no Direct plaintext disclosure.
+   * A device mismatch is a conflict, not evidence of non-commit.
+   */
+  async lookupOwnMessage(
+    actor: ActorContext,
+    conversationId: string,
+    senderDeviceId: string,
+    clientMessageId: string,
+  ): Promise<DirectMessageView | null> {
+    await this.requireMemberConversation(actor.userId, conversationId);
+    await this.requireActiveDevice(actor.userId, senderDeviceId);
+    const row = await this.db.directMessage.findUnique({
+      where: {
+        conversationId_senderUserId_clientMessageId: {
+          conversationId,
+          senderUserId: actor.userId,
+          clientMessageId,
+        },
+      },
+      include: {
+        envelopes: { where: { recipientDeviceId: senderDeviceId } },
+      },
+    });
+    if (!row) return null;
+    if (row.senderDeviceId !== senderDeviceId) {
+      throw new DirectChatError(
+        "CONFLICT",
+        "Client message id belongs to a different sender device",
+      );
+    }
+    const mentions = await this.readMentionMap([row.id]);
+    return toMessageView(row, senderDeviceId, mentions.get(row.id) ?? []);
+  }
+
   async prepareSend(
     actor: ActorContext,
     conversationId: string,

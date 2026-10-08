@@ -28,6 +28,7 @@ import type {
 import {
   DirectChatsApiError,
   fetchDirectConversation,
+  lookupOwnDirectMessage,
   fetchPrekeyBundles,
   prepareDirectMessageSend,
   registerCryptoDevice,
@@ -49,6 +50,7 @@ import {
   loadPlaintext,
   loadRatchet,
   pendingSendRevision,
+  pruneReconciledTrustCancelledPendingSend,
   saveDeviceMaterial,
   stagePendingOperatorDelivery,
   withLocalDeviceBootstrapLock,
@@ -424,6 +426,17 @@ export async function recoverPendingSends(input: {
         input.conversationId,
         input.localDevice.deviceId,
       );
+      // Authoritative, read-only reconciliation precedes normal retry.
+      // An old trust epoch cannot commit after a completed block/unblock,
+      // but ambiguous HTTP sends must still be checked before local GC.
+      const gc = await reconcileTrustCancelledPendingSends(
+        pending,
+        input.conversationId,
+        input.localDevice.deviceId,
+      );
+      if (gc === "LOCAL_DEVICE_INACTIVE") {
+        return gc;
+      }
       let blocked:
         | "LOCAL_DEVICE_INACTIVE"
         | "RECIPIENT_DEVICE_MISSING"
@@ -618,6 +631,76 @@ export async function recoverPendingSends(input: {
     await clearLocalDataAfterDeviceRevocation();
   }
   return result;
+}
+
+const TRUST_CANCELLED_GC_MIN_AGE_MS = 5 * 60 * 1000;
+const TRUST_CANCELLED_GC_BATCH_MAX = 16;
+
+async function reconcileTrustCancelledPendingSends(
+  pending: readonly StoredPendingSend[],
+  conversationId: string,
+  senderDeviceId: string,
+): Promise<"RESOLVED" | "LOCAL_DEVICE_INACTIVE"> {
+  const now = Date.now();
+  const candidates = pending
+    .filter((row) => {
+      const cancelledAt = row.trustCancelledAt
+        ? Date.parse(row.trustCancelledAt)
+        : Number.NaN;
+      return (
+        Number.isFinite(cancelledAt) &&
+        now - cancelledAt >= TRUST_CANCELLED_GC_MIN_AGE_MS &&
+        row.conversationId === conversationId &&
+        row.senderDeviceId === senderDeviceId
+      );
+    })
+    .slice(0, TRUST_CANCELLED_GC_BATCH_MAX);
+  if (candidates.length === 0) return "RESOLVED";
+
+  let currentEpoch: number;
+  try {
+    const conversation = await fetchDirectConversation(conversationId);
+    currentEpoch = conversation.interactionEpoch;
+  } catch {
+    // A failed read is not evidence of non-commit.
+    return "RESOLVED";
+  }
+
+  for (const row of candidates) {
+    // This monotonic epoch advance is the required proof that a stale
+    // uncommitted send cannot become valid after a later unblock.
+    if (currentEpoch <= row.interactionEpoch) continue;
+    try {
+      const lookup = await lookupOwnDirectMessage(
+        conversationId,
+        senderDeviceId,
+        row.clientMessageId,
+      );
+      if (lookup.status === "COMMITTED") {
+        if (!pendingSendMatchesCommittedMessage(row, lookup.message)) {
+          // A mismatched authoritative message is never safe to GC.
+          continue;
+        }
+        await finalizePendingSend(row, lookup.message);
+        const updated = await loadPendingSend(row.clientMessageId);
+        if (updated?.trustCancelledAt) {
+          await pruneReconciledTrustCancelledPendingSend(updated);
+        }
+      } else {
+        await pruneReconciledTrustCancelledPendingSend(row);
+      }
+    } catch (error: unknown) {
+      if (
+        error instanceof DirectChatsApiError &&
+        error.code === "direct_chat_device_revoked"
+      ) {
+        return "LOCAL_DEVICE_INACTIVE";
+      }
+      // Network, ambiguous status, metadata mismatch or local storage failure:
+      // retain ciphertext and intent for a later authoritative retry.
+    }
+  }
+  return "RESOLVED";
 }
 
 export interface PendingOperatorInvocation {

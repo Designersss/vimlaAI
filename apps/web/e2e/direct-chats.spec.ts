@@ -1151,7 +1151,7 @@ test.describe("Secure Direct Chats", () => {
       .poll(() => readPendingSendCount(alicePage), {
         timeout: 20_000,
       })
-      .toBe(1);
+      .toBe(0);
 
     await aliceContext.close();
     await bobContext.close();
@@ -2692,8 +2692,7 @@ async function insertAgedTrustCancelledPendingSend(
             "pendingSends",
             "readwrite",
           );
-          const clientMessageId =
-            `aged-trust-${crypto.randomUUID()}`;
+          const clientMessageId = crypto.randomUUID();
           tx.objectStore("pendingSends").put(
             {
               revision: 1,

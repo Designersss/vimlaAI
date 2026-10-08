@@ -1294,6 +1294,70 @@ export async function cancelPendingSendsForTrust(input: {
   });
 }
 
+/**
+ * GC only a trust-cancelled row whose exact revision was reconciled with
+ * server truth. The read and delete occur inside one IndexedDB transaction.
+ * Keep Operator parents until no dependent output rows remain; any sibling
+ * update or newer cancellation revision makes this a no-op.
+ */
+export async function pruneReconciledTrustCancelledPendingSend(
+  expected: StoredPendingSend,
+): Promise<boolean> {
+  if (!expected.trustCancelledAt) return false;
+  const db = await openDb();
+  return new Promise<boolean>((resolve, reject) => {
+    let deleted = false;
+    const tx = db.transaction("pendingSends", "readwrite");
+    const store = tx.objectStore("pendingSends");
+    const request = store.index(PENDING_SEND_SCOPE_INDEX).getAll(
+      IDBKeyRange.only([
+        expected.conversationId,
+        expected.senderDeviceId,
+      ]),
+    );
+    request.onsuccess = () => {
+      const rows = request.result as StoredPendingSend[];
+      const current = rows.find(
+        (item) => item.clientMessageId === expected.clientMessageId,
+      );
+      if (
+        !current ||
+        current.trustCancelledAt !== expected.trustCancelledAt ||
+        pendingSendRevision(current) !== pendingSendRevision(expected) ||
+        current.senderUserId !== expected.senderUserId ||
+        current.interactionEpoch !== expected.interactionEpoch ||
+        current.kind !== expected.kind ||
+        current.committedMessageId !== expected.committedMessageId
+      ) {
+        return;
+      }
+      if (
+        current.operatorIntent &&
+        rows.some(
+          (item) =>
+            item.operatorOutput?.parentClientMessageId ===
+            current.clientMessageId,
+        )
+      ) {
+        return;
+      }
+      store.delete(current.clientMessageId);
+      deleted = true;
+    };
+    request.onerror = () => tx.abort();
+    tx.oncomplete = () => {
+      db.close();
+      resolve(deleted);
+    };
+    tx.onabort = () => {
+      db.close();
+      reject(
+        tx.error ?? new Error("Trust-cancelled pending-send GC aborted"),
+      );
+    };
+  });
+}
+
 export async function discardPendingSendForUnavailableInteraction(
   pending: StoredPendingSend,
 ): Promise<void> {

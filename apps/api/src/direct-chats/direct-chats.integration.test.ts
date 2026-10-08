@@ -113,6 +113,82 @@ describe("direct chats API", () => {
     }
   });
 
+  it("looks up only the actor's own committed Direct send without replay or plaintext", async () => {
+    const alice = await readyUser(app, "dc-lookup-alice", "Alice");
+    const bob = await readyUser(app, "dc-lookup-bob", "Bob");
+    const outsider = await readyUser(app, "dc-lookup-outsider", "Other");
+    const aliceDevice = await registerHarness(app, alice);
+    const bobDevice = await registerHarness(app, bob);
+    await registerHarness(app, outsider);
+    const chat = await createChat(app, alice.cookies, bob.handle);
+    const sent = await sendPlain(
+      app,
+      alice,
+      aliceDevice,
+      chat.id,
+      "HUMAN",
+      "lookup must not leak plaintext",
+    );
+    expect(sent.statusCode).toBe(201);
+    const committed = sent.json() as {
+      id: string;
+      clientMessageId: string;
+      senderDeviceId: string;
+    };
+
+    const url = (deviceId: string, clientMessageId: string) =>
+      `/v1/direct-chats/${chat.id}/messages/lookup?senderDeviceId=${deviceId}&clientMessageId=${clientMessageId}`;
+    const found = await app.inject({
+      method: "GET",
+      url: url(aliceDevice.deviceId, committed.clientMessageId),
+      headers: { origin },
+      cookies: alice.cookies,
+    });
+    expect(found.statusCode).toBe(200);
+    expect(found.json()).toMatchObject({
+      status: "COMMITTED",
+      message: {
+        id: committed.id,
+        senderDeviceId: aliceDevice.deviceId,
+      },
+    });
+    expect(found.body).not.toContain("lookup must not leak plaintext");
+
+    const absent = await app.inject({
+      method: "GET",
+      url: url(aliceDevice.deviceId, randomUUID()),
+      headers: { origin },
+      cookies: alice.cookies,
+    });
+    expect(absent.statusCode).toBe(200);
+    expect(absent.json()).toEqual({ status: "ABSENT" });
+
+    const wrongSender = await app.inject({
+      method: "GET",
+      url: url(bobDevice.deviceId, committed.clientMessageId),
+      headers: { origin },
+      cookies: bob.cookies,
+    });
+    expect(wrongSender.statusCode).toBe(200);
+    expect(wrongSender.json()).toEqual({ status: "ABSENT" });
+
+    const unauthorized = await app.inject({
+      method: "GET",
+      url: url(aliceDevice.deviceId, committed.clientMessageId),
+      headers: { origin },
+      cookies: outsider.cookies,
+    });
+    expect(unauthorized.statusCode).toBe(404);
+
+    const malformed = await app.inject({
+      method: "GET",
+      url: url(aliceDevice.deviceId, "invalid"),
+      headers: { origin },
+      cookies: alice.cookies,
+    });
+    expect(malformed.statusCode).toBe(400);
+  });
+
   it("rate-limits send preflight independently from Direct Chat mutations", async () => {
     const config = loadApiConfig({
       ...process.env,

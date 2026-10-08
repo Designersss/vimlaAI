@@ -3,6 +3,7 @@ import {
   cryptoDevicesResponseSchema,
   directConversationViewSchema,
   directMessageViewSchema,
+  lookupOwnDirectMessageResponseSchema,
   directMessagesResponseSchema,
   directMessageSendPreflightSchema,
   prepareDirectMessageSendSchema,
@@ -12,6 +13,7 @@ import {
   type DirectConversationView,
   type DirectMessageView,
   type DirectMessagesResponse,
+  type LookupOwnDirectMessageResponse,
   type DirectMessageSendPreflight,
   type MarkDirectChatRead,
   type PrepareDirectMessageSend,
@@ -125,6 +127,26 @@ export function createDirectChatsClient(
           init: signalInit(options.signal),
           parse: (payload) =>
             directMessagesResponseSchema.parse(payload),
+          errorFactory,
+        },
+      );
+    },
+
+    lookupOwnDirectMessage(
+      id: string,
+      senderDeviceId: string,
+      clientMessageId: string,
+      options: DirectChatRequestOptions = {},
+    ): Promise<LookupOwnDirectMessageResponse> {
+      return transport.request(
+        `/v1/direct-chats/${encodeURIComponent(id)}/messages/lookup${queryString([
+          ["senderDeviceId", senderDeviceId],
+          ["clientMessageId", clientMessageId],
+        ])}`,
+        {
+          init: signalInit(options.signal),
+          parse: (payload) =>
+            lookupOwnDirectMessageResponseSchema.parse(payload),
           errorFactory,
         },
       );
