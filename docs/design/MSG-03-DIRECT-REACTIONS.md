@@ -1,6 +1,6 @@
 # MSG-03 — E2EE Direct message reactions (proposed third slice)
 
-Status: **design-first Draft; protocol NOT yet approved or implemented**.
+Status: **Draft; portable codec/cryptographic proof exists, but the network protocol, server persistence and Web feature are NOT yet approved or implemented**.
 Parent: [#102](https://github.com/Designersss/vimlaAI/issues/102);
 epic: [#81](https://github.com/Designersss/vimlaAI/issues/81);
 master: [#78](https://github.com/Designersss/vimlaAI/issues/78).
