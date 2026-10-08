@@ -113,6 +113,147 @@ describe("direct chats API", () => {
     }
   });
 
+  it("looks up only the actor's own committed Direct send without replay or plaintext", async () => {
+    const alice = await readyUser(app, "dc-lookup-alice", "Alice");
+    const bob = await readyUser(app, "dc-lookup-bob", "Bob");
+    const outsider = await readyUser(app, "dc-lookup-outsider", "Other");
+    const aliceDevice = await registerHarness(app, alice);
+    const bobDevice = await registerHarness(app, bob);
+    await registerHarness(app, outsider);
+    const chat = await createChat(app, alice.cookies, bob.handle);
+    const sent = await sendPlain(
+      app,
+      alice,
+      aliceDevice,
+      chat.id,
+      "HUMAN",
+      "lookup must not leak plaintext",
+    );
+    expect(sent.statusCode).toBe(201);
+    const committed = sent.json() as {
+      id: string;
+      clientMessageId: string;
+      senderDeviceId: string;
+    };
+
+    const url = (deviceId: string, clientMessageId: string) =>
+      `/v1/direct-chats/${chat.id}/messages/lookup?senderDeviceId=${deviceId}&clientMessageId=${clientMessageId}`;
+    const found = await app.inject({
+      method: "GET",
+      url: url(aliceDevice.deviceId, committed.clientMessageId),
+      headers: { origin },
+      cookies: alice.cookies,
+    });
+    expect(found.statusCode).toBe(200);
+    expect(found.json()).toMatchObject({
+      status: "COMMITTED",
+      message: {
+        id: committed.id,
+        senderDeviceId: aliceDevice.deviceId,
+      },
+    });
+    expect(found.body).not.toContain("lookup must not leak plaintext");
+
+    const absent = await app.inject({
+      method: "GET",
+      url: url(aliceDevice.deviceId, randomUUID()),
+      headers: { origin },
+      cookies: alice.cookies,
+    });
+    expect(absent.statusCode).toBe(200);
+    expect(absent.json()).toEqual({ status: "ABSENT" });
+
+    const wrongSender = await app.inject({
+      method: "GET",
+      url: url(bobDevice.deviceId, committed.clientMessageId),
+      headers: { origin },
+      cookies: bob.cookies,
+    });
+    expect(wrongSender.statusCode).toBe(200);
+    expect(wrongSender.json()).toEqual({ status: "ABSENT" });
+
+    const unauthorized = await app.inject({
+      method: "GET",
+      url: url(aliceDevice.deviceId, committed.clientMessageId),
+      headers: { origin },
+      cookies: outsider.cookies,
+    });
+    expect(unauthorized.statusCode).toBe(404);
+
+    const malformed = await app.inject({
+      method: "GET",
+      url: url(aliceDevice.deviceId, "invalid"),
+      headers: { origin },
+      cookies: alice.cookies,
+    });
+    expect(malformed.statusCode).toBe(400);
+
+    // An idempotency key is actor-owned AND bound to its original device.
+    // A second device of the same authenticated user cannot reinterpret it
+    // as an uncommitted send, even after device-set changes.
+    const anotherAliceDevice = await registerHarness(app, alice);
+    const wrongDevice = await app.inject({
+      method: "GET",
+      url: url(anotherAliceDevice.deviceId, committed.clientMessageId),
+      headers: { origin },
+      cookies: alice.cookies,
+    });
+    expect(wrongDevice.statusCode).toBe(409);
+
+    const block = await app.inject({
+      method: "POST",
+      url: "/v1/trust/blocks",
+      headers: jsonHeaders(),
+      cookies: bob.cookies,
+      payload: { handle: alice.handle },
+    });
+    expect(block.statusCode).toBe(200);
+    const afterBlock = await app.inject({
+      method: "GET",
+      url: url(aliceDevice.deviceId, committed.clientMessageId),
+      headers: { origin },
+      cookies: alice.cookies,
+    });
+    expect(afterBlock.statusCode).toBe(200);
+    expect(afterBlock.json()).toMatchObject({
+      status: "COMMITTED",
+      message: { id: committed.id },
+    });
+    const unblock = await app.inject({
+      method: "DELETE",
+      url: `/v1/trust/blocks/${alice.handle}`,
+      headers: { origin },
+      cookies: bob.cookies,
+    });
+    expect(unblock.statusCode).toBe(200);
+    const afterUnblock = await app.inject({
+      method: "GET",
+      url: url(aliceDevice.deviceId, committed.clientMessageId),
+      headers: { origin },
+      cookies: alice.cookies,
+    });
+    expect(afterUnblock.statusCode).toBe(200);
+    expect(afterUnblock.json()).toMatchObject({
+      status: "COMMITTED",
+      message: { id: committed.id },
+    });
+
+    const revoked = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/devices/${aliceDevice.deviceId}/revoke`,
+      headers: { origin },
+      cookies: alice.cookies,
+    });
+    expect(revoked.statusCode).toBe(200);
+    const afterRevoke = await app.inject({
+      method: "GET",
+      url: url(aliceDevice.deviceId, committed.clientMessageId),
+      headers: { origin },
+      cookies: alice.cookies,
+    });
+    expect(afterRevoke.statusCode).toBe(403);
+  });
+
   it("rate-limits send preflight independently from Direct Chat mutations", async () => {
     const config = loadApiConfig({
       ...process.env,
@@ -165,6 +306,19 @@ describe("direct chats API", () => {
       expect((await preflight()).statusCode).toBe(200);
       const limited = await preflight();
       expect(limited.statusCode).toBe(429);
+
+      // The read-only idempotency probe needs its own bounded budget,
+      // independent of send preflight and of ordinary Direct mutations.
+      const lookup = () =>
+        isolated.inject({
+          method: "GET",
+          url: `/v1/direct-chats/${chat.id}/messages/lookup?senderDeviceId=${aliceDevice.deviceId}&clientMessageId=${randomUUID()}`,
+          headers: { origin },
+          cookies: alice.cookies,
+        });
+      expect((await lookup()).statusCode).toBe(200);
+      expect((await lookup()).statusCode).toBe(200);
+      expect((await lookup()).statusCode).toBe(429);
 
       const mutationStillAllowed = await isolated.inject({
         method: "PATCH",

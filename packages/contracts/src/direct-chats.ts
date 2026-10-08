@@ -266,6 +266,33 @@ export const directMessageViewSchema = z.object({
 });
 export type DirectMessageView = z.infer<typeof directMessageViewSchema>;
 
+// Actor-scoped, non-mutating reconciliation for ambiguous local E2EE sends.
+// Absence is authoritative only when the caller also proves the old
+// interaction epoch can no longer accept a new commit.
+export const lookupOwnDirectMessageQuerySchema = z
+  .object({
+    senderDeviceId: z.string().uuid(),
+    clientMessageId: z.string().uuid(),
+  })
+  .strict();
+export type LookupOwnDirectMessageQuery = z.infer<
+  typeof lookupOwnDirectMessageQuerySchema
+>;
+
+export const lookupOwnDirectMessageResponseSchema = z.discriminatedUnion(
+  "status",
+  [
+    z.object({ status: z.literal("ABSENT") }).strict(),
+    z.object({
+      status: z.literal("COMMITTED"),
+      message: directMessageViewSchema,
+    }).strict(),
+  ],
+);
+export type LookupOwnDirectMessageResponse = z.infer<
+  typeof lookupOwnDirectMessageResponseSchema
+>;
+
 export const directMessagesResponseSchema = z.object({
   items: z.array(directMessageViewSchema),
   nextCursor: z.string().nullable(),

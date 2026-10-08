@@ -98,6 +98,7 @@ import { useChatSyncHub, useChatWorkspace, usePrepareChatDevice } from "../../ch
 import { ChatConversationHeader } from "../../chat/components/ChatWorkspace/ChatConversationHeader";
 import { ChatDetailStatus } from "../../chat/components/ChatWorkspace/ChatDetailStatus";
 import styles from "./DirectChatWorkspace.module.scss";
+import { TRUST_CANCELLED_GC_POLL_INTERVAL_MS } from "../services/trust-cancelled-gc";
 
 interface DecryptedRow {
   message: DirectMessageView;
@@ -185,6 +186,8 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
   const [attempt, setAttempt] = useState(0);
   const [boot, setBoot] = useState<"loading" | "ready" | "failed">("loading");
   const [error, setError] = useState<string | null>(null);
+  const [recoveryError, setRecoveryError] = useState<string | null>(null);
+  const visibleError = error ?? recoveryError;
   const [conversation, setConversation] = useState<DirectConversationView | null>(null);
   const [rows, setRows] = useState<DecryptedRow[]>([]);
   const rowsRef = useRef<DecryptedRow[]>([]);
@@ -252,6 +255,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
 
   useEffect(() => {
     let cancelled = false;
+    let removeReconnectListeners: (() => void) | null = null;
     void (async () => {
       try {
         const currentUser = await fetchCurrentUser();
@@ -319,11 +323,11 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
             });
             if (cancelled) return;
             if (result === "LOCAL_DEVICE_INACTIVE") {
-              setError("direct_chat_device_revoked");
+              setRecoveryError("direct_chat_device_revoked");
               return;
             }
             if (result === "RECIPIENT_DEVICE_MISSING") {
-              setError(
+              setRecoveryError(
                 "direct_chat_recipient_device_missing",
               );
               return;
@@ -357,6 +361,9 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
               applyOperatorDelivery(delivery);
             }
             workspace.requestInboxRefresh();
+            // Clear only errors originating in recovery. A concurrent
+            // user-triggered send/read failure must remain visible.
+            setRecoveryError(null);
           } catch (recoveryError: unknown) {
             if (cancelled) return;
             if (
@@ -375,7 +382,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
               }
               return;
             }
-            setError(
+            setRecoveryError(
               recoveryError instanceof
                   DirectChatsApiError ||
                 recoveryError instanceof
@@ -386,6 +393,58 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
           }
         };
         void recoverInitialState(true);
+
+        // An already-open conversation must recover after connectivity
+        // returns (or a sleeping tab becomes foreground) without requiring
+        // users to reload or exposing crypto maintenance controls.
+        // Reuse the same serialized reconciliation as initial boot; bound
+        // overlapping browser events to one in-flight attempt per surface.
+        let reconnectFlight: Promise<void> | null = null;
+        const retryOnReconnect = (): void => {
+          if (cancelled || reconnectFlight || !navigator.onLine) {
+            return;
+          }
+          reconnectFlight = (async () => {
+            try {
+              // Foreground/online events can be frequent. Avoid multiple
+              // network fetches if there is nothing to reconcile locally.
+              const pending = await loadPendingSends(
+                conversationId,
+                device.deviceId,
+              );
+              if (!cancelled && pending.length > 0) {
+                await recoverInitialState(true);
+              }
+            } catch (caught: unknown) {
+              if (cancelled) return;
+              if (caught instanceof AuthRequiredError) {
+                router.replace("/sign-in");
+                return;
+              }
+              setRecoveryError("internal_error");
+            }
+          })().finally(() => {
+            reconnectFlight = null;
+          });
+        };
+        const retryWhenVisible = (): void => {
+          if (document.visibilityState === "visible") {
+            retryOnReconnect();
+          }
+        };
+        window.addEventListener("online", retryOnReconnect);
+        document.addEventListener("visibilitychange", retryWhenVisible);
+        // Without a time-based wakeup a freshly cancelled send can remain
+        // forever in an online tab that never reloads or loses focus.
+        const gcInterval = window.setInterval(
+          retryOnReconnect,
+          TRUST_CANCELLED_GC_POLL_INTERVAL_MS,
+        );
+        removeReconnectListeners = () => {
+          window.removeEventListener("online", retryOnReconnect);
+          document.removeEventListener("visibilitychange", retryWhenVisible);
+          window.clearInterval(gcInterval);
+        };
 
         try {
           const read =
@@ -423,6 +482,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
     })();
     return () => {
       cancelled = true;
+      removeReconnectListeners?.();
     };
   }, [
     applyOperatorDelivery,
@@ -1126,7 +1186,11 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
               {t("direct.loadOlder")}
             </Button>
           ) : null}
-          {error ? <Alert variant="error">{tx(t, apiErrorMessageKey(error))}</Alert> : null}
+          {visibleError ? (
+            <Alert variant="error">
+              {tx(t, apiErrorMessageKey(visibleError))}
+            </Alert>
+          ) : null}
           {rows.length === 0 ? <EmptyState title={t("direct.empty")} /> : null}
           {rows.map((row) => (
             <DirectRow

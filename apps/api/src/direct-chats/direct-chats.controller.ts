@@ -20,6 +20,8 @@ import {
   directMessagesResponseSchema,
   directMessageSendPreflightSchema,
   listDirectMessagesQuerySchema,
+  lookupOwnDirectMessageQuerySchema,
+  lookupOwnDirectMessageResponseSchema,
   markDirectChatReadSchema,
   prekeyBundlesResponseSchema,
   prepareDirectMessageSendSchema,
@@ -32,6 +34,7 @@ import {
   type DirectConversationView,
   type DirectMessageView,
   type DirectMessagesResponse,
+  type LookupOwnDirectMessageResponse,
   type DirectMessageSendPreflight,
   type PrekeyBundlesResponse,
 } from "@vimla/contracts";
@@ -189,6 +192,31 @@ export class DirectChatsController {
         id,
         input.senderDeviceId,
       ),
+    );
+  }
+
+  @Get(":id/messages/lookup")
+  async lookupOwnMessage(
+    @AuthUser() user: AuthenticatedUser,
+    @Param("id") id: string,
+    @Query() query: unknown,
+  ): Promise<LookupOwnDirectMessageResponse> {
+    this.directChats.assertEnabled();
+    const input = parseRequest(
+      lookupOwnDirectMessageQuerySchema,
+      query,
+      "Invalid Direct Chat lookup query",
+    );
+    const message = await this.directChats.chats.lookupOwnMessage(
+      this.directChats.actor(user),
+      id,
+      input.senderDeviceId,
+      input.clientMessageId,
+    );
+    return lookupOwnDirectMessageResponseSchema.parse(
+      message
+        ? { status: "COMMITTED", message }
+        : { status: "ABSENT" },
     );
   }
 

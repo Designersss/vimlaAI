@@ -5,6 +5,7 @@ import type {
   DirectMessageSendPreflight,
   DirectMessageView,
   DirectMessagesResponse,
+  LookupOwnDirectMessageResponse,
   MarkDirectChatRead,
   PrepareDirectMessageSend,
   PrekeyBundlesResponse,
@@ -109,6 +110,24 @@ export async function prepareDirectMessageSend(
     return await createWebClientApi(fetchImpl).directChats.prepareDirectMessageSend(
       id,
       input,
+      { signal: timeoutSignal() },
+    );
+  } catch (error: unknown) {
+    return wipeAfterCurrentDeviceRevocation(error);
+  }
+}
+
+export async function lookupOwnDirectMessage(
+  conversationId: string,
+  senderDeviceId: string,
+  clientMessageId: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<LookupOwnDirectMessageResponse> {
+  try {
+    return await createWebClientApi(fetchImpl).directChats.lookupOwnDirectMessage(
+      conversationId,
+      senderDeviceId,
+      clientMessageId,
       { signal: timeoutSignal() },
     );
   } catch (error: unknown) {
