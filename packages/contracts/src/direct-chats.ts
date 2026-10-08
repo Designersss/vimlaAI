@@ -134,7 +134,7 @@ export const sendDirectMessageSchema = z
     clientMessageId: z.string().uuid(),
     contentCommitmentB64: z.string().length(44).nullable().default(null),
     // An opaque source-derived lookup tag, never an unencrypted source reference.
-    reactionTargetTagB64: z.string().regex(/^[A-Za-z0-9+/]{43}=$/).nullable().optional(),
+    reactionTargetTagB64: z.string().regex(/^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$/).nullable().optional(),
     senderDeviceId: z.string().uuid(),
     interactionEpoch: directInteractionEpochSchema,
     kind: directMessageKindSchema,
@@ -275,7 +275,7 @@ export const directMessageViewSchema = z.object({
   senderDeviceId: z.string().uuid(),
   clientMessageId: z.string().uuid(),
   contentCommitmentB64: z.string().length(44).nullable(),
-  reactionTargetTagB64: z.string().regex(/^[A-Za-z0-9+/]{43}=$/).nullable(),
+  reactionTargetTagB64: z.string().regex(/^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$/).nullable(),
   kind: directMessageKindSchema,
   interactionEpoch: directInteractionEpochSchema,
   // PostgreSQL-authoritative causal order, serialized as decimal for bigint safety.
