@@ -9,6 +9,7 @@ export interface CachedDirectPlaintextProvenance {
   conversationId: string;
   senderUserId: string;
   clientMessageId?: string;
+  contentCommitmentB64?: string | null;
   senderDeviceId?: string;
   interactionEpoch?: number;
   kind: string;
@@ -25,6 +26,7 @@ export function cachedDirectPlaintextMatchesMessage(
     cached.senderUserId === expected.senderUserId &&
     typeof cached.clientMessageId === "string" &&
     cached.clientMessageId === expected.clientMessageId &&
+    cached.contentCommitmentB64 === expected.contentCommitmentB64 &&
     typeof cached.senderDeviceId === "string" &&
     cached.senderDeviceId === expected.senderDeviceId &&
     typeof cached.interactionEpoch === "number" &&

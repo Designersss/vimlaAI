@@ -40,9 +40,10 @@ export function decodeDirectPlaintext(
   kind: DirectMessageKind,
   text: string,
   expectedClientMessageId?: string,
+  expectedContentCommitmentB64?: string | null,
 ): DirectPlaintextPayload | null {
   if (kind === "HUMAN") {
-    return decodeDirectHumanPayload(text, expectedClientMessageId);
+    return decodeDirectHumanPayload(text, expectedClientMessageId, expectedContentCommitmentB64);
   }
   const parsed = tryJson(text);
   if (kind === "OPERATOR_INVOKE" && parsed?.type === "invoke" && typeof parsed.text === "string") {
@@ -79,11 +80,14 @@ export function directPlaintextPreview(
   kind: DirectMessageKind,
   text: string,
   expectedClientMessageId?: string,
+  expectedContentCommitmentB64?: string | null,
 ): string | null {
   // This helper also feeds AI-consent history and the unified inbox.
   // A HUMAN whose actual signed ID is unknown must not become preview text.
-  if (kind === "HUMAN" && !expectedClientMessageId) return null;
-  const payload = decodeDirectPlaintext(kind, text, expectedClientMessageId);
+  if (kind === "HUMAN" && (!expectedClientMessageId || !expectedContentCommitmentB64)) return null;
+  const payload = decodeDirectPlaintext(
+    kind, text, expectedClientMessageId, expectedContentCommitmentB64,
+  );
   if (!payload) return null;
 
   if (kind === "HUMAN") {

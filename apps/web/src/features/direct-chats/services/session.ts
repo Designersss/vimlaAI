@@ -909,6 +909,7 @@ export async function decryptMessageWithStatus(input: {
       conversationId: input.conversationId,
       senderUserId: input.message.senderUserId,
       clientMessageId: input.message.clientMessageId,
+      contentCommitmentB64: input.message.contentCommitmentB64,
       senderDeviceId: input.message.senderDeviceId,
       interactionEpoch: input.message.interactionEpoch,
       kind: input.message.kind,
@@ -921,6 +922,7 @@ export async function decryptMessageWithStatus(input: {
         input.message.kind,
         cached.text,
         input.message.clientMessageId,
+        input.message.contentCommitmentB64,
       ),
       needsBootstrap: false,
     };
@@ -953,6 +955,7 @@ export async function decryptMessageWithStatus(input: {
           input.message.kind,
           pending.plaintext,
           input.message.clientMessageId,
+          input.message.contentCommitmentB64,
         ),
         needsBootstrap: false,
       };
@@ -985,6 +988,7 @@ export async function decryptMessageWithStatus(input: {
             conversationId: input.conversationId,
             senderUserId: input.message.senderUserId,
             clientMessageId: input.message.clientMessageId,
+            contentCommitmentB64: input.message.contentCommitmentB64,
             senderDeviceId: input.message.senderDeviceId,
             interactionEpoch: input.message.interactionEpoch,
             kind: input.message.kind,
@@ -997,6 +1001,7 @@ export async function decryptMessageWithStatus(input: {
               input.message.kind,
               committed.text,
               input.message.clientMessageId,
+              input.message.contentCommitmentB64,
             ),
             needsBootstrap: false,
           };
@@ -1079,6 +1084,7 @@ export async function decryptMessageWithStatus(input: {
           kind: input.message.kind,
           senderUserId: input.message.senderUserId,
           clientMessageId: input.message.clientMessageId,
+          contentCommitmentB64: input.message.contentCommitmentB64,
           senderDeviceId: input.message.senderDeviceId,
           interactionEpoch: input.message.interactionEpoch,
           createdAt: input.message.createdAt,
@@ -1100,6 +1106,7 @@ export async function decryptMessageWithStatus(input: {
             input.message.kind,
             text,
             input.message.clientMessageId,
+            input.message.contentCommitmentB64,
           ),
           needsBootstrap: false,
         };
@@ -1198,6 +1205,7 @@ function pendingSendMatchesCommittedMessage(
     !envelope ||
     pending.conversationId !== message.conversationId ||
     pending.clientMessageId !== message.clientMessageId ||
+    pending.contentCommitmentB64 !== message.contentCommitmentB64 ||
     pending.senderUserId !== message.senderUserId ||
     pending.senderDeviceId !== message.senderDeviceId ||
     pending.interactionEpoch !== message.interactionEpoch ||

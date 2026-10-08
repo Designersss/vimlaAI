@@ -871,6 +871,7 @@ export class DirectChatService {
     const existingMentions = mentions.get(existing.id) ?? [];
     if (
       existing.kind !== input.kind ||
+      existing.contentCommitmentB64 !== input.contentCommitmentB64 ||
       existing.interactionEpoch !== input.interactionEpoch ||
       !sameReplayEnvelopes(
         existing.envelopes,

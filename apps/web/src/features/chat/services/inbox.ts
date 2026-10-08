@@ -58,12 +58,14 @@ export async function resolveWebInboxPreview(
     // never project an unbound/mismatched local row as a valid preview.
     const displayText =
       plaintext === null ||
-      (item.preview.messageKind === "HUMAN" && !local?.clientMessageId)
+      (item.preview.messageKind === "HUMAN" &&
+        (!local?.clientMessageId || !local.contentCommitmentB64))
         ? null
         : directPlaintextPreview(
             item.preview.messageKind,
             plaintext,
             local?.clientMessageId,
+            local?.contentCommitmentB64,
           );
     return displayText === null
       ? null
