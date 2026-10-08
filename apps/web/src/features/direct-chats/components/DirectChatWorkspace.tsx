@@ -78,15 +78,16 @@ import {
   pageUnlocksHistoryBootstrap,
   prepareDirectChatContext,
   shouldContinueDeepHistoryBootstrap,
+  directReplyReference,
+  resolveDirectReplySource,
+  type DirectReplyReference,
 } from "@vimla/client-core";
 import {
   decodeDirectPlaintext,
   directPlaintextPreview,
   encodeDirectPlaintext,
   type DirectPlaintextPayload,
-  type DirectReplyReference,
 } from "../services/payload";
-import { directReplyReference, resolveDirectReplySource } from "../services/reply-reference";
 import {
   decryptMessageWithStatus,
   discardPendingOperatorInvocation,

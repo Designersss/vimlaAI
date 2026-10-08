@@ -44,3 +44,10 @@ export {
   resolveInboxPreview,
   type InboxLocalPlaintextRecord,
 } from "./inbox-preview.js";
+export {
+  directReplyReference,
+  readDirectReplyReference,
+  resolveDirectReplySource,
+  type DirectReplyReference,
+  type LocalDirectReplySource,
+} from "./direct-chat-replies.js";

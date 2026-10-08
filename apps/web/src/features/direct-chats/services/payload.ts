@@ -1,14 +1,6 @@
 import type { DirectMessageKind } from "@vimla/contracts";
-
-/**
- * A reference, not a trusted quoted snapshot. Recipient clients must resolve
- * the original authenticated, decrypted HUMAN message in this conversation.
- * Without that source, no peer-attributed quote text may be displayed.
- */
-export interface DirectReplyReference {
-  messageId: string;
-  senderUserId: string;
-}
+import { readDirectReplyReference, type DirectReplyReference } from "@vimla/client-core";
+export type { DirectReplyReference } from "@vimla/client-core";
 
 export interface HumanPayload {
   type: "human";
@@ -45,7 +37,7 @@ export function encodeDirectPlaintext(payload: DirectPlaintextPayload): string {
     // plaintext envelope. The user's literal JSON text stays user text:
     // it cannot be misinterpreted as a reply reference on another device.
     // The reference is entirely inside signed E2EE ciphertext.
-    if (payload.replyTo && !readReplyReference(payload.replyTo)) {
+    if (payload.replyTo && !readDirectReplyReference(payload.replyTo)) {
       throw new Error("Invalid Direct reply reference");
     }
     return JSON.stringify({
@@ -63,7 +55,7 @@ export function decodeDirectPlaintext(kind: DirectMessageKind, text: string): Di
     const parsed = tryJson(text);
     if (parsed && parsed.type === "human" && typeof parsed.text === "string") {
       if (parsed.version === 1) {
-        const replyTo = readReplyReference(parsed.replyTo);
+        const replyTo = readDirectReplyReference(parsed.replyTo);
         // Invalid/unknown references never create a source attribution.
         return replyTo
           ? { type: "human", text: parsed.text, replyTo }
@@ -137,28 +129,4 @@ function tryJson(text: string): Record<string, unknown> | null {
   } catch {
     return null;
   }
-}
-
-// Only an authenticated, structurally valid reference may be considered for
-// LOCAL resolution. An arbitrary id is never proof that the source exists.
-function readReplyReference(input: unknown): DirectReplyReference | null {
-  if (!input || typeof input !== "object" || Array.isArray(input)) {
-    return null;
-  }
-  const value = input as Record<string, unknown>;
-  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-  if (
-    Object.keys(value).length !== 2 ||
-    typeof value.messageId !== "string" ||
-    !uuid.test(value.messageId) ||
-    typeof value.senderUserId !== "string" ||
-    value.senderUserId.length < 1 ||
-    value.senderUserId.length > 128
-  ) {
-    return null;
-  }
-  return {
-    messageId: value.messageId,
-    senderUserId: value.senderUserId,
-  };
 }

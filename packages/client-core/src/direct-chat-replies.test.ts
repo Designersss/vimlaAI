@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { directReplyReference, resolveDirectReplySource, type LocalDirectReplySource } from "./reply-reference";
+import { directReplyReference, resolveDirectReplySource, type LocalDirectReplySource } from "./direct-chat-replies.js";
 
 const id = "11111111-1111-4111-8111-111111111111";
 const human: LocalDirectReplySource = {
@@ -31,5 +31,20 @@ describe("Direct quoted-message source verification", () => {
     expect(resolveDirectReplySource({
       ...human, payload: { type: "invoke", text: "prompt", contextShared: false, peerIncluded: false },
     }, "chat-1", ref)).toBeNull();
+  });
+});
+
+describe("encrypted Direct reply reference parser", () => {
+  const valid = {
+    messageId: "11111111-1111-4111-8111-111111111111",
+    senderUserId: "alice",
+  };
+  it("accepts exact source identities and rejects malicious extras/invalid IDs", async () => {
+    const { readDirectReplyReference } = await import("./direct-chat-replies.js");
+    expect(readDirectReplyReference(valid)).toEqual(valid);
+    expect(readDirectReplyReference({ ...valid, extra: "spoof" })).toBeNull();
+    expect(readDirectReplyReference({ ...valid, messageId: "bad" })).toBeNull();
+    expect(readDirectReplyReference({ ...valid, senderUserId: "" })).toBeNull();
+    expect(readDirectReplyReference(null)).toBeNull();
   });
 });
