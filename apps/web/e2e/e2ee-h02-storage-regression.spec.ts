@@ -734,7 +734,7 @@ test.describe("E2EE H02 storage regressions", () => {
     }
   });
 
-  test("re-protects legacy local rows but never trusts obsolete HUMAN wire payloads", async ({
+  test("re-protects unencrypted legacy local rows but rejects HUMAN content-ID forgery", async ({
     browser,
     request,
   }) => {
@@ -908,10 +908,16 @@ test.describe("E2EE H02 storage regressions", () => {
         },
         {
           messageId: sent.id,
-          // This is an unprotected old local record, deliberately
-          // carrying obsolete HUMAN wire content. H02 must re-protect it
-          // without downgrading the authenticated v2 content protocol.
-          plaintext: legacyCacheText,
+          // Simulate a locally modified legacy-protection record carrying
+          // valid-shaped HUMAN v2 bytes but NOT the HMAC-derived client ID
+          // that the original sender signed. Migration protects the bytes,
+          // and content binding still prevents impersonating the original.
+          plaintext: JSON.stringify({
+            type: "human",
+            version: 2,
+            text: legacyCacheText,
+            bindingKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+          }),
         },
       );
 
@@ -1059,7 +1065,12 @@ test.describe("E2EE H02 storage regressions", () => {
             db.close();
           }
         },
-        legacyPendingText,
+        JSON.stringify({
+          type: "human",
+          version: 2,
+          text: legacyPendingText,
+          bindingKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+        }),
       );
       await alicePage.unroute(
         "**/v1/direct-chats/*/messages",
