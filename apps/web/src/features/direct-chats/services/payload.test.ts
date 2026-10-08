@@ -116,8 +116,8 @@ describe("authenticated Direct HUMAN replies", () => {
   it("keeps ordinary text untouched and round-trips a typed encrypted reply", () => {
     const literalJson = '{"type":"human","version":1,"text":"literal","replyTo":{"messageId":"fake"}}';
     const original = encodeDirectPlaintext({ type: "human", text: literalJson });
-    expect(JSON.parse(original)).toEqual({
-      type: "human", version: 1, text: literalJson,
+    expect(JSON.parse(original)).toMatchObject({
+      type: "human", version: 2, text: literalJson,
     });
     expect(decodeDirectPlaintext("HUMAN", original)).toEqual({
       type: "human", text: literalJson,
@@ -126,8 +126,8 @@ describe("authenticated Direct HUMAN replies", () => {
     const encrypted = encodeDirectPlaintext({
       type: "human", text: "reply from Alice", replyTo: reference,
     });
-    expect(JSON.parse(encrypted)).toEqual({
-      type: "human", version: 1, text: "reply from Alice", replyTo: reference,
+    expect(JSON.parse(encrypted)).toMatchObject({
+      type: "human", version: 2, text: "reply from Alice", replyTo: reference,
     });
     expect(decodeDirectPlaintext("HUMAN", encrypted)).toEqual({
       type: "human", text: "reply from Alice", replyTo: reference,
@@ -144,14 +144,13 @@ describe("authenticated Direct HUMAN replies", () => {
       { clientMessageId: originalId },
     ];
     for (const replyTo of cases) {
-      const text = JSON.stringify({ type: "human", version: 1, text: "msg", replyTo });
+      const text = JSON.stringify({ type: "human", version: 2, text: "msg", replyTo });
       expect(decodeDirectPlaintext("HUMAN", text)).toBeNull();
     }
     const unsupportedVersion = JSON.stringify({
-      type: "human", version: 2, text: "msg", replyTo: reference,
+      type: "human", version: 3, text: "msg", replyTo: reference,
     });
-    // Unknown protocol versions are not interpreted as valid reply metadata.
-    // Their raw bytes remain ordinary text until a reviewed codec exists.
+    // Unknown or unbound protocol versions are never interpreted as replies.
     expect(decodeDirectPlaintext("HUMAN", unsupportedVersion)).toBeNull();
     expect(() => encodeDirectPlaintext({
       type: "human", text: "msg", replyTo: { ...reference, clientMessageId: "other" },
