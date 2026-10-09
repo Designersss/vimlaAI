@@ -617,7 +617,7 @@ export class DirectChatService {
         // appearing after this query. Hold the same per-user transaction
         // advisory locks as device registration/revocation until the
         // encrypted message and all recipient envelopes are committed.
-        await lockDirectDeviceRoster(tx, memberIds);
+        await lockDirectDeviceRoster(tx, memberIds, "shared");
 
         // Lock all currently active participant devices in deterministic
         // order before inserting envelopes. Revocation updates need a
