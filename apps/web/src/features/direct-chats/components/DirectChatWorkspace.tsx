@@ -88,6 +88,7 @@ import {
   reconcileDirectHistoryHead,
   applyDirectPrivacyAcknowledgement,
   mergeDirectMessageReplicaRows,
+  hasConflictingDirectMessageReplicas,
   cachedDirectPlaintextMatchesMessage,
   DIRECT_REACTION_EMOJIS,
   resolveDirectReplySource,
@@ -2431,6 +2432,19 @@ async function fetchLatestDecryptedPage(
 }
 
 async function decryptPage(detail: DirectConversationView, items: DirectMessageView[]): Promise<DecryptedRow[]> {
+  // Security preflight is deliberately before any cache lookup, X3DH or
+  // Double Ratchet decryption. A conflicting server ID is a corrupt causal
+  // page; never let such a page advance locally stored cryptographic state.
+  // Poison the entire returned page so downstream history/reactions fail
+  // closed regardless of the order in which the server sent its replicas.
+  if (hasConflictingDirectMessageReplicas(items)) {
+    return items.map((message) => ({
+      message,
+      payload: null,
+      needsBootstrap: false,
+      integrityConflict: true,
+    }));
+  }
   const identityByDevice = new Map(
     detail.devices.map((device) => [
       device.id,
