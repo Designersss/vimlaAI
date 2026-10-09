@@ -83,17 +83,25 @@ export async function projectVerifiedDirectReactions(
   // between the observed head and a HUMAN original makes any count for that
   // original misleading. A duplicate row ID is not a second log position.
   const uniqueById = new Map(rows.map((row) => [row.message.id, row]));
-  const bySequence = [...uniqueById.values()].sort((a, b) => {
-    const left = BigInt(a.message.sequence);
-    const right = BigInt(b.message.sequence);
-    return left < right ? 1 : left > right ? -1 : 0;
-  });
+  const parseSequence = (value: string): bigint | null => {
+    if (!/^[1-9][0-9]*$/.test(value)) return null;
+    try {
+      const sequence = BigInt(value);
+      return sequence <= 9223372036854775807n ? sequence : null;
+    } catch {
+      return null;
+    }
+  };
+  const bySequence = [...uniqueById.values()]
+    .map((row) => ({ row, sequence: parseSequence(row.message.sequence) }))
+    .filter((item): item is { row: ReactionProjectionRow; sequence: bigint } =>
+      item.sequence !== null)
+    .sort((a, b) => a.sequence < b.sequence ? 1 : a.sequence > b.sequence ? -1 : 0);
   const contiguous = new Set<string>();
-  let expected = bySequence[0] ? BigInt(bySequence[0].message.sequence) : 0n;
-  for (const row of bySequence) {
-    const current = BigInt(row.message.sequence);
-    if (current !== expected || current <= 0n) break;
-    contiguous.add(row.message.id);
+  let expected = bySequence[0]?.sequence ?? 0n;
+  for (const item of bySequence) {
+    if (item.sequence !== expected) break;
+    contiguous.add(item.row.message.id);
     expected -= 1n;
   }
 
@@ -123,20 +131,15 @@ export async function projectVerifiedDirectReactions(
     const tag = row.message.reactionTargetTagB64;
     const source = tag ? sourceByTag.get(tag) : undefined;
     if (!source) continue;
-    if (!contiguous.has(row.message.id) ||
-        BigInt(row.message.sequence) <= BigInt(source.row.message.sequence)) {
+    const eventSequence = parseSequence(row.message.sequence);
+    const originalSequence = parseSequence(source.row.message.sequence);
+    if (!contiguous.has(row.message.id) || eventSequence === null ||
+        originalSequence === null || eventSequence <= originalSequence) {
       unavailableMessageIds.add(source.messageId);
       continue;
     }
     const cached = await readPlaintext(row.message.id);
     if (!cachedMatches(cached, row.message)) {
-      unavailableMessageIds.add(source.messageId);
-      continue;
-    }
-    let sequence: bigint;
-    try {
-      sequence = BigInt(row.message.sequence);
-    } catch {
       unavailableMessageIds.add(source.messageId);
       continue;
     }
@@ -147,7 +150,7 @@ export async function projectVerifiedDirectReactions(
       contentCommitmentB64: row.message.contentCommitmentB64,
       targetTagB64: tag,
       kind: row.message.kind,
-      sequence,
+      sequence: eventSequence,
     }, cached.text, source.row, source.plaintext);
     if (!verified) {
       unavailableMessageIds.add(source.messageId);
