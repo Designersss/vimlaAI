@@ -96,6 +96,42 @@ describe("local authenticated E2EE reaction projection", () => {
     expect(missing.unavailableMessageIds.has(f.sourceRow.message.id)).toBe(true);
   });
 
+  it("uses authoritative sequence to converge add/remove despite reversed pages and duplicates", async () => {
+    const f = fixture();
+    const original = f.cache.get(f.sourceRow.message.id);
+    if (!original) throw new Error("Missing source");
+    const removed = createDirectReaction(
+      "remove", "❤️", f.sourceRow, original.text, conversationId,
+    );
+    const messageRow = message(
+      "55555555-5555-4555-8555-555555555555",
+      removed.clientMessageId, removed.contentCommitmentB64,
+      "REACTION", "3", bob, removed.targetTagB64,
+    );
+    const removal: ReactionProjectionRow = { message: messageRow, payload: null };
+    f.cache.set(messageRow.id, stored(messageRow, removed.plaintext));
+    const projection = await projectVerifiedDirectReactions(
+      [removal, f.sourceRow, f.reactionRow, removal], f.read,
+    );
+    expect(projection.unavailableMessageIds.size).toBe(0);
+    expect(projection.states).toMatchObject([
+      { reactorUserId: bob, emoji: "❤️", active: false, latestSequence: 3n },
+    ]);
+  });
+
+  it("does not allow malformed sequence metadata or missing sources to create reaction state", async () => {
+    const f = fixture();
+    const invalid = await projectVerifiedDirectReactions([
+      f.sourceRow,
+      { ...f.reactionRow, message: { ...f.reactionRow.message, sequence: "bad" } },
+    ], f.read);
+    expect(invalid.states).toEqual([]);
+    expect(invalid.unavailableMessageIds.has(f.sourceRow.message.id)).toBe(true);
+    const noSource = await projectVerifiedDirectReactions([f.reactionRow], f.read);
+    expect(noSource.states).toEqual([]);
+    expect(noSource.eligibleMessageIds.size).toBe(0);
+  });
+
   it("never projects an unauthenticated source or accidentally turns a reaction into HUMAN text", async () => {
     const f = fixture();
     const fake: ReactionProjectionRow = {
