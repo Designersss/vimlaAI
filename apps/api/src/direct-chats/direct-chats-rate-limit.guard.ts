@@ -31,7 +31,7 @@ export class DirectChatsRateLimitGuard implements CanActivate {
     // An indexed opaque-tag query is still a metadata probe. Never exempt
     // repeated tag guesses from per-user limits merely because it is GET.
     const reactionHistory =
-      request.method === "GET" &&
+      request.method === "POST" &&
       request.routeOptions.url?.endsWith("/:id/reactions") === true;
     if (
       (request.method === "GET" && !lookup && !reactionHistory) ||
