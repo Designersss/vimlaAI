@@ -568,6 +568,50 @@ describe("direct chats API", () => {
     }
   });
 
+  it("bounds crypto-device mutations separately from sustained Direct sends", async () => {
+    const config = loadApiConfig({
+      ...process.env,
+      DIRECT_CHATS_ENABLED: "true",
+      DIRECT_CHATS_MUTATION_LIMIT_PER_MINUTE: "2",
+    });
+    const isolated = await createVimlaApiApp(config, { quiet: true });
+    await isolated.init();
+    await isolated.getHttpAdapter().getInstance().ready();
+    try {
+      const alice = await readyUser(isolated, "dc-device-limit-alice", "Alice");
+      const bob = await readyUser(isolated, "dc-device-limit-bob", "Bob");
+      await registerHarness(isolated, alice); // Device budget 1 of 2.
+      await registerHarness(isolated, bob);
+      const chat = await createChat(isolated, alice.cookies, bob.handle);
+      const mutate = () => isolated.inject({
+        method: "PATCH",
+        url: `/v1/direct-chats/${chat.id}/privacy`,
+        headers: jsonHeaders(),
+        cookies: alice.cookies,
+        payload: {
+          shareOwnHistoryWithVimla: true,
+          includePeerHistoryWhenInvoking: false,
+        },
+      });
+      expect((await mutate()).statusCode).toBe(200); // Main budget 2 of 2.
+      expect((await mutate()).statusCode).toBe(429);
+
+      // Existing message activity must not prevent new-device enrollment.
+      await registerHarness(isolated, alice); // Device budget 2 of 2.
+      const limitedDevice = await isolated.inject({
+        method: "POST",
+        url: "/v1/direct-chats/devices",
+        headers: jsonHeaders(),
+        cookies: alice.cookies,
+        payload: {},
+      });
+      // Rate limiting precedes payload validation, including malformed input.
+      expect(limitedDevice.statusCode).toBe(429);
+    } finally {
+      await isolated.close();
+    }
+  });
+
   it("claims an OTK once across distinct concurrent initiators", async () => {
     const recipient = await readyUser(app, "dc-otk-atomic-recipient", "Recipient");
     const alice = await readyUser(app, "dc-otk-atomic-alice", "Alice");
