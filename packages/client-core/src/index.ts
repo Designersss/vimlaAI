@@ -7,6 +7,8 @@ export {
 } from "./direct-chat-context.js";
 export { advanceDirectHistoryHead, reconcileDirectHistoryHead } from "./direct-chat-history-head.js";
 export {
+  DIRECT_HISTORY_CATCHUP_MAX_PAGES,
+  assertDirectHistoryCatchupBudget,
   DEEP_HISTORY_BOOTSTRAP_MAX_PAGES,
   pageUnlocksHistoryBootstrap,
   shouldContinueDeepHistoryBootstrap,
