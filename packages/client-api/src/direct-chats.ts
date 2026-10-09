@@ -5,6 +5,7 @@ import {
   directMessageViewSchema,
   lookupOwnDirectMessageResponseSchema,
   directMessagesResponseSchema,
+  directReactionEventsResponseSchema,
   directMessageSendPreflightSchema,
   prepareDirectMessageSendSchema,
   prekeyBundlesResponseSchema,
@@ -13,6 +14,7 @@ import {
   type DirectConversationView,
   type DirectMessageView,
   type DirectMessagesResponse,
+  type DirectReactionEventsResponse,
   type LookupOwnDirectMessageResponse,
   type DirectMessageSendPreflight,
   type MarkDirectChatRead,
@@ -127,6 +129,32 @@ export function createDirectChatsClient(
           init: signalInit(options.signal),
           parse: (payload) =>
             directMessagesResponseSchema.parse(payload),
+          errorFactory,
+        },
+      );
+    },
+
+    fetchDirectReactionEvents(
+      id: string,
+      deviceId: string,
+      targetTagB64: string,
+      afterSequence: string,
+      cursor?: string,
+      options: DirectChatRequestOptions = {},
+    ): Promise<DirectReactionEventsResponse> {
+      const query = queryString([
+        ["deviceId", deviceId],
+        ["targetTagB64", targetTagB64],
+        ["afterSequence", afterSequence],
+        ["limit", 30],
+        ["cursor", cursor],
+      ]);
+      return transport.request(
+        `/v1/direct-chats/${encodeURIComponent(id)}/reactions${query}`,
+        {
+          init: signalInit(options.signal),
+          parse: (payload) =>
+            directReactionEventsResponseSchema.parse(payload),
           errorFactory,
         },
       );
