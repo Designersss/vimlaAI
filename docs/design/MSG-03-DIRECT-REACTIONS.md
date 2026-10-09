@@ -205,6 +205,60 @@ Evaluate and approve ONE bounded lookup design:
 Do **not** implement both forever or silently choose B because it is
 simpler. Document the selected metadata disclosure in the threat model.
 
+### Target-tag metadata privacy review (October 9; conditional, NOT sign-off)
+
+Security boundary: `reactionTargetTagB64` is the
+`HMAC-SHA256` of a canonical `(conversation, original client UUID, full
+content commitment, author, author device)` tuple under the original
+encrypted HUMAN v2 binding key. That source key has 256 bits of entropy,
+is created independently for every HUMAN source and is never a database
+field. REACTION envelope AD5 authenticates the tag, kind and full content
+commitment; swapping a target tag between valid envelopes fails sender
+signature verification. The 256-bit per-event binding key is fresh for
+each add/remove, so the event commitment does not act as a deterministic
+emoji or action hash.
+
+**What the service CAN observe, even with perfect E2EE:** it can group
+all control events with an equal tag inside a conversation; see the actor
+ID, device, server sequence and timing of each add/remove event; count
+*encrypted events* (NOT effective active emoji reactions); and associate
+an authorized query with its account/device and the queried tag. The
+first reaction arriving just after a HUMAN, repeated activity and
+participant traffic patterns can probabilistically identify a target
+despite the cryptographic opacity of the tag. Database readers and
+application access logs with request bodies may also observe it. The
+`POST` body only avoids accidental URL/proxy-query logging; it is not
+anonymity against the API operator. Abuse of tag equality as a behavioral
+signal is a genuine privacy cost. Neither event emoji nor add/remove
+action is deliberately exposed in plaintext metadata.
+
+**What the service CANNOT derive from the tag alone:** the HUMAN text,
+per-event emoji, full source reference or the original binding key by
+dictionary attacks on ordinary text; equal HUMAN text encrypted with
+fresh keys yields independent tags. The same source key/reference in
+different conversation domains yields a different tag. These are
+cryptographic properties, not a claim that traffic analysis cannot
+identify which original a reaction refers to.
+
+**Boundaries and mitigations checked:** queries are restricted to members
+with their own active crypto device, bounded by indexed pagination and
+a separate Redis probe quota. The source sequence stays local; the
+query carries only the tag, device and cursor in an authenticated POST
+body, not a URL. Clients independently check signed AD5 tags after
+decryption, full HUMAN provenance and causal completeness before
+displaying state. Tests assert stable per-original equality, independent
+source/conversation tags, fresh event commitments and AD5 tamper
+rejection.
+
+**Decision still required before merge:** accept the equality/sender/timing
+leakage under Vimla's user-facing Direct privacy promises and verify
+infrastructure, request/trace logging, DB diagnostics, analytics, backup
+and retention policies do not introduce additional avoidable disclosures.
+Changing the index to a plaintext source ID would increase disclosure;
+randomizing the tag per event would destroy efficient same-target
+lookup. This review does not prove historical reaction recovery or close
+the storage-compaction and independent final audit gates.
+
 ### Bounded history and compaction
 
 If events are append-only, repeated toggles may grow the encrypted log.
