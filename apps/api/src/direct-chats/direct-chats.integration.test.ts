@@ -431,7 +431,7 @@ describe("direct chats API", () => {
       await released;
     });
     await acquired;
-    let response: Awaited<ReturnType<typeof app.inject>> | null = null;
+    let responseStatus: number | null = null;
     try {
       let sendSettled = false;
       const pendingSend = app.inject({
@@ -458,13 +458,14 @@ describe("direct chats API", () => {
       // earlier, or from the locked device-set recheck after trust unlock.
       releasePair();
       await pairGate;
-      response = await pendingSend;
-      expect([400, 409]).toContain(response.statusCode);
+      const response = await pendingSend;
+      responseStatus = response.statusCode;
+      expect([400, 409]).toContain(responseStatus);
     } finally {
       releasePair();
       await pairGate;
     }
-    expect(response).not.toBeNull();
+    expect(responseStatus).not.toBeNull();
     expect(await db.directMessage.count({
       where: { conversationId: chat.id, clientMessageId: reactionId },
     })).toBe(0);
