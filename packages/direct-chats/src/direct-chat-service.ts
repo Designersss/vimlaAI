@@ -604,23 +604,30 @@ export class DirectChatService {
           peerUserId,
         );
 
-        // Serialize new Direct sends against the authoritative device revoke
-        // UPDATE. Reading revokedAt outside this transaction leaves a TOCTOU
-        // window in which a signed REACTION/HUMAN could commit after its
-        // sender was revoked. PostgreSQL row locks make the send and revoke
-        // linearizable: whoever obtains the device row lock first wins.
-        const activeSender = await tx.$queryRaw<
-          Array<{ id: string; revokedAt: Date | null }>
-        >`
-          SELECT "id", "revokedAt"
+        // Lock all currently active participant devices in deterministic
+        // order before inserting envelopes. Revocation updates need a
+        // conflicting row lock; they can no longer commit between our
+        // external fan-out snapshot and its durable insert. A SHARE lock
+        // also lets distinct senders progress without sender-first/
+        // recipient-second deadlocks from opposite directions.
+        const lockedDevices = await tx.$queryRaw<
+          Array<{ id: string; userId: string; revokedAt: Date | null }>
+        >(Prisma.sql`
+          SELECT "id", "userId", "revokedAt"
           FROM "user_crypto_device"
-          WHERE "id" = ${input.senderDeviceId} AND "userId" = ${actor.userId}
-          FOR UPDATE
-        `;
-        if (activeSender.length !== 1) {
+          WHERE "userId" IN (${Prisma.join(memberIds)})
+            AND ("revokedAt" IS NULL OR "id" = ${input.senderDeviceId})
+          ORDER BY "id"
+          FOR SHARE
+        `);
+        const activeSender = lockedDevices.find(
+          (device) => device.id === input.senderDeviceId &&
+            device.userId === actor.userId,
+        );
+        if (!activeSender) {
           throw new DirectChatError("NOT_FOUND", "Device was not found");
         }
-        if (activeSender[0]?.revokedAt) {
+        if (activeSender.revokedAt) {
           throw new DirectChatError("DEVICE_REVOKED", "This device was revoked");
         }
 
@@ -652,6 +659,23 @@ export class DirectChatService {
           throw new DirectChatError(
             "FORBIDDEN",
             "Direct Chat interaction is unavailable",
+          );
+        }
+
+        // Replays above deliberately preserve previously committed fan-out.
+        // A NEW message, however, must target exactly the current active
+        // member devices. Any already committed enrolment or revocation
+        // since signature preflight must cause a retry with fresh envelopes.
+        const currentActiveIds = new Set(
+          lockedDevices
+            .filter((device) => device.revokedAt === null)
+            .map((device) => device.id),
+        );
+        if (currentActiveIds.size !== requiredDeviceIds.size ||
+            [...currentActiveIds].some((id) => !requiredDeviceIds.has(id))) {
+          throw new DirectChatError(
+            "CONFLICT",
+            "Direct Chat recipient device set changed",
           );
         }
 
