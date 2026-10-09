@@ -6,6 +6,7 @@ import {
   decodeDirectHumanPayload,
   projectVerifiedDirectReactions,
   sameDirectMessageReplica,
+  hasConflictingDirectMessageReplicas,
   mergeDirectMessageReplicaRows,
   type ReactionProjectionRow,
   type CachedDirectReactionPlaintext,
@@ -210,6 +211,34 @@ describe("local authenticated E2EE reaction projection", () => {
       ...original, reactionTargetTagB64: "attacker-replaced-tag",
     })).toBe(false);
     expect(sameDirectMessageReplica(original, { ...original, id: "other-id" })).toBe(false);
+  });
+
+  it("preflights same-page signed-envelope equivocation before ratchet decryption", () => {
+    const f = fixture();
+    const original = f.reactionRow.message;
+    const repeated = { ...original, mentions: [...original.mentions] };
+    expect(hasConflictingDirectMessageReplicas([original, repeated])).toBe(false);
+    expect(hasConflictingDirectMessageReplicas([
+      original,
+      { ...original, sequence: "3" },
+    ])).toBe(true);
+    expect(hasConflictingDirectMessageReplicas([
+      original,
+      { ...original, reactionTargetTagB64: "attacker-changed-tag" },
+    ])).toBe(true);
+    expect(hasConflictingDirectMessageReplicas([
+      original,
+      { ...original, envelope: {
+        recipientDeviceId: deviceId,
+        headerB64: "wrong-envelope",
+        ciphertextB64: "wrong-ciphertext",
+        dhPublicB64: "bad",
+        messageNumber: 0,
+        previousChainLength: 0,
+        senderSignatureB64: "fake",
+        x3dhInit: null,
+      } },
+    ])).toBe(true);
   });
 
   it("poisons conflicting server-ID replicas delivered together in the same encrypted page", async () => {
