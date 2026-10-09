@@ -317,6 +317,37 @@ describe("local authenticated E2EE reaction projection", () => {
     expect(projected.eligibleMessageIds.size).toBe(0);
   });
 
+  it("detects historical X3DH bootstrap equivocation across three distinct fetched pages", () => {
+    const f = fixture();
+    const latest = f.reactionRow.message;
+    const intervening = {
+      ...latest,
+      id: "77777777-7777-4777-8777-777777777777",
+      sequence: "1",
+    };
+    const oldest = {
+      ...intervening,
+      id: "88888888-8888-4888-8888-888888888888",
+      sequence: "3",
+    };
+    const accumulated = [latest, intervening];
+    // A page beyond the latest page cannot introduce a second occupant at
+    // sequence 2, even when its server ID and ciphertext look well-formed.
+    expect(hasConflictingDirectMessageReplicas([
+      { ...latest, id: "99999999-9999-4999-8999-999999999999" },
+    ], accumulated)).toBe(true);
+    // Nor can an older bootstrap replay silently change the signed identity
+    // of a row already encountered on an earlier backfill page.
+    expect(hasConflictingDirectMessageReplicas([
+      { ...intervening, contentCommitmentB64: "changed" },
+    ], accumulated)).toBe(true);
+    // Exact replays plus additional historical positions are safe to pass
+    // on to normal signature/ratchet verification.
+    expect(hasConflictingDirectMessageReplicas([
+      { ...intervening }, oldest,
+    ], accumulated)).toBe(false);
+  });
+
   it("poisons conflicting server-ID replicas delivered together in the same encrypted page", async () => {
     const f = fixture();
     const original = { ...f.reactionRow, needsBootstrap: false };
