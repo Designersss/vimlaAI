@@ -55,6 +55,34 @@ function reference(message: DirectMessageView): DirectReplyReference {
   };
 }
 
+const MAX_CONCURRENT_PROTECTED_READS = 8;
+
+/**
+ * IndexedDB and native secure stores are local, potentially expensive
+ * resources. Read a page in bounded parallel batches, not one individual
+ * crypto-store transaction per sequential event and not an unbounded
+ * Promise.all over the lifetime of a chat.
+ *
+ * Only a verified cache row is usable below; batching does not change
+ * provenance, signature or fail-closed requirements. Any read rejection
+ * rejects the projection and hides the entire derived UI state.
+ */
+async function readCachedPlaintexts(
+  ids: readonly string[],
+  read: (messageId: string) => Promise<CachedDirectReactionPlaintext | null>,
+): Promise<Map<string, CachedDirectReactionPlaintext | null>> {
+  const cached = new Map<string, CachedDirectReactionPlaintext | null>();
+  const unique = [...new Set(ids)];
+  for (let offset = 0; offset < unique.length; offset += MAX_CONCURRENT_PROTECTED_READS) {
+    const chunk = unique.slice(offset, offset + MAX_CONCURRENT_PROTECTED_READS);
+    const resolved = await Promise.all(
+      chunk.map(async (id) => [id, await read(id)] as const),
+    );
+    for (const [id, value] of resolved) cached.set(id, value);
+  }
+  return cached;
+}
+
 /**
  * Platform-independent E2EE reaction projection, with cache access injected
  * by Web/Desktop/Mobile. All rows must form a contiguous, causally ordered
@@ -115,10 +143,16 @@ export async function projectVerifiedDirectReactions(
     expected -= 1n;
   }
 
-  for (const row of rows) {
-    if (row.message.kind !== "HUMAN" || row.payload?.type !== "human" ||
-        !contiguous.has(row.message.id)) continue;
-    const cached = await readPlaintext(row.message.id);
+  const humanSourceRows = rows.filter((row) =>
+    row.message.kind === "HUMAN" && row.payload?.type === "human" &&
+    contiguous.has(row.message.id),
+  );
+  const cachedSources = await readCachedPlaintexts(
+    humanSourceRows.map((row) => row.message.id),
+    readPlaintext,
+  );
+  for (const row of humanSourceRows) {
+    const cached = cachedSources.get(row.message.id) ?? null;
     if (!cachedMatches(cached, row.message)) continue;
     const authenticated = decodeDirectHumanPayload(
       cached.text, row.message.clientMessageId,
@@ -136,8 +170,20 @@ export async function projectVerifiedDirectReactions(
     eligibleMessageIds.add(row.message.id);
   }
 
-  for (const row of rows) {
-    if (row.message.kind !== "REACTION") continue;
+  // Only controls whose signed opaque tag matches a locally verified
+  // original need to open their protected plaintext cache record.
+  const targetedReactions = rows.filter((row) =>
+    row.message.kind === "REACTION" &&
+    !!row.message.reactionTargetTagB64 &&
+    sourceByTag.has(row.message.reactionTargetTagB64),
+  );
+  const cachedEvents = await readCachedPlaintexts(
+    targetedReactions
+      .filter((row) => contiguous.has(row.message.id))
+      .map((row) => row.message.id),
+    readPlaintext,
+  );
+  for (const row of targetedReactions) {
     const tag = row.message.reactionTargetTagB64;
     const source = tag ? sourceByTag.get(tag) : undefined;
     if (!source) continue;
@@ -148,7 +194,7 @@ export async function projectVerifiedDirectReactions(
       unavailableMessageIds.add(source.messageId);
       continue;
     }
-    const cached = await readPlaintext(row.message.id);
+    const cached = cachedEvents.get(row.message.id) ?? null;
     if (!cachedMatches(cached, row.message)) {
       unavailableMessageIds.add(source.messageId);
       continue;
