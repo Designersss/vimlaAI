@@ -314,6 +314,18 @@ regression tests cover these boundaries.
 Replica equality is a conflict detector, not a replacement for E2EE
 signature or commitment verification.
 
+Sparse-index pagination follow-up (October 9): the client-core
+response validator now requires every nonterminal cursor to be the
+canonical URL-safe base64 of `s1:<last returned sequence>`, exactly matching
+the API's current versioned pagination codec. This prevents a server-supplied
+cursor from silently skipping or rewinding within a single result page;
+malformed and oversized sequence strings are rejected before BigInt
+parsing. The source HUMAN sequence still never leaves the client.
+**This is page-boundary consistency only**: an authorized or compromised
+server could still omit matching events, and a sparse index is never a
+cryptographic completeness proof or independent ratchet replay. The
+metadata and historical reconstruction gates remain open.
+
 Cold-start/bootstrap follow-up after CI #37951445603 (October 9):
 the initial recent encrypted page may be opened before discovering that an
 older X3DH initial envelope is needed. When fetching any older bootstrap
