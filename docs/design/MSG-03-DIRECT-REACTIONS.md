@@ -229,6 +229,36 @@ messages from control events. The common Direct message history cannot
 simply filter reaction envelopes out: that can break Double Ratchet
 message-number progression and offline/reconnect decryption.
 
+### Bounded indexed ciphertext discovery (implemented; not a history proof)
+
+`GET /v1/direct-chats/:id/reactions` is an actor-scoped read-only
+projection of the PostgreSQL `(conversationId, reactionTargetTagB64, sequence)`
+index. Input requires an authenticated local device ID, the *opaque HMAC
+tag derived from a previously verified HUMAN source*, and a canonical
+exclusive `afterSequence` (the source's authoritative DB sequence).
+An optional opaque causal cursor pages older matches. Each SQL request
+fetches no more than **51** indexed rows, returns at most **50** and never
+scans the whole conversation. A separate Redis-backed per-user GET budget
+caps the metadata-probe rate at min(30, configured preflight/minute).
+The member-conversation and active actor-device checks run before index
+access; outsider, foreign-device and revoked-device queries fail closed.
+The response contains only ordinary encrypted `DirectMessageView` rows
+and device-scoped envelopes; it does **not** disclose emoji/action,
+create server-side counts, or treat an arbitrary supplied tag as source
+authority. The endpoint does not rewrite unread/inbox/activity state.
+
+**This is a discovery primitive, not a released reaction recovery flow.**
+A matching encrypted event may require an older Double Ratchet chain key,
+and the device may never have received its envelope. The cursor's
+exhaustion proves only index-response completion under the authoritative
+server; it is NOT cryptographic proof of message completeness or a
+validated aggregate. Never concatenate these sparse matches into the
+existing verified projector, skip intermediate encrypted messages, or
+display counts based only on the indexed response. Successful decryption
+requires a reviewed bounded chronological recovery proof or authenticated
+checkpoint design. A malicious server can still withhold index results;
+the threat model cannot claim otherwise.
+
 A target-index query alone is **not proof that the recipient can decrypt
 an arbitrary old reaction envelope**: recipient ratchet state may need
 preceding envelopes, especially on a new device. The server design must
