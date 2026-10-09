@@ -82,6 +82,7 @@ import {
   directReplyReference,
   createDirectHumanMessage,
   createDirectReaction,
+  advanceDirectHistoryHead,
   cachedDirectPlaintextMatchesMessage,
   DIRECT_REACTION_EMOJIS,
   resolveDirectReplySource,
@@ -1038,7 +1039,19 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         mentions,
         ...options,
       });
-      setConversation(result.latest);
+      // The detail was fetched before this send committed; replacing the
+      // current detail would roll the authoritative head backwards and
+      // temporarily hide freshly committed E2EE reactions. Keep existing
+      // membership/privacy metadata and acknowledge the DB-assigned sequence.
+      setConversation((current) => {
+        const base = current?.id === conversationId ? current : result.latest;
+        return {
+          ...base,
+          lastMessageSequence: advanceDirectHistoryHead(
+            base.lastMessageSequence, result.message.sequence,
+          ),
+        };
+      });
       updateRows((current) =>
         mergeDecryptedRows(current, [
           {
