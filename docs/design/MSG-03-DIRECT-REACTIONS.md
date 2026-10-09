@@ -246,6 +246,17 @@ encryption cache. Missing sequence ranges suppress the derived state
 until the authoritative interval is replayed; this does not substitute
 for a bounded cold-start recovery policy.
 
+Post-green audit: realtime gap reconciliation now has an explicit
+16-page cap; a stale or maliciously distant event hint aborts BEFORE
+decrypting an incomplete page interval. This avoids an unbounded
+whole-conversation backfill, but cannot guarantee recovery of events
+older than the cap. A future bounded checkpoint/reconstruction protocol
+must provide a supported recovery path. The portable projector also
+rejects conflicting metadata for the same server message ID, rather
+than relying on last-wins deduplication; exact replays remain valid.
+Protected plaintext cache reads are batched to at most eight concurrent
+operations and an I/O failure still rejects the entire projection.
+
 History pagination is now ordered and cursor-scoped by the authoritative
 conversation `sequence`, not `createdAt`/UUID: timestamp-order divergence
 under concurrent insert transactions can violate Double Ratchet replay
