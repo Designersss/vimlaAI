@@ -81,7 +81,7 @@ import {
   prepareDirectChatContext,
   shouldContinueDeepHistoryBootstrap,
   assertDirectHistoryCatchupBudget,
-  assertDirectHistoryGapComplete,
+  inspectDirectHistoryGap,
   directReplyReference,
   createDirectHumanMessage,
   createDirectReaction,
@@ -2328,10 +2328,12 @@ async function fetchDecryptedGap(
     cursor = page.nextCursor;
   }
 
-  // Reject an early terminal page, a withheld hinted event, sequence holes,
-  // same-sequence equivocation, and stale server-head metadata BEFORE any
-  // protected plaintext cache read or cryptographic state mutation.
-  const anchor = assertDirectHistoryGapComplete({
+  // Validate immutable ID/sequence metadata before any Double Ratchet
+  // operation. Missing earlier events and stale API snapshots are normal
+  // offline/realtime races: the ratchet supports skipped keys. Preserve
+  // ordinary signed HUMAN messages, while the reaction projector separately
+  // refuses counts from noncontiguous history.
+  const inspection = inspectDirectHistoryGap({
     conversationId: detail.id,
     advertisedHeadSequence: detail.lastMessageSequence,
     fetchedMessages,
@@ -2339,7 +2341,8 @@ async function fetchDecryptedGap(
     requiredMessageIds: requestedUnknownIds,
   });
   const incoming = fetchedMessages.filter((message) =>
-    BigInt(message.sequence) > anchor && !knownIds.has(message.id),
+    !knownIds.has(message.id) &&
+    (!inspection.complete || BigInt(message.sequence) > inspection.anchor),
   );
   if (incoming.length === 0) return [];
   return (await decryptPage(detail, incoming)).reverse();
