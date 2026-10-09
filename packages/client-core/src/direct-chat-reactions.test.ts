@@ -90,6 +90,51 @@ describe("portable Direct reactions crypto and provenance", () => {
     )).toBe(add.targetTagB64);
   });
 
+  it("scopes stable server-visible tag equality to one authenticated HUMAN source and conversation", () => {
+    const { human, source } = fixture();
+    const target = {
+      clientMessageId: human.clientMessageId,
+      contentCommitmentB64: human.contentCommitmentB64,
+      senderUserId: originalUserId,
+      senderDeviceId: originalDeviceId,
+    };
+    const knownTag = directReactionTargetTag(human.plaintext, target, conversationId);
+    expect(knownTag).toMatch(/^[A-Za-z0-9+/]{43}=$/);
+    // Same original yields equal routing tags by DESIGN: the service can
+    // link reactions targeting it. The signed event commitment, on the
+    // other hand, must remain fresh for each add/remove control.
+    const add = createDirectReaction("add", "👍", source, human.plaintext, conversationId);
+    const remove = createDirectReaction("remove", "👍", source, human.plaintext, conversationId);
+    expect(add.targetTagB64).toBe(knownTag);
+    expect(remove.targetTagB64).toBe(knownTag);
+    expect(add.contentCommitmentB64).not.toBe(remove.contentCommitmentB64);
+
+    // The SAME plaintext binding secret and canonical source reference
+    // cannot be linked by comparing tags across conversations or references.
+    expect(directReactionTargetTag(
+      human.plaintext, target, "11111111-1111-4111-8111-111111111111",
+    )).not.toBe(knownTag);
+    expect(directReactionTargetTag(human.plaintext, {
+      ...target, senderDeviceId: "33333333-3333-4333-8333-333333333333",
+    }, conversationId)).not.toBe(knownTag);
+
+    // Two encrypted HUMAN messages with the same displayed text generate
+    // independent source keys/commitments; neither the emoji nor text
+    // yields a dictionary-searchable target tag.
+    const secondHuman = createDirectHumanMessage({ type: "human", text: "Original signed source" });
+    const secondSource = {
+      ...source,
+      message: {
+        ...source.message,
+        clientMessageId: secondHuman.clientMessageId,
+        contentCommitmentB64: secondHuman.contentCommitmentB64,
+      },
+    };
+    expect(createDirectReaction(
+      "add", "👍", secondSource, secondHuman.plaintext, conversationId,
+    ).targetTagB64).not.toBe(knownTag);
+  });
+
   it("rejects author, chat, kind, commitment, source and tag substitution", () => {
     const { human, source } = fixture();
     const event = createDirectReaction("add", "❤️", source, human.plaintext, conversationId);
