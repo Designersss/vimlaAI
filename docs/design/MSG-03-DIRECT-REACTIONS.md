@@ -255,9 +255,13 @@ must provide a supported recovery path. The portable projector and the Web decry
 reject conflicting metadata for the same server message ID, rather
 than relying on last-wins deduplication; exact replays remain valid.
 A Web conflict poisons the affected local row and suppresses reaction
-aggregates until the conversation is safely reconstructed. Replica
-equality is a conflict detector, not a replacement for E2EE signature or
-commitment verification.
+aggregates until the conversation is safely reconstructed. The initial
+decrypted page and every later X3DH/pagination page now preserve every
+server-provided replica **until** that shared conflict-aware merge runs;
+a preliminary map keyed by server message ID would incorrectly erase
+same-page equivocation. Duplicate-message regression tests cover the
+same-page merge. Replica equality is a conflict detector, not a replacement
+for E2EE signature or commitment verification.
 Protected plaintext cache reads are batched to at most eight concurrent
 operations and an I/O failure still rejects the entire projection.
 
