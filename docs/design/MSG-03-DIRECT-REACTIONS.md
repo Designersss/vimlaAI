@@ -313,6 +313,20 @@ Identical wire replays remain valid. Duplicate-message and preflight
 regression tests cover these boundaries.
 Replica equality is a conflict detector, not a replacement for E2EE
 signature or commitment verification.
+
+Independent post-green sequence-ownership audit (October 9): PostgreSQL has
+`@@unique([conversationId, sequence])`, but an untrusted Web history response
+could present TWO different server IDs for one conversation/sequence. A
+server-ID fingerprint alone cannot detect that equivocation. The portable
+pre-ratchet replica checker now also detects duplicate sequence ownership
+within a page, against previously observed rows, and across pages before
+decrypting an injected envelope. The independent Web merge poisons both
+ambiguous owners, and the portable reaction projector refuses all aggregates
+from duplicated causal positions. Exact replays of the same server ID
+remain idempotent; identical sequence values in different conversations are
+not conflicts. Delayed/missing sequence values still do NOT block separately
+authenticated HUMAN messages, consistent with skipped-key Double Ratchet
+semantics.
 Protected plaintext cache reads are batched to at most eight concurrent
 operations and an I/O failure still rejects the entire projection.
 
