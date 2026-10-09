@@ -241,6 +241,24 @@ describe("local authenticated E2EE reaction projection", () => {
     ])).toBe(true);
   });
 
+  it("detects relabelled known events before realtime skip and older-page decryption", () => {
+    const f = fixture();
+    const known = f.reactionRow.message;
+    const exactReplay = { ...known, mentions: [...known.mentions] };
+    expect(hasConflictingDirectMessageReplicas([exactReplay], [known])).toBe(false);
+    expect(hasConflictingDirectMessageReplicas([
+      { ...known, sequence: "99" },
+    ], [known])).toBe(true);
+    expect(hasConflictingDirectMessageReplicas([
+      { ...known, reactionTargetTagB64: "different-signed-tag" },
+    ], [known])).toBe(true);
+    // Two different pages can also disagree about one newly observed ID.
+    const firstPage = [{ ...known, id: "new-row-1" }];
+    const laterPage = [{ ...known, id: "new-row-1", contentCommitmentB64: "wrong" }];
+    expect(hasConflictingDirectMessageReplicas(laterPage, firstPage)).toBe(true);
+    expect(hasConflictingDirectMessageReplicas(firstPage, [known])).toBe(false);
+  });
+
   it("poisons conflicting server-ID replicas delivered together in the same encrypted page", async () => {
     const f = fixture();
     const original = { ...f.reactionRow, needsBootstrap: false };
