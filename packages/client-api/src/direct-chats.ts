@@ -138,14 +138,13 @@ export function createDirectChatsClient(
       id: string,
       deviceId: string,
       targetTagB64: string,
-      afterSequence: string,
       cursor?: string,
       options: DirectChatRequestOptions = {},
     ): Promise<DirectReactionEventsResponse> {
       // Read-only POST keeps source-linking opaque tags out of URLs,
       // browser history and routine request-path access logs.
       const body = {
-        deviceId, targetTagB64, afterSequence,
+        deviceId, targetTagB64,
         ...(cursor ? { cursor } : {}),
         limit: 30,
       };
