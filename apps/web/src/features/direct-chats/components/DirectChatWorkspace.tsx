@@ -2223,6 +2223,7 @@ async function fetchDecryptedGap(
 
   const incoming: DirectMessageView[] = [];
   let cursor: string | undefined;
+  let reachedKnown = false;
 
   while (true) {
     const page = await fetchDirectMessages(
@@ -2238,15 +2239,25 @@ async function fetchDecryptedGap(
       const oldestKnownIndex = page.items.findIndex(
         (message) => knownIds.has(message.id),
       );
-      for (const message of page.items) {
-        requiredUnknownIds.delete(message.id);
-      }
+      let lastRequiredIndex = -1;
+      page.items.forEach((message, index) => {
+        if (requiredUnknownIds.delete(message.id)) {
+          lastRequiredIndex = index;
+        }
+      });
+      // A delayed realtime hint may refer to an event *older* than a
+      // known item. Keep the required event as well as any gap before it.
+      const upperBound = requiredUnknownIds.size === 0 &&
+        oldestKnownIndex >= 0
+          ? Math.max(oldestKnownIndex, lastRequiredIndex + 1)
+          : page.items.length;
       incoming.push(
         ...page.items
-          .slice(0, oldestKnownIndex >= 0 ? oldestKnownIndex : undefined)
+          .slice(0, upperBound)
           .filter((message) => !knownIds.has(message.id)),
       );
-      if (requiredUnknownIds.size === 0 && oldestKnownIndex >= 0) {
+      if (oldestKnownIndex >= 0) reachedKnown = true;
+      if (requiredUnknownIds.size === 0 && reachedKnown) {
         break;
       }
     } else {
