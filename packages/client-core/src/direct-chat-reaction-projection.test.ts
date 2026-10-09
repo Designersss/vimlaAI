@@ -180,7 +180,7 @@ describe("local authenticated E2EE reaction projection", () => {
       active += 1;
       peak = Math.max(peak, active);
       accessed.push(id);
-      await new Promise<void>((resolve) => queueMicrotask(resolve));
+      await new Promise<void>((resolve) => queueMicrotask(() => resolve()));
       active -= 1;
       return f.read(id);
     };
