@@ -223,11 +223,14 @@ export class DirectChatsController {
     );
   }
 
-  @Get(":id/reactions")
+  // POST is read-only here: opaque source-correlating tags must never be
+  // copied into URL paths, proxy access logs or browser navigation history.
+  @Post(":id/reactions")
+  @HttpCode(200)
   async reactionEvents(
     @AuthUser() user: AuthenticatedUser,
     @Param("id") id: string,
-    @Query() query: unknown,
+    @Body() query: unknown,
   ): Promise<DirectReactionEventsResponse> {
     this.directChats.assertEnabled();
     const parsed = parseRequest(
