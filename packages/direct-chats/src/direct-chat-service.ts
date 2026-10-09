@@ -309,6 +309,7 @@ export class DirectChatService {
     if (!Number.isSafeInteger(query.limit) ||
         query.limit < 1 || query.limit > DIRECT_REACTION_HISTORY_PAGE_MAX ||
         !/^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$/.test(query.targetTagB64) ||
+        query.afterSequence.length > 19 ||
         !/^(0|[1-9][0-9]*)$/.test(query.afterSequence)) {
       throw new DirectChatError("VALIDATION_ERROR", "Invalid Direct reaction query");
     }
