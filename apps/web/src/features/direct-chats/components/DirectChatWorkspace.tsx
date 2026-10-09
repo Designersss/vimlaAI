@@ -81,6 +81,7 @@ import {
   prepareDirectChatContext,
   shouldContinueDeepHistoryBootstrap,
   assertDirectHistoryCatchupBudget,
+  assertDirectHistoryGapComplete,
   directReplyReference,
   createDirectHumanMessage,
   createDirectReaction,
@@ -2264,44 +2265,38 @@ async function fetchDecryptedGap(
   if (currentRows.length === 0) {
     throw new Error("Initial Direct sync must use bounded head/bootstrap paging");
   }
+  if (currentRows.some((row) => row.integrityConflict)) {
+    throw new Error("Conflicted Direct history must be rebuilt before ratchet replay");
+  }
 
-  const knownIds = new Set(
-    currentRows.map((row) => row.message.id),
-  );
+  const knownIds = new Set(currentRows.map((row) => row.message.id));
   const requiredUnknownIds = new Set(
-    requiredMessageIds.filter(
-      (messageId) => !knownIds.has(messageId),
-    ),
+    requiredMessageIds.filter((messageId) => !knownIds.has(messageId)),
   );
-  // Even a duplicate hint for a known event may be accompanied by earlier
-  // missed events. Fall through to ordinary head-to-known sync instead of
-  // incorrectly declaring the encrypted gap empty.
-  const targetDriven = requiredUnknownIds.size > 0;
+  const requestedUnknownIds = [...requiredUnknownIds];
+  // Even a duplicate hint for a known row can accompany missed newer
+  // events. Always replay head-to-known, never skip the range entirely.
+  const targetDriven = requestedUnknownIds.length > 0;
 
-  const incoming: DirectMessageView[] = [];
-  // Include every already-decrypted row and every paginated response in the
-  // replica preflight. Otherwise a malicious server can relabel a known ID
-  // and have the known-ID filter silently hide that equivocation.
+  // Preserve ALL raw server rows until a complete closed interval has been
+  // checked. In particular, a delayed hint can be older than the first
+  // known message, requiring a second anchor below the hinted event.
+  const fetchedMessages: DirectMessageView[] = [];
   const observedReplicas = currentRows.map((row) => row.message);
+  const seenKnownSequences: bigint[] = [];
+  let oldestRequiredSequence: bigint | null = null;
   let cursor: string | undefined;
-  let reachedKnown = false;
   let fetchedPages = 0;
 
   while (true) {
-    // Fetching the entire conversation as one realtime catch-up is unbounded,
-    // and decrypting only part of a missing ratchet interval is misleading.
-    // Abort before the next page once the finite recovery budget expires.
+    // This page budget bounds metadata work; no partially fetched window
+    // may enter decryptPage or advance an X3DH/Double Ratchet state.
     assertDirectHistoryCatchupBudget(fetchedPages);
     fetchedPages += 1;
-    const page = await fetchDirectMessages(
-      detail.id,
-      deviceId,
-      cursor,
-    );
+    const page = await fetchDirectMessages(detail.id, deviceId, cursor);
     if (hasConflictingDirectMessageReplicas(page.items, observedReplicas)) {
-      // Quarantine BEFORE known-ID filtering and before touching ratchet
-      // state. A conflict also invalidates any previously visible reaction
-      // aggregate; the portable projector refuses all poisoned rows.
+      // Preserve fail-closed poisoning for a server ID that changed its
+      // immutable signed/ciphertext identity across pages or known rows.
       return page.items.map((message) => ({
         message,
         payload: null,
@@ -2310,71 +2305,43 @@ async function fetchDecryptedGap(
       }));
     }
     observedReplicas.push(...page.items);
-
-    if (targetDriven) {
-      // A durable hint proves an event exists, not that all earlier events
-      // reached this browser. Replay the *whole* interval to an already
-      // known row before projecting add/remove reaction state.
-      const oldestKnownIndex = page.items.findIndex(
-        (message) => knownIds.has(message.id),
-      );
-      let lastRequiredIndex = -1;
-      page.items.forEach((message, index) => {
-        if (requiredUnknownIds.delete(message.id)) {
-          lastRequiredIndex = index;
-        }
-      });
-      // A delayed realtime hint may refer to an event *older* than a
-      // known item. Keep the required event as well as any gap before it.
-      const upperBound = requiredUnknownIds.size === 0 &&
-        oldestKnownIndex >= 0
-          ? Math.max(oldestKnownIndex, lastRequiredIndex + 1)
-          : page.items.length;
-      incoming.push(
-        ...page.items
-          .slice(0, upperBound)
-          .filter((message) => !knownIds.has(message.id)),
-      );
-      if (oldestKnownIndex >= 0) reachedKnown = true;
-      if (requiredUnknownIds.size === 0 && reachedKnown) {
-        break;
+    fetchedMessages.push(...page.items);
+    for (const message of page.items) {
+      if (knownIds.has(message.id)) {
+        seenKnownSequences.push(BigInt(message.sequence));
       }
-    } else {
-      let oldestKnownIndex = -1;
-      page.items.forEach((message, index) => {
-        if (knownIds.has(message.id)) {
-          oldestKnownIndex = index;
+      if (requiredUnknownIds.delete(message.id)) {
+        const sequence = BigInt(message.sequence);
+        if (oldestRequiredSequence === null || sequence < oldestRequiredSequence) {
+          oldestRequiredSequence = sequence;
         }
-      });
-      if (oldestKnownIndex >= 0) {
-        incoming.push(
-          ...page.items
-            .slice(0, oldestKnownIndex)
-            .filter(
-              (message) => !knownIds.has(message.id),
-            ),
-        );
-        break;
       }
-      incoming.push(
-        ...page.items.filter(
-          (message) => !knownIds.has(message.id),
-        ),
-      );
     }
 
-    if (!page.nextCursor) {
-      break;
-    }
+    const reachedSafeAnchor = targetDriven
+      ? requiredUnknownIds.size === 0 &&
+        oldestRequiredSequence !== null &&
+        seenKnownSequences.some((sequence) => sequence <= oldestRequiredSequence)
+      : seenKnownSequences.length > 0;
+    if (reachedSafeAnchor || page.nextCursor === null) break;
     cursor = page.nextCursor;
   }
 
-  if (incoming.length === 0) {
-    return [];
-  }
-  return (
-    await decryptPage(detail, incoming)
-  ).reverse();
+  // Reject an early terminal page, a withheld hinted event, sequence holes,
+  // same-sequence equivocation, and stale server-head metadata BEFORE any
+  // protected plaintext cache read or cryptographic state mutation.
+  const anchor = assertDirectHistoryGapComplete({
+    conversationId: detail.id,
+    advertisedHeadSequence: detail.lastMessageSequence,
+    fetchedMessages,
+    knownMessages: currentRows.map((row) => row.message),
+    requiredMessageIds: requestedUnknownIds,
+  });
+  const incoming = fetchedMessages.filter((message) =>
+    BigInt(message.sequence) > anchor && !knownIds.has(message.id),
+  );
+  if (incoming.length === 0) return [];
+  return (await decryptPage(detail, incoming)).reverse();
 }
 
 async function fetchLatestDecryptedPage(
