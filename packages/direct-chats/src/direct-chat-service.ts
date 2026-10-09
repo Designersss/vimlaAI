@@ -1156,10 +1156,7 @@ const conversationInclude = {
   },
   messages: {
     where: { kind: { not: "REACTION" } },
-    orderBy: [
-      { createdAt: "desc" as const },
-      { id: "desc" as const },
-    ],
+    orderBy: [{ sequence: "desc" as const }],
     take: 50,
   },
 } satisfies Prisma.DirectConversationInclude;
