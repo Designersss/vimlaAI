@@ -1,6 +1,7 @@
 import type { DirectMessageView } from "@vimla/contracts";
 import {
   cachedDirectPlaintextMatchesMessage,
+  decodeDirectHumanPayload,
   directReactionTargetTag,
   reduceVerifiedDirectReactions,
   verifyDirectReaction,
@@ -78,6 +79,14 @@ export async function projectDirectReactions(
     if (row.message.kind !== "HUMAN" || row.payload?.type !== "human") continue;
     const stored = await read(row.message.id);
     if (!cachedMatches(stored, row.message)) continue;
+    const sourcePayload = decodeDirectHumanPayload(
+      stored.text, row.message.clientMessageId,
+      row.message.contentCommitmentB64,
+    );
+    if (!sourcePayload ||
+        sourcePayload.text !== row.payload.text ||
+        JSON.stringify(sourcePayload.replyTo ?? null) !==
+          JSON.stringify(row.payload.replyTo ?? null)) continue;
     const tag = directReactionTargetTag(
       stored.text, reference(row.message), row.message.conversationId,
     );
