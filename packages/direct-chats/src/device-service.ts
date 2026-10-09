@@ -2,6 +2,7 @@ import type { CryptoDeviceView, PrekeyBundle, RegisterCryptoDevice, RotatePrekey
 import type { Prisma } from "@vimla/database";
 import { b64ToBytes, verifySignedPreKey } from "@vimla/e2ee";
 import { DirectChatError } from "./errors.js";
+import { lockDirectDeviceRoster } from "./device-roster-lock.js";
 import type { ActorContext, DbClient } from "./types.js";
 
 export class DeviceService {
@@ -29,6 +30,10 @@ export class DeviceService {
         SELECT 1::int AS "locked"
         FROM "device_registration_lock"
       `;
+
+      // Enrolment must serialize with Direct message fan-out. A newly
+      // inserted device has no row for a sender transaction to lock.
+      await lockDirectDeviceRoster(tx, [actor.userId]);
 
       const existing =
         await tx.userCryptoDevice.findUnique({
@@ -138,15 +143,26 @@ export class DeviceService {
   }
 
   async revoke(actor: ActorContext, deviceId: string): Promise<CryptoDeviceView> {
-    const device = await this.requireOwnDevice(actor.userId, deviceId);
-    if (device.revokedAt) {
-      return toDeviceView(device);
-    }
-    const updated = await this.db.userCryptoDevice.update({
-      where: { id: device.id },
-      data: { revokedAt: new Date() },
+    return this.db.$transaction(async (tx) => {
+      // Use the same roster lock as enrolment and Direct message inserts.
+      // This prevents an externally observed device-set mutation from
+      // splitting a signed multi-recipient send transaction.
+      await lockDirectDeviceRoster(tx, [actor.userId]);
+      const device = await tx.userCryptoDevice.findFirst({
+        where: { id: deviceId, userId: actor.userId },
+      });
+      if (!device) {
+        throw new DirectChatError("NOT_FOUND", "Device was not found");
+      }
+      if (device.revokedAt) {
+        return toDeviceView(device);
+      }
+      const updated = await tx.userCryptoDevice.update({
+        where: { id: device.id },
+        data: { revokedAt: new Date() },
+      });
+      return toDeviceView(updated);
     });
-    return toDeviceView(updated);
   }
 
   async requireOwnActiveDevice(userId: string, deviceId: string) {
