@@ -15,6 +15,7 @@ import type {
   UpdateDirectChatPrivacy,
 } from "@vimla/contracts";
 import { DirectChatsApiError } from "@vimla/client-api";
+import { validateDirectReactionLookupPage } from "@vimla/client-core";
 import { createWebClientApi } from "../../../shared/api/client";
 import { clearLocalE2eeData } from "./crypto-store";
 import { markLocalDeviceRevoked } from "./revocation-state";
@@ -115,10 +116,13 @@ export async function fetchDirectReactionEvents(
   fetchImpl: typeof fetch = fetch,
 ): Promise<DirectReactionEventsResponse> {
   try {
-    return await createWebClientApi(fetchImpl).directChats.fetchDirectReactionEvents(
+    const page = await createWebClientApi(fetchImpl).directChats.fetchDirectReactionEvents(
       id, deviceId, targetTagB64, afterSequence, cursor,
       { signal: timeoutSignal() },
     );
+    return validateDirectReactionLookupPage(page, {
+      conversationId: id, deviceId, targetTagB64, afterSequence, limit: 30,
+    });
   } catch (error: unknown) {
     return wipeAfterCurrentDeviceRevocation(error);
   }
