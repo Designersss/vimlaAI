@@ -6,7 +6,7 @@ export {
   type PreparedDirectChatContext,
 } from "./direct-chat-context.js";
 export { advanceDirectHistoryHead, reconcileDirectHistoryHead, applyDirectPrivacyAcknowledgement } from "./direct-chat-history-head.js";
-export { directMessageReplicaFingerprint, sameDirectMessageReplica, mergeDirectMessageReplicaRows, type DirectMessageReplicaRow } from "./direct-chat-message-replica.js";
+export { directMessageReplicaFingerprint, sameDirectMessageReplica, hasConflictingDirectMessageReplicas, mergeDirectMessageReplicaRows, type DirectMessageReplicaRow } from "./direct-chat-message-replica.js";
 export {
   DIRECT_HISTORY_CATCHUP_MAX_PAGES,
   assertDirectHistoryCatchupBudget,
