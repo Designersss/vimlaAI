@@ -142,17 +142,17 @@ export function createDirectChatsClient(
       cursor?: string,
       options: DirectChatRequestOptions = {},
     ): Promise<DirectReactionEventsResponse> {
-      const query = queryString([
-        ["deviceId", deviceId],
-        ["targetTagB64", targetTagB64],
-        ["afterSequence", afterSequence],
-        ["limit", 30],
-        ["cursor", cursor],
-      ]);
+      // Read-only POST keeps source-linking opaque tags out of URLs,
+      // browser history and routine request-path access logs.
+      const body = {
+        deviceId, targetTagB64, afterSequence,
+        ...(cursor ? { cursor } : {}),
+        limit: 30,
+      };
       return transport.request(
-        `/v1/direct-chats/${encodeURIComponent(id)}/reactions${query}`,
+        `/v1/direct-chats/${encodeURIComponent(id)}/reactions`,
         {
-          init: signalInit(options.signal),
+          init: jsonRequestInit("POST", body, options.signal),
           parse: (payload) =>
             directReactionEventsResponseSchema.parse(payload),
           errorFactory,
