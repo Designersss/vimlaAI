@@ -348,6 +348,47 @@ represent the current check as a proof of inclusion for arbitrary
 simultaneous brand-new devices. Bounded historical Double Ratchet
 reconstruction and event compaction are likewise still open.
 
+### Complete device-roster serialization and revocation-aware reads (October 9)
+
+A PostgreSQL row lock on *existing* crypto devices cannot serialize a
+brand-new device registration: no row exists to lock. Direct send,
+registration and revocation now share **transaction-scoped per-user
+advisory roster locks**, acquired in lexical user order after the
+Direct trust-pair lock and held through the signed envelope insertion.
+Registration keeps its independent stable device-ID advisory guard
+against simultaneous first inserts. Revocation obtains its owner's
+roster lock before re-reading and updating the device row. The signed
+fan-out is recomputed against the active device list under the roster
+locks; the lock makes a newly inserted device unable to appear after
+this snapshot but before the send commits. New sends reject a stale
+encrypted recipient set instead of silently omitting a newly enrolled
+device. Idempotent *previously committed* message replays still use the
+original delivery set, regardless of later enrolment or peer block, but
+a revoked original sender device is never authorized to replay.
+
+The same post-revocation authorization gate now protects Direct
+message page reads, sparse opaque-tag reaction index reads and
+original-sender committed-message lookup: `FOR SHARE` on the caller's
+device row is held from active-device check until the corresponding
+encrypted DB rows are read. A concurrent revoke either waits for this
+authorized read to finish or commits first and the read fails. The
+locks do **not** reveal E2EE plaintext, event emoji or source IDs to
+the API.
+
+Real-PostgreSQL integration tests exercise both stale pre-signed
+REACTION fan-out scenarios: recipient revocation wins, or a new crypto
+device enrols while the send waits on the trust-pair lock. Both must
+reject the pending send and leave no partial encrypted reaction event.
+
+This closes the previously documented missing-new-device-row
+*registration-vs-send* gap for call paths using this roster coordinator.
+Prekey rotation and initial OTK consumption do not alter active
+membership and are not a fan-out roster mutation. Lock/DB performance,
+unrelated alternate device-registration paths and the full
+multi-device/outbox retry matrix remain part of the independent
+production readiness audit. None of these measures provides
+historical Double Ratchet recovery or a safe reaction compaction proof.
+
 ### Bounded indexed ciphertext discovery (implemented; not a history proof)
 
 `POST /v1/direct-chats/:id/reactions` is an actor-scoped **read-only**
