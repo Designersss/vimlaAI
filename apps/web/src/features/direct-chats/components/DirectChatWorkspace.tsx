@@ -87,7 +87,7 @@ import {
   advanceDirectHistoryHead,
   reconcileDirectHistoryHead,
   applyDirectPrivacyAcknowledgement,
-  sameDirectMessageReplica,
+  mergeDirectMessageReplicaRows,
   cachedDirectPlaintextMatchesMessage,
   DIRECT_REACTION_EMOJIS,
   resolveDirectReplySource,
@@ -190,26 +190,7 @@ function upsertComposerMention(current: ComposerMention[], mention: ComposerMent
 }
 
 function mergeDecryptedRows(current: DecryptedRow[], incoming: DecryptedRow[]): DecryptedRow[] {
-  const byId = new Map(current.map((row) => [row.message.id, row]));
-  for (const row of incoming) {
-    const previous = byId.get(row.message.id);
-    if (previous?.integrityConflict) continue;
-    if (previous && !sameDirectMessageReplica(previous.message, row.message)) {
-      // Realtime and pagination are allowed to repeat immutable events,
-      // never to overwrite one sender-signed event with a different
-      // ciphertext/metadata under the same server ID. Preserve a poisoned
-      // sentinel across later replays and disable the reaction projection.
-      byId.set(row.message.id, {
-        ...previous, payload: null, needsBootstrap: false, integrityConflict: true,
-      });
-      continue;
-    }
-    byId.set(row.message.id, row);
-  }
-  return [...byId.values()].sort((left, right) =>
-    BigInt(left.message.sequence) < BigInt(right.message.sequence) ? -1 :
-    BigInt(left.message.sequence) > BigInt(right.message.sequence) ? 1 : 0,
-  );
+  return mergeDirectMessageReplicaRows(current, incoming);
 }
 
 export function DirectChatWorkspace({ conversationId }: { conversationId: string }): ReactElement {
@@ -1383,9 +1364,9 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
             ...rows.map((row) => row.message),
           ],
         );
-        updateRows(
-          mergeDecryptedRows([], decrypted),
-        );
+        // A ratchet bootstrap may recover previously undecryptable records,
+        // but must NEVER erase an earlier cross-page equivocation sentinel.
+        updateRows((current) => mergeDecryptedRows(current, decrypted));
       } else {
         const decrypted = await decryptPage(
           conversation,
