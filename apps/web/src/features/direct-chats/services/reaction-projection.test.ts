@@ -81,8 +81,10 @@ describe("local authenticated E2EE reaction projection", () => {
   it("fails closed on a signed tag mismatch or undecryptable control event", async () => {
     const f = fixture();
     const row = f.reactionRow.message;
+    const cachedReaction = f.cache.get(row.id);
+    if (!cachedReaction) throw new Error("Missing fixture");
     f.cache.set(row.id, {
-      ...stored(row, f.cache.get(row.id)!.text),
+      ...stored(row, cachedReaction.text),
       reactionTargetTagB64: null,
     });
     const unavailable = await projectDirectReactions([f.sourceRow, f.reactionRow], f.read);
