@@ -314,6 +314,23 @@ regression tests cover these boundaries.
 Replica equality is a conflict detector, not a replacement for E2EE
 signature or commitment verification.
 
+Cold-start/bootstrap follow-up after CI #37951445603 (October 9):
+the initial recent encrypted page may be opened before discovering that an
+older X3DH initial envelope is needed. When fetching any older bootstrap
+page, Web now compares its full immutable signed-envelope replica metadata
+and conversation sequence ownership against **all previously fetched pages**
+before attempting the second chronological Double Ratchet replay. An
+equivocating older page quarantines all initially selected visible rows
+rather than projecting previously cached plaintext as if history were
+unambiguous. Portable regressions cover multi-page signed-ID alteration,
+duplicate position under a fresh ID, and harmless exact replay.
+
+This is intentionally a narrow fail-closed improvement; it does **not**
+retroactively undo the first authenticated ratchet pass, provide a trusted
+history-completeness witness, or implement bounded cold-start checkpoints.
+Historical reaction counts remain unavailable when their full signed
+head-to-original interval cannot be reconstructed.
+
 Independent post-green sequence-ownership audit (October 9): PostgreSQL has
 `@@unique([conversationId, sequence])`, but an untrusted Web history response
 could present TWO different server IDs for one conversation/sequence. A
