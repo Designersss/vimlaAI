@@ -231,12 +231,12 @@ message-number progression and offline/reconnect decryption.
 
 ### Bounded indexed ciphertext discovery (implemented; not a history proof)
 
-`GET /v1/direct-chats/:id/reactions` is an actor-scoped read-only
+`POST /v1/direct-chats/:id/reactions` is an actor-scoped **read-only**
 projection of the PostgreSQL `(conversationId, reactionTargetTagB64, sequence)`
 index. Input requires an authenticated local device ID, the *opaque HMAC
 tag derived from a previously verified HUMAN source*, and a canonical
 exclusive `afterSequence` (the source's authoritative DB sequence).
-An optional opaque causal cursor pages older matches. Each SQL request
+The opaque tag, device ID and sequence bounds are sent in a strictly validated JSON **request body** (not a query string that could leak source interest via URL access logs or browser history). An optional opaque causal cursor pages older matches. Each SQL request
 fetches no more than **51** indexed rows, returns at most **50** and never
 scans the whole conversation. A separate Redis-backed per-user GET budget
 caps the metadata-probe rate at min(30, configured preflight/minute).
