@@ -269,26 +269,28 @@ export class DirectChatService {
     query: { limit: number; cursor?: string; deviceId: string },
   ): Promise<{ items: DirectMessageView[]; nextCursor: string | null }> {
     await this.requireMemberConversation(actor.userId, conversationId);
-    await this.requireActiveDevice(actor.userId, query.deviceId);
     const cursor = decodeCursor(query.cursor);
-    const rows = await this.db.directMessage.findMany({
-      where: {
-        conversationId,
-        ...(cursor !== null
-          ? { sequence: { lt: cursor } }
-          : {}),
-      },
-      include: { envelopes: { where: { recipientDeviceId: query.deviceId } } },
-      orderBy: [{ sequence: "desc" }],
-      take: query.limit + 1,
+    return this.db.$transaction(async (tx) => {
+      // A revoked device must not race authorization of this ciphertext
+      // history page between the device check and the final DB read.
+      await this.requireLockedActiveDevice(tx, actor.userId, query.deviceId);
+      const rows = await tx.directMessage.findMany({
+        where: {
+          conversationId,
+          ...(cursor !== null ? { sequence: { lt: cursor } } : {}),
+        },
+        include: { envelopes: { where: { recipientDeviceId: query.deviceId } } },
+        orderBy: [{ sequence: "desc" }],
+        take: query.limit + 1,
+      });
+      const page = rows.slice(0, query.limit);
+      const last = page.at(-1);
+      const mentions = await this.readMentionMap(page.map((row) => row.id), tx);
+      return {
+        items: page.map((row) => toMessageView(row, query.deviceId, mentions.get(row.id) ?? [])),
+        nextCursor: rows.length > query.limit && last ? encodeCursor(last.sequence) : null,
+      };
     });
-    const page = rows.slice(0, query.limit);
-    const last = page.at(-1);
-    const mentions = await this.readMentionMap(page.map((row) => row.id));
-    return {
-      items: page.map((row) => toMessageView(row, query.deviceId, mentions.get(row.id) ?? [])),
-      nextCursor: rows.length > query.limit && last ? encodeCursor(last.sequence) : null,
-    };
   }
 
   /**
@@ -306,7 +308,6 @@ export class DirectChatService {
     query: ListDirectReactionEventsQuery,
   ): Promise<DirectReactionEventsResponse> {
     await this.requireMemberConversation(actor.userId, conversationId);
-    await this.requireActiveDevice(actor.userId, query.deviceId);
     if (!Number.isSafeInteger(query.limit) ||
         query.limit < 1 || query.limit > DIRECT_REACTION_HISTORY_PAGE_MAX ||
         !/^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$/.test(query.targetTagB64) ||
@@ -316,27 +317,32 @@ export class DirectChatService {
     // Never receive the exact HUMAN source sequence here: that would link
     // this nominally opaque tag to a specific original in server metadata.
     const before = decodeCursor(query.cursor);
-    const rows = await this.db.directMessage.findMany({
-      where: {
-        conversationId,
-        kind: "REACTION",
-        reactionTargetTagB64: query.targetTagB64,
-        ...(before !== null ? { sequence: { lt: before } } : {}),
-      },
-      include: {
-        envelopes: { where: { recipientDeviceId: query.deviceId } },
-      },
-      orderBy: [{ sequence: "desc" }],
-      take: query.limit + 1,
+    return this.db.$transaction(async (tx) => {
+      // The opaque equality tag and encrypted control metadata are still
+      // privileged device-scoped history: revoke-vs-read must linearize.
+      await this.requireLockedActiveDevice(tx, actor.userId, query.deviceId);
+      const rows = await tx.directMessage.findMany({
+        where: {
+          conversationId,
+          kind: "REACTION",
+          reactionTargetTagB64: query.targetTagB64,
+          ...(before !== null ? { sequence: { lt: before } } : {}),
+        },
+        include: {
+          envelopes: { where: { recipientDeviceId: query.deviceId } },
+        },
+        orderBy: [{ sequence: "desc" }],
+        take: query.limit + 1,
+      });
+      const page = rows.slice(0, query.limit);
+      const last = page.at(-1);
+      return {
+        items: page.map((row) => toMessageView(row, query.deviceId, [])),
+        nextCursor: rows.length > query.limit && last
+          ? encodeCursor(last.sequence)
+          : null,
+      };
     });
-    const page = rows.slice(0, query.limit);
-    const last = page.at(-1);
-    return {
-      items: page.map((row) => toMessageView(row, query.deviceId, [])),
-      nextCursor: rows.length > query.limit && last
-        ? encodeCursor(last.sequence)
-        : null,
-    };
   }
 
   /**
@@ -351,28 +357,30 @@ export class DirectChatService {
     clientMessageId: string,
   ): Promise<DirectMessageView | null> {
     await this.requireMemberConversation(actor.userId, conversationId);
-    await this.requireActiveDevice(actor.userId, senderDeviceId);
-    const row = await this.db.directMessage.findUnique({
-      where: {
-        conversationId_senderUserId_clientMessageId: {
-          conversationId,
-          senderUserId: actor.userId,
-          clientMessageId,
+    return this.db.$transaction(async (tx) => {
+      await this.requireLockedActiveDevice(tx, actor.userId, senderDeviceId);
+      const row = await tx.directMessage.findUnique({
+        where: {
+          conversationId_senderUserId_clientMessageId: {
+            conversationId,
+            senderUserId: actor.userId,
+            clientMessageId,
+          },
         },
-      },
-      include: {
-        envelopes: { where: { recipientDeviceId: senderDeviceId } },
-      },
+        include: {
+          envelopes: { where: { recipientDeviceId: senderDeviceId } },
+        },
+      });
+      if (!row) return null;
+      if (row.senderDeviceId !== senderDeviceId) {
+        throw new DirectChatError(
+          "CONFLICT",
+          "Client message id belongs to a different sender device",
+        );
+      }
+      const mentions = await this.readMentionMap([row.id], tx);
+      return toMessageView(row, senderDeviceId, mentions.get(row.id) ?? []);
     });
-    if (!row) return null;
-    if (row.senderDeviceId !== senderDeviceId) {
-      throw new DirectChatError(
-        "CONFLICT",
-        "Client message id belongs to a different sender device",
-      );
-    }
-    const mentions = await this.readMentionMap([row.id]);
-    return toMessageView(row, senderDeviceId, mentions.get(row.id) ?? []);
   }
 
   async prepareSend(
@@ -972,12 +980,12 @@ export class DirectChatService {
     input: SendDirectMessage,
   ): Promise<DirectMessageView | null> {
     return this.db.$transaction(async (tx) => {
-      await this.requireLockedActiveSender(tx, userId, input.senderDeviceId);
+      await this.requireLockedActiveDevice(tx, userId, input.senderDeviceId);
       return this.findExactReplay(userId, conversationId, input, tx);
     });
   }
 
-  private async requireLockedActiveSender(
+  private async requireLockedActiveDevice(
     tx: Prisma.TransactionClient,
     userId: string,
     deviceId: string,
