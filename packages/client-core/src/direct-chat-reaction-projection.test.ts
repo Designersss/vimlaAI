@@ -71,7 +71,7 @@ function fixture() {
 describe("local authenticated E2EE reaction projection", () => {
   it("projects the decrypted reaction on an authenticated HUMAN original", async () => {
     const f = fixture();
-    const result = await projectVerifiedDirectReactions([f.reactionRow, f.sourceRow], f.read);
+    const result = await projectVerifiedDirectReactions([f.reactionRow, f.sourceRow], f.read, "2");
     expect(result.eligibleMessageIds.has(f.sourceRow.message.id)).toBe(true);
     expect(result.unavailableMessageIds.size).toBe(0);
     expect(result.states).toMatchObject([
@@ -88,11 +88,11 @@ describe("local authenticated E2EE reaction projection", () => {
       ...stored(row, cachedReaction.text),
       reactionTargetTagB64: null,
     });
-    const unavailable = await projectVerifiedDirectReactions([f.sourceRow, f.reactionRow], f.read);
+    const unavailable = await projectVerifiedDirectReactions([f.sourceRow, f.reactionRow], f.read, "2");
     expect(unavailable.states).toEqual([]);
     expect(unavailable.unavailableMessageIds.has(f.sourceRow.message.id)).toBe(true);
     f.cache.delete(row.id);
-    const missing = await projectVerifiedDirectReactions([f.sourceRow, f.reactionRow], f.read);
+    const missing = await projectVerifiedDirectReactions([f.sourceRow, f.reactionRow], f.read, "2");
     expect(missing.unavailableMessageIds.has(f.sourceRow.message.id)).toBe(true);
   });
 
@@ -111,7 +111,7 @@ describe("local authenticated E2EE reaction projection", () => {
     const removal: ReactionProjectionRow = { message: messageRow, payload: null };
     f.cache.set(messageRow.id, stored(messageRow, removed.plaintext));
     const projection = await projectVerifiedDirectReactions(
-      [removal, f.sourceRow, f.reactionRow, removal], f.read,
+      [removal, f.sourceRow, f.reactionRow, removal], f.read, "3",
     );
     expect(projection.unavailableMessageIds.size).toBe(0);
     expect(projection.states).toMatchObject([
@@ -124,12 +124,43 @@ describe("local authenticated E2EE reaction projection", () => {
     const invalid = await projectVerifiedDirectReactions([
       f.sourceRow,
       { ...f.reactionRow, message: { ...f.reactionRow.message, sequence: "bad" } },
-    ], f.read);
+    ], f.read, "2");
     expect(invalid.states).toEqual([]);
-    expect(invalid.unavailableMessageIds.has(f.sourceRow.message.id)).toBe(true);
-    const noSource = await projectVerifiedDirectReactions([f.reactionRow], f.read);
+    expect(invalid.eligibleMessageIds.has(f.sourceRow.message.id)).toBe(false);
+    const noSource = await projectVerifiedDirectReactions([f.reactionRow], f.read, "2");
     expect(noSource.states).toEqual([]);
     expect(noSource.eligibleMessageIds.size).toBe(0);
+  });
+
+  it("hides stale reaction counts until the entire event interval is replayed", async () => {
+    const f = fixture();
+    const omittedLatest = await projectVerifiedDirectReactions(
+      [f.sourceRow, f.reactionRow], f.read, "3",
+    );
+    expect(omittedLatest.states).toEqual([]);
+    expect(omittedLatest.eligibleMessageIds.size).toBe(0);
+
+    const full = await projectVerifiedDirectReactions(
+      [f.sourceRow, f.reactionRow], f.read, "2",
+    );
+    expect(full.states).toMatchObject([{ active: true, latestSequence: 2n }]);
+    const tamperedHead = await projectVerifiedDirectReactions(
+      [f.sourceRow, f.reactionRow], f.read, "not-a-sequence",
+    );
+    expect(tamperedHead.eligibleMessageIds.size).toBe(0);
+  });
+
+  it("hides incomplete internal history gaps instead of displaying false zero", async () => {
+    const f = fixture();
+    const newer = {
+      ...f.reactionRow,
+      message: { ...f.reactionRow.message, id: "77777777-7777-4777-8777-777777777777", sequence: "4" },
+    };
+    const projection = await projectVerifiedDirectReactions(
+      [f.sourceRow, f.reactionRow, newer], f.read, "4",
+    );
+    expect(projection.states).toEqual([]);
+    expect(projection.eligibleMessageIds.size).toBe(0);
   });
 
   it("never projects an unauthenticated source or accidentally turns a reaction into HUMAN text", async () => {
@@ -138,7 +169,7 @@ describe("local authenticated E2EE reaction projection", () => {
       ...f.sourceRow,
       payload: { type: "human", text: "tampered content" },
     };
-    const result = await projectVerifiedDirectReactions([fake, f.reactionRow], f.read);
+    const result = await projectVerifiedDirectReactions([fake, f.reactionRow], f.read, "2");
     expect(result.states).toEqual([]);
   });
 });
