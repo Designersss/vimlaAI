@@ -41,8 +41,16 @@ export function sameDirectMessageReplica(a: DirectMessageView, b: DirectMessageV
  */
 export function hasConflictingDirectMessageReplicas(
   messages: readonly DirectMessageView[],
+  priorMessages: readonly DirectMessageView[] = [],
 ): boolean {
-  const byId = new Map<string, string>();
+  // Baseline rows were already accepted by the local surface; no page may
+  // silently replace their immutable sender-signed identity. Include pages
+  // visited earlier in the same catch-up for cross-page equivocation.
+  const byId = new Map(
+    priorMessages.map((message) =>
+      [message.id, directMessageReplicaFingerprint(message)] as const,
+    ),
+  );
   for (const message of messages) {
     const fingerprint = directMessageReplicaFingerprint(message);
     const previous = byId.get(message.id);
