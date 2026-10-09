@@ -339,14 +339,13 @@ simultaneous cross-sends). A dedicated integration race test holds the
 trust-pair lock, revokes the recipient, releases the lock and requires
 that the queued signed REACTION does **not** commit.
 
-**Remaining concurrency boundary:** PostgreSQL row locks cover the
-existing device rows but do not predicate-lock against a brand-new
-device being enrolled *after* the transactional device-set query. Fully
-atomic enrolment versus message fan-out needs shared per-user
-enrolment/write coordination and a separate design review; do not
-represent the current check as a proof of inclusion for arbitrary
-simultaneous brand-new devices. Bounded historical Double Ratchet
-reconstruction and event compaction are likewise still open.
+**Follow-up closure:** Existing-device row locks alone did not
+predicate-lock new device enrolment. The shared/exclusive per-user
+advisory roster lock described below now serializes registration and
+fan-out before a new encrypted event commits; regression tests cover
+the enrolment-win case. Review cross-send concurrency and *all* roster
+mutation call-sites independently before release. Bounded historical
+Double Ratchet reconstruction and event compaction remain open.
 
 ### Complete device-roster serialization and revocation-aware reads (October 9)
 
