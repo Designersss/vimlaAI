@@ -5,6 +5,7 @@ import {
   createDirectReaction,
   decodeDirectHumanPayload,
   projectVerifiedDirectReactions,
+  sameDirectMessageReplica,
   type ReactionProjectionRow,
   type CachedDirectReactionPlaintext,
 } from "./index.js";
@@ -196,6 +197,18 @@ describe("local authenticated E2EE reaction projection", () => {
       { active: true, emoji: "❤️", reactorUserId: bob, latestSequence: 2n },
     ]);
     expect(projection.unavailableMessageIds.size).toBe(0);
+  });
+
+  it("detects changed signed event metadata across independent Web pages before ID deduplication", () => {
+    const f = fixture();
+    const original = f.reactionRow.message;
+    const identical = { ...original, mentions: [...original.mentions] };
+    expect(sameDirectMessageReplica(original, identical)).toBe(true);
+    expect(sameDirectMessageReplica(original, { ...original, sequence: "3" })).toBe(false);
+    expect(sameDirectMessageReplica(original, {
+      ...original, reactionTargetTagB64: "attacker-replaced-tag",
+    })).toBe(false);
+    expect(sameDirectMessageReplica(original, { ...original, id: "other-id" })).toBe(false);
   });
 
   it("rejects server-id equivocation before projecting any authenticated count", async () => {
