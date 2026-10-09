@@ -33,6 +33,28 @@ export function sameDirectMessageReplica(a: DirectMessageView, b: DirectMessageV
 }
 
 /**
+ * Scan untrusted server-provided rows BEFORE E2EE ratchet operations.
+ * Two copies of one server ID with different immutable signed-envelope
+ * metadata cannot safely be decrypted in sequence: the second may move
+ * Double Ratchet state before downstream UI reconciliation notices it.
+ * Exact wire replays are permitted.
+ */
+export function hasConflictingDirectMessageReplicas(
+  messages: readonly DirectMessageView[],
+): boolean {
+  const byId = new Map<string, string>();
+  for (const message of messages) {
+    const fingerprint = directMessageReplicaFingerprint(message);
+    const previous = byId.get(message.id);
+    if (previous !== undefined && previous !== fingerprint) {
+      return true;
+    }
+    byId.set(message.id, fingerprint);
+  }
+  return false;
+}
+
+/**
  * Platform-neutral merge of decrypted Direct pages and realtime duplicates.
  * A conflicting immutable event permanently poisons its local slot for this
  * surface lifecycle; a later X3DH bootstrap or exact replay cannot silently
