@@ -221,26 +221,31 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
   const [reactionSnapshot, setReactionSnapshot] = useState<{
     conversationId: string;
     rows: DecryptedRow[];
+    headSequence: string;
     projection: DirectReactionsProjection;
   } | null>(null);
   const reactionProjection = reactionSnapshot?.conversationId === conversationId &&
-    reactionSnapshot.rows === rows ? reactionSnapshot.projection : null;
+    reactionSnapshot.rows === rows &&
+    reactionSnapshot.headSequence === conversation?.lastMessageSequence
+      ? reactionSnapshot.projection : null;
   const reactionLocksRef = useRef(new Set<string>());
   const [reactionBusyMessageId, setReactionBusyMessageId] = useState<string | null>(null);
 
+  const reactionHeadSequence = conversation?.lastMessageSequence ?? null;
   useEffect(() => {
     let cancelled = false;
+    if (reactionHeadSequence === null) return;
     void projectDirectReactions(rows.map((row) => ({
       message: row.message,
       payload: row.payload?.type === "human" ? row.payload : null,
-    }))).then((projection) => {
-      if (!cancelled) setReactionSnapshot({ conversationId, rows, projection });
+    })), reactionHeadSequence).then((projection) => {
+      if (!cancelled) setReactionSnapshot({ conversationId, rows, headSequence: reactionHeadSequence, projection });
     }).catch(() => {
       // Lost/revoked local keys and corrupt caches are not reaction proof.
       if (!cancelled) setReactionSnapshot(null);
     });
     return () => { cancelled = true; };
-  }, [conversationId, rows]);
+  }, [conversationId, rows, reactionHeadSequence]);
 
   const [draft, setDraft] = useState("");
   const draftRef = useRef("");
