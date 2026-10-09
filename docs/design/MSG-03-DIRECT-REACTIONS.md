@@ -169,7 +169,7 @@ recipient devices, add/remove, reload and independent actor emoji state.
 retention/compaction remain unimplemented.** Sender-signature verification
 remains a prerequisite of any user-visible event projection.
 
-## Open design gates before implementing the mutation endpoints
+## Release-blocking security and lifecycle design gates
 
 ### Historical reaction lookup and metadata leakage
 
@@ -236,6 +236,15 @@ supply a bounded, recoverable chronological decryption path or a separately
 reviewed cryptographic reaction-state mechanism before claiming complete
 historical reactions. A materialized server reaction-count table derived
 from untrusted client plaintext is forbidden.
+
+The Direct detail API also returns its PostgreSQL `lastMessageSequence`
+high-water mark. Before showing emoji state or allowing a toggle, the
+portable client-core projector requires a contiguous sequence interval
+from that mark to the original HUMAN. The client refuses to infer a
+reaction count from a partial Web page, missed realtime event, or stale
+encryption cache. Missing sequence ranges suppress the derived state
+until the authoritative interval is replayed; this does not substitute
+for a bounded cold-start recovery policy.
 
 History pagination is now ordered and cursor-scoped by the authoritative
 conversation `sequence`, not `createdAt`/UUID: timestamp-order divergence
