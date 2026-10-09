@@ -6,6 +6,7 @@ import {
   uniqueEmail,
   uniqueHandle,
   verifyEmail,
+  waitForRegisteredDirectChatDevice,
   webOrigin,
 } from "./helpers";
 import { assertNoDocumentOverflow, assertReachable } from "./responsive-helpers";
@@ -56,6 +57,12 @@ test.describe("Secure Direct Chats", () => {
     await expect(alicePage.getByTestId("direct-chat-shell")).toBeVisible({ timeout: 20_000 });
 
     const directUrl = alicePage.url();
+    // This test deliberately drops the HTTP acknowledgement for an already
+    // committed encrypted send. The recipient must have an enrolled device
+    // first; otherwise the server correctly refuses the send with 409.
+    await nikitaPage.goto(directUrl);
+    await expect(nikitaPage.getByTestId("direct-chat-shell")).toBeVisible({ timeout: 20_000 });
+    await waitForRegisteredDirectChatDevice(nikitaPage);
     const aliceList = alicePage.getByRole("region", { name: /список разговоров|conversation list/i, includeHidden: true });
     await expect(aliceList).toBeVisible();
     await expect(aliceList.getByTestId("direct-conversation-row")).toHaveAttribute("aria-current", "page");
@@ -80,7 +87,8 @@ test.describe("Secure Direct Chats", () => {
         abortFirstEncryptedSend &&
         route.request().method() === "POST"
       ) {
-        await route.fetch();
+        const committed = await route.fetch();
+        expect(committed.status()).toBe(201);
         await route.abort("failed");
         abortFirstEncryptedSend = false;
         return;
