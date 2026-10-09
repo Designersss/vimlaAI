@@ -198,6 +198,37 @@ describe("local authenticated E2EE reaction projection", () => {
     expect(projection.unavailableMessageIds.size).toBe(0);
   });
 
+  it("rejects server-id equivocation before projecting any authenticated count", async () => {
+    const f = fixture();
+    const conflicting = {
+      ...f.reactionRow,
+      message: {
+        ...f.reactionRow.message,
+        reactionTargetTagB64: "forged-reaction-routing-hint",
+      },
+    };
+    const projection = await projectVerifiedDirectReactions(
+      [f.reactionRow, f.sourceRow, conflicting],
+      f.read,
+      "2",
+    );
+    expect(projection.states).toEqual([]);
+    expect(projection.eligibleMessageIds.size).toBe(0);
+  });
+
+  it("permits replay of identical server IDs without double counting reactions", async () => {
+    const f = fixture();
+    const projection = await projectVerifiedDirectReactions(
+      [f.sourceRow, f.reactionRow, f.sourceRow, f.reactionRow],
+      f.read,
+      "2",
+    );
+    expect(projection.states).toMatchObject([
+      { active: true, emoji: "❤️", reactorUserId: bob },
+    ]);
+    expect(projection.unavailableMessageIds.size).toBe(0);
+  });
+
   it("rejects a protected cache read failure rather than projecting partial counts", async () => {
     const f = fixture();
     await expect(projectVerifiedDirectReactions(
