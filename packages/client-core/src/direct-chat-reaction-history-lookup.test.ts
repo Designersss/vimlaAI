@@ -30,7 +30,7 @@ describe("bounded opaque E2EE reaction index responses", () => {
     const result = page(event("a", "5"), event("b", "3"));
     expect(validateDirectReactionLookupPage(result, request)).toBe(result);
     expect(validateDirectReactionLookupPage(
-      { items: [event("a", "5"), event("b", "3")], nextCursor: "safecursor" }, request,
+      { items: [event("a", "5"), event("b", "3")], nextCursor: "czE6Mw" }, request,
     ).items).toHaveLength(2);
   });
 
@@ -73,5 +73,29 @@ describe("bounded opaque E2EE reaction index responses", () => {
     expect(() => validateDirectReactionLookupPage(page(event("a", "5")), {
       ...request, sourceSequence: "not-canonical",
     })).toThrow("Invalid E2EE");
+  });
+
+  it("binds a pagination cursor to the exact last returned sequence and rejects rewinds or leaps", () => {
+    const items = [event("a", "9223372036854775807"), event("b", "3")];
+    const valid = { items, nextCursor: "czE6Mw" };
+    expect(validateDirectReactionLookupPage(valid, request)).toBe(valid);
+    for (const cursor of [
+      "czE6NQ", // Canonical s1:5: repeat the first event, not the page boundary
+      "czE6Mg", // Canonical s1:2: skip events below the boundary
+      "czE6Mw==", // Invalid padded representation
+      "safecursor",
+      "czI6Mw", // Unknown cursor version
+      "",
+    ]) {
+      expect(() => validateDirectReactionLookupPage(
+        { items, nextCursor: cursor }, request,
+      )).toThrow();
+    }
+  });
+
+  it("rejects oversized hostile sequence data before arbitrary BigInt parsing", () => {
+    expect(() => validateDirectReactionLookupPage(page(
+      event("a", "9".repeat(50000)),
+    ), request)).toThrow("Invalid encrypted reaction sequence");
   });
 });
