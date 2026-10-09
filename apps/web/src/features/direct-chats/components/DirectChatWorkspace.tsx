@@ -87,6 +87,7 @@ import {
   advanceDirectHistoryHead,
   reconcileDirectHistoryHead,
   applyDirectPrivacyAcknowledgement,
+  sameDirectMessageReplica,
   cachedDirectPlaintextMatchesMessage,
   DIRECT_REACTION_EMOJIS,
   resolveDirectReplySource,
@@ -125,6 +126,7 @@ interface DecryptedRow {
   message: DirectMessageView;
   payload: DirectPlaintextPayload | null;
   needsBootstrap: boolean;
+  integrityConflict?: boolean;
 }
 
 const OPERATOR_RECOVERY_REQUEST_TIMEOUT_MS = 20_000;
@@ -189,7 +191,21 @@ function upsertComposerMention(current: ComposerMention[], mention: ComposerMent
 
 function mergeDecryptedRows(current: DecryptedRow[], incoming: DecryptedRow[]): DecryptedRow[] {
   const byId = new Map(current.map((row) => [row.message.id, row]));
-  for (const row of incoming) byId.set(row.message.id, row);
+  for (const row of incoming) {
+    const previous = byId.get(row.message.id);
+    if (previous?.integrityConflict) continue;
+    if (previous && !sameDirectMessageReplica(previous.message, row.message)) {
+      // Realtime and pagination are allowed to repeat immutable events,
+      // never to overwrite one sender-signed event with a different
+      // ciphertext/metadata under the same server ID. Preserve a poisoned
+      // sentinel across later replays and disable the reaction projection.
+      byId.set(row.message.id, {
+        ...previous, payload: null, needsBootstrap: false, integrityConflict: true,
+      });
+      continue;
+    }
+    byId.set(row.message.id, row);
+  }
   return [...byId.values()].sort((left, right) =>
     BigInt(left.message.sequence) < BigInt(right.message.sequence) ? -1 :
     BigInt(left.message.sequence) > BigInt(right.message.sequence) ? 1 : 0,
@@ -240,6 +256,10 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
   useEffect(() => {
     let cancelled = false;
     if (reactionHeadSequence === null) return;
+    if (rows.some((row) => row.integrityConflict)) {
+      setReactionSnapshot(null);
+      return;
+    }
     void projectDirectReactions(rows.map((row) => ({
       message: row.message,
       payload: row.payload?.type === "human" ? row.payload : null,
