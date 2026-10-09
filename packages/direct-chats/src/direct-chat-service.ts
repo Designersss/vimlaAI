@@ -47,6 +47,7 @@ import {
   type DirectChatDurableEventWriter,
 } from "./durable-events.js";
 import { DirectChatError } from "./errors.js";
+import { lockDirectDeviceRoster } from "./device-roster-lock.js";
 import { directPairKey } from "./pair-key.js";
 import type { ActorContext, DbClient, DirectChatServiceOptions } from "./types.js";
 
@@ -603,6 +604,12 @@ export class DirectChatService {
           actor.userId,
           peerUserId,
         );
+
+        // Existing-row SHARE locks cannot stop a new device INSERT from
+        // appearing after this query. Hold the same per-user transaction
+        // advisory locks as device registration/revocation until the
+        // encrypted message and all recipient envelopes are committed.
+        await lockDirectDeviceRoster(tx, memberIds);
 
         // Lock all currently active participant devices in deterministic
         // order before inserting envelopes. Revocation updates need a
