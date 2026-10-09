@@ -162,6 +162,29 @@ export const listDirectMessagesQuerySchema = z.object({
   deviceId: z.string().uuid(),
 });
 
+/**
+ * Indexed E2EE reaction-event discovery. This does NOT decrypt ciphertext
+ * or establish the latest reaction state: a client must verify the original,
+ * ratchet chronology, event commitment and causal completeness separately.
+ * Tags are opaque HMACs derived exclusively from authenticated HUMAN v2.
+ */
+export const DIRECT_REACTION_HISTORY_PAGE_MAX = 50;
+const directHistorySequenceSchema = z.string()
+  .regex(/^(0|[1-9][0-9]*)$/)
+  .refine((value) => BigInt(value) <= 9223372036854775807n,
+    "Sequence must fit PostgreSQL bigint");
+
+export const listDirectReactionEventsQuerySchema = z.object({
+  deviceId: z.string().uuid(),
+  targetTagB64: z.string().regex(/^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$/),
+  // Mandatory exclusive lower bound = authenticated source's sequence.
+  afterSequence: directHistorySequenceSchema,
+  // Opaque same-conversation causal cursor for older matching events.
+  cursor: z.string().min(1).max(512).optional(),
+  limit: z.coerce.number().int().min(1).max(DIRECT_REACTION_HISTORY_PAGE_MAX).default(30),
+}).strict();
+export type ListDirectReactionEventsQuery = z.infer<typeof listDirectReactionEventsQuerySchema>;
+
 export const updateDirectChatPrivacySchema = z
   .object({
     shareOwnHistoryWithVimla: z.boolean().optional(),
@@ -320,6 +343,14 @@ export const directMessagesResponseSchema = z.object({
   nextCursor: z.string().nullable(),
 });
 export type DirectMessagesResponse = z.infer<typeof directMessagesResponseSchema>;
+
+export const directReactionEventsResponseSchema = z.object({
+  items: z.array(directMessageViewSchema).max(DIRECT_REACTION_HISTORY_PAGE_MAX),
+  nextCursor: z.string().nullable(),
+});
+export type DirectReactionEventsResponse = z.infer<typeof directReactionEventsResponseSchema>;
+
+
 
 export const cryptoDevicesResponseSchema = z.object({
   items: z.array(cryptoDeviceViewSchema),
