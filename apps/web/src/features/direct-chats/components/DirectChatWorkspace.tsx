@@ -2216,10 +2216,10 @@ async function fetchDecryptedGap(
       (messageId) => !knownIds.has(messageId),
     ),
   );
-  const targetDriven = requiredMessageIds.length > 0;
-  if (targetDriven && requiredUnknownIds.size === 0) {
-    return [];
-  }
+  // Even a duplicate hint for a known event may be accompanied by earlier
+  // missed events. Fall through to ordinary head-to-known sync instead of
+  // incorrectly declaring the encrypted gap empty.
+  const targetDriven = requiredUnknownIds.size > 0;
 
   const incoming: DirectMessageView[] = [];
   let cursor: string | undefined;
