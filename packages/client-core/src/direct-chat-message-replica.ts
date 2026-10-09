@@ -31,3 +31,42 @@ export function sameDirectMessageReplica(a: DirectMessageView, b: DirectMessageV
   return a.id === b.id &&
     directMessageReplicaFingerprint(a) === directMessageReplicaFingerprint(b);
 }
+
+/**
+ * Platform-neutral merge of decrypted Direct pages and realtime duplicates.
+ * A conflicting immutable event permanently poisons its local slot for this
+ * surface lifecycle; a later X3DH bootstrap or exact replay cannot silently
+ * turn it back into trusted plaintext. Explicitly reopening/rebuilding the
+ * whole surface is a separate trust operation.
+ */
+export interface DirectMessageReplicaRow<TPayload> {
+  message: DirectMessageView;
+  payload: TPayload | null;
+  needsBootstrap: boolean;
+  integrityConflict?: boolean;
+}
+
+export function mergeDirectMessageReplicaRows<TPayload>(
+  current: readonly DirectMessageReplicaRow<TPayload>[],
+  incoming: readonly DirectMessageReplicaRow<TPayload>[],
+): DirectMessageReplicaRow<TPayload>[] {
+  const byId = new Map(current.map((row) => [row.message.id, row]));
+  for (const row of incoming) {
+    const previous = byId.get(row.message.id);
+    if (previous?.integrityConflict) continue;
+    if (previous && !sameDirectMessageReplica(previous.message, row.message)) {
+      byId.set(row.message.id, {
+        ...previous,
+        payload: null,
+        needsBootstrap: false,
+        integrityConflict: true,
+      });
+      continue;
+    }
+    byId.set(row.message.id, row);
+  }
+  return [...byId.values()].sort((left, right) =>
+    BigInt(left.message.sequence) < BigInt(right.message.sequence) ? -1 :
+    BigInt(left.message.sequence) > BigInt(right.message.sequence) ? 1 : 0,
+  );
+}
