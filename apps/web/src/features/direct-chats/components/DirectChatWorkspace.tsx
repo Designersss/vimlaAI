@@ -852,6 +852,66 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
     }
   }
 
+  async function onReact(row: DecryptedRow, emoji: DirectReactionEmoji): Promise<void> {
+    if (!conversation || !userId || blockedByMe || sending || operatorBusy ||
+        sendingLockRef.current || row.payload?.type !== "human" ||
+        !reactionProjection?.eligibleMessageIds.has(row.message.id) ||
+        reactionProjection.unavailableMessageIds.has(row.message.id)) return;
+    const lockId = row.message.id;
+    if (reactionLocksRef.current.has(lockId)) return;
+    reactionLocksRef.current.add(lockId);
+    setReactionBusyMessageId(lockId);
+    try {
+      const original = await loadPlaintext(row.message.id);
+      if (!original || !cachedDirectPlaintextMatchesMessage(original, {
+        messageId: row.message.id,
+        conversationId: row.message.conversationId,
+        senderUserId: row.message.senderUserId,
+        clientMessageId: row.message.clientMessageId,
+        contentCommitmentB64: row.message.contentCommitmentB64,
+        reactionTargetTagB64: row.message.reactionTargetTagB64,
+        senderDeviceId: row.message.senderDeviceId,
+        interactionEpoch: row.message.interactionEpoch,
+        kind: row.message.kind,
+        createdAt: row.message.createdAt,
+      })) throw new Error("Original Direct message is not authenticated");
+
+      const isActive = reactionProjection.states.some((state) =>
+        state.active &&
+        state.reactorUserId === userId &&
+        state.emoji === emoji &&
+        state.target.clientMessageId === row.message.clientMessageId &&
+        state.target.contentCommitmentB64 === row.message.contentCommitmentB64 &&
+        state.target.senderUserId === row.message.senderUserId &&
+        state.target.senderDeviceId === row.message.senderDeviceId,
+      );
+      const prepared = createDirectReaction(
+        isActive ? "remove" : "add",
+        emoji, { message: row.message, payload: row.payload },
+        original.text, conversationId,
+      );
+      const device = await ensureLocalDevice();
+      const pending = await loadPendingSends(conversationId, device.deviceId);
+      // A lost response may have committed. Don't emit a fresh opposite
+      // toggle while an earlier event for this target is unresolved.
+      if (pending.some((candidate) => candidate.kind === "REACTION" &&
+          candidate.reactionTargetTagB64 === prepared.targetTagB64)) {
+        setError("conflict");
+        return;
+      }
+      await postEncrypted("REACTION", prepared.plaintext, [], {
+        clientMessageId: prepared.clientMessageId,
+        contentCommitmentB64: prepared.contentCommitmentB64,
+        reactionTargetTagB64: prepared.targetTagB64,
+      });
+    } catch (caught: unknown) {
+      setError(caught instanceof DirectChatsApiError ? caught.code : "internal_error");
+    } finally {
+      reactionLocksRef.current.delete(lockId);
+      setReactionBusyMessageId((current) => current === lockId ? null : current);
+    }
+  }
+
   async function onSend(): Promise<void> {
     const text = draftRef.current;
     if (sendingLockRef.current || sending || operatorBusy || !text.trim() || !conversation || !userId) return;
