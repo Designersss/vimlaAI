@@ -5,6 +5,7 @@ import {
 } from "./direct-chat-cached-provenance.js";
 import { decodeDirectHumanPayload, type HumanPayload } from "./direct-chat-human-payload.js";
 import { type DirectReplyReference } from "./direct-chat-replies.js";
+import { directMessageReplicaFingerprint } from "./direct-chat-message-replica.js";
 import { reduceVerifiedDirectReactions, type DirectReactionState } from "./direct-chat-reaction-state.js";
 import {
   directReactionTargetTag,
@@ -121,22 +122,7 @@ export async function projectVerifiedDirectReactions(
   const fingerprints = new Map<string, string>();
   for (const row of rows) {
     const message = row.message;
-    const fingerprint = JSON.stringify([
-      message.conversationId, message.sequence, message.kind,
-      message.senderUserId, message.senderDeviceId,
-      message.clientMessageId, message.contentCommitmentB64,
-      message.reactionTargetTagB64, message.interactionEpoch,
-      message.createdAt,
-      message.envelope?.recipientDeviceId,
-      message.envelope?.headerB64,
-      message.envelope?.ciphertextB64,
-      message.envelope?.dhPublicB64,
-      message.envelope?.messageNumber,
-      message.envelope?.previousChainLength,
-      message.envelope?.senderSignatureB64,
-      message.envelope?.x3dhInit,
-      message.mentions,
-    ]);
+    const fingerprint = directMessageReplicaFingerprint(message);
     const previous = fingerprints.get(message.id);
     if (previous !== undefined && previous !== fingerprint) {
       return { states: [], eligibleMessageIds, unavailableMessageIds };
