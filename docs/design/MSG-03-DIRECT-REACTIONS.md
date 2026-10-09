@@ -1,6 +1,6 @@
 # MSG-03 — E2EE Direct message reactions (proposed third slice)
 
-Status: **Draft; authenticated protocol, server storage/projections and portable codec exist; Web reaction UX and bounded historical reconstruction are NOT implemented or signed off**.
+Status: **Draft; signed Direct reaction events, Web picker/chips, portable verification and multi-device E2E exist. Bounded historical reconstruction, storage lifecycle and final security review are NOT complete.**
 Parent: [#102](https://github.com/Designersss/vimlaAI/issues/102);
 epic: [#81](https://github.com/Designersss/vimlaAI/issues/81);
 master: [#78](https://github.com/Designersss/vimlaAI/issues/78).
@@ -122,7 +122,7 @@ review and negative tests before production implementation.
   hint for bounded historical lookup must receive an explicit metadata
   privacy decision and itself be authenticated in AD (see gate below).
 
-## Implemented protocol and persistence substrate (Draft; UI not wired)
+## Implemented authenticated protocol, portable projection and Web integration (Draft)
 
 - `@vimla/e2ee` has two independently domain-separated HMAC-SHA256
   helpers: one for each event's full content identity and one for an
@@ -153,7 +153,7 @@ review and negative tests before production implementation.
   tamper beyond the UUID prefix, multi-device sender equivocation and
   out-of-order/duplicate projection.
 
-**Implemented, but not yet a shipped product feature:** The Direct API
+**Implemented, but still Draft and not ready for release:** The Direct API
 now accepts signed `REACTION` envelope kinds and stores the opaque
 `reactionTargetTagB64` plus the authoritative sequence in the existing
 append-only `direct_message` log. PostgreSQL constraints and a compound
@@ -161,9 +161,12 @@ index protect the opaque tag; the existing Direct message list preserves
 ratchet chronology. SQL triggers preserve ordinary inbox sorting and
 read count semantics. Web decrypts these envelopes in the ordinary
 ratchet stream but deliberately does not render them as HUMAN text or
-include them in AI context. **The per-message reaction controls, verified
-emoji aggregates, historical tag lookup and bounded cold-start
-reconstruction are not yet implemented.** Sender-signature verification
+include them in AI context. The Web picker/chips and verified emoji state
+now use a platform-neutral `@vimla/client-core` projector with IndexedDB
+provided by a Web adapter. Cross-browser E2E covers two users, two enrolled
+recipient devices, add/remove, reload and independent actor emoji state.
+**Historical tag lookup, bounded cold-start reconstruction and safe
+retention/compaction remain unimplemented.** Sender-signature verification
 remains a prerequisite of any user-visible event projection.
 
 ## Open design gates before implementing the mutation endpoints
@@ -212,7 +215,7 @@ The server cannot safely compact on emoji/action it cannot decrypt.
 Do not invent a lossy TTL or drop old ratchet envelopes without a proof
 of state recovery. Abuse rate limits alone do not prove bounded storage.
 
-### Verified SQL/event-stream interaction (October 8)
+### Verified SQL/event-stream interaction (October 8–9)
 
 The existing `direct_message_assign_sequence` BEFORE INSERT trigger assigns
 an authoritative sequence **and advances `direct_conversation.lastMessageAt`**.
@@ -233,6 +236,12 @@ supply a bounded, recoverable chronological decryption path or a separately
 reviewed cryptographic reaction-state mechanism before claiming complete
 historical reactions. A materialized server reaction-count table derived
 from untrusted client plaintext is forbidden.
+
+History pagination is now ordered and cursor-scoped by the authoritative
+conversation `sequence`, not `createdAt`/UUID: timestamp-order divergence
+under concurrent insert transactions can violate Double Ratchet replay
+order at page boundaries. Integration tests deliberately reorder stored
+message timestamps and require exact sequence-driven retrieval.
 
 At present, keep the append-only encrypted event log authoritative. A
 compaction policy requires a separate proof that ratchet-dependent records,
@@ -261,9 +270,9 @@ E2EE decryption dependencies.
 
 ## Exit conditions
 
-This Draft is **not a merge candidate**. Even though authenticated event
-storage and projection guards now exist, user-visible reactions remain
-unimplemented and indexed historical retrieval still lacks a secure,
-bounded ratchet reconstruction policy. Do not merge until that policy,
+This Draft is **not a merge candidate**. Authenticated event storage,
+user-visible reaction controls and verified projection now exist, but
+indexed historical retrieval still lacks a secure, bounded ratchet
+reconstruction policy and compaction proof. Do not merge until that policy,
 full tests, Web UX and independent adversarial/security review are complete.
 #102 remains open after this slice; #54/#74/#75 remain independent.
