@@ -169,17 +169,11 @@ export const listDirectMessagesQuerySchema = z.object({
  * Tags are opaque HMACs derived exclusively from authenticated HUMAN v2.
  */
 export const DIRECT_REACTION_HISTORY_PAGE_MAX = 50;
-const directHistorySequenceSchema = z.string()
-  .min(1).max(19)
-  .regex(/^(0|[1-9][0-9]*)$/)
-  .refine((value) => BigInt(value) <= 9223372036854775807n,
-    "Sequence must fit PostgreSQL bigint");
-
 export const listDirectReactionEventsQuerySchema = z.object({
   deviceId: z.string().uuid(),
   targetTagB64: z.string().regex(/^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$/),
-  // Mandatory exclusive lower bound = authenticated source's sequence.
-  afterSequence: directHistorySequenceSchema,
+  // Never transmit the original HUMAN sequence: it would deanonymize the
+  // opaque HMAC tag by pointing the server to the exact source row.
   // Opaque same-conversation causal cursor for older matching events.
   cursor: z.string().min(1).max(512).optional(),
   limit: z.coerce.number().int().min(1).max(DIRECT_REACTION_HISTORY_PAGE_MAX).default(30),
