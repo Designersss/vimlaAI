@@ -383,7 +383,7 @@ describe("direct chats API", () => {
 
     const idempotentLookup = await app.inject({
       method: "GET",
-      url: `/v1/direct-chats/${chat.id}/messages/lookup?deviceId=${aliceDevice.deviceId}&clientMessageId=${reactionId}`,
+      url: `/v1/direct-chats/${chat.id}/messages/lookup?senderDeviceId=${aliceDevice.deviceId}&clientMessageId=${reactionId}`,
       headers: { origin },
       cookies: alice.cookies,
     });
