@@ -5,6 +5,7 @@ export {
   type DirectChatPlaintextRecord,
   type PreparedDirectChatContext,
 } from "./direct-chat-context.js";
+export { advanceDirectHistoryHead } from "./direct-chat-history-head.js";
 export {
   DEEP_HISTORY_BOOTSTRAP_MAX_PAGES,
   pageUnlocksHistoryBootstrap,
