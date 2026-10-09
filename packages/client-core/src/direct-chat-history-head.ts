@@ -23,3 +23,22 @@ export function advanceDirectHistoryHead(
   const acknowledged = parse(acknowledgedSequence);
   return (current > acknowledged ? current : acknowledged).toString();
 }
+
+/**
+ * Responses can arrive after newer local acknowledgements or realtime
+ * refreshes. The incoming detail controls current permissions/privacy,
+ * while the database's append-only history high-water must never rewind.
+ * A different conversation never inherits another chat's watermark.
+ */
+export function reconcileDirectHistoryHead<
+  T extends { id: string; lastMessageSequence: string },
+>(current: T | null, incoming: T): T {
+  return current?.id === incoming.id
+    ? {
+        ...incoming,
+        lastMessageSequence: advanceDirectHistoryHead(
+          current.lastMessageSequence, incoming.lastMessageSequence,
+        ),
+      }
+    : incoming;
+}
