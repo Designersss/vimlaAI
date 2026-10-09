@@ -334,6 +334,61 @@ describe("direct chats API", () => {
     });
     expect(revokedRead.statusCode).toBe(403);
     expect(errorCode(revokedRead)).toBe("direct_chat_device_revoked");
+
+    // MSG-03 revoke-vs-send: previously committed ciphertext is not an
+    // authorization token. Even the exact same idempotency key, envelope,
+    // content commitment and AD5 tag must not disclose a replay response
+    // after its sender device has been revoked.
+    const revokeSender = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/devices/${aliceDevice.deviceId}/revoke`,
+      headers: { origin },
+      cookies: alice.cookies,
+    });
+    expect(revokeSender.statusCode).toBe(200);
+    const revokedReplay = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/${chat.id}/messages`,
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload,
+    });
+    expect(revokedReplay.statusCode).toBe(403);
+    expect(errorCode(revokedReplay)).toBe("direct_chat_device_revoked");
+
+    // A new signed reaction from the same revoked sender must likewise
+    // fail. Do not mistake a rejected replay for a general send guard.
+    const afterRevokeId = randomUUID();
+    const afterRevokeEnvelopes = [];
+    for (const recipient of view.devices) {
+      afterRevokeEnvelopes.push(await encryptTo(
+        app, alice, aliceDevice, recipient, chat.id, "REACTION",
+        ciphertext, [], view.interactionEpoch, afterRevokeId, tag,
+      ));
+    }
+    const revokedNewSend = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/${chat.id}/messages`,
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: {
+        ...payload,
+        clientMessageId: afterRevokeId,
+        contentCommitmentB64: testCommitmentForClientId(afterRevokeId),
+        envelopes: afterRevokeEnvelopes,
+      },
+    });
+    expect(revokedNewSend.statusCode).toBe(403);
+    expect(errorCode(revokedNewSend)).toBe("direct_chat_device_revoked");
+
+    const idempotentLookup = await app.inject({
+      method: "GET",
+      url: `/v1/direct-chats/${chat.id}/messages/lookup?deviceId=${aliceDevice.deviceId}&clientMessageId=${reactionId}`,
+      headers: { origin },
+      cookies: alice.cookies,
+    });
+    expect(idempotentLookup.statusCode).toBe(403);
+    expect(errorCode(idempotentLookup)).toBe("direct_chat_device_revoked");
   });
 
   it("pages encrypted Direct events in authoritative sequence despite reordered createdAt", async () => {
