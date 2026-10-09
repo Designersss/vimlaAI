@@ -86,6 +86,7 @@ import {
   createDirectReaction,
   advanceDirectHistoryHead,
   reconcileDirectHistoryHead,
+  applyDirectPrivacyAcknowledgement,
   cachedDirectPlaintextMatchesMessage,
   DIRECT_REACTION_EMOJIS,
   resolveDirectReplySource,
@@ -880,7 +881,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
       const updated = await updateDirectChatPrivacy(conversation.id, change);
       // An HTTP response may predate an independently committed encrypted
       // reaction. Never roll back the authoritative E2EE event high-water.
-      setConversation((current) => reconcileDirectHistoryHead(current, updated));
+      setConversation((current) => applyDirectPrivacyAcknowledgement(current, updated, change));
     } catch (caught: unknown) {
       if (caught instanceof AuthRequiredError) {
         router.replace("/sign-in");
