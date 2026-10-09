@@ -1349,6 +1349,22 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         device.deviceId,
         nextCursor,
       );
+      if (hasConflictingDirectMessageReplicas(
+        page.items, rowsRef.current.map((row) => row.message),
+      )) {
+        // Manual pagination must honor the same pre-ratchet guarantee as
+        // realtime catch-up: don't decrypt a relabelled known server ID.
+        updateRows((current) => mergeDecryptedRows(current,
+          page.items.map((message) => ({
+            message,
+            payload: null,
+            needsBootstrap: false,
+            integrityConflict: true,
+          })),
+        ));
+        setError("internal_error");
+        return;
+      }
       const missingSenderDeviceIds = new Set(
         rows
           .filter((row) => row.needsBootstrap)
@@ -2263,6 +2279,10 @@ async function fetchDecryptedGap(
   const targetDriven = requiredUnknownIds.size > 0;
 
   const incoming: DirectMessageView[] = [];
+  // Include every already-decrypted row and every paginated response in the
+  // replica preflight. Otherwise a malicious server can relabel a known ID
+  // and have the known-ID filter silently hide that equivocation.
+  const observedReplicas = currentRows.map((row) => row.message);
   let cursor: string | undefined;
   let reachedKnown = false;
   let fetchedPages = 0;
@@ -2278,6 +2298,18 @@ async function fetchDecryptedGap(
       deviceId,
       cursor,
     );
+    if (hasConflictingDirectMessageReplicas(page.items, observedReplicas)) {
+      // Quarantine BEFORE known-ID filtering and before touching ratchet
+      // state. A conflict also invalidates any previously visible reaction
+      // aggregate; the portable projector refuses all poisoned rows.
+      return page.items.map((message) => ({
+        message,
+        payload: null,
+        needsBootstrap: false,
+        integrityConflict: true,
+      }));
+    }
+    observedReplicas.push(...page.items);
 
     if (targetDriven) {
       // A durable hint proves an event exists, not that all earlier events
