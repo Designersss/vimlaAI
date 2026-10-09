@@ -7,7 +7,7 @@ const request = {
   conversationId: "11111111-1111-4111-8111-111111111111",
   deviceId: "22222222-2222-4222-8222-222222222222",
   targetTagB64: tag,
-  afterSequence: "1",
+  sourceSequence: "1",
   limit: 2,
 };
 
@@ -71,7 +71,7 @@ describe("bounded opaque E2EE reaction index responses", () => {
       expect(() => validateDirectReactionLookupPage(candidate, request)).toThrow();
     }
     expect(() => validateDirectReactionLookupPage(page(event("a", "5")), {
-      ...request, afterSequence: "not-canonical",
+      ...request, sourceSequence: "not-canonical",
     })).toThrow("Invalid E2EE");
   });
 });
