@@ -5,7 +5,7 @@ import type {
 /**
  * Validate what a bounded opaque-tag index can honestly prove.
  *
- * This establishes response consistency ONLY. It never verifies the
+ * The sourceSequence is held only on the client and is NEVER transmitted\n * to the indexed API (doing so would reveal the opaque tag target).\n * This establishes response consistency ONLY. It never verifies the
  * sender's signed AD, original HUMAN provenance, complete ratchet interval
  * or historical emoji counts. The caller must not display reactions from
  * this sparse index response directly.
@@ -16,16 +16,16 @@ export function validateDirectReactionLookupPage(
     conversationId: string;
     deviceId: string;
     targetTagB64: string;
-    afterSequence: string;
+    sourceSequence: string;
     limit: number;
   },
 ): DirectReactionEventsResponse {
   if (!Number.isSafeInteger(request.limit) || request.limit < 1 ||
       request.limit > 50 ||
-      !/^(0|[1-9][0-9]*)$/.test(request.afterSequence)) {
+      !/^(0|[1-9][0-9]*)$/.test(request.sourceSequence)) {
     throw new Error("Invalid E2EE reaction lookup parameters");
   }
-  const after = BigInt(request.afterSequence);
+  const after = BigInt(request.sourceSequence);
   if (after > 9223372036854775807n ||
       result.items.length > request.limit ||
       (result.nextCursor !== null && (
