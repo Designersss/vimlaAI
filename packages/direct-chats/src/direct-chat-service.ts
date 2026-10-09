@@ -476,11 +476,10 @@ export class DirectChatService {
       actor.userId,
       conversationId,
     );
-    // Idempotency must not become an alternate read path for a revoked
-    // E2EE sender device. Blocked peers can still resolve a committed send,
-    // but a revoked device has lost authority to access Direct history.
-    await this.requireActiveDevice(actor.userId, input.senderDeviceId);
-    const replay = await this.findExactReplay(
+    // A fast idempotent lookup must linearize against sender revocation,
+    // rather than check revokedAt and then read ciphertext in separate
+    // unprotected transactions.
+    const replay = await this.findAuthorizedReplay(
       actor.userId,
       conversationId,
       input,
@@ -521,11 +520,11 @@ export class DirectChatService {
     const memberIds = conversation.members.map(
       (member) => member.userId,
     );
-    // A previously committed idempotency key must not bypass revocation.
-    // Keep this check ahead of both the fast replay and sender signature
-    // validation; the transaction also locks this row for new writes.
-    const senderDevice = await this.requireActiveDevice(actor.userId, input.senderDeviceId);
-    const replay = await this.findExactReplay(
+    // Replay may legitimately bypass a changed recipient device set or
+    // later peer block, but never the original sender's device revocation.
+    // Hold a row lock throughout lookup so a concurrent revoke cannot be
+    // interleaved between authorization and the ciphertext response.
+    const replay = await this.findAuthorizedReplay(
       actor.userId,
       conversationId,
       input,
@@ -533,6 +532,7 @@ export class DirectChatService {
     if (replay) {
       return { message: replay, replayed: true };
     }
+    const senderDevice = await this.requireActiveDevice(actor.userId, input.senderDeviceId);
     if (input.envelopes.length > this.options.maxEnvelopes) {
       throw new DirectChatError("VALIDATION_ERROR", "Too many envelopes");
     }
@@ -731,11 +731,9 @@ export class DirectChatService {
       });
     } catch (error: unknown) {
       if (isUnique(error)) {
-        // A uniqueness-race retry is another read of an existing ciphertext
-        // event. Re-check device authority here as well: revocation may
-        // have committed while the original send transaction was blocked.
-        await this.requireActiveDevice(actor.userId, input.senderDeviceId);
-        const replay = await this.findExactReplay(
+        // A uniqueness-conflict retry is also an E2EE ciphertext read:
+        // race it against revocation under the same lock as other replays.
+        const replay = await this.findAuthorizedReplay(
           actor.userId,
           conversationId,
           input,
@@ -928,6 +926,45 @@ export class DirectChatService {
       interactionEpoch: conversation.interactionEpoch,
       memberIds: conversation.members.map((member) => member.userId),
     };
+  }
+
+  /**
+   * A previously committed idempotency key can be resolved despite a
+   * peer block or a changed fan-out device set. It MUST NOT be resolved
+   * by a sender device after revocation. PostgreSQL's row lock makes the
+   * authorization check and the reply read a single linearizable unit:
+   * a concurrent revocation UPDATE waits, or this lookup sees revokedAt.
+   */
+  private async findAuthorizedReplay(
+    userId: string,
+    conversationId: string,
+    input: SendDirectMessage,
+  ): Promise<DirectMessageView | null> {
+    return this.db.$transaction(async (tx) => {
+      await this.requireLockedActiveSender(tx, userId, input.senderDeviceId);
+      return this.findExactReplay(userId, conversationId, input, tx);
+    });
+  }
+
+  private async requireLockedActiveSender(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    deviceId: string,
+  ): Promise<void> {
+    const devices = await tx.$queryRaw<
+      Array<{ id: string; revokedAt: Date | null }>
+    >`
+      SELECT "id", "revokedAt"
+      FROM "user_crypto_device"
+      WHERE "id" = ${deviceId} AND "userId" = ${userId}
+      FOR SHARE
+    `;
+    if (devices.length !== 1) {
+      throw new DirectChatError("NOT_FOUND", "Device was not found");
+    }
+    if (devices[0]?.revokedAt) {
+      throw new DirectChatError("DEVICE_REVOKED", "This device was revoked");
+    }
   }
 
   private async findExactReplay(
