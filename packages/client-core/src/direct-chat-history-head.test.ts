@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { advanceDirectHistoryHead, reconcileDirectHistoryHead } from "./direct-chat-history-head.js";
+import { advanceDirectHistoryHead, reconcileDirectHistoryHead, applyDirectPrivacyAcknowledgement } from "./direct-chat-history-head.js";
 
 describe("Direct causal head after acknowledged sends", () => {
   it("advances the head when a send confirms a newer database event", () => {
@@ -34,6 +34,36 @@ describe("Direct causal head after acknowledged sends", () => {
       { id: "chat-a", lastMessageSequence: "900" },
       { id: "chat-b", lastMessageSequence: "3" },
     )).toEqual({ id: "chat-b", lastMessageSequence: "3" });
+  });
+
+  it("applies only the acknowledged privacy field while preserving trust, other settings and newer reactions", () => {
+    const current = {
+      id: "chat-a", lastMessageSequence: "15", blockedByMe: true,
+      privacy: { shareOwnHistoryWithVimla: false, includePeerHistoryWhenInvoking: true },
+    };
+    const stale = {
+      id: "chat-a", lastMessageSequence: "12", blockedByMe: false,
+      privacy: { shareOwnHistoryWithVimla: true, includePeerHistoryWhenInvoking: false },
+    };
+    expect(applyDirectPrivacyAcknowledgement(current, stale, { shareOwnHistoryWithVimla: true })).toEqual({
+      id: "chat-a", lastMessageSequence: "15", blockedByMe: true,
+      privacy: { shareOwnHistoryWithVimla: true, includePeerHistoryWhenInvoking: true },
+    });
+    expect(applyDirectPrivacyAcknowledgement(current, { ...stale, lastMessageSequence: "16" },
+      { includePeerHistoryWhenInvoking: false },
+    )?.lastMessageSequence).toBe("16");
+  });
+
+  it("ignores privacy replies for a different or already unmounted conversation", () => {
+    const current = {
+      id: "chat-a", lastMessageSequence: "9",
+      privacy: { shareOwnHistoryWithVimla: false, includePeerHistoryWhenInvoking: false },
+    };
+    const other = { ...current, id: "chat-b", lastMessageSequence: "50" };
+    expect(applyDirectPrivacyAcknowledgement(current, other, { shareOwnHistoryWithVimla: true }))
+      .toEqual(current);
+    expect(applyDirectPrivacyAcknowledgement(null, other, { shareOwnHistoryWithVimla: true }))
+      .toBeNull();
   });
 
   it("rejects noncanonical, negative or overflowing cursors", () => {
