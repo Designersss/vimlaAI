@@ -79,6 +79,7 @@ import {
   pageUnlocksHistoryBootstrap,
   prepareDirectChatContext,
   shouldContinueDeepHistoryBootstrap,
+  assertDirectHistoryCatchupBudget,
   directReplyReference,
   createDirectHumanMessage,
   createDirectReaction,
@@ -2240,8 +2241,14 @@ async function fetchDecryptedGap(
   const incoming: DirectMessageView[] = [];
   let cursor: string | undefined;
   let reachedKnown = false;
+  let fetchedPages = 0;
 
   while (true) {
+    // Fetching the entire conversation as one realtime catch-up is unbounded,
+    // and decrypting only part of a missing ratchet interval is misleading.
+    // Abort before the next page once the finite recovery budget expires.
+    assertDirectHistoryCatchupBudget(fetchedPages);
+    fetchedPages += 1;
     const page = await fetchDirectMessages(
       detail.id,
       deviceId,
