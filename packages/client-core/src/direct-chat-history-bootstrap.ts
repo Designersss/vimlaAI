@@ -60,7 +60,8 @@ interface DirectHistoryGapRow {
 const POSTGRES_BIGINT_MAX = 9223372036854775807n;
 
 function parseHistorySequence(value: string, allowZero = false): bigint {
-  if (!(allowZero ? /^(0|[1-9][0-9]*)$/ : /^[1-9][0-9]*$/).test(value)) {
+  if (!(allowZero ? /^(0|[1-9][0-9]*)$/ : /^[1-9][0-9]*$/).test(value) ||
+      value.length > 19) {
     throw new Error("Invalid Direct E2EE history sequence");
   }
   const sequence = BigInt(value);
@@ -71,37 +72,42 @@ function parseHistorySequence(value: string, allowZero = false): bigint {
 }
 
 /**
- * Pre-ratchet reconciliation gate. Every sequence from the newest fetched
- * row to an already-observed anchor must be present before decrypting any
- * incoming ciphertext. An indexed reaction hint older than an existing
- * anchor must reach a second known row *below* the hinted event. A server
- * that ends pagination early, skips rows, repeats a sequence under a new ID,
- * or withholds the required hinted ID cannot advance local ratchet state.
+ * Inspect a bounded Direct realtime history window BEFORE ratchet operations.
  *
- * This is a causal completeness check against the advertised server head,
- * NOT cryptographic proof that a malicious server has not withheld events
- * while lying consistently about its entire history.
+ * A hole or delayed page is NOT a cryptographic integrity failure:
+ * authenticated Double Ratchet envelopes support skipped message keys, and
+ * ordinary HUMAN messages must remain readable while an older send is in
+ * flight or withheld. Only structural equivocation / invalid metadata throw.
+ *
+ * "complete" is a useful optimization for slicing an anchored interval,
+ * NOT authorization to project reaction counts. Reaction state independently
+ * requires a continuous server-head-to-HUMAN prefix and sender-authenticated
+ * ciphertext, even when this inspection reports partial.
  */
-export function assertDirectHistoryGapComplete(input: {
+export function inspectDirectHistoryGap(input: {
   conversationId: string;
   advertisedHeadSequence: string;
   fetchedMessages: readonly DirectHistoryGapRow[];
   knownMessages: readonly DirectHistoryGapRow[];
   requiredMessageIds: readonly string[];
-}): bigint {
+}): { complete: true; anchor: bigint } | { complete: false } {
   const advertisedHead = parseHistorySequence(input.advertisedHeadSequence, true);
   const knownById = new Map<string, bigint>();
+  const knownIdsBySequence = new Map<bigint, string>();
   let newestKnown = 0n;
   for (const message of input.knownMessages) {
     if (message.conversationId !== input.conversationId) {
       throw new Error("Cross-conversation Direct E2EE history anchor");
     }
     const sequence = parseHistorySequence(message.sequence);
-    const existing = knownById.get(message.id);
-    if (existing !== undefined && existing !== sequence) {
+    const previous = knownById.get(message.id);
+    const previousId = knownIdsBySequence.get(sequence);
+    if ((previous !== undefined && previous !== sequence) ||
+        (previousId !== undefined && previousId !== message.id)) {
       throw new Error("Conflicting Direct E2EE history anchor");
     }
     knownById.set(message.id, sequence);
+    knownIdsBySequence.set(sequence, message.id);
     if (sequence > newestKnown) newestKnown = sequence;
   }
 
@@ -115,26 +121,28 @@ export function assertDirectHistoryGapComplete(input: {
     const sequence = parseHistorySequence(message.sequence);
     const previousSequence = fetchedById.get(message.id);
     const previousId = idBySequence.get(sequence);
+    const knownSequence = knownById.get(message.id);
+    const knownId = knownIdsBySequence.get(sequence);
     if ((previousSequence !== undefined && previousSequence !== sequence) ||
         (previousId !== undefined && previousId !== message.id) ||
-        (knownById.has(message.id) && knownById.get(message.id) !== sequence)) {
+        (knownSequence !== undefined && knownSequence !== sequence) ||
+        (knownId !== undefined && knownId !== message.id)) {
       throw new Error("Conflicting Direct E2EE history page");
     }
     fetchedById.set(message.id, sequence);
     idBySequence.set(sequence, message.id);
     if (sequence > newestFetched) newestFetched = sequence;
   }
+
   if (newestFetched === 0n || newestFetched < advertisedHead ||
       newestFetched < newestKnown) {
-    throw new Error("Incomplete Direct E2EE history head");
+    return { complete: false };
   }
 
   let oldestRequired: bigint | null = null;
   for (const messageId of input.requiredMessageIds) {
     const sequence = fetchedById.get(messageId);
-    if (sequence === undefined) {
-      throw new Error("Missing required Direct E2EE history event");
-    }
+    if (sequence === undefined) return { complete: false };
     if (oldestRequired === null || sequence < oldestRequired) {
       oldestRequired = sequence;
     }
@@ -146,23 +154,21 @@ export function assertDirectHistoryGapComplete(input: {
         (oldestRequired !== null && sequence > oldestRequired)) continue;
     if (anchor === null || sequence > anchor) anchor = sequence;
   }
-  if (anchor === null) {
-    throw new Error("Unanchored Direct E2EE history gap");
-  }
+  if (anchor === null) return { complete: false };
 
-  const verifiedAnchor = anchor;
+  // Client-validated contiguous interval is a stronger property than merely
+  // seeing a known row. Missing sequence numbers do not make otherwise
+  // signed HUMAN messages invalid; they DO make reaction counts incomplete.
+  const contiguousAnchor: bigint = anchor;
   const ordered = [...idBySequence.keys()]
-    .filter((sequence) => sequence >= verifiedAnchor)
+    .filter((sequence) => sequence >= contiguousAnchor)
     .sort((a, b) => a > b ? -1 : a < b ? 1 : 0);
   let expected = newestFetched;
   for (const sequence of ordered) {
-    if (sequence !== expected) {
-      throw new Error("Incomplete Direct E2EE history interval");
-    }
+    if (sequence !== expected) return { complete: false };
     expected -= 1n;
   }
-  if (expected !== anchor - 1n) {
-    throw new Error("Incomplete Direct E2EE history interval");
-  }
-  return anchor;
+  return expected === contiguousAnchor - 1n
+    ? { complete: true, anchor: contiguousAnchor }
+    : { complete: false };
 }
