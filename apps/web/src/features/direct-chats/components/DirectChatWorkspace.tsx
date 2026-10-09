@@ -349,7 +349,13 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
           : null,
       );
       if (delivery.latest) {
-        setConversation(delivery.latest);
+        setConversation((current) => ({
+          ...delivery.latest!,
+          lastMessageSequence:
+            current?.id === delivery.latest!.id
+              ? advanceDirectHistoryHead(current.lastMessageSequence, delivery.latest!.lastMessageSequence)
+              : delivery.latest!.lastMessageSequence,
+        }));
       }
       if (delivery.rows.length > 0) {
         updateRows((current) =>
@@ -397,7 +403,13 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         );
         if (cancelled) return;
         setUserId(currentUser.id);
-        setConversation(detail);
+        setConversation((current) => ({
+          ...detail,
+          lastMessageSequence:
+            current?.id === detail.id
+              ? advanceDirectHistoryHead(current.lastMessageSequence, detail.lastMessageSequence)
+              : detail.lastMessageSequence,
+        }));
         try {
           const preference =
             await fetchSurfacePreference(detail.surfaceId);
@@ -636,7 +648,13 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
       if (fresh && rowsRef.current.length === 0) {
         setNextCursor(fresh.nextCursor);
       }
-      setConversation(detail);
+      setConversation((current) => ({
+        ...detail,
+        lastMessageSequence:
+          current?.id === detail.id
+            ? advanceDirectHistoryHead(current.lastMessageSequence, detail.lastMessageSequence)
+            : detail.lastMessageSequence,
+      }));
       if (decrypted.length > 0) {
         updateRows((current) =>
           mergeDecryptedRows(
