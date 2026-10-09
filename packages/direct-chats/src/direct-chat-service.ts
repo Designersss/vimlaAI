@@ -1,6 +1,9 @@
 import { Prisma } from "@vimla/database";
 import {
   DIRECT_CHAT_LIMITS,
+  DIRECT_REACTION_HISTORY_PAGE_MAX,
+  type DirectReactionEventsResponse,
+  type ListDirectReactionEventsQuery,
   type DirectConversationPrivacy,
   type DirectConversationSummary,
   type DirectConversationView,
@@ -284,6 +287,62 @@ export class DirectChatService {
     return {
       items: page.map((row) => toMessageView(row, query.deviceId, mentions.get(row.id) ?? [])),
       nextCursor: rows.length > query.limit && last ? encodeCursor(last.sequence) : null,
+    };
+  }
+
+  /**
+   * Indexed discovery of encrypted E2EE reaction controls for a locally
+   * authenticated HUMAN source. The opaque HMAC target tag is NOT source
+   * authority and the returned controls are NOT independently decryptable:
+   * clients must separately establish continuous ratchet history and verify
+   * sender AD, full ciphertext commitment and the HUMAN provenance.
+   *
+   * No full conversation scan, no plaintext counts or deletion of tombstones.
+   */
+  async listReactionEvents(
+    actor: ActorContext,
+    conversationId: string,
+    query: ListDirectReactionEventsQuery,
+  ): Promise<DirectReactionEventsResponse> {
+    await this.requireMemberConversation(actor.userId, conversationId);
+    await this.requireActiveDevice(actor.userId, query.deviceId);
+    if (!Number.isSafeInteger(query.limit) ||
+        query.limit < 1 || query.limit > DIRECT_REACTION_HISTORY_PAGE_MAX ||
+        !/^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$/.test(query.targetTagB64) ||
+        !/^(0|[1-9][0-9]*)$/.test(query.afterSequence)) {
+      throw new DirectChatError("VALIDATION_ERROR", "Invalid Direct reaction query");
+    }
+    const after = BigInt(query.afterSequence);
+    if (after > 9223372036854775807n) {
+      throw new DirectChatError("VALIDATION_ERROR", "Invalid Direct reaction sequence");
+    }
+    const before = decodeCursor(query.cursor);
+    if (before !== null && before <= after) {
+      throw new DirectChatError("VALIDATION_ERROR", "Invalid Direct reaction cursor");
+    }
+    const rows = await this.db.directMessage.findMany({
+      where: {
+        conversationId,
+        kind: "REACTION",
+        reactionTargetTagB64: query.targetTagB64,
+        sequence: {
+          gt: after,
+          ...(before !== null ? { lt: before } : {}),
+        },
+      },
+      include: {
+        envelopes: { where: { recipientDeviceId: query.deviceId } },
+      },
+      orderBy: [{ sequence: "desc" }],
+      take: query.limit + 1,
+    });
+    const page = rows.slice(0, query.limit);
+    const last = page.at(-1);
+    return {
+      items: page.map((row) => toMessageView(row, query.deviceId, [])),
+      nextCursor: rows.length > query.limit && last
+        ? encodeCursor(last.sequence)
+        : null,
     };
   }
 
