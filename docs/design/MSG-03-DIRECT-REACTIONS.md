@@ -329,27 +329,41 @@ index only bounds **lookup cost**; it does not solve safe compaction or
 E2EE decryption dependencies.
 
 
-### Closed-interval realtime catch-up preflight (October 9)
+### Gap classification before ratchet catch-up (October 9)
 
-The Web realtime path no longer treats a terminal HTTP history page as
-evidence that a missed event interval is complete. It retains raw rows from
-each bounded page, checks cross-page server-ID equivocation before crypto,
-and requires a **contiguous PostgreSQL sequence interval** from the newest
-fetched row down to an already-observed immutable message. A delayed hint
-for an event older than the first known row must reach a *second known anchor
-below the hinted event*. Failure to observe the hinted ID, a sufficiently
-old anchor, the server-advertised head or any sequence in the closed interval
-aborts **before decrypting the partially recovered interval**.
+Cross-browser adversarial E2E uncovered an over-strict first iteration of
+the closed-interval preflight: it rejected legitimate **skipped-key** delivery
+when an older signed HUMAN envelope was delayed but a newer, valid message
+had already committed. This broke normal message delivery in Chromium,
+Firefox and WebKit, without strengthening the authenticity of those
+messages. The first iteration was corrected before merge.
 
-This relies on the per-conversation PostgreSQL transactional sequence trigger:
-no committed envelope in the append-only Direct log may leave a sequence
-hole. Incoming sequence strings are bounded to signed int64 before any
-browser BigInt parsing. Duplicate ID wire conflicts still quarantine the
-surface. This is a safe fail-closed recovery condition, not an unbounded
-catch-up policy, not a Double Ratchet checkpoint, and not a cryptographic
-proof against a server lying consistently about head and all pages. Initial
-X3DH bootstrap and old-history retention still require a separate,
-independent cross-page review before merge.
+The final portable pre-ratchet inspector distinguishes **structural
+equivocation** (foreign conversations, contradictory server IDs or sequence
+ownership, malformed/overflowed PostgreSQL bigint) from **partial but
+potentially authentic history** (skipped server sequence, stale detail
+high-water, missing older anchor or delayed realtime ID). Structural
+conflicts still fail closed *before* Double Ratchet touches persistent
+keys. A partial history is *not* cryptographic evidence that a valid
+HUMAN envelope must be rejected; the existing sender signature and AD5
+authenticated decryption remain required, and Double Ratchet deliberately
+supports skipped keys. The 16-page catch-up budget still aborts excessive
+history retrieval before decryption.
+
+The inspector can report a complete head-to-known interval only after
+observing all consecutive PostgreSQL sequences and, for older hints,
+an immutable known anchor below the hinted event. This result only
+permits a smaller bounded replay window. It does **not** authorize
+historical reaction counts: the independent platform-neutral reaction
+projector still requires a continuous authoritative head-to-original
+interval, authenticates the original HUMAN source and verifies every
+targeted control event. Missing/undecryptable events suppress counts and
+toggles, even while independent HUMAN messages remain readable.
+
+This does not supply a new-device history checkpoint, trust a potentially
+equivocating server as a cryptographic completeness witness, or prove
+safe append-only event compaction. Cold-start reconstruction, retention,
+privacy review and the remaining adversarial matrix are still release gates.
 
 ## Required test matrix
 
