@@ -150,8 +150,9 @@ export function assertDirectHistoryGapComplete(input: {
     throw new Error("Unanchored Direct E2EE history gap");
   }
 
+  const verifiedAnchor = anchor;
   const ordered = [...idBySequence.keys()]
-    .filter((sequence) => sequence >= anchor)
+    .filter((sequence) => sequence >= verifiedAnchor)
     .sort((a, b) => a > b ? -1 : a < b ? 1 : 0);
   let expected = newestFetched;
   for (const sequence of ordered) {
