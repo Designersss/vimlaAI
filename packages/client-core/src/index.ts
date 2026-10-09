@@ -83,3 +83,9 @@ export {
   reduceVerifiedDirectReactions,
   type DirectReactionState,
 } from "./direct-chat-reaction-state.js";
+export {
+  projectVerifiedDirectReactions,
+  type CachedDirectReactionPlaintext,
+  type ReactionProjectionRow,
+  type DirectReactionsProjection,
+} from "./direct-chat-reaction-projection.js";
