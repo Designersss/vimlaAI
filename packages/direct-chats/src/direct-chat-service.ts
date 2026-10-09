@@ -270,17 +270,12 @@ export class DirectChatService {
     const rows = await this.db.directMessage.findMany({
       where: {
         conversationId,
-        ...(cursor
-          ? {
-              OR: [
-                { createdAt: { lt: cursor.at } },
-                { AND: [{ createdAt: cursor.at }, { id: { lt: cursor.id } }] },
-              ],
-            }
+        ...(cursor !== null
+          ? { sequence: { lt: cursor } }
           : {}),
       },
       include: { envelopes: { where: { recipientDeviceId: query.deviceId } } },
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+      orderBy: [{ sequence: "desc" }],
       take: query.limit + 1,
     });
     const page = rows.slice(0, query.limit);
@@ -288,7 +283,7 @@ export class DirectChatService {
     const mentions = await this.readMentionMap(page.map((row) => row.id));
     return {
       items: page.map((row) => toMessageView(row, query.deviceId, mentions.get(row.id) ?? [])),
-      nextCursor: rows.length > query.limit && last ? encodeCursor(last.createdAt, last.id) : null,
+      nextCursor: rows.length > query.limit && last ? encodeCursor(last.sequence) : null,
     };
   }
 
@@ -1282,24 +1277,27 @@ function isMentionKind(value: string): value is MessageMentionView["kind"] {
   return value === "USER" || value === "SYSTEM_AGENT" || value === "AI_AUTO" || value === "AI_MODEL";
 }
 
-function encodeCursor(at: Date, id: string): string {
-  return Buffer.from(`${at.toISOString()}|${id}`, "utf8").toString("base64url");
+/** Causally ordered, opaque and strictly canonical Direct pagination cursor. */
+function encodeCursor(sequence: bigint): string {
+  return Buffer.from(`s1:${sequence.toString()}`, "utf8").toString("base64url");
 }
 
-function decodeCursor(cursor: string | undefined): { at: Date; id: string } | null {
-  if (!cursor) {
-    return null;
+function decodeCursor(cursor: string | undefined): bigint | null {
+  if (cursor === undefined) return null;
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(cursor)) {
+    throw new DirectChatError("VALIDATION_ERROR", "Invalid Direct message cursor");
   }
-  try {
-    const raw = Buffer.from(cursor, "base64url").toString("utf8");
-    const [iso, id] = raw.split("|");
-    if (!iso || !id) {
-      return null;
-    }
-    return { at: new Date(iso), id };
-  } catch {
-    return null;
+  const bytes = Buffer.from(cursor, "base64url");
+  const raw = bytes.toString("utf8");
+  const match = /^s1:([1-9][0-9]{0,18})$/.exec(raw);
+  if (!match || Buffer.from(raw, "utf8").toString("base64url") !== cursor) {
+    throw new DirectChatError("VALIDATION_ERROR", "Invalid Direct message cursor");
   }
+  const sequence = BigInt(match[1] ?? "0");
+  if (sequence > 9223372036854775807n) {
+    throw new DirectChatError("VALIDATION_ERROR", "Invalid Direct message cursor");
+  }
+  return sequence;
 }
 
 function sameReplayEnvelopes(
