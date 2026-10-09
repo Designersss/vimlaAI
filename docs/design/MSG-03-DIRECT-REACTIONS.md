@@ -263,8 +263,13 @@ same-page equivocation. A portable **pre-ratchet page preflight** now
 rejects conflicting immutable metadata for the same server message ID
 **before** any decrypt attempt, protected-cache lookup, or ratchet commit.
 The entire corrupt page becomes an integrity-conflicted fail-closed result,
-not a source of partial decrypted state. Identical wire replays remain valid.
-Duplicate-message and preflight regression tests cover these boundaries.
+not a source of partial decrypted state. Realtime gap reconciliation and
+manual older-page pagination also compare incoming wire replicas with their
+previously observed message IDs **before** any known-ID filtering or
+ratchet decryption. Repeated paginated responses are checked against one
+another. A conflicting page is quarantined instead of partially replayed.
+Identical wire replays remain valid. Duplicate-message and preflight
+regression tests cover these boundaries.
 Replica equality is a conflict detector, not a replacement for E2EE
 signature or commitment verification.
 Protected plaintext cache reads are batched to at most eight concurrent
