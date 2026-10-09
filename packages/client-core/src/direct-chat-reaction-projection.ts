@@ -152,6 +152,9 @@ export async function projectVerifiedDirectReactions(
     readPlaintext,
   );
   for (const row of humanSourceRows) {
+    // Preserve the explicit discriminant narrowing: a filtered array does
+    // not turn mutable/untrusted payload data into a verified HUMAN source.
+    if (row.payload?.type !== "human") continue;
     const cached = cachedSources.get(row.message.id) ?? null;
     if (!cachedMatches(cached, row.message)) continue;
     const authenticated = decodeDirectHumanPayload(
