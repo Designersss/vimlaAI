@@ -248,6 +248,66 @@ describe("direct chats API", () => {
     expect(missingTag.statusCode).toBe(400);
   });
 
+  it("pages encrypted Direct events in authoritative sequence despite reordered createdAt", async () => {
+    const alice = await readyUser(app, "direct-sequence-page-alice", "Alice");
+    const bob = await readyUser(app, "direct-sequence-page-bob", "Bob");
+    const sender = await registerHarness(app, alice);
+    await registerHarness(app, bob);
+    const chat = await createChat(app, alice.cookies, bob.handle);
+    const sent: Array<{ id: string; sequence: string }> = [];
+    for (const text of ["causal first", "causal second", "causal third"]) {
+      const response = await sendPlain(app, alice, sender, chat.id, "HUMAN", text);
+      expect(response.statusCode).toBe(201);
+      sent.push(response.json() as { id: string; sequence: string });
+    }
+    const first = sent[0];
+    const second = sent[1];
+    const third = sent[2];
+    if (!first || !second || !third) throw new Error("Missing causal messages");
+    expect(BigInt(first.sequence)).toBeLessThan(BigInt(second.sequence));
+    expect(BigInt(second.sequence)).toBeLessThan(BigInt(third.sequence));
+
+    const db = app.get(PrismaService).client;
+    // A newer transaction can start with an earlier timestamp and acquire
+    // the sequence lock later. Make that adversarial timestamp ordering
+    // deterministic rather than depending on clock timing in CI.
+    await db.directMessage.update({
+      where: { id: first.id }, data: { createdAt: new Date("2099-01-01T00:00:00.000Z") },
+    });
+    await db.directMessage.update({
+      where: { id: third.id }, data: { createdAt: new Date("2000-01-01T00:00:00.000Z") },
+    });
+    const received: string[] = [];
+    let cursor: string | null = null;
+    for (let index = 0; index < 3; index += 1) {
+      const response = await app.inject({
+        method: "GET",
+        url: `/v1/direct-chats/${chat.id}/messages?deviceId=${sender.deviceId}&limit=1${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+        headers: { origin }, cookies: alice.cookies,
+      });
+      expect(response.statusCode).toBe(200);
+      const page = response.json() as {
+        items: Array<{ id: string; sequence: string }>;
+        nextCursor: string | null;
+      };
+      expect(page.items).toHaveLength(1);
+      const item = page.items[0];
+      if (!item) throw new Error("Empty Direct page");
+      received.push(item.id);
+      cursor = page.nextCursor;
+      if (index < 2) expect(cursor).toBeTruthy();
+      else expect(cursor).toBeNull();
+    }
+    expect(received).toEqual([third.id, second.id, first.id]);
+    expect(new Set(received).size).toBe(3);
+    const invalid = await app.inject({
+      method: "GET",
+      url: `/v1/direct-chats/${chat.id}/messages?deviceId=${sender.deviceId}&cursor=invalid`,
+      headers: { origin }, cookies: alice.cookies,
+    });
+    expect(invalid.statusCode).toBe(400);
+  });
+
   it("fails closed when Direct Chats are disabled", async () => {
     const previous = process.env.DIRECT_CHATS_ENABLED;
     process.env.DIRECT_CHATS_ENABLED = "false";
