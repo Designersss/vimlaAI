@@ -258,7 +258,10 @@
     "cancelReply": "Отменить ответ",
     "replyReferenceMissing": "Исходное сообщение больше недоступно. Отмените ответ или загрузите историю.",
     "replyCannotInvoke": "Отмените ответ, прежде чем вызывать @Vimla.",
-    "replyToYou": "Ответ на ваше сообщение"
+    "replyToYou": "Ответ на ваше сообщение",
+    "react": "Реакция",
+    "reactionAdd": "Поставить реакцию {emoji}",
+    "reactionRemove": "Убрать реакцию {emoji}"
   },
   "operator": {
     "title": "@Vimla",
