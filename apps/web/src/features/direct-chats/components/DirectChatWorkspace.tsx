@@ -178,10 +178,9 @@ function upsertComposerMention(current: ComposerMention[], mention: ComposerMent
 function mergeDecryptedRows(current: DecryptedRow[], incoming: DecryptedRow[]): DecryptedRow[] {
   const byId = new Map(current.map((row) => [row.message.id, row]));
   for (const row of incoming) byId.set(row.message.id, row);
-  return [...byId.values()].sort(
-    (left, right) =>
-      new Date(left.message.createdAt).getTime() - new Date(right.message.createdAt).getTime() ||
-      left.message.id.localeCompare(right.message.id),
+  return [...byId.values()].sort((left, right) =>
+    BigInt(left.message.sequence) < BigInt(right.message.sequence) ? -1 :
+    BigInt(left.message.sequence) > BigInt(right.message.sequence) ? 1 : 0,
   );
 }
 
@@ -2125,26 +2124,21 @@ async function fetchDecryptedGap(
     );
 
     if (targetDriven) {
-      let oldestRequiredIndex = -1;
-      page.items.forEach((message, index) => {
-        if (requiredUnknownIds.delete(message.id)) {
-          oldestRequiredIndex = index;
-        }
-      });
-
-      const upperBound =
-        requiredUnknownIds.size === 0 &&
-        oldestRequiredIndex >= 0
-          ? oldestRequiredIndex + 1
-          : page.items.length;
+      // A durable hint proves an event exists, not that all earlier events
+      // reached this browser. Replay the *whole* interval to an already
+      // known row before projecting add/remove reaction state.
+      const oldestKnownIndex = page.items.findIndex(
+        (message) => knownIds.has(message.id),
+      );
+      for (const message of page.items) {
+        requiredUnknownIds.delete(message.id);
+      }
       incoming.push(
         ...page.items
-          .slice(0, upperBound)
-          .filter(
-            (message) => !knownIds.has(message.id),
-          ),
+          .slice(0, oldestKnownIndex >= 0 ? oldestKnownIndex : undefined)
+          .filter((message) => !knownIds.has(message.id)),
       );
-      if (requiredUnknownIds.size === 0) {
+      if (requiredUnknownIds.size === 0 && oldestKnownIndex >= 0) {
         break;
       }
     } else {
@@ -2279,11 +2273,9 @@ async function decryptPage(detail: DirectConversationView, items: DirectMessageV
     ]),
   );
   const byId = new Map<string, DecryptedRow>();
-  const chronological = [...items].sort(
-    (left, right) =>
-      new Date(left.createdAt).getTime() -
-        new Date(right.createdAt).getTime() ||
-      left.id.localeCompare(right.id),
+  const chronological = [...items].sort((left, right) =>
+    BigInt(left.sequence) < BigInt(right.sequence) ? -1 :
+    BigInt(left.sequence) > BigInt(right.sequence) ? 1 : 0,
   );
   for (const message of chronological) {
     const initIdentity =
