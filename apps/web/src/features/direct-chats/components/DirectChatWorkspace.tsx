@@ -422,7 +422,9 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
           }
         }
         const visibleRows = [...page.decrypted].reverse();
-        updateRows(visibleRows);
+        // Even the initial page can contain adversarial duplicate server IDs.
+        // Never bypass the same fail-closed conflict check used by realtime.
+        updateRows(mergeDecryptedRows([], visibleRows));
         setNextCursor(page.nextCursor);
         setBoot("ready");
 
@@ -2435,7 +2437,9 @@ async function decryptPage(detail: DirectConversationView, items: DirectMessageV
       device.identityEd25519Public,
     ]),
   );
-  const byId = new Map<string, DecryptedRow>();
+  // Keep every server-provided replica until the integrity-aware merge.
+  // Keying by message.id here would erase same-page equivocation evidence.
+  const byMessage = new Map<DirectMessageView, DecryptedRow>();
   const chronological = [...items].sort((left, right) =>
     BigInt(left.sequence) < BigInt(right.sequence) ? -1 :
     BigInt(left.sequence) > BigInt(right.sequence) ? 1 : 0,
@@ -2459,7 +2463,7 @@ async function decryptPage(detail: DirectConversationView, items: DirectMessageV
         ? { senderIdentityEd25519Public: senderPublic }
         : {}),
     });
-    byId.set(message.id, {
+    byMessage.set(message, {
       message,
       payload: result.payload,
       needsBootstrap: result.needsBootstrap,
@@ -2467,7 +2471,7 @@ async function decryptPage(detail: DirectConversationView, items: DirectMessageV
   }
   return items.map(
     (message) =>
-      byId.get(message.id) ?? {
+      byMessage.get(message) ?? {
         message,
         payload: null,
         needsBootstrap: false,
