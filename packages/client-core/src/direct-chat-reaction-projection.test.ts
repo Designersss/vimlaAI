@@ -163,6 +163,53 @@ describe("local authenticated E2EE reaction projection", () => {
     expect(projection.eligibleMessageIds.size).toBe(0);
   });
 
+  it("reads protected history in bounded parallel batches without changing authenticated state", async () => {
+    const f = fixture();
+    const additional = Array.from({ length: 25 }, (_, index): ReactionProjectionRow => ({
+      message: {
+        ...f.sourceRow.message,
+        id: `message-${index}`,
+        sequence: String(index + 3),
+      },
+      payload: { type: "human", text: "cached history not present" },
+    }));
+    let active = 0;
+    let peak = 0;
+    const accessed: string[] = [];
+    const guardedRead = async (id: string): Promise<CachedDirectReactionPlaintext | null> => {
+      active += 1;
+      peak = Math.max(peak, active);
+      accessed.push(id);
+      await new Promise<void>((resolve) => queueMicrotask(resolve));
+      active -= 1;
+      return f.read(id);
+    };
+    const projection = await projectVerifiedDirectReactions(
+      [...additional, f.reactionRow, f.sourceRow],
+      guardedRead,
+      "27",
+    );
+    expect(peak).toBeGreaterThan(1);
+    expect(peak).toBeLessThanOrEqual(8);
+    expect(accessed).toHaveLength(27);
+    expect(projection.states).toMatchObject([
+      { active: true, emoji: "❤️", reactorUserId: bob, latestSequence: 2n },
+    ]);
+    expect(projection.unavailableMessageIds.size).toBe(0);
+  });
+
+  it("rejects a protected cache read failure rather than projecting partial counts", async () => {
+    const f = fixture();
+    await expect(projectVerifiedDirectReactions(
+      [f.sourceRow, f.reactionRow],
+      async (id) => {
+        if (id === f.reactionRow.message.id) throw new Error("Local protection unavailable");
+        return f.read(id);
+      },
+      "2",
+    )).rejects.toThrow("Local protection unavailable");
+  });
+
   it("never projects an unauthenticated source or accidentally turns a reaction into HUMAN text", async () => {
     const f = fixture();
     const fake: ReactionProjectionRow = {
