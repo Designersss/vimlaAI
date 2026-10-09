@@ -78,8 +78,28 @@ export async function projectVerifiedDirectReactions(
   const unavailableMessageIds = new Set<string>();
   const events: Array<{ verified: VerifiedDirectReaction; sourceMessageId: string }> = [];
 
+  // Only a contiguous, newest-first slice of the authoritative conversation
+  // can prove the absence of later add/remove events. An unseen sequence
+  // between the observed head and a HUMAN original makes any count for that
+  // original misleading. A duplicate row ID is not a second log position.
+  const uniqueById = new Map(rows.map((row) => [row.message.id, row]));
+  const bySequence = [...uniqueById.values()].sort((a, b) => {
+    const left = BigInt(a.message.sequence);
+    const right = BigInt(b.message.sequence);
+    return left < right ? 1 : left > right ? -1 : 0;
+  });
+  const contiguous = new Set<string>();
+  let expected = bySequence[0] ? BigInt(bySequence[0].message.sequence) : 0n;
+  for (const row of bySequence) {
+    const current = BigInt(row.message.sequence);
+    if (current !== expected || current <= 0n) break;
+    contiguous.add(row.message.id);
+    expected -= 1n;
+  }
+
   for (const row of rows) {
-    if (row.message.kind !== "HUMAN" || row.payload?.type !== "human") continue;
+    if (row.message.kind !== "HUMAN" || row.payload?.type !== "human" ||
+        !contiguous.has(row.message.id)) continue;
     const cached = await readPlaintext(row.message.id);
     if (!cachedMatches(cached, row.message)) continue;
     const authenticated = decodeDirectHumanPayload(
@@ -103,6 +123,11 @@ export async function projectVerifiedDirectReactions(
     const tag = row.message.reactionTargetTagB64;
     const source = tag ? sourceByTag.get(tag) : undefined;
     if (!source) continue;
+    if (!contiguous.has(row.message.id) ||
+        BigInt(row.message.sequence) <= BigInt(source.row.message.sequence)) {
+      unavailableMessageIds.add(source.messageId);
+      continue;
+    }
     const cached = await readPlaintext(row.message.id);
     if (!cachedMatches(cached, row.message)) {
       unavailableMessageIds.add(source.messageId);
