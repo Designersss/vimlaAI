@@ -42,3 +42,40 @@ export function reconcileDirectHistoryHead<
       }
     : incoming;
 }
+
+/**
+ * A privacy mutation acknowledges only the fields that were submitted.
+ * Its response can race later reaction sends, an unrelated privacy toggle,
+ * a trust block, or navigation to a different Direct chat. Preserve all
+ * newer unrelated state while still admitting a newer server stream head.
+ */
+export function applyDirectPrivacyAcknowledgement<
+  T extends {
+    id: string;
+    lastMessageSequence: string;
+    privacy: {
+      shareOwnHistoryWithVimla: boolean;
+      includePeerHistoryWhenInvoking: boolean;
+    };
+  },
+>(
+  current: T | null,
+  acknowledgement: T,
+  submitted: {
+    shareOwnHistoryWithVimla?: boolean;
+    includePeerHistoryWhenInvoking?: boolean;
+  },
+): T | null {
+  if (!current || current.id !== acknowledgement.id) return current;
+  return {
+    ...current,
+    lastMessageSequence: advanceDirectHistoryHead(
+      current.lastMessageSequence,
+      acknowledgement.lastMessageSequence,
+    ),
+    privacy: {
+      ...current.privacy,
+      ...submitted,
+    },
+  };
+}
