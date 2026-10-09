@@ -46,18 +46,23 @@ export function hasConflictingDirectMessageReplicas(
   // Baseline rows were already accepted by the local surface; no page may
   // silently replace their immutable sender-signed identity. Include pages
   // visited earlier in the same catch-up for cross-page equivocation.
-  const byId = new Map(
-    priorMessages.map((message) =>
-      [message.id, directMessageReplicaFingerprint(message)] as const,
-    ),
-  );
-  for (const message of messages) {
+  const byId = new Map<string, string>();
+  // The PostgreSQL append-only log assigns a globally unique sequence per
+  // conversation. A malicious API response may copy one valid signed E2EE
+  // envelope under a NEW server ID at the same sequence: comparing only
+  // existing IDs would miss this causal equivocation before ratchet commit.
+  const bySequence = new Map<string, string>();
+  for (const message of [...priorMessages, ...messages]) {
     const fingerprint = directMessageReplicaFingerprint(message);
     const previous = byId.get(message.id);
-    if (previous !== undefined && previous !== fingerprint) {
+    const sequenceKey = JSON.stringify([message.conversationId, message.sequence]);
+    const priorOwner = bySequence.get(sequenceKey);
+    if ((previous !== undefined && previous !== fingerprint) ||
+        (priorOwner !== undefined && priorOwner !== message.id)) {
       return true;
     }
     byId.set(message.id, fingerprint);
+    bySequence.set(sequenceKey, message.id);
   }
   return false;
 }
@@ -94,6 +99,27 @@ export function mergeDirectMessageReplicaRows<TPayload>(
       continue;
     }
     byId.set(row.message.id, row);
+  }
+  // Defend portable callers that did not run the raw-page preflight.
+  // Never let two different IDs claim the same authoritative log slot and
+  // expose either as authenticated history. Poison both ambiguous owners.
+  const bySequence = new Map<string, string>();
+  const poisoned = new Set<string>();
+  for (const row of byId.values()) {
+    const key = JSON.stringify([row.message.conversationId, row.message.sequence]);
+    const owner = bySequence.get(key);
+    if (owner !== undefined && owner !== row.message.id) {
+      poisoned.add(owner);
+      poisoned.add(row.message.id);
+    } else {
+      bySequence.set(key, row.message.id);
+    }
+  }
+  for (const id of poisoned) {
+    const row = byId.get(id);
+    if (row) {
+      byId.set(id, { ...row, payload: null, needsBootstrap: false, integrityConflict: true });
+    }
   }
   return [...byId.values()].sort((left, right) =>
     BigInt(left.message.sequence) < BigInt(right.message.sequence) ? -1 :
