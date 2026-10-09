@@ -60,6 +60,8 @@ function reference(message: DirectMessageView): DirectReplyReference {
  * by Web/Desktop/Mobile. All rows must form a contiguous, causally ordered
  * head-to-original interval. Signatures and local cache protection must be
  * checked by the caller BEFORE admitting a stored plaintext.
+ * The head watermark is PostgreSQL's inclusive lastMessageSequence; a
+ * missing newer event invalidates all visible aggregates until repaired.
  *
  * A tag is only a correlation hint: no unverified event can create UI state.
  * An undecryptable signed event with a known tag hides potentially misleading
@@ -68,6 +70,7 @@ function reference(message: DirectMessageView): DirectReplyReference {
 export async function projectVerifiedDirectReactions(
   rows: readonly ReactionProjectionRow[],
   readPlaintext: (messageId: string) => Promise<CachedDirectReactionPlaintext | null>,
+  authoritativeHeadSequence: string,
 ): Promise<DirectReactionsProjection> {
   const sourceByTag = new Map<string, {
     messageId: string;
@@ -98,8 +101,15 @@ export async function projectVerifiedDirectReactions(
       item.sequence !== null)
     .sort((a, b) => a.sequence < b.sequence ? 1 : a.sequence > b.sequence ? -1 : 0);
   const contiguous = new Set<string>();
-  let expected = bySequence[0]?.sequence ?? 0n;
+  // A locally loaded range cannot prove there are no newer reaction
+  // controls. Anchor the contiguous prefix to the server's *complete*
+  // conversation high-water sequence, not merely the newest cached row.
+  const advertisedHead = authoritativeHeadSequence === "0"
+    ? 0n
+    : parseSequence(authoritativeHeadSequence);
+  let expected = advertisedHead;
   for (const item of bySequence) {
+    if (expected === null) break;
     if (item.sequence !== expected) break;
     contiguous.add(item.row.message.id);
     expected -= 1n;
