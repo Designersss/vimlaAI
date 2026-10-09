@@ -170,6 +170,7 @@ export const listDirectMessagesQuerySchema = z.object({
  */
 export const DIRECT_REACTION_HISTORY_PAGE_MAX = 50;
 const directHistorySequenceSchema = z.string()
+  .min(1).max(19)
   .regex(/^(0|[1-9][0-9]*)$/)
   .refine((value) => BigInt(value) <= 9223372036854775807n,
     "Sequence must fit PostgreSQL bigint");
@@ -346,7 +347,7 @@ export type DirectMessagesResponse = z.infer<typeof directMessagesResponseSchema
 
 export const directReactionEventsResponseSchema = z.object({
   items: z.array(directMessageViewSchema).max(DIRECT_REACTION_HISTORY_PAGE_MAX),
-  nextCursor: z.string().nullable(),
+  nextCursor: z.string().min(1).max(512).nullable(),
 });
 export type DirectReactionEventsResponse = z.infer<typeof directReactionEventsResponseSchema>;
 
