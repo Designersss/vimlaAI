@@ -267,10 +267,16 @@ describe("direct chats API", () => {
     });
     expect(secondSend.statusCode).toBe(201);
     const secondEvent = secondSend.json() as { id: string };
-    const prefix = `/v1/direct-chats/${chat.id}/reactions?deviceId=${aliceDevice.deviceId}&targetTagB64=${encodeURIComponent(tag)}&afterSequence=${humanMessage.sequence}&limit=1`;
-    const firstLookup = await app.inject({
-      method: "GET", url: prefix, headers: { origin }, cookies: alice.cookies,
-    });
+    const requestIndex = (cookies: Record<string, string>, payload: Record<string, unknown>) =>
+      app.inject({
+        method: "POST", url: `/v1/direct-chats/${chat.id}/reactions`,
+        headers: jsonHeaders(), cookies, payload,
+      });
+    const lookupBody = {
+      deviceId: aliceDevice.deviceId, targetTagB64: tag,
+      afterSequence: humanMessage.sequence, limit: 1,
+    };
+    const firstLookup = await requestIndex(alice.cookies, lookupBody);
     expect(firstLookup.statusCode).toBe(200);
     const firstPage = firstLookup.json() as {
       items: Array<{ id: string; kind: string; envelope: unknown }>;
@@ -280,9 +286,8 @@ describe("direct chats API", () => {
     expect(firstPage.items[0]).toMatchObject({ id: secondEvent.id, kind: "REACTION" });
     expect(firstPage.items[0]?.envelope).not.toBeNull();
     expect(firstPage.nextCursor).toBeTruthy();
-    const nextLookup = await app.inject({
-      method: "GET", url: `${prefix}&cursor=${encodeURIComponent(firstPage.nextCursor ?? "")}`,
-      headers: { origin }, cookies: alice.cookies,
+    const nextLookup = await requestIndex(alice.cookies, {
+      ...lookupBody, cursor: firstPage.nextCursor,
     });
     expect(nextLookup.statusCode).toBe(200);
     const nextPage = nextLookup.json() as {
@@ -292,46 +297,35 @@ describe("direct chats API", () => {
     expect(nextPage.nextCursor).toBeNull();
     expect(firstLookup.body).not.toContain('"action":"add"');
     expect(firstLookup.body).not.toContain('"emoji"');
-
     const foreignTag = bytesToB64(new Uint8Array(32).fill(0x65));
-    const empty = await app.inject({
-      method: "GET", url: prefix.replace(encodeURIComponent(tag), encodeURIComponent(foreignTag)),
-      headers: { origin }, cookies: alice.cookies,
+    const empty = await requestIndex(alice.cookies, {
+      ...lookupBody, targetTagB64: foreignTag,
     });
     expect(empty.statusCode).toBe(200);
     expect((empty.json() as { items: unknown[] }).items).toEqual([]);
-    for (const suffix of ["&cursor=invalid", "&cursor=" + encodeURIComponent(firstPage.nextCursor ?? "") + "&extra=1"]) {
-      const invalid = await app.inject({
-        method: "GET", url: prefix + suffix,
-        headers: { origin }, cookies: alice.cookies,
-      });
+    for (const invalidBody of [
+      { ...lookupBody, cursor: "invalid" },
+      { ...lookupBody, cursor: firstPage.nextCursor, extra: 1 },
+      { ...lookupBody, afterSequence: "-3" },
+      { ...lookupBody, limit: 51 },
+    ]) {
+      const invalid = await requestIndex(alice.cookies, invalidBody);
       expect(invalid.statusCode).toBe(400);
     }
-    const oversized = await app.inject({
-      method: "GET", url: prefix.replace("limit=1", "limit=51"),
-      headers: { origin }, cookies: alice.cookies,
-    });
-    expect(oversized.statusCode).toBe(400);
-    const foreignDevice = await app.inject({
-      method: "GET", url: prefix.replace(aliceDevice.deviceId, bobDevice.deviceId),
-      headers: { origin }, cookies: alice.cookies,
+    const foreignDevice = await requestIndex(alice.cookies, {
+      ...lookupBody, deviceId: bobDevice.deviceId,
     });
     expect(foreignDevice.statusCode).toBe(404);
     const outsider = await readyUser(app, "dc-reaction-index-outsider", "Outside");
-    const outsiderRead = await app.inject({
-      method: "GET", url: prefix,
-      headers: { origin }, cookies: outsider.cookies,
-    });
+    const outsiderRead = await requestIndex(outsider.cookies, lookupBody);
     expect(outsiderRead.statusCode).toBe(404);
-
     const revoked = await app.inject({
       method: "POST", url: `/v1/direct-chats/devices/${bobDevice.deviceId}/revoke`,
       headers: jsonHeaders(), cookies: bob.cookies,
     });
     expect(revoked.statusCode).toBe(200);
-    const revokedRead = await app.inject({
-      method: "GET", url: prefix.replace(aliceDevice.deviceId, bobDevice.deviceId),
-      headers: { origin }, cookies: bob.cookies,
+    const revokedRead = await requestIndex(bob.cookies, {
+      ...lookupBody, deviceId: bobDevice.deviceId,
     });
     expect(revokedRead.statusCode).not.toBe(200);
   });
