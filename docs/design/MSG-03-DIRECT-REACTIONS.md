@@ -355,6 +355,9 @@ brand-new device registration: no row exists to lock. Direct send,
 registration and revocation now share **transaction-scoped per-user
 advisory roster locks**, acquired in lexical user order after the
 Direct trust-pair lock and held through the signed envelope insertion.
+**Sends acquire shared roster advisory locks, while enrolment/revocation
+acquire exclusive roster locks**. This permits overlapping sends for the
+same popular participant while preventing concurrent roster mutation.
 Registration keeps its independent stable device-ID advisory guard
 against simultaneous first inserts. Revocation obtains its owner's
 roster lock before re-reading and updating the device row. The signed
@@ -383,10 +386,9 @@ reject the pending send and leave no partial encrypted reaction event.
 This closes the previously documented missing-new-device-row
 *registration-vs-send* gap for call paths using this roster coordinator.
 Prekey rotation and initial OTK consumption do not alter active
-membership and are not a fan-out roster mutation. Lock/DB performance,
-unrelated alternate device-registration paths and the full
-multi-device/outbox retry matrix remain part of the independent
-production readiness audit. None of these measures provides
+membership and are not a fan-out roster mutation. Lock/DB performance, shared-vs-exclusive fairness, unrelated
+alternate device-registration paths and the full multi-device/outbox
+retry matrix remain part of the independent production readiness audit. None of these measures provides
 historical Double Ratchet recovery or a safe reaction compaction proof.
 
 ### Bounded indexed ciphertext discovery (implemented; not a history proof)
