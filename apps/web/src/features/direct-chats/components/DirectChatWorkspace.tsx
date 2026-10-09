@@ -257,7 +257,9 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
     let cancelled = false;
     if (reactionHeadSequence === null) return;
     if (rows.some((row) => row.integrityConflict)) {
-      setReactionSnapshot(null);
+      // A previous snapshot cannot match this new row-array identity;
+      // reactionProjection is already null. Avoid synchronous setState in
+      // the effect: no derived state may be published for poisoned history.
       return;
     }
     void projectDirectReactions(rows.map((row) => ({
