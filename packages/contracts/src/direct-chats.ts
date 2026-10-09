@@ -251,6 +251,8 @@ export const directConversationSummarySchema = z.object({
 export type DirectConversationSummary = z.infer<typeof directConversationSummarySchema>;
 
 export const directConversationViewSchema = directConversationSummarySchema.extend({
+  // Includes encrypted reaction control events, not just visible chat messages.
+  lastMessageSequence: z.string().regex(/^(0|[1-9][0-9]*)$/),
   members: z.array(directParticipantSchema),
   devices: z.array(cryptoDeviceViewSchema),
 });
