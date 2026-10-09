@@ -161,6 +161,44 @@ test.describe("Secure Direct Chats", () => {
         .filter({ hasText: "hello from alice" }),
     ).toBeVisible({ timeout: 20_000 });
 
+    // MSG-03: the original HUMAN lies beyond the initial encrypted history
+    // page. No reaction may be attributed until the client has decrypted
+    // that original and reconstructed the contiguous head-to-source log.
+    // Existing older-page pagination (rather than the sparse tag index)
+    // must recover the independently authenticated reaction after reload.
+    const oldSource = nikitaPage.getByTestId("direct-message-row").filter({
+      has: nikitaPage.getByTestId("direct-message-human")
+        .filter({ hasText: "hello from alice" }),
+    });
+    await expect(oldSource.getByTestId("direct-message-reaction-action"))
+      .toBeVisible({ timeout: 20_000 });
+    await oldSource.getByTestId("direct-message-reaction-action").click();
+    await oldSource.getByTestId("direct-message-reaction-emoji")
+      .filter({ hasText: "🔥" }).click();
+    await expect(oldSource.getByTestId("direct-message-reaction-chip"))
+      .toContainText("🔥 1", { timeout: 20_000 });
+    await expect(alicePage.getByTestId("direct-message-row").filter({
+      has: alicePage.getByTestId("direct-message-human")
+        .filter({ hasText: "hello from alice" }),
+    }).getByTestId("direct-message-reaction-chip"))
+      .toContainText("🔥 1", { timeout: 20_000 });
+
+    await nikitaPage.reload();
+    await expect(nikitaPage.getByTestId("direct-chat-shell"))
+      .toBeVisible({ timeout: 20_000 });
+    // The source is not in the initial 30-row window, so a stale chip or
+    // a fabricated server aggregate must not appear as an extra chat bubble.
+    await expect(nikitaPage.getByTestId("direct-message-human")
+      .filter({ hasText: "hello from alice" })).toHaveCount(0);
+    await expect(nikitaPage.getByTestId("direct-chat-load-older"))
+      .toBeVisible({ timeout: 20_000 });
+    await nikitaPage.getByTestId("direct-chat-load-older").click();
+    await expect(nikitaPage.getByTestId("direct-message-row").filter({
+      has: nikitaPage.getByTestId("direct-message-human")
+        .filter({ hasText: "hello from alice" }),
+    }).getByTestId("direct-message-reaction-chip"))
+      .toContainText("🔥 1", { timeout: 20_000 });
+
     await composer.fill("live from alice");
     await alicePage.getByTestId("chat-composer-send").click();
     const liveFromAlice = nikitaPage
