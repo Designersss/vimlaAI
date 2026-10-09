@@ -67,6 +67,7 @@ import {
   PendingOperatorInvocationGoneError,
   cancelPendingSendsForTrust,
   loadConversationPlaintexts,
+  loadPlaintext,
   loadPendingSends,
   type StoredOperatorIntent,
   type StoredOperatorOutputDraft,
@@ -80,7 +81,12 @@ import {
   shouldContinueDeepHistoryBootstrap,
   directReplyReference,
   createDirectHumanMessage,
+  createDirectReaction,
+  cachedDirectPlaintextMatchesMessage,
+  DIRECT_REACTION_EMOJIS,
   resolveDirectReplySource,
+  type DirectReactionEmoji,
+  type DirectReactionState,
   type DirectReplyReference,
 } from "@vimla/client-core";
 import {
@@ -107,6 +113,7 @@ import { useChatSyncHub, useChatWorkspace, usePrepareChatDevice } from "../../ch
 import { ChatConversationHeader } from "../../chat/components/ChatWorkspace/ChatConversationHeader";
 import { ChatDetailStatus } from "../../chat/components/ChatWorkspace/ChatDetailStatus";
 import styles from "./DirectChatWorkspace.module.scss";
+import { projectDirectReactions, type DirectReactionsProjection } from "../services/reaction-projection";
 import { TRUST_CANCELLED_GC_POLL_INTERVAL_MS } from "../services/trust-cancelled-gc";
 
 interface DecryptedRow {
@@ -211,6 +218,30 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
     },
     [],
   );
+  const [reactionSnapshot, setReactionSnapshot] = useState<{
+    conversationId: string;
+    rows: DecryptedRow[];
+    projection: DirectReactionsProjection;
+  } | null>(null);
+  const reactionProjection = reactionSnapshot?.conversationId === conversationId &&
+    reactionSnapshot.rows === rows ? reactionSnapshot.projection : null;
+  const reactionLocksRef = useRef(new Set<string>());
+  const [reactionBusyMessageId, setReactionBusyMessageId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void projectDirectReactions(rows.map((row) => ({
+      message: row.message,
+      payload: row.payload?.type === "human" ? row.payload : null,
+    }))).then((projection) => {
+      if (!cancelled) setReactionSnapshot({ conversationId, rows, projection });
+    }).catch(() => {
+      // Lost/revoked local keys and corrupt caches are not reaction proof.
+      if (!cancelled) setReactionSnapshot(null);
+    });
+    return () => { cancelled = true; };
+  }, [conversationId, rows]);
+
   const [draft, setDraft] = useState("");
   const draftRef = useRef("");
   // A staged send only owns the exact composer revision it began with.
