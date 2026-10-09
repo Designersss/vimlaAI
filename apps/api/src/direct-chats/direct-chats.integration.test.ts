@@ -323,13 +323,17 @@ describe("direct chats API", () => {
     expect(outsiderRead.statusCode).toBe(404);
     const revoked = await app.inject({
       method: "POST", url: `/v1/direct-chats/devices/${bobDevice.deviceId}/revoke`,
-      headers: jsonHeaders(), cookies: bob.cookies,
+      // This action has no JSON request body. Advertising application/json
+      // for an empty Fastify POST is a malformed request (HTTP 400), not
+      // evidence that revocation or index authorization is broken.
+      headers: { origin }, cookies: bob.cookies,
     });
     expect(revoked.statusCode).toBe(200);
     const revokedRead = await requestIndex(bob.cookies, {
       ...lookupBody, deviceId: bobDevice.deviceId,
     });
-    expect(revokedRead.statusCode).not.toBe(200);
+    expect(revokedRead.statusCode).toBe(403);
+    expect(errorCode(revokedRead)).toBe("direct_chat_device_revoked");
   });
 
   it("pages encrypted Direct events in authoritative sequence despite reordered createdAt", async () => {
