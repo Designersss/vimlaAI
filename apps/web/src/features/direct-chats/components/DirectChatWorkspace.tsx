@@ -616,14 +616,26 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
       const detail =
         await fetchDirectConversation(conversationId);
       const device = await ensureLocalDevice();
-      const decrypted =
-        await fetchDecryptedGap(
-          detail,
-          device.deviceId,
-          rowsRef.current,
-          requiredMessageIds,
-        );
+      const knownRows = rowsRef.current;
+      // A newly opened/cleared local surface must not download and decrypt
+      // an entire lifetime of messages on its first realtime notification.
+      // Reuse the same bounded recent page + bounded X3DH bootstrap path
+      // as initial navigation, preserving an older-history cursor.
+      const fresh = knownRows.length === 0
+        ? await fetchLatestDecryptedPage(detail, device.deviceId)
+        : null;
+      const decrypted = fresh
+        ? [...fresh.decrypted].reverse()
+        : await fetchDecryptedGap(
+            detail,
+            device.deviceId,
+            knownRows,
+            requiredMessageIds,
+          );
       if (cancelled) return;
+      if (fresh && rowsRef.current.length === 0) {
+        setNextCursor(fresh.nextCursor);
+      }
       setConversation(detail);
       if (decrypted.length > 0) {
         updateRows((current) =>
@@ -2207,23 +2219,7 @@ async function fetchDecryptedGap(
   requiredMessageIds: readonly string[] = [],
 ): Promise<DecryptedRow[]> {
   if (currentRows.length === 0) {
-    const all: DirectMessageView[] = [];
-    let cursor: string | undefined;
-    while (true) {
-      const page = await fetchDirectMessages(
-        detail.id,
-        deviceId,
-        cursor,
-      );
-      all.push(...page.items);
-      if (!page.nextCursor) {
-        break;
-      }
-      cursor = page.nextCursor;
-    }
-    return (
-      await decryptPage(detail, all)
-    ).reverse();
+    throw new Error("Initial Direct sync must use bounded head/bootstrap paging");
   }
 
   const knownIds = new Set(
