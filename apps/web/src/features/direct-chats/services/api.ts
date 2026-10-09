@@ -111,7 +111,7 @@ export async function fetchDirectReactionEvents(
   id: string,
   deviceId: string,
   targetTagB64: string,
-  afterSequence: string,
+  sourceSequence: string,
   cursor?: string,
   fetchImpl: typeof fetch = fetch,
 ): Promise<DirectReactionEventsResponse> {
@@ -121,7 +121,7 @@ export async function fetchDirectReactionEvents(
       { signal: timeoutSignal() },
     );
     return validateDirectReactionLookupPage(page, {
-      conversationId: id, deviceId, targetTagB64, afterSequence, limit: 30,
+      conversationId: id, deviceId, targetTagB64, sourceSequence, limit: 30,
     });
   } catch (error: unknown) {
     return wipeAfterCurrentDeviceRevocation(error);
