@@ -309,27 +309,18 @@ export class DirectChatService {
     if (!Number.isSafeInteger(query.limit) ||
         query.limit < 1 || query.limit > DIRECT_REACTION_HISTORY_PAGE_MAX ||
         !/^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$/.test(query.targetTagB64) ||
-        query.afterSequence.length > 19 ||
-        !/^(0|[1-9][0-9]*)$/.test(query.afterSequence)) {
+        query.cursor !== undefined && query.cursor.length > 512) {
       throw new DirectChatError("VALIDATION_ERROR", "Invalid Direct reaction query");
     }
-    const after = BigInt(query.afterSequence);
-    if (after > 9223372036854775807n) {
-      throw new DirectChatError("VALIDATION_ERROR", "Invalid Direct reaction sequence");
-    }
+    // Never receive the exact HUMAN source sequence here: that would link
+    // this nominally opaque tag to a specific original in server metadata.
     const before = decodeCursor(query.cursor);
-    if (before !== null && before <= after) {
-      throw new DirectChatError("VALIDATION_ERROR", "Invalid Direct reaction cursor");
-    }
     const rows = await this.db.directMessage.findMany({
       where: {
         conversationId,
         kind: "REACTION",
         reactionTargetTagB64: query.targetTagB64,
-        sequence: {
-          gt: after,
-          ...(before !== null ? { lt: before } : {}),
-        },
+        ...(before !== null ? { sequence: { lt: before } } : {}),
       },
       include: {
         envelopes: { where: { recipientDeviceId: query.deviceId } },
