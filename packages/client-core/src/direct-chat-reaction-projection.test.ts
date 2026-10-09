@@ -212,6 +212,29 @@ describe("local authenticated E2EE reaction projection", () => {
     expect(sameDirectMessageReplica(original, { ...original, id: "other-id" })).toBe(false);
   });
 
+  it("poisons conflicting server-ID replicas delivered together in the same encrypted page", async () => {
+    const f = fixture();
+    const original = { ...f.reactionRow, needsBootstrap: false };
+    const replay = { ...f.reactionRow, needsBootstrap: false };
+    const changed = {
+      ...f.reactionRow,
+      message: { ...f.reactionRow.message, sequence: "3" },
+      needsBootstrap: false,
+    };
+    const merged = mergeDirectMessageReplicaRows([], [
+      { ...f.sourceRow, needsBootstrap: false },
+      original,
+      replay,
+      changed,
+    ]);
+    expect(merged).toHaveLength(2);
+    const poisoned = merged.find((row) => row.message.id === original.message.id);
+    expect(poisoned).toMatchObject({ payload: null, integrityConflict: true });
+    const projection = await projectVerifiedDirectReactions(merged, f.read, "2");
+    expect(projection.states).toEqual([]);
+    expect(projection.eligibleMessageIds.size).toBe(0);
+  });
+
   it("cannot clear a poisoned replica when older X3DH bootstrap replays its original version", async () => {
     const f = fixture();
     const initial = mergeDirectMessageReplicaRows([], [
