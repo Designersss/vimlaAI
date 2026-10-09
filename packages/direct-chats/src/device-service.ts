@@ -33,7 +33,7 @@ export class DeviceService {
 
       // Enrolment must serialize with Direct message fan-out. A newly
       // inserted device has no row for a sender transaction to lock.
-      await lockDirectDeviceRoster(tx, [actor.userId]);
+      await lockDirectDeviceRoster(tx, [actor.userId], "exclusive");
 
       const existing =
         await tx.userCryptoDevice.findUnique({
@@ -147,7 +147,7 @@ export class DeviceService {
       // Use the same roster lock as enrolment and Direct message inserts.
       // This prevents an externally observed device-set mutation from
       // splitting a signed multi-recipient send transaction.
-      await lockDirectDeviceRoster(tx, [actor.userId]);
+      await lockDirectDeviceRoster(tx, [actor.userId], "exclusive");
       const device = await tx.userCryptoDevice.findFirst({
         where: { id: deviceId, userId: actor.userId },
       });
