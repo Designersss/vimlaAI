@@ -72,7 +72,7 @@ export async function projectDirectReactions(
   }>();
   const eligibleMessageIds = new Set<string>();
   const unavailableMessageIds = new Set<string>();
-  const events: VerifiedDirectReaction[] = [];
+  const events: Array<{ verified: VerifiedDirectReaction; sourceMessageId: string }> = [];
 
   for (const row of rows) {
     if (row.message.kind !== "HUMAN" || row.payload?.type !== "human") continue;
@@ -110,19 +110,12 @@ export async function projectDirectReactions(
       unavailableMessageIds.add(source.messageId);
       continue;
     }
-    events.push(verified);
+    events.push({ verified, sourceMessageId: source.messageId });
   }
 
-  const validEvents = events.filter((event) => {
-    const tag = [...sourceByTag.entries()].find(([, value]) =>
-      value.row.message.clientMessageId === event.target.clientMessageId &&
-      value.row.message.contentCommitmentB64 === event.target.contentCommitmentB64 &&
-      value.row.message.senderUserId === event.target.senderUserId &&
-      value.row.message.senderDeviceId === event.target.senderDeviceId,
-    )?.[0];
-    return tag !== undefined &&
-      !unavailableMessageIds.has(sourceByTag.get(tag)?.messageId ?? "");
-  });
+  const validEvents = events
+    .filter((event) => !unavailableMessageIds.has(event.sourceMessageId))
+    .map((event) => event.verified);
   const states = reduceVerifiedDirectReactions(validEvents);
   return { states, eligibleMessageIds, unavailableMessageIds };
 }
