@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { advanceDirectHistoryHead } from "./direct-chat-history-head.js";
+import { advanceDirectHistoryHead, reconcileDirectHistoryHead } from "./direct-chat-history-head.js";
 
 describe("Direct causal head after acknowledged sends", () => {
   it("advances the head when a send confirms a newer database event", () => {
@@ -16,6 +16,24 @@ describe("Direct causal head after acknowledged sends", () => {
     expect(advanceDirectHistoryHead(
       "9007199254740993", "9007199254740994",
     )).toBe("9007199254740994");
+  });
+
+  it("reconciles stale HTTP details without rolling the head backwards", () => {
+    const current = { id: "chat-a", lastMessageSequence: "41", blockedByMe: false };
+    const older = { id: "chat-a", lastMessageSequence: "39", blockedByMe: true };
+    expect(reconcileDirectHistoryHead(current, older)).toEqual({
+      id: "chat-a", lastMessageSequence: "41", blockedByMe: true,
+    });
+    expect(reconcileDirectHistoryHead(current, {
+      id: "chat-a", lastMessageSequence: "42", blockedByMe: false,
+    }).lastMessageSequence).toBe("42");
+  });
+
+  it("never imports another conversation's stream position", () => {
+    expect(reconcileDirectHistoryHead(
+      { id: "chat-a", lastMessageSequence: "900" },
+      { id: "chat-b", lastMessageSequence: "3" },
+    )).toEqual({ id: "chat-b", lastMessageSequence: "3" });
   });
 
   it("rejects noncanonical, negative or overflowing cursors", () => {
