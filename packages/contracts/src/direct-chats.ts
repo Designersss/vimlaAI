@@ -31,6 +31,19 @@ export const directMessageKindSchema = z.enum([
 ]);
 export type DirectMessageKind = z.infer<typeof directMessageKindSchema>;
 
+// Every persisted Direct sequence is a PostgreSQL signed bigint. Bound the
+// decimal length before any client converts untrusted API metadata to BigInt:
+// an arbitrarily long digit string otherwise becomes a CPU/memory DoS.
+const directHistorySequenceSchema = z.string()
+  .max(19)
+  .regex(/^(0|[1-9][0-9]*)$/)
+  .refine(
+    (value) => value.length <= 19 &&
+      /^(0|[1-9][0-9]*)$/.test(value) &&
+      BigInt(value) <= 9223372036854775807n,
+    "Direct history sequence exceeds PostgreSQL bigint",
+  );
+
 export const directInteractionEpochSchema = z
   .number()
   .int()
@@ -270,7 +283,7 @@ export type DirectConversationSummary = z.infer<typeof directConversationSummary
 
 export const directConversationViewSchema = directConversationSummarySchema.extend({
   // Includes encrypted reaction control events, not just visible chat messages.
-  lastMessageSequence: z.string().regex(/^(0|[1-9][0-9]*)$/),
+  lastMessageSequence: directHistorySequenceSchema,
   members: z.array(directParticipantSchema),
   devices: z.array(cryptoDeviceViewSchema),
 });
@@ -299,7 +312,7 @@ export const directMessageViewSchema = z.object({
   kind: directMessageKindSchema,
   interactionEpoch: directInteractionEpochSchema,
   // PostgreSQL-authoritative causal order, serialized as decimal for bigint safety.
-  sequence: z.string().regex(/^[1-9][0-9]*$/),
+  sequence: directHistorySequenceSchema.refine((value) => value !== "0"),
   createdAt: z.string(),
   envelope: directEnvelopeViewSchema.nullable(),
   mentions: z.array(messageMentionViewSchema).default([]),
