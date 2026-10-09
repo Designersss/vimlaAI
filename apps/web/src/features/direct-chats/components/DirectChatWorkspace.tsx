@@ -83,6 +83,7 @@ import {
   createDirectHumanMessage,
   createDirectReaction,
   advanceDirectHistoryHead,
+  reconcileDirectHistoryHead,
   cachedDirectPlaintextMatchesMessage,
   DIRECT_REACTION_EMOJIS,
   resolveDirectReplySource,
@@ -349,13 +350,8 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
           : null,
       );
       if (delivery.latest) {
-        setConversation((current) => ({
-          ...delivery.latest!,
-          lastMessageSequence:
-            current?.id === delivery.latest!.id
-              ? advanceDirectHistoryHead(current.lastMessageSequence, delivery.latest!.lastMessageSequence)
-              : delivery.latest!.lastMessageSequence,
-        }));
+        const latest = delivery.latest;
+        setConversation((current) => reconcileDirectHistoryHead(current, latest));
       }
       if (delivery.rows.length > 0) {
         updateRows((current) =>
@@ -403,13 +399,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         );
         if (cancelled) return;
         setUserId(currentUser.id);
-        setConversation((current) => ({
-          ...detail,
-          lastMessageSequence:
-            current?.id === detail.id
-              ? advanceDirectHistoryHead(current.lastMessageSequence, detail.lastMessageSequence)
-              : detail.lastMessageSequence,
-        }));
+        setConversation((current) => reconcileDirectHistoryHead(current, detail));
         try {
           const preference =
             await fetchSurfacePreference(detail.surfaceId);
@@ -648,13 +638,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
       if (fresh && rowsRef.current.length === 0) {
         setNextCursor(fresh.nextCursor);
       }
-      setConversation((current) => ({
-        ...detail,
-        lastMessageSequence:
-          current?.id === detail.id
-            ? advanceDirectHistoryHead(current.lastMessageSequence, detail.lastMessageSequence)
-            : detail.lastMessageSequence,
-      }));
+      setConversation((current) => reconcileDirectHistoryHead(current, detail));
       if (decrypted.length > 0) {
         updateRows((current) =>
           mergeDecryptedRows(
