@@ -246,6 +246,11 @@ The response contains only ordinary encrypted `DirectMessageView` rows
 and device-scoped envelopes; it does **not** disclose emoji/action,
 create server-side counts, or treat an arbitrary supplied tag as source
 authority. The endpoint does not rewrite unread/inbox/activity state.
+The portable client-side page validator independently rejects wrong
+conversation/tag/kind, wrong-device envelopes, out-of-order or duplicate
+causal sequences, improperly bounded pages and misleading cursors.
+This validates index response **shape and claimed scope only**, not E2EE
+decryption, source authority, completeness or reaction state.
 
 **This is a discovery primitive, not a released reaction recovery flow.**
 A matching encrypted event may require an older Double Ratchet chain key,
