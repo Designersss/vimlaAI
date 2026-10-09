@@ -233,12 +233,18 @@ message-number progression and offline/reconnect decryption.
 
 `POST /v1/direct-chats/:id/reactions` is an actor-scoped **read-only**
 projection of the PostgreSQL `(conversationId, reactionTargetTagB64, sequence)`
-index. Input requires an authenticated local device ID, the *opaque HMAC
-tag derived from a previously verified HUMAN source*, and a canonical
-exclusive `afterSequence` (the source's authoritative DB sequence).
-The opaque tag, device ID and sequence bounds are sent in a strictly validated JSON **request body** (not a query string that could leak source interest via URL access logs or browser history). An optional opaque causal cursor pages older matches. Each SQL request
-fetches no more than **51** indexed rows, returns at most **50** and never
-scans the whole conversation. A separate Redis-backed per-user GET budget
+index. Input requires an authenticated local device ID and the
+*opaque HMAC tag derived from a previously verified HUMAN source*.
+**Do not transmit the exact original HUMAN source sequence to this
+endpoint:** combining the tag with that sequence would reveal which
+server-visible HUMAN row is its target, defeating the opaque-tag metadata
+privacy model. The client alone retains the authenticated source sequence
+and checks response ordering and bounds locally.
+The tag, device ID and optional causal cursor travel in a strictly
+validated JSON **POST body**, never in a URL query string or browsing
+history. Each indexed SQL request fetches no more than **51** rows,
+returns at most **50**, and never scans the whole conversation.
+A separate Redis-backed per-user POST budget
 caps the metadata-probe rate at min(30, configured preflight/minute).
 The member-conversation and active actor-device checks run before index
 access; outsider, foreign-device and revoked-device queries fail closed.
