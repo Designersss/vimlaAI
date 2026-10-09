@@ -93,7 +93,7 @@ describe("direct chats API", () => {
     const alice = await readyUser(app, "dc-reaction-alice", "Alice");
     const bob = await readyUser(app, "dc-reaction-bob", "Bob");
     const aliceDevice = await registerHarness(app, alice);
-    await registerHarness(app, bob);
+    const bobDevice = await registerHarness(app, bob);
     const chat = await createChat(app, alice.cookies, bob.handle);
     const human = await sendPlain(
       app, alice, aliceDevice, chat.id, "HUMAN", "The only visible message",
@@ -247,6 +247,93 @@ describe("direct chats API", () => {
       payload: { ...payload, clientMessageId: randomUUID(), reactionTargetTagB64: null },
     });
     expect(missingTag.statusCode).toBe(400);
+
+    // Metadata-only index lookup: two signed ciphertexts with the same
+    // tag must paginate deterministically without disclosing emoji/action.
+    const secondId = randomUUID();
+    const secondEnvelopes = [];
+    for (const recipient of view.devices) {
+      secondEnvelopes.push(await encryptTo(
+        app, alice, aliceDevice, recipient, chat.id, "REACTION",
+        ciphertext, [], view.interactionEpoch, secondId, tag,
+      ));
+    }
+    const secondSend = await app.inject({
+      method: "POST", url: `/v1/direct-chats/${chat.id}/messages`,
+      headers: jsonHeaders(), cookies: alice.cookies,
+      payload: { ...payload, clientMessageId: secondId,
+        contentCommitmentB64: testCommitmentForClientId(secondId),
+        envelopes: secondEnvelopes },
+    });
+    expect(secondSend.statusCode).toBe(201);
+    const secondEvent = secondSend.json() as { id: string };
+    const prefix = `/v1/direct-chats/${chat.id}/reactions?deviceId=${aliceDevice.deviceId}&targetTagB64=${encodeURIComponent(tag)}&afterSequence=${humanMessage.sequence}&limit=1`;
+    const firstLookup = await app.inject({
+      method: "GET", url: prefix, headers: { origin }, cookies: alice.cookies,
+    });
+    expect(firstLookup.statusCode).toBe(200);
+    const firstPage = firstLookup.json() as {
+      items: Array<{ id: string; kind: string; envelope: unknown }>;
+      nextCursor: string | null;
+    };
+    expect(firstPage.items).toHaveLength(1);
+    expect(firstPage.items[0]).toMatchObject({ id: secondEvent.id, kind: "REACTION" });
+    expect(firstPage.items[0]?.envelope).not.toBeNull();
+    expect(firstPage.nextCursor).toBeTruthy();
+    const nextLookup = await app.inject({
+      method: "GET", url: `${prefix}&cursor=${encodeURIComponent(firstPage.nextCursor ?? "")}`,
+      headers: { origin }, cookies: alice.cookies,
+    });
+    expect(nextLookup.statusCode).toBe(200);
+    const nextPage = nextLookup.json() as {
+      items: Array<{ id: string }>; nextCursor: string | null;
+    };
+    expect(nextPage.items.map((item) => item.id)).toEqual([event.id]);
+    expect(nextPage.nextCursor).toBeNull();
+    expect(firstLookup.body).not.toContain('"action":"add"');
+    expect(firstLookup.body).not.toContain('"emoji"');
+
+    const foreignTag = bytesToB64(new Uint8Array(32).fill(0x65));
+    const empty = await app.inject({
+      method: "GET", url: prefix.replace(encodeURIComponent(tag), encodeURIComponent(foreignTag)),
+      headers: { origin }, cookies: alice.cookies,
+    });
+    expect(empty.statusCode).toBe(200);
+    expect((empty.json() as { items: unknown[] }).items).toEqual([]);
+    for (const suffix of ["&cursor=invalid", "&cursor=" + encodeURIComponent(firstPage.nextCursor ?? "") + "&extra=1"]) {
+      const invalid = await app.inject({
+        method: "GET", url: prefix + suffix,
+        headers: { origin }, cookies: alice.cookies,
+      });
+      expect(invalid.statusCode).toBe(400);
+    }
+    const oversized = await app.inject({
+      method: "GET", url: prefix.replace("limit=1", "limit=51"),
+      headers: { origin }, cookies: alice.cookies,
+    });
+    expect(oversized.statusCode).toBe(400);
+    const foreignDevice = await app.inject({
+      method: "GET", url: prefix.replace(aliceDevice.deviceId, bobDevice.deviceId),
+      headers: { origin }, cookies: alice.cookies,
+    });
+    expect(foreignDevice.statusCode).toBe(404);
+    const outsider = await readyUser(app, "dc-reaction-index-outsider", "Outside");
+    const outsiderRead = await app.inject({
+      method: "GET", url: prefix,
+      headers: { origin }, cookies: outsider.cookies,
+    });
+    expect(outsiderRead.statusCode).toBe(404);
+
+    const revoked = await app.inject({
+      method: "POST", url: `/v1/direct-chats/devices/${bobDevice.deviceId}/revoke`,
+      headers: jsonHeaders(), cookies: bob.cookies,
+    });
+    expect(revoked.statusCode).toBe(200);
+    const revokedRead = await app.inject({
+      method: "GET", url: prefix.replace(aliceDevice.deviceId, bobDevice.deviceId),
+      headers: { origin }, cookies: bob.cookies,
+    });
+    expect(revokedRead.statusCode).not.toBe(200);
   });
 
   it("pages encrypted Direct events in authoritative sequence despite reordered createdAt", async () => {
