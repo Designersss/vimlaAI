@@ -253,10 +253,68 @@ describe("local authenticated E2EE reaction projection", () => {
       { ...known, reactionTargetTagB64: "different-signed-tag" },
     ], [known])).toBe(true);
     // Two different pages can also disagree about one newly observed ID.
-    const firstPage = [{ ...known, id: "new-row-1" }];
-    const laterPage = [{ ...known, id: "new-row-1", contentCommitmentB64: "wrong" }];
+    const firstPage = [{ ...known, id: "new-row-1", sequence: "3" }];
+    const laterPage = [{ ...known, id: "new-row-1", sequence: "3", contentCommitmentB64: "wrong" }];
     expect(hasConflictingDirectMessageReplicas(laterPage, firstPage)).toBe(true);
     expect(hasConflictingDirectMessageReplicas(firstPage, [known])).toBe(false);
+  });
+
+  it("rejects two server IDs owning one sequence before any E2EE decryption", () => {
+    const f = fixture();
+    const known = f.reactionRow.message;
+    const relabelled = {
+      ...known,
+      id: "55555555-5555-4555-8555-555555555555",
+    };
+    expect(hasConflictingDirectMessageReplicas([known, relabelled])).toBe(true);
+    expect(hasConflictingDirectMessageReplicas([relabelled], [known])).toBe(true);
+    expect(hasConflictingDirectMessageReplicas([known, { ...known }])).toBe(false);
+    // Independent conversations can legitimately allocate the same
+    // sequence; ownership is conversation-scoped, not global.
+    expect(hasConflictingDirectMessageReplicas([
+      { ...relabelled, conversationId: "other-conversation" },
+    ], [known])).toBe(false);
+  });
+
+  it("poisons both conflicting sequence owners during portable Web merge", async () => {
+    const f = fixture();
+    const initial = [
+      { ...f.sourceRow, needsBootstrap: false },
+      { ...f.reactionRow, needsBootstrap: false },
+    ];
+    const second = {
+      ...f.reactionRow, needsBootstrap: false,
+      message: {
+        ...f.reactionRow.message,
+        id: "55555555-5555-4555-8555-555555555555",
+      },
+    };
+    const merged = mergeDirectMessageReplicaRows(initial, [second]);
+    expect(merged.filter((row) => row.integrityConflict)).toHaveLength(2);
+    for (const row of merged.filter((entry) => entry.integrityConflict)) {
+      expect(row.payload).toBeNull();
+      expect(row.needsBootstrap).toBe(false);
+    }
+    const projected = await projectVerifiedDirectReactions(merged, f.read, "2");
+    expect(projected.states).toEqual([]);
+    expect(projected.eligibleMessageIds.size).toBe(0);
+  });
+
+  it("rejects duplicate sequence claims in an independent portable projector", async () => {
+    const f = fixture();
+    const altered = {
+      ...f.reactionRow,
+      message: {
+        ...f.reactionRow.message,
+        id: "55555555-5555-4555-8555-555555555555",
+      },
+    };
+    const projected = await projectVerifiedDirectReactions(
+      [f.sourceRow, f.reactionRow, altered],
+      f.read, "2",
+    );
+    expect(projected.states).toEqual([]);
+    expect(projected.eligibleMessageIds.size).toBe(0);
   });
 
   it("poisons conflicting server-ID replicas delivered together in the same encrypted page", async () => {
