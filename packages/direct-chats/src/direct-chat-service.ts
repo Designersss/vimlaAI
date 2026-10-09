@@ -476,6 +476,10 @@ export class DirectChatService {
       actor.userId,
       conversationId,
     );
+    // Idempotency must not become an alternate read path for a revoked
+    // E2EE sender device. Blocked peers can still resolve a committed send,
+    // but a revoked device has lost authority to access Direct history.
+    await this.requireActiveDevice(actor.userId, input.senderDeviceId);
     const replay = await this.findExactReplay(
       actor.userId,
       conversationId,
@@ -517,6 +521,10 @@ export class DirectChatService {
     const memberIds = conversation.members.map(
       (member) => member.userId,
     );
+    // A previously committed idempotency key must not bypass revocation.
+    // Keep this check ahead of both the fast replay and sender signature
+    // validation; the transaction also locks this row for new writes.
+    const senderDevice = await this.requireActiveDevice(actor.userId, input.senderDeviceId);
     const replay = await this.findExactReplay(
       actor.userId,
       conversationId,
@@ -525,7 +533,6 @@ export class DirectChatService {
     if (replay) {
       return { message: replay, replayed: true };
     }
-    const senderDevice = await this.requireActiveDevice(actor.userId, input.senderDeviceId);
     if (input.envelopes.length > this.options.maxEnvelopes) {
       throw new DirectChatError("VALIDATION_ERROR", "Too many envelopes");
     }
@@ -596,6 +603,26 @@ export class DirectChatService {
           actor.userId,
           peerUserId,
         );
+
+        // Serialize new Direct sends against the authoritative device revoke
+        // UPDATE. Reading revokedAt outside this transaction leaves a TOCTOU
+        // window in which a signed REACTION/HUMAN could commit after its
+        // sender was revoked. PostgreSQL row locks make the send and revoke
+        // linearizable: whoever obtains the device row lock first wins.
+        const activeSender = await tx.$queryRaw<
+          Array<{ id: string; revokedAt: Date | null }>
+        >`
+          SELECT "id", "revokedAt"
+          FROM "user_crypto_device"
+          WHERE "id" = ${input.senderDeviceId} AND "userId" = ${actor.userId}
+          FOR UPDATE
+        `;
+        if (activeSender.length !== 1) {
+          throw new DirectChatError("NOT_FOUND", "Device was not found");
+        }
+        if (activeSender[0]?.revokedAt) {
+          throw new DirectChatError("DEVICE_REVOKED", "This device was revoked");
+        }
 
         // Re-check idempotent replay after taking the same pair lock used by
         // block/unblock. A committed retry must still resolve as success even
