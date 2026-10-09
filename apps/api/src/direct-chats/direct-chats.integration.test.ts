@@ -300,6 +300,17 @@ describe("direct chats API", () => {
     }
     expect(received).toEqual([third.id, second.id, first.id]);
     expect(new Set(received).size).toBe(3);
+    // Both the Direct summary and unified inbox must choose the highest
+    // visible sequence, not the arbitrary createdAt winner.
+    const overview = await app.inject({
+      method: "GET", url: "/v1/inbox?kind=DIRECT",
+      headers: { origin }, cookies: alice.cookies,
+    });
+    expect(overview.statusCode).toBe(200);
+    const latest = (overview.json() as {
+      items: Array<{ domainId: string; preview: { messageId?: string } }>;
+    }).items.find((item) => item.domainId === chat.id);
+    expect(latest?.preview.messageId).toBe(third.id);
     const invalid = await app.inject({
       method: "GET",
       url: `/v1/direct-chats/${chat.id}/messages?deviceId=${sender.deviceId}&cursor=invalid`,
