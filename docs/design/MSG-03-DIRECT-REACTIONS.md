@@ -310,6 +310,44 @@ fan-out device-set atomicity for concurrent recipient revocation, nor
 recover skipped historical Double Ratchet chains. Those remain subject
 to the broader messaging/device lifecycle review.
 
+### Post-green revocation race audit (October 9; concurrency hardening)
+
+A second audit after CI #37966420825 found that an active-device read
+followed by an exact idempotency lookup still had a revocation TOCTOU
+window: a device could become revoked between the check and the
+committed ciphertext response. The fast `preflightSend`, fast send
+replay and uniqueness-conflict replay recovery now resolve exact
+committed messages only inside a short PostgreSQL transaction holding
+a `FOR SHARE` row lock on the original sender device. This provides a
+well-defined ordering with the revocation `UPDATE`: either the
+authorized lookup linearizes first or it sees `revokedAt` and fails.
+Blocked-peer committed replays still do not depend on current recipient
+fan-out membership.
+
+New sends also must not rely solely on the recipient-device set sampled
+*before* validating AD5 signatures. The write transaction now
+re-reads/locks all active participant device rows in ID order with
+`FOR SHARE`, verifies the original sender is still active, handles
+the committed replay before any mutable fan-out comparison, and requires
+the currently active device ID set to match the signed envelope set
+before creating a new Direct log row. This prevents a recipient
+revocation or already-committed enrolment from silently invalidating
+an earlier fan-out snapshot. All participant devices are locked in one
+deterministic acquisition order instead of acquiring Alice's sender
+device before Bob's receiver device (which would risk deadlock for
+simultaneous cross-sends). A dedicated integration race test holds the
+trust-pair lock, revokes the recipient, releases the lock and requires
+that the queued signed REACTION does **not** commit.
+
+**Remaining concurrency boundary:** PostgreSQL row locks cover the
+existing device rows but do not predicate-lock against a brand-new
+device being enrolled *after* the transactional device-set query. Fully
+atomic enrolment versus message fan-out needs shared per-user
+enrolment/write coordination and a separate design review; do not
+represent the current check as a proof of inclusion for arbitrary
+simultaneous brand-new devices. Bounded historical Double Ratchet
+reconstruction and event compaction are likewise still open.
+
 ### Bounded indexed ciphertext discovery (implemented; not a history proof)
 
 `POST /v1/direct-chats/:id/reactions` is an actor-scoped **read-only**
