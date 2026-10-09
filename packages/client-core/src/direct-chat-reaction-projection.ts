@@ -130,7 +130,12 @@ export async function projectVerifiedDirectReactions(
       message.envelope?.recipientDeviceId,
       message.envelope?.headerB64,
       message.envelope?.ciphertextB64,
+      message.envelope?.dhPublicB64,
+      message.envelope?.messageNumber,
+      message.envelope?.previousChainLength,
       message.envelope?.senderSignatureB64,
+      message.envelope?.x3dhInit,
+      message.mentions,
     ]);
     const previous = fingerprints.get(message.id);
     if (previous !== undefined && previous !== fingerprint) {
