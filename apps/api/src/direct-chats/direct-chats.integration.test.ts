@@ -391,6 +391,85 @@ describe("direct chats API", () => {
     expect(errorCode(idempotentLookup)).toBe("direct_chat_device_revoked");
   });
 
+  it("rejects a signed reaction when recipient revocation wins before its durable insert", async () => {
+    const alice = await readyUser(app, "dc-reaction-recipient-race-alice", "Alice");
+    const bob = await readyUser(app, "dc-reaction-recipient-race-bob", "Bob");
+    const aliceDevice = await registerHarness(app, alice);
+    const bobDevice = await registerHarness(app, bob);
+    const chat = await createChat(app, alice.cookies, bob.handle);
+    const reactionId = randomUUID();
+    const tag = bytesToB64(new Uint8Array(32).fill(0x4f));
+    const envelopes = [];
+    for (const recipient of chat.devices) {
+      envelopes.push(await encryptTo(
+        app, alice, aliceDevice, recipient, chat.id, "REACTION",
+        "signed encrypted control with a concurrently revoked recipient",
+        [], chat.interactionEpoch, reactionId, tag,
+      ));
+    }
+    const payload = {
+      clientMessageId: reactionId,
+      contentCommitmentB64: testCommitmentForClientId(reactionId),
+      reactionTargetTagB64: tag,
+      senderDeviceId: aliceDevice.deviceId,
+      interactionEpoch: chat.interactionEpoch,
+      kind: "REACTION",
+      mentions: [],
+      envelopes,
+    };
+    const db = app.get(PrismaService).client;
+    let releasePair!: () => void;
+    let pairLocked!: () => void;
+    const released = new Promise<void>((resolve) => { releasePair = resolve; });
+    const acquired = new Promise<void>((resolve) => { pairLocked = resolve; });
+    // Hold the same transactional trust lock as Direct sends so the revoke
+    // can win while the already-signed send is in flight. Device revocation
+    // itself must NOT need this lock (and cannot be blocked by peer trust).
+    const pairGate = db.$transaction(async (tx) => {
+      expect(await lockTrustUserPair(tx, alice.id, bob.id)).toBe(true);
+      pairLocked();
+      await released;
+    });
+    await acquired;
+    let response: Awaited<ReturnType<typeof app.inject>> | null = null;
+    try {
+      let sendSettled = false;
+      const pendingSend = app.inject({
+        method: "POST",
+        url: `/v1/direct-chats/${chat.id}/messages`,
+        headers: jsonHeaders(),
+        cookies: alice.cookies,
+        payload,
+      }).then((result) => {
+        sendSettled = true;
+        return result;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 35));
+      expect(sendSettled).toBe(false);
+
+      const revoke = await app.inject({
+        method: "POST",
+        url: `/v1/direct-chats/devices/${bobDevice.deviceId}/revoke`,
+        headers: { origin },
+        cookies: bob.cookies,
+      });
+      expect(revoke.statusCode).toBe(200);
+      // The transaction may reject from preflight if revocation races
+      // earlier, or from the locked device-set recheck after trust unlock.
+      releasePair();
+      await pairGate;
+      response = await pendingSend;
+      expect([400, 409]).toContain(response.statusCode);
+    } finally {
+      releasePair();
+      await pairGate;
+    }
+    expect(response).not.toBeNull();
+    expect(await db.directMessage.count({
+      where: { conversationId: chat.id, clientMessageId: reactionId },
+    })).toBe(0);
+  });
+
   it("pages encrypted Direct events in authoritative sequence despite reordered createdAt", async () => {
     const alice = await readyUser(app, "direct-sequence-page-alice", "Alice");
     const bob = await readyUser(app, "direct-sequence-page-bob", "Bob");
