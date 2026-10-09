@@ -731,6 +731,10 @@ export class DirectChatService {
       });
     } catch (error: unknown) {
       if (isUnique(error)) {
+        // A uniqueness-race retry is another read of an existing ciphertext
+        // event. Re-check device authority here as well: revocation may
+        // have committed while the original send transaction was blocked.
+        await this.requireActiveDevice(actor.userId, input.senderDeviceId);
         const replay = await this.findExactReplay(
           actor.userId,
           conversationId,
