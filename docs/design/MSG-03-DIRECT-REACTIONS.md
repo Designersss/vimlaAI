@@ -251,9 +251,13 @@ Post-green audit: realtime gap reconciliation now has an explicit
 decrypting an incomplete page interval. This avoids an unbounded
 whole-conversation backfill, but cannot guarantee recovery of events
 older than the cap. A future bounded checkpoint/reconstruction protocol
-must provide a supported recovery path. The portable projector also
-rejects conflicting metadata for the same server message ID, rather
+must provide a supported recovery path. The portable projector and the Web decrypted-row merge now both
+reject conflicting metadata for the same server message ID, rather
 than relying on last-wins deduplication; exact replays remain valid.
+A Web conflict poisons the affected local row and suppresses reaction
+aggregates until the conversation is safely reconstructed. Replica
+equality is a conflict detector, not a replacement for E2EE signature or
+commitment verification.
 Protected plaintext cache reads are batched to at most eight concurrent
 operations and an I/O failure still rejects the entire projection.
 
