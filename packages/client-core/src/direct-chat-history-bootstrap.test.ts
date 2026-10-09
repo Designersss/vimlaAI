@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   DIRECT_HISTORY_CATCHUP_MAX_PAGES,
   assertDirectHistoryCatchupBudget,
-  assertDirectHistoryGapComplete,
+  inspectDirectHistoryGap,
   DEEP_HISTORY_BOOTSTRAP_MAX_PAGES,
   pageUnlocksHistoryBootstrap,
   shouldContinueDeepHistoryBootstrap,
@@ -111,66 +111,87 @@ function reconciliation(
   };
 }
 
-describe("Direct E2EE gap reconciliation before ratchet decryption", () => {
-  it("accepts only a head-to-known contiguous interval", () => {
+describe("Direct E2EE history gap classification before ratchet decryption", () => {
+  it("recognizes a continuous head-to-known interval, including an exact replay", () => {
     const rows = [history("new-8", "8"), history("new-7", "7"),
       history("new-6", "6"), history("known", "5")];
-    expect(assertDirectHistoryGapComplete(reconciliation(rows))).toBe(5n);
-    expect(assertDirectHistoryGapComplete(reconciliation(
+    expect(inspectDirectHistoryGap(reconciliation(rows))).toEqual({
+      complete: true, anchor: 5n,
+    });
+    expect(inspectDirectHistoryGap(reconciliation(
       [history("known", "5")], [history("known", "5")], [], "5",
-    ))).toBe(5n);
+    ))).toEqual({ complete: true, anchor: 5n });
   });
 
-  it("rejects an early-ended page that never reaches a known anchor", () => {
-    expect(() => assertDirectHistoryGapComplete(reconciliation([
+  it("classifies an early-ended history page as partial, not a broken signed HUMAN message", () => {
+    expect(inspectDirectHistoryGap(reconciliation([
       history("new-8", "8"), history("new-7", "7"),
-    ]))).toThrow("Unanchored");
+    ]))).toEqual({ complete: false });
   });
 
-  it("rejects skipped causal sequences and same-sequence equivocation", () => {
+  it("allows skipped causal sequences but rejects same-sequence equivocation", () => {
     const missing = [history("new-8", "8"), history("new-6", "6"), history("known", "5")];
-    expect(() => assertDirectHistoryGapComplete(reconciliation(missing))).toThrow("interval");
-    expect(() => assertDirectHistoryGapComplete(reconciliation([
+    expect(inspectDirectHistoryGap(reconciliation(missing))).toEqual({
+      complete: false,
+    });
+    expect(() => inspectDirectHistoryGap(reconciliation([
       history("new-8", "8"), history("evil-8", "8"),
       history("new-7", "7"), history("new-6", "6"), history("known", "5"),
     ]))).toThrow("Conflicting");
   });
 
-  it("rejects a missing hinted event even if the next known row was reached", () => {
+  it("treats a missing hinted event as incomplete reaction history without poisoning ratchet", () => {
     const rows = [history("new-8", "8"), history("new-7", "7"),
       history("new-6", "6"), history("known", "5")];
-    expect(() => assertDirectHistoryGapComplete(reconciliation(
+    expect(inspectDirectHistoryGap(reconciliation(
       rows, [history("known", "5")], ["missing"],
-    ))).toThrow("Missing required");
+    ))).toEqual({ complete: false });
   });
 
-  it("requires an anchor older than a delayed target, not merely any known row", () => {
+  it("requires an anchor older than a delayed hint before claiming complete history", () => {
     const rows = [history("new-8", "8"), history("known-7", "7"),
       history("target-6", "6"), history("other-5", "5")];
-    expect(() => assertDirectHistoryGapComplete(reconciliation(
+    expect(inspectDirectHistoryGap(reconciliation(
       rows, [history("known-7", "7")], ["target-6"],
-    ))).toThrow("Unanchored");
-    expect(assertDirectHistoryGapComplete(reconciliation(
+    ))).toEqual({ complete: false });
+    expect(inspectDirectHistoryGap(reconciliation(
       [...rows, history("known-4", "4")],
       [history("known-7", "7"), history("known-4", "4")],
       ["target-6"],
-    ))).toBe(4n);
+    ))).toEqual({ complete: true, anchor: 4n });
   });
 
-  it("rejects stale head, foreign conversations and invalid bigint sequence", () => {
+  it("does not mistake a delayed older ratchet message for forged event metadata", () => {
+    // In the cross-browser E2E, the server omits sequence 7 from one device
+    // while sequence 8 is already signed and decryptable via skipped keys.
+    // Human message 8 must remain renderable, but reaction counts must not
+    // claim to have reconstructed the interval.
+    expect(inspectDirectHistoryGap(reconciliation([
+      history("new-8", "8"), history("known", "5"),
+    ]))).toEqual({ complete: false });
+    expect(inspectDirectHistoryGap(reconciliation([
+      history("new-8", "8"), history("delayed-7", "7"),
+      history("new-6", "6"), history("known", "5"),
+    ]))).toEqual({ complete: true, anchor: 5n });
+  });
+
+  it("classifies stale head as partial; rejects foreign or conflicting identity and bigint", () => {
     const rows = [history("new-8", "8"), history("new-7", "7"),
       history("new-6", "6"), history("known", "5")];
-    expect(() => assertDirectHistoryGapComplete(reconciliation(
+    expect(() => inspectDirectHistoryGap(reconciliation(
       rows, [history("known", "9")],
-    ))).toThrow();
-    expect(() => assertDirectHistoryGapComplete(reconciliation(
+    ))).toThrow("Conflicting");
+    expect(inspectDirectHistoryGap(reconciliation(
       rows, [history("known", "5")], [], "9",
-    ))).toThrow("head");
-    expect(() => assertDirectHistoryGapComplete(reconciliation(
+    ))).toEqual({ complete: false });
+    expect(() => inspectDirectHistoryGap(reconciliation(
       [history("new-8", "8", "foreign"), ...rows.slice(1)],
     ))).toThrow("Cross-conversation");
-    expect(() => assertDirectHistoryGapComplete(reconciliation(
+    expect(() => inspectDirectHistoryGap(reconciliation(
       [history("new-8", "9223372036854775808"), ...rows.slice(1)],
     ))).toThrow("sequence");
+    expect(() => inspectDirectHistoryGap(reconciliation(
+      [history("known", "8"), ...rows.slice(1)],
+    ))).toThrow("Conflicting");
   });
 });
