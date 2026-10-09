@@ -128,14 +128,25 @@ export async function projectVerifiedDirectReactions(
   // an attacker-controlled version before checking the causal prefix.
   const uniqueById = new Map<string, ReactionProjectionRow>();
   const fingerprints = new Map<string, string>();
+  const sequenceOwners = new Map<string, string>();
+  let conversationId: string | null = null;
   for (const row of rows) {
     const message = row.message;
+    if (conversationId !== null && message.conversationId !== conversationId) {
+      return { states: [], eligibleMessageIds, unavailableMessageIds };
+    }
+    conversationId = message.conversationId;
     const fingerprint = directMessageReplicaFingerprint(message);
     const previous = fingerprints.get(message.id);
-    if (previous !== undefined && previous !== fingerprint) {
+    // Sequence ownership must be unique even when the server invents a
+    // second ID instead of modifying the known signed-envelope replica.
+    const owner = sequenceOwners.get(message.sequence);
+    if ((previous !== undefined && previous !== fingerprint) ||
+        (owner !== undefined && owner !== message.id)) {
       return { states: [], eligibleMessageIds, unavailableMessageIds };
     }
     fingerprints.set(message.id, fingerprint);
+    sequenceOwners.set(message.sequence, message.id);
     uniqueById.set(message.id, row);
   }
   const parseSequence = (value: string): bigint | null => {
