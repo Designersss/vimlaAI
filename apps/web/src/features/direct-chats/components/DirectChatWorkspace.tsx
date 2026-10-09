@@ -355,7 +355,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         workspace.requestInboxRefresh();
       }
     },
-    [updateRows, workspace],
+    [setPendingRun, updateRows, workspace],
   );
 
   useEffect(() => {
