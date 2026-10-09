@@ -957,6 +957,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
     options: {
       clientMessageId?: string;
       contentCommitmentB64?: string | null;
+      reactionTargetTagB64?: string | null;
       operatorIntent?: StoredOperatorIntent;
       onDurablyStaged?: () => void;
     } = {},
@@ -1570,6 +1571,7 @@ async function sendEncryptedDirectMessage(input: {
   mentions?: MessageMentionInput[];
   clientMessageId?: string;
   contentCommitmentB64?: string | null;
+  reactionTargetTagB64?: string | null;
   operatorIntent?: StoredOperatorIntent;
   operatorOutput?: StoredOperatorOutputLink;
   recoverPending?: boolean;
@@ -1623,6 +1625,7 @@ async function sendEncryptedDirectMessage(input: {
     clientMessageId:
       input.clientMessageId ?? crypto.randomUUID(),
     contentCommitmentB64: input.contentCommitmentB64 ?? null,
+    reactionTargetTagB64: input.reactionTargetTagB64 ?? null,
     localDevice: device,
     kind: input.kind,
     plaintext: input.plaintext,
