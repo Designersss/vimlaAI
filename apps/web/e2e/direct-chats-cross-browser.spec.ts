@@ -519,7 +519,7 @@ test.describe("Direct Chat cross-browser coordination", () => {
       const bobSource = bobPage.getByTestId("direct-message-row").filter({ hasText: source });
       await bobSource.getByTestId("direct-message-reaction-action").click();
       await bobSource.getByTestId("direct-message-reaction-emoji")
-        .getByRole("button", { name: /👍/ }).click();
+        .filter({ hasText: "👍" }).click();
 
       for (const page of [alicePage, bobPage, bobSecondary]) {
         const row = page.getByTestId("direct-message-row").filter({ hasText: source });
@@ -552,7 +552,7 @@ test.describe("Direct Chat cross-browser coordination", () => {
       const aliceSource = alicePage.getByTestId("direct-message-row").filter({ hasText: source });
       await aliceSource.getByTestId("direct-message-reaction-action").click();
       await aliceSource.getByTestId("direct-message-reaction-emoji")
-        .getByRole("button", { name: /❤️/ }).click();
+        .filter({ hasText: "❤️" }).click();
       for (const page of [alicePage, bobPage, bobSecondary]) {
         await expect(page.getByTestId("direct-message-row")
           .filter({ hasText: source })
