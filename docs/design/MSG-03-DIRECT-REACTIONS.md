@@ -283,6 +283,33 @@ messages from control events. The common Direct message history cannot
 simply filter reaction envelopes out: that can break Double Ratchet
 message-number progression and offline/reconnect decryption.
 
+### Revoke-vs-send and idempotency security hardening (October 9)
+
+An exact cryptographic send replay resolves an ambiguous HTTP acknowledgement,
+but it is **not** a reusable authorization token. An audit found that the
+Direct `preflightSend` and `sendWithStatus` fast paths resolved committed
+idempotency keys *before* verifying that the sender's crypto device was
+still active. A user who retained a revoked device's old signed request
+could therefore query the replay response despite device revocation,
+unlike ordinary history/lookup endpoints.
+
+Both replay paths now require the caller's active sender device, including
+the unique-constraint retry path. A new message transaction obtains a
+PostgreSQL `FOR UPDATE` lock on the sender's device row *after* the trust
+pair lock and checks `revokedAt` while the lock is held. This serializes a
+new signed HUMAN or REACTION insert against an in-flight device-revoke
+update. After revocation wins the row lock, a new event cannot commit;
+when a send obtains it first, the send commits before revocation. Exact
+committed replays after a **peer block** remain independently permitted
+as before, but replays from a **revoked device** are forbidden. Integration
+tests verify committed REACTION replay denial, fresh REACTION denial,
+and the existing committed-message lookup denial.
+
+This protects sender-device authority; it does not yet prove recipient
+fan-out device-set atomicity for concurrent recipient revocation, nor
+recover skipped historical Double Ratchet chains. Those remain subject
+to the broader messaging/device lifecycle review.
+
 ### Bounded indexed ciphertext discovery (implemented; not a history proof)
 
 `POST /v1/direct-chats/:id/reactions` is an actor-scoped **read-only**
