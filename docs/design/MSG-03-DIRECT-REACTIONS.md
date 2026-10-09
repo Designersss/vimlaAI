@@ -328,6 +328,29 @@ offline clients and remove tombstones survive. The proposed opaque
 index only bounds **lookup cost**; it does not solve safe compaction or
 E2EE decryption dependencies.
 
+
+### Closed-interval realtime catch-up preflight (October 9)
+
+The Web realtime path no longer treats a terminal HTTP history page as
+evidence that a missed event interval is complete. It retains raw rows from
+each bounded page, checks cross-page server-ID equivocation before crypto,
+and requires a **contiguous PostgreSQL sequence interval** from the newest
+fetched row down to an already-observed immutable message. A delayed hint
+for an event older than the first known row must reach a *second known anchor
+below the hinted event*. Failure to observe the hinted ID, a sufficiently
+old anchor, the server-advertised head or any sequence in the closed interval
+aborts **before decrypting the partially recovered interval**.
+
+This relies on the per-conversation PostgreSQL transactional sequence trigger:
+no committed envelope in the append-only Direct log may leave a sequence
+hole. Incoming sequence strings are bounded to signed int64 before any
+browser BigInt parsing. Duplicate ID wire conflicts still quarantine the
+surface. This is a safe fail-closed recovery condition, not an unbounded
+catch-up policy, not a Double Ratchet checkpoint, and not a cryptographic
+proof against a server lying consistently about head and all pages. Initial
+X3DH bootstrap and old-history retention still require a separate,
+independent cross-page review before merge.
+
 ## Required test matrix
 
 - Two users; multiple enrolled devices; independent browsers/tabs;
