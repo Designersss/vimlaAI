@@ -5,7 +5,7 @@ export {
   type DirectChatPlaintextRecord,
   type PreparedDirectChatContext,
 } from "./direct-chat-context.js";
-export { advanceDirectHistoryHead, reconcileDirectHistoryHead } from "./direct-chat-history-head.js";
+export { advanceDirectHistoryHead, reconcileDirectHistoryHead, applyDirectPrivacyAcknowledgement } from "./direct-chat-history-head.js";
 export {
   DIRECT_HISTORY_CATCHUP_MAX_PAGES,
   assertDirectHistoryCatchupBudget,
