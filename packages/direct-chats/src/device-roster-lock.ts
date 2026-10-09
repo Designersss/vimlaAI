@@ -6,23 +6,32 @@ import type { Prisma } from "@vimla/database";
  * A row lock on existing devices cannot prevent a brand-new device INSERT.
  * Every Direct message fan-out transaction and every device enrolment or
  * revocation must acquire the same advisory lock before inspecting/mutating
- * active roster membership. Lock multiple users in lexical order to avoid
- * opposite-direction Direct send deadlocks.
- *
- * This is a per-user lock, not a global mutex: unrelated conversations can
- * proceed concurrently when they have no participant in common.
+ * active roster membership. Direct sends take SHARE advisory locks;
+ * registration/revocation take exclusive locks. Concurrent sends, including
+ * to different peers of a popular user, do NOT serialize on a per-user mutex.
+ * Lock multiple users in lexical order to avoid cross-send deadlocks.
  */
 export async function lockDirectDeviceRoster(
   tx: Pick<Prisma.TransactionClient, "$queryRaw">,
   userIds: readonly string[],
+  mode: "shared" | "exclusive",
 ): Promise<void> {
   for (const userId of [...new Set(userIds)].sort()) {
     const lockKey = `vimla:direct:device-roster:v1:${userId}`;
-    await tx.$queryRaw<Array<{ locked: number }>>`
-      WITH "direct_roster_lock" AS (
-        SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))
-      )
-      SELECT 1::int AS "locked" FROM "direct_roster_lock"
-    `;
+    if (mode === "shared") {
+      await tx.$queryRaw<Array<{ locked: number }>>`
+        WITH "direct_roster_lock" AS (
+          SELECT pg_advisory_xact_lock_shared(hashtextextended(${lockKey}, 0))
+        )
+        SELECT 1::int AS "locked" FROM "direct_roster_lock"
+      `;
+    } else {
+      await tx.$queryRaw<Array<{ locked: number }>>`
+        WITH "direct_roster_lock" AS (
+          SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))
+        )
+        SELECT 1::int AS "locked" FROM "direct_roster_lock"
+      `;
+    }
   }
 }
