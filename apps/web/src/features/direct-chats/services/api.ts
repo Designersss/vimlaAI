@@ -117,7 +117,7 @@ export async function fetchDirectReactionEvents(
 ): Promise<DirectReactionEventsResponse> {
   try {
     const page = await createWebClientApi(fetchImpl).directChats.fetchDirectReactionEvents(
-      id, deviceId, targetTagB64, afterSequence, cursor,
+      id, deviceId, targetTagB64, cursor,
       { signal: timeoutSignal() },
     );
     return validateDirectReactionLookupPage(page, {
