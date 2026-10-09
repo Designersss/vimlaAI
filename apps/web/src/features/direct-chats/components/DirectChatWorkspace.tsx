@@ -1449,6 +1449,20 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
                   : undefined
               }
               selfUserId={userId ?? ""}
+              reactionStates={reactionProjection?.states.filter((state) =>
+                state.target.clientMessageId === row.message.clientMessageId &&
+                state.target.contentCommitmentB64 === row.message.contentCommitmentB64 &&
+                state.target.senderUserId === row.message.senderUserId &&
+                state.target.senderDeviceId === row.message.senderDeviceId,
+              ) ?? []}
+              reactionBusy={reactionBusyMessageId === row.message.id}
+              onReact={
+                !blockedByMe && !sending && !operatorBusy &&
+                reactionProjection?.eligibleMessageIds.has(row.message.id) &&
+                !reactionProjection.unavailableMessageIds.has(row.message.id)
+                  ? (emoji) => void onReact(row, emoji)
+                  : undefined
+              }
             />
           ))}
           {pendingRun ? (
