@@ -21,6 +21,7 @@ export interface CachedDirectReactionPlaintext extends CachedDirectPlaintextProv
 export interface ReactionProjectionRow {
   message: DirectMessageView;
   payload: HumanPayload | null;
+  integrityConflict?: boolean;
 }
 
 export interface DirectReactionsProjection {
@@ -109,6 +110,13 @@ export async function projectVerifiedDirectReactions(
   const eligibleMessageIds = new Set<string>();
   const unavailableMessageIds = new Set<string>();
   const events: Array<{ verified: VerifiedDirectReaction; sourceMessageId: string }> = [];
+
+  // Portable fail-closed invariant: a signed-server-ID collision observed
+  // before row deduplication must remain untrusted even if one variant is
+  // subsequently replayed during a ratchet/X3DH bootstrap.
+  if (rows.some((row) => row.integrityConflict)) {
+    return { states: [], eligibleMessageIds, unavailableMessageIds };
+  }
 
   // Only a contiguous, newest-first slice of the authoritative conversation
   // can prove the absence of later add/remove events. An unseen sequence
