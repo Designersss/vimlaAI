@@ -71,10 +71,7 @@ const surfaceInclude = {
       members: true,
       messages: {
         where: { kind: { not: "REACTION" } },
-        orderBy: [
-          { createdAt: "desc" as const },
-          { id: "desc" as const },
-        ],
+        orderBy: [{ sequence: "desc" as const }],
         take: 1,
       },
     },
