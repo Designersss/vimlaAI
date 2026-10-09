@@ -1073,6 +1073,7 @@ export class DirectChatService {
     );
     return {
       ...summary,
+      lastMessageSequence: conversation.lastMessageSequence.toString(),
       members: conversation.members.map((member) =>
         requireParticipant(profiles, member.userId),
       ),
