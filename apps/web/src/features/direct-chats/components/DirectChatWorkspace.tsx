@@ -12,6 +12,7 @@ import type {
   MentionSuggestionsResponse,
   MessageMentionInput,
   OperatorRunView,
+  UpdateDirectChatPrivacy,
 } from "@vimla/contracts";
 import {
   Alert,
@@ -873,6 +874,22 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
     }
   }
 
+  async function updatePrivacyPreference(change: UpdateDirectChatPrivacy): Promise<void> {
+    if (!conversation) return;
+    try {
+      const updated = await updateDirectChatPrivacy(conversation.id, change);
+      // An HTTP response may predate an independently committed encrypted
+      // reaction. Never roll back the authoritative E2EE event high-water.
+      setConversation((current) => reconcileDirectHistoryHead(current, updated));
+    } catch (caught: unknown) {
+      if (caught instanceof AuthRequiredError) {
+        router.replace("/sign-in");
+        return;
+      }
+      setError(caught instanceof DirectChatsApiError ? caught.code : "internal_error");
+    }
+  }
+
   async function onReact(row: DecryptedRow, emoji: DirectReactionEmoji): Promise<void> {
     if (!conversation || !userId || blockedByMe || sending || operatorBusy ||
         sendingLockRef.current || row.payload?.type !== "human" ||
@@ -1437,14 +1454,14 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
             label={t("direct.shareOwn")}
             checked={conversation.privacy.shareOwnHistoryWithVimla}
             onChange={(event) => {
-              void updateDirectChatPrivacy(conversation.id, { shareOwnHistoryWithVimla: event.currentTarget.checked }).then(setConversation);
+              void updatePrivacyPreference({ shareOwnHistoryWithVimla: event.currentTarget.checked });
             }}
           />
           <Switch
             label={t("direct.includePeer")}
             checked={conversation.privacy.includePeerHistoryWhenInvoking}
             onChange={(event) => {
-              void updateDirectChatPrivacy(conversation.id, { includePeerHistoryWhenInvoking: event.currentTarget.checked }).then(setConversation);
+              void updatePrivacyPreference({ includePeerHistoryWhenInvoking: event.currentTarget.checked });
             }}
           />
           <Text tone="caption">
