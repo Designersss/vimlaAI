@@ -11,6 +11,7 @@ export { validateDirectReactionLookupPage } from "./direct-chat-reaction-history
 export {
   DIRECT_HISTORY_CATCHUP_MAX_PAGES,
   assertDirectHistoryCatchupBudget,
+  assertDirectHistoryGapComplete,
   DEEP_HISTORY_BOOTSTRAP_MAX_PAGES,
   pageUnlocksHistoryBootstrap,
   shouldContinueDeepHistoryBootstrap,
