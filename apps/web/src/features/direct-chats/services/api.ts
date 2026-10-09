@@ -5,6 +5,7 @@ import type {
   DirectMessageSendPreflight,
   DirectMessageView,
   DirectMessagesResponse,
+  DirectReactionEventsResponse,
   LookupOwnDirectMessageResponse,
   MarkDirectChatRead,
   PrepareDirectMessageSend,
@@ -94,6 +95,28 @@ export async function fetchDirectMessages(
       id,
       deviceId,
       cursor,
+      { signal: timeoutSignal() },
+    );
+  } catch (error: unknown) {
+    return wipeAfterCurrentDeviceRevocation(error);
+  }
+}
+
+/**
+ * Opaque indexed E2EE lookup only. Callers must NOT treat the returned
+ * ciphertext or tag matches as proof of a decryptable/complete reaction state.
+ */
+export async function fetchDirectReactionEvents(
+  id: string,
+  deviceId: string,
+  targetTagB64: string,
+  afterSequence: string,
+  cursor?: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<DirectReactionEventsResponse> {
+  try {
+    return await createWebClientApi(fetchImpl).directChats.fetchDirectReactionEvents(
+      id, deviceId, targetTagB64, afterSequence, cursor,
       { signal: timeoutSignal() },
     );
   } catch (error: unknown) {
