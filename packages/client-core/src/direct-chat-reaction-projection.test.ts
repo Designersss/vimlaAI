@@ -6,6 +6,7 @@ import {
   decodeDirectHumanPayload,
   projectVerifiedDirectReactions,
   sameDirectMessageReplica,
+  mergeDirectMessageReplicaRows,
   type ReactionProjectionRow,
   type CachedDirectReactionPlaintext,
 } from "./index.js";
@@ -209,6 +210,49 @@ describe("local authenticated E2EE reaction projection", () => {
       ...original, reactionTargetTagB64: "attacker-replaced-tag",
     })).toBe(false);
     expect(sameDirectMessageReplica(original, { ...original, id: "other-id" })).toBe(false);
+  });
+
+  it("cannot clear a poisoned replica when older X3DH bootstrap replays its original version", async () => {
+    const f = fixture();
+    const initial = mergeDirectMessageReplicaRows([], [
+      { ...f.sourceRow, needsBootstrap: false },
+      { ...f.reactionRow, needsBootstrap: false },
+    ]);
+    const altered = {
+      ...f.reactionRow,
+      message: { ...f.reactionRow.message, reactionTargetTagB64: "different-tag" },
+      needsBootstrap: false,
+    };
+    const poisoned = mergeDirectMessageReplicaRows(initial, [altered]);
+    expect(poisoned.find((row) => row.message.id === altered.message.id))
+      .toMatchObject({ payload: null, integrityConflict: true });
+
+    // Regression for onLoadOlder: X3DH bootstrap decrypts already-seen rows
+    // again. Do not start a fresh empty map and erase the conflict marker.
+    const bootstrapped = mergeDirectMessageReplicaRows(poisoned, initial);
+    expect(bootstrapped.find((row) => row.message.id === altered.message.id)?.integrityConflict)
+      .toBe(true);
+    const projected = await projectVerifiedDirectReactions(bootstrapped, f.read, "2");
+    expect(projected.states).toEqual([]);
+    expect(projected.eligibleMessageIds.size).toBe(0);
+  });
+
+  it("still replaces undecryptable bootstrap placeholders for identical signed events", () => {
+    const f = fixture();
+    const placeholder = {
+      ...f.sourceRow,
+      payload: null,
+      needsBootstrap: true,
+    };
+    const recovered = {
+      ...f.sourceRow,
+      needsBootstrap: false,
+    };
+    const rows = mergeDirectMessageReplicaRows([placeholder], [recovered]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.needsBootstrap).toBe(false);
+    expect(rows[0]?.payload).toEqual(f.sourceRow.payload);
+    expect(rows[0]?.integrityConflict).not.toBe(true);
   });
 
   it("rejects server-id equivocation before projecting any authenticated count", async () => {
