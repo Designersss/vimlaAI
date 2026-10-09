@@ -22,6 +22,7 @@ export function validateDirectReactionLookupPage(
 ): DirectReactionEventsResponse {
   if (!Number.isSafeInteger(request.limit) || request.limit < 1 ||
       request.limit > 50 ||
+      request.sourceSequence.length > 19 ||
       !/^(0|[1-9][0-9]*)$/.test(request.sourceSequence)) {
     throw new Error("Invalid E2EE reaction lookup parameters");
   }
