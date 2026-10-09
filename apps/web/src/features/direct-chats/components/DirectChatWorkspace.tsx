@@ -2397,6 +2397,23 @@ async function fetchLatestDecryptedPage(
       deviceId,
       pageCursor,
     );
+    // The latest page was already opened to discover missing X3DH senders.
+    // A subsequently fetched bootstrap page must not change the identity
+    // of any previously accepted server ID or claim an existing conversation
+    // sequence under a different ID. Check every previous page before a
+    // second ratchet pass; quarantine ALL initially visible rows on conflict
+    // instead of letting a valid first-page cache mask an equivocated chain.
+    if (hasConflictingDirectMessageReplicas(older.items, allItems)) {
+      return {
+        decrypted: first.items.map((message) => ({
+          message,
+          payload: null,
+          needsBootstrap: false,
+          integrityConflict: true,
+        })),
+        nextCursor: first.nextCursor,
+      };
+    }
     allItems.push(...older.items);
     for (const message of older.items) {
       if (
