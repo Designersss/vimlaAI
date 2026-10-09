@@ -2318,10 +2318,11 @@ async function fetchDecryptedGap(
       }
     }
 
+    const requiredOldest = oldestRequiredSequence;
     const reachedSafeAnchor = targetDriven
       ? requiredUnknownIds.size === 0 &&
-        oldestRequiredSequence !== null &&
-        seenKnownSequences.some((sequence) => sequence <= oldestRequiredSequence)
+        requiredOldest !== null &&
+        seenKnownSequences.some((sequence) => sequence <= requiredOldest)
       : seenKnownSequences.length > 0;
     if (reachedSafeAnchor || page.nextCursor === null) break;
     cursor = page.nextCursor;
