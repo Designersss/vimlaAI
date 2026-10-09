@@ -274,7 +274,7 @@ describe("direct chats API", () => {
       });
     const lookupBody = {
       deviceId: aliceDevice.deviceId, targetTagB64: tag,
-      afterSequence: humanMessage.sequence, limit: 1,
+      limit: 1,
     };
     const firstLookup = await requestIndex(alice.cookies, lookupBody);
     expect(firstLookup.statusCode).toBe(200);
@@ -306,7 +306,9 @@ describe("direct chats API", () => {
     for (const invalidBody of [
       { ...lookupBody, cursor: "invalid" },
       { ...lookupBody, cursor: firstPage.nextCursor, extra: 1 },
-      { ...lookupBody, afterSequence: "-3" },
+      // An exact original sequence is forbidden: it would link the HMAC tag
+      // to its source HUMAN in server-visible request metadata.
+      { ...lookupBody, afterSequence: humanMessage.sequence },
       { ...lookupBody, limit: 51 },
     ]) {
       const invalid = await requestIndex(alice.cookies, invalidBody);
