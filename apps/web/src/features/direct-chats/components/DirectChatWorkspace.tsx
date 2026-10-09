@@ -2451,6 +2451,9 @@ function DirectRow({
   onReply,
   sourceRow,
   selfUserId,
+  reactionStates,
+  reactionBusy,
+  onReact,
 }: {
   row: DecryptedRow;
   self: boolean;
@@ -2460,8 +2463,12 @@ function DirectRow({
   onReply?: (source: DecryptedRow) => void;
   sourceRow?: DecryptedRow;
   selfUserId: string;
+  reactionStates: readonly DirectReactionState[];
+  reactionBusy: boolean;
+  onReact?: (emoji: DirectReactionEmoji) => void;
 }): ReactElement {
   const t = useTranslations();
+  const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
   const label = self ? youLabel : peerName;
   if (!row.payload) {
     return <article className={styles.undecryptable} data-testid="direct-message-undecryptable"><Text tone="caption">{t("direct.undecryptable")}</Text></article>;
@@ -2523,16 +2530,71 @@ function DirectRow({
             ) : null}
           </AssistantMessage>
         )}
-        {row.message.kind === "HUMAN" && onReply ? (
+        {row.message.kind === "HUMAN" ? (
           <div className={styles.replyActions}>
-            <Button
-              variant="ghost"
-              size="sm"
-              data-testid="direct-message-reply-action"
-              onClick={() => onReply(row)}
-            >
-              {t("direct.reply")}
-            </Button>
+            {onReply ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                data-testid="direct-message-reply-action"
+                onClick={() => onReply(row)}
+              >
+                {t("direct.reply")}
+              </Button>
+            ) : null}
+            {DIRECT_REACTION_EMOJIS.map((emoji) => {
+              const active = reactionStates.filter((state) =>
+                state.emoji === emoji && state.active
+              );
+              if (active.length === 0) return null;
+              const mine = active.some((state) => state.reactorUserId === selfUserId);
+              return (
+                <Button
+                  key={emoji}
+                  variant="ghost"
+                  size="sm"
+                  disabled={!onReact || reactionBusy}
+                  aria-pressed={mine}
+                  aria-label={t(mine ? "direct.reactionRemove" : "direct.reactionAdd", { emoji })}
+                  data-testid="direct-message-reaction-chip"
+                  onClick={() => onReact?.(emoji)}
+                >
+                  {emoji} {active.length}
+                </Button>
+              );
+            })}
+            {onReact ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={reactionBusy}
+                aria-expanded={reactionPickerOpen}
+                data-testid="direct-message-reaction-action"
+                onClick={() => setReactionPickerOpen((current) => !current)}
+              >
+                {t("direct.react")}
+              </Button>
+            ) : null}
+            {reactionPickerOpen && onReact ? (
+              <div role="group" aria-label={t("direct.react")}>
+                {DIRECT_REACTION_EMOJIS.map((emoji) => (
+                  <Button
+                    key={emoji}
+                    variant="ghost"
+                    size="sm"
+                    disabled={reactionBusy}
+                    aria-label={t("direct.reactionAdd", { emoji })}
+                    data-testid="direct-message-reaction-emoji"
+                    onClick={() => {
+                      setReactionPickerOpen(false);
+                      onReact(emoji);
+                    }}
+                  >
+                    {emoji}
+                  </Button>
+                ))}
+              </div>
+            ) : null}
           </div>
         ) : null}
       </div>
