@@ -182,6 +182,7 @@ describe("direct chats API", () => {
     const afterDetail = bobChatAfter.json() as DirectConversationView;
     expect(afterDetail.unreadCount).toBe(1);
     expect(afterDetail.lastKind).toBe("HUMAN");
+    expect(afterDetail.lastMessageSequence).toBe(event.sequence);
 
     const inbox = await app.inject({
       method: "GET", url: "/v1/inbox?kind=DIRECT",
