@@ -113,7 +113,32 @@ export async function projectVerifiedDirectReactions(
   // can prove the absence of later add/remove events. An unseen sequence
   // between the observed head and a HUMAN original makes any count for that
   // original misleading. A duplicate row ID is not a second log position.
-  const uniqueById = new Map(rows.map((row) => [row.message.id, row]));
+  // Realtime and pagination may legitimately replay a row, but two
+  // different signed/ciphertext identities under the same server ID are
+  // equivocation, not two messages. Never let Map(last-wins) silently select
+  // an attacker-controlled version before checking the causal prefix.
+  const uniqueById = new Map<string, ReactionProjectionRow>();
+  const fingerprints = new Map<string, string>();
+  for (const row of rows) {
+    const message = row.message;
+    const fingerprint = JSON.stringify([
+      message.conversationId, message.sequence, message.kind,
+      message.senderUserId, message.senderDeviceId,
+      message.clientMessageId, message.contentCommitmentB64,
+      message.reactionTargetTagB64, message.interactionEpoch,
+      message.createdAt,
+      message.envelope?.recipientDeviceId,
+      message.envelope?.headerB64,
+      message.envelope?.ciphertextB64,
+      message.envelope?.senderSignatureB64,
+    ]);
+    const previous = fingerprints.get(message.id);
+    if (previous !== undefined && previous !== fingerprint) {
+      return { states: [], eligibleMessageIds, unavailableMessageIds };
+    }
+    fingerprints.set(message.id, fingerprint);
+    uniqueById.set(message.id, row);
+  }
   const parseSequence = (value: string): bigint | null => {
     if (!/^[1-9][0-9]*$/.test(value)) return null;
     try {
