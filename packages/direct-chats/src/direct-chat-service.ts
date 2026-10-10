@@ -944,6 +944,13 @@ export class DirectChatService {
           );
         }
       }
+      // A prekey bundle is a cryptographic identity snapshot. Coordinate
+      // the recipient's active roster against revoke/re-enrol/rotation:
+      // otherwise a transaction can claim an OTK for a device that was
+      // revoked or expose a signed prekey from a different rotation.
+      // Claims are readers: they may run concurrently and already serialize
+      // OTK consumption with row-level FOR UPDATE SKIP LOCKED.
+      await lockDirectDeviceRoster(tx, [targetUserId], "shared");
       return consumePrekeyBundlesForUser(
         tx,
         targetUserId,
