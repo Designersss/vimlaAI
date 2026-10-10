@@ -106,6 +106,19 @@ describe("direct chat plaintext payloads", () => {
   });
 });
 
+describe("encrypted REACTION control projection", () => {
+  it("never mistakes a reaction's plaintext or malformed payload for a HUMAN message", () => {
+    for (const plaintext of [
+      '{"type":"reaction","version":1,"action":"add","emoji":"👍"}',
+      '{"type":"human","text":"spoof"}',
+      'text pretending to be a reply',
+    ]) {
+      expect(decodeDirectPlaintext("REACTION", plaintext)).toBeNull();
+      expect(directPlaintextPreview("REACTION", plaintext)).toBeNull();
+    }
+  });
+});
+
 describe("authenticated Direct HUMAN replies", () => {
   const originalId = "11111111-1111-4111-8111-111111111111";
   const reference = {

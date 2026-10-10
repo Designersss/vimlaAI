@@ -30,6 +30,7 @@ export {
   decryptEnvelope,
   buildAssociatedData,
   serializeDirectRoutingMentions,
+  serializeDirectReactionTargetTag,
   signaturePayload,
   DIRECT_MESSAGE_KINDS,
   type DirectMessageKind,
@@ -45,3 +46,9 @@ export {
   isBoundHumanClientMessageId,
   generateHumanBindingKey,
 } from "./human-content-identity.js";
+
+export {
+  boundReactionEventCommitment,
+  boundReactionTargetTag,
+  reactionClientIdFromCommitment,
+} from "./reaction-identity.js";

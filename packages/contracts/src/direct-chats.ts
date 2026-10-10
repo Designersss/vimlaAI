@@ -24,11 +24,25 @@ export const DIRECT_CHAT_LIMITS = {
 
 export const directMessageKindSchema = z.enum([
   "HUMAN",
+  "REACTION",
   "OPERATOR_INVOKE",
   "OPERATOR_RESPONSE",
   "OPERATOR_ACTION",
 ]);
 export type DirectMessageKind = z.infer<typeof directMessageKindSchema>;
+
+// Every persisted Direct sequence is a PostgreSQL signed bigint. Bound the
+// decimal length before any client converts untrusted API metadata to BigInt:
+// an arbitrarily long digit string otherwise becomes a CPU/memory DoS.
+const directHistorySequenceSchema = z.string()
+  .max(19)
+  .regex(/^(0|[1-9][0-9]*)$/)
+  .refine(
+    (value) => value.length <= 19 &&
+      /^(0|[1-9][0-9]*)$/.test(value) &&
+      BigInt(value) <= 9223372036854775807n,
+    "Direct history sequence exceeds PostgreSQL bigint",
+  );
 
 export const directInteractionEpochSchema = z
   .number()
@@ -132,13 +146,27 @@ export const sendDirectMessageSchema = z
   .object({
     clientMessageId: z.string().uuid(),
     contentCommitmentB64: z.string().length(44).nullable().default(null),
+    // An opaque source-derived lookup tag, never an unencrypted source reference.
+    reactionTargetTagB64: z.string().regex(/^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$/).nullable().optional(),
     senderDeviceId: z.string().uuid(),
     interactionEpoch: directInteractionEpochSchema,
     kind: directMessageKindSchema,
     envelopes: z.array(wireEnvelopeSchema).min(1).max(DIRECT_CHAT_LIMITS.envelopesMax),
     mentions: z.array(messageMentionInputSchema).max(DIRECT_CHAT_LIMITS.mentionsMax).default([]),
   })
-  .strict();
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.kind === "REACTION") {
+      if (!value.reactionTargetTagB64 || !value.contentCommitmentB64) {
+        ctx.addIssue({ code: "custom", path: ["reactionTargetTagB64"], message: "Signed reaction commitment and target tag are required" });
+      }
+      if (value.mentions.length > 0) {
+        ctx.addIssue({ code: "custom", path: ["mentions"], message: "Reactions cannot include routing mentions" });
+      }
+    } else if (value.reactionTargetTagB64 != null) {
+      ctx.addIssue({ code: "custom", path: ["reactionTargetTagB64"], message: "Only reactions may supply a target tag" });
+    }
+  });
 export type SendDirectMessage = z.infer<typeof sendDirectMessageSchema>;
 
 export const listDirectMessagesQuerySchema = z.object({
@@ -146,6 +174,24 @@ export const listDirectMessagesQuerySchema = z.object({
   cursor: z.string().min(1).max(512).optional(),
   deviceId: z.string().uuid(),
 });
+
+/**
+ * Indexed E2EE reaction-event discovery. This does NOT decrypt ciphertext
+ * or establish the latest reaction state: a client must verify the original,
+ * ratchet chronology, event commitment and causal completeness separately.
+ * Tags are opaque HMACs derived exclusively from authenticated HUMAN v2.
+ */
+export const DIRECT_REACTION_HISTORY_PAGE_MAX = 50;
+export const listDirectReactionEventsQuerySchema = z.object({
+  deviceId: z.string().uuid(),
+  targetTagB64: z.string().regex(/^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$/),
+  // Never transmit the original HUMAN sequence: it would deanonymize the
+  // opaque HMAC tag by pointing the server to the exact source row.
+  // Opaque same-conversation causal cursor for older matching events.
+  cursor: z.string().min(1).max(512).optional(),
+  limit: z.coerce.number().int().min(1).max(DIRECT_REACTION_HISTORY_PAGE_MAX).default(30),
+}).strict();
+export type ListDirectReactionEventsQuery = z.infer<typeof listDirectReactionEventsQuerySchema>;
 
 export const updateDirectChatPrivacySchema = z
   .object({
@@ -236,6 +282,8 @@ export const directConversationSummarySchema = z.object({
 export type DirectConversationSummary = z.infer<typeof directConversationSummarySchema>;
 
 export const directConversationViewSchema = directConversationSummarySchema.extend({
+  // Includes encrypted reaction control events, not just visible chat messages.
+  lastMessageSequence: directHistorySequenceSchema,
   members: z.array(directParticipantSchema),
   devices: z.array(cryptoDeviceViewSchema),
 });
@@ -260,8 +308,11 @@ export const directMessageViewSchema = z.object({
   senderDeviceId: z.string().uuid(),
   clientMessageId: z.string().uuid(),
   contentCommitmentB64: z.string().length(44).nullable(),
+  reactionTargetTagB64: z.string().regex(/^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$/).nullable(),
   kind: directMessageKindSchema,
   interactionEpoch: directInteractionEpochSchema,
+  // PostgreSQL-authoritative causal order, serialized as decimal for bigint safety.
+  sequence: directHistorySequenceSchema.refine((value) => value !== "0"),
   createdAt: z.string(),
   envelope: directEnvelopeViewSchema.nullable(),
   mentions: z.array(messageMentionViewSchema).default([]),
@@ -300,6 +351,14 @@ export const directMessagesResponseSchema = z.object({
   nextCursor: z.string().nullable(),
 });
 export type DirectMessagesResponse = z.infer<typeof directMessagesResponseSchema>;
+
+export const directReactionEventsResponseSchema = z.object({
+  items: z.array(directMessageViewSchema).max(DIRECT_REACTION_HISTORY_PAGE_MAX),
+  nextCursor: z.string().min(1).max(512).nullable(),
+});
+export type DirectReactionEventsResponse = z.infer<typeof directReactionEventsResponseSchema>;
+
+
 
 export const cryptoDevicesResponseSchema = z.object({
   items: z.array(cryptoDeviceViewSchema),

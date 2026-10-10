@@ -1,6 +1,9 @@
 import { Prisma } from "@vimla/database";
 import {
   DIRECT_CHAT_LIMITS,
+  DIRECT_REACTION_HISTORY_PAGE_MAX,
+  type DirectReactionEventsResponse,
+  type ListDirectReactionEventsQuery,
   type DirectConversationPrivacy,
   type DirectConversationSummary,
   type DirectConversationView,
@@ -20,6 +23,7 @@ import {
   b64ToBytes,
   buildAssociatedData,
   serializeDirectRoutingMentions,
+  serializeDirectReactionTargetTag,
   humanClientIdFromCommitment,
   signaturePayload,
   verifyDirectMessage,
@@ -43,6 +47,7 @@ import {
   type DirectChatDurableEventWriter,
 } from "./durable-events.js";
 import { DirectChatError } from "./errors.js";
+import { lockDirectDeviceRoster } from "./device-roster-lock.js";
 import { directPairKey } from "./pair-key.js";
 import type { ActorContext, DbClient, DirectChatServiceOptions } from "./types.js";
 
@@ -191,6 +196,7 @@ export class DirectChatService {
             id: true,
             sequence: true,
             senderUserId: true,
+            kind: true,
           },
         });
         if (
@@ -206,6 +212,7 @@ export class DirectChatService {
         const observedPeerSequence = messages.reduce(
           (max, message) =>
             message.senderUserId !== actor.userId &&
+            message.kind !== "REACTION" &&
             message.sequence > max
               ? message.sequence
               : max,
@@ -262,31 +269,80 @@ export class DirectChatService {
     query: { limit: number; cursor?: string; deviceId: string },
   ): Promise<{ items: DirectMessageView[]; nextCursor: string | null }> {
     await this.requireMemberConversation(actor.userId, conversationId);
-    await this.requireActiveDevice(actor.userId, query.deviceId);
     const cursor = decodeCursor(query.cursor);
-    const rows = await this.db.directMessage.findMany({
-      where: {
-        conversationId,
-        ...(cursor
-          ? {
-              OR: [
-                { createdAt: { lt: cursor.at } },
-                { AND: [{ createdAt: cursor.at }, { id: { lt: cursor.id } }] },
-              ],
-            }
-          : {}),
-      },
-      include: { envelopes: { where: { recipientDeviceId: query.deviceId } } },
-      orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-      take: query.limit + 1,
+    return this.db.$transaction(async (tx) => {
+      // A revoked device must not race authorization of this ciphertext
+      // history page between the device check and the final DB read.
+      await this.requireLockedActiveDevice(tx, actor.userId, query.deviceId);
+      const rows = await tx.directMessage.findMany({
+        where: {
+          conversationId,
+          ...(cursor !== null ? { sequence: { lt: cursor } } : {}),
+        },
+        include: { envelopes: { where: { recipientDeviceId: query.deviceId } } },
+        orderBy: [{ sequence: "desc" }],
+        take: query.limit + 1,
+      });
+      const page = rows.slice(0, query.limit);
+      const last = page.at(-1);
+      const mentions = await this.readMentionMap(page.map((row) => row.id), tx);
+      return {
+        items: page.map((row) => toMessageView(row, query.deviceId, mentions.get(row.id) ?? [])),
+        nextCursor: rows.length > query.limit && last ? encodeCursor(last.sequence) : null,
+      };
     });
-    const page = rows.slice(0, query.limit);
-    const last = page.at(-1);
-    const mentions = await this.readMentionMap(page.map((row) => row.id));
-    return {
-      items: page.map((row) => toMessageView(row, query.deviceId, mentions.get(row.id) ?? [])),
-      nextCursor: rows.length > query.limit && last ? encodeCursor(last.createdAt, last.id) : null,
-    };
+  }
+
+  /**
+   * Indexed discovery of encrypted E2EE reaction controls for a locally
+   * authenticated HUMAN source. The opaque HMAC target tag is NOT source
+   * authority and the returned controls are NOT independently decryptable:
+   * clients must separately establish continuous ratchet history and verify
+   * sender AD, full ciphertext commitment and the HUMAN provenance.
+   *
+   * No full conversation scan, no plaintext counts or deletion of tombstones.
+   */
+  async listReactionEvents(
+    actor: ActorContext,
+    conversationId: string,
+    query: ListDirectReactionEventsQuery,
+  ): Promise<DirectReactionEventsResponse> {
+    await this.requireMemberConversation(actor.userId, conversationId);
+    if (!Number.isSafeInteger(query.limit) ||
+        query.limit < 1 || query.limit > DIRECT_REACTION_HISTORY_PAGE_MAX ||
+        !/^[A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=$/.test(query.targetTagB64) ||
+        query.cursor !== undefined && query.cursor.length > 512) {
+      throw new DirectChatError("VALIDATION_ERROR", "Invalid Direct reaction query");
+    }
+    // Never receive the exact HUMAN source sequence here: that would link
+    // this nominally opaque tag to a specific original in server metadata.
+    const before = decodeCursor(query.cursor);
+    return this.db.$transaction(async (tx) => {
+      // The opaque equality tag and encrypted control metadata are still
+      // privileged device-scoped history: revoke-vs-read must linearize.
+      await this.requireLockedActiveDevice(tx, actor.userId, query.deviceId);
+      const rows = await tx.directMessage.findMany({
+        where: {
+          conversationId,
+          kind: "REACTION",
+          reactionTargetTagB64: query.targetTagB64,
+          ...(before !== null ? { sequence: { lt: before } } : {}),
+        },
+        include: {
+          envelopes: { where: { recipientDeviceId: query.deviceId } },
+        },
+        orderBy: [{ sequence: "desc" }],
+        take: query.limit + 1,
+      });
+      const page = rows.slice(0, query.limit);
+      const last = page.at(-1);
+      return {
+        items: page.map((row) => toMessageView(row, query.deviceId, [])),
+        nextCursor: rows.length > query.limit && last
+          ? encodeCursor(last.sequence)
+          : null,
+      };
+    });
   }
 
   /**
@@ -301,28 +357,30 @@ export class DirectChatService {
     clientMessageId: string,
   ): Promise<DirectMessageView | null> {
     await this.requireMemberConversation(actor.userId, conversationId);
-    await this.requireActiveDevice(actor.userId, senderDeviceId);
-    const row = await this.db.directMessage.findUnique({
-      where: {
-        conversationId_senderUserId_clientMessageId: {
-          conversationId,
-          senderUserId: actor.userId,
-          clientMessageId,
+    return this.db.$transaction(async (tx) => {
+      await this.requireLockedActiveDevice(tx, actor.userId, senderDeviceId);
+      const row = await tx.directMessage.findUnique({
+        where: {
+          conversationId_senderUserId_clientMessageId: {
+            conversationId,
+            senderUserId: actor.userId,
+            clientMessageId,
+          },
         },
-      },
-      include: {
-        envelopes: { where: { recipientDeviceId: senderDeviceId } },
-      },
+        include: {
+          envelopes: { where: { recipientDeviceId: senderDeviceId } },
+        },
+      });
+      if (!row) return null;
+      if (row.senderDeviceId !== senderDeviceId) {
+        throw new DirectChatError(
+          "CONFLICT",
+          "Client message id belongs to a different sender device",
+        );
+      }
+      const mentions = await this.readMentionMap([row.id], tx);
+      return toMessageView(row, senderDeviceId, mentions.get(row.id) ?? []);
     });
-    if (!row) return null;
-    if (row.senderDeviceId !== senderDeviceId) {
-      throw new DirectChatError(
-        "CONFLICT",
-        "Client message id belongs to a different sender device",
-      );
-    }
-    const mentions = await this.readMentionMap([row.id]);
-    return toMessageView(row, senderDeviceId, mentions.get(row.id) ?? []);
   }
 
   async prepareSend(
@@ -427,7 +485,10 @@ export class DirectChatService {
       actor.userId,
       conversationId,
     );
-    const replay = await this.findExactReplay(
+    // A fast idempotent lookup must linearize against sender revocation,
+    // rather than check revokedAt and then read ciphertext in separate
+    // unprotected transactions.
+    const replay = await this.findAuthorizedReplay(
       actor.userId,
       conversationId,
       input,
@@ -468,7 +529,11 @@ export class DirectChatService {
     const memberIds = conversation.members.map(
       (member) => member.userId,
     );
-    const replay = await this.findExactReplay(
+    // Replay may legitimately bypass a changed recipient device set or
+    // later peer block, but never the original sender's device revocation.
+    // Hold a row lock throughout lookup so a concurrent revoke cannot be
+    // interleaved between authorization and the ciphertext response.
+    const replay = await this.findAuthorizedReplay(
       actor.userId,
       conversationId,
       input,
@@ -497,17 +562,26 @@ export class DirectChatService {
 
     // Validate once at the authoritative message boundary, then sign
     // exactly this message-wide commitment into EVERY recipient envelope.
-    if (input.kind === "HUMAN") {
+    if (input.kind === "HUMAN" || input.kind === "REACTION") {
       if (!input.contentCommitmentB64 ||
           humanClientIdFromCommitment(input.contentCommitmentB64) !== input.clientMessageId) {
-        throw new DirectChatError("TAMPERED", "HUMAN content commitment is invalid");
+        throw new DirectChatError("TAMPERED", "E2EE content commitment is invalid");
       }
     } else if (input.contentCommitmentB64 !== null) {
       throw new DirectChatError("TAMPERED", "Unexpected content commitment");
     }
-    const routingContext = input.mentions.length > 0
-      ? serializeDirectRoutingMentions(input.mentions)
-      : undefined;
+    if (input.kind === "REACTION") {
+      if (!input.reactionTargetTagB64 || input.mentions.length > 0) {
+        throw new DirectChatError("VALIDATION_ERROR", "Invalid encrypted reaction routing");
+      }
+    } else if (input.reactionTargetTagB64 != null) {
+      throw new DirectChatError("VALIDATION_ERROR", "Unexpected reaction target tag");
+    }
+    const routingContext = input.kind === "REACTION"
+      ? serializeDirectReactionTargetTag(input.reactionTargetTagB64 ?? "")
+      : input.mentions.length > 0
+        ? serializeDirectRoutingMentions(input.mentions)
+        : undefined;
     for (const envelope of input.envelopes) {
       this.assertEnvelope(envelope, senderDevice, devicesById, {
         conversationId,
@@ -538,6 +612,39 @@ export class DirectChatService {
           actor.userId,
           peerUserId,
         );
+
+        // Existing-row SHARE locks cannot stop a new device INSERT from
+        // appearing after this query. Hold the same per-user transaction
+        // advisory locks as device registration/revocation until the
+        // encrypted message and all recipient envelopes are committed.
+        await lockDirectDeviceRoster(tx, memberIds, "shared");
+
+        // Lock all currently active participant devices in deterministic
+        // order before inserting envelopes. Revocation updates need a
+        // conflicting row lock; they can no longer commit between our
+        // external fan-out snapshot and its durable insert. A SHARE lock
+        // also lets distinct senders progress without sender-first/
+        // recipient-second deadlocks from opposite directions.
+        const lockedDevices = await tx.$queryRaw<
+          Array<{ id: string; userId: string; revokedAt: Date | null }>
+        >(Prisma.sql`
+          SELECT "id", "userId", "revokedAt"
+          FROM "user_crypto_device"
+          WHERE "userId" IN (${Prisma.join(memberIds)})
+            AND ("revokedAt" IS NULL OR "id" = ${input.senderDeviceId})
+          ORDER BY "id"
+          FOR SHARE
+        `);
+        const activeSender = lockedDevices.find(
+          (device) => device.id === input.senderDeviceId &&
+            device.userId === actor.userId,
+        );
+        if (!activeSender) {
+          throw new DirectChatError("NOT_FOUND", "Device was not found");
+        }
+        if (activeSender.revokedAt) {
+          throw new DirectChatError("DEVICE_REVOKED", "This device was revoked");
+        }
 
         // Re-check idempotent replay after taking the same pair lock used by
         // block/unblock. A committed retry must still resolve as success even
@@ -570,6 +677,23 @@ export class DirectChatService {
           );
         }
 
+        // Replays above deliberately preserve previously committed fan-out.
+        // A NEW message, however, must target exactly the current active
+        // member devices. Any already committed enrolment or revocation
+        // since signature preflight must cause a retry with fresh envelopes.
+        const currentActiveIds = new Set(
+          lockedDevices
+            .filter((device) => device.revokedAt === null)
+            .map((device) => device.id),
+        );
+        if (currentActiveIds.size !== requiredDeviceIds.size ||
+            [...currentActiveIds].some((id) => !requiredDeviceIds.has(id))) {
+          throw new DirectChatError(
+            "CONFLICT",
+            "Direct Chat recipient device set changed",
+          );
+        }
+
         const currentConversation =
           await tx.directConversation.findUnique({
             where: { id: conversationId },
@@ -593,6 +717,7 @@ export class DirectChatService {
             senderDeviceId: senderDevice.id,
             clientMessageId: input.clientMessageId,
             contentCommitmentB64: input.contentCommitmentB64,
+            reactionTargetTagB64: input.reactionTargetTagB64 ?? null,
             kind: input.kind,
             interactionEpoch: input.interactionEpoch,
             envelopes: {
@@ -645,7 +770,9 @@ export class DirectChatService {
       });
     } catch (error: unknown) {
       if (isUnique(error)) {
-        const replay = await this.findExactReplay(
+        // A uniqueness-conflict retry is also an E2EE ciphertext read:
+        // race it against revocation under the same lock as other replays.
+        const replay = await this.findAuthorizedReplay(
           actor.userId,
           conversationId,
           input,
@@ -817,6 +944,13 @@ export class DirectChatService {
           );
         }
       }
+      // A prekey bundle is a cryptographic identity snapshot. Coordinate
+      // the recipient's active roster against revoke/re-enrol/rotation:
+      // otherwise a transaction can claim an OTK for a device that was
+      // revoked or expose a signed prekey from a different rotation.
+      // Claims are readers: they may run concurrently and already serialize
+      // OTK consumption with row-level FOR UPDATE SKIP LOCKED.
+      await lockDirectDeviceRoster(tx, [targetUserId], "shared");
       return consumePrekeyBundlesForUser(
         tx,
         targetUserId,
@@ -838,6 +972,45 @@ export class DirectChatService {
       interactionEpoch: conversation.interactionEpoch,
       memberIds: conversation.members.map((member) => member.userId),
     };
+  }
+
+  /**
+   * A previously committed idempotency key can be resolved despite a
+   * peer block or a changed fan-out device set. It MUST NOT be resolved
+   * by a sender device after revocation. PostgreSQL's row lock makes the
+   * authorization check and the reply read a single linearizable unit:
+   * a concurrent revocation UPDATE waits, or this lookup sees revokedAt.
+   */
+  private async findAuthorizedReplay(
+    userId: string,
+    conversationId: string,
+    input: SendDirectMessage,
+  ): Promise<DirectMessageView | null> {
+    return this.db.$transaction(async (tx) => {
+      await this.requireLockedActiveDevice(tx, userId, input.senderDeviceId);
+      return this.findExactReplay(userId, conversationId, input, tx);
+    });
+  }
+
+  private async requireLockedActiveDevice(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    deviceId: string,
+  ): Promise<void> {
+    const devices = await tx.$queryRaw<
+      Array<{ id: string; revokedAt: Date | null }>
+    >`
+      SELECT "id", "revokedAt"
+      FROM "user_crypto_device"
+      WHERE "id" = ${deviceId} AND "userId" = ${userId}
+      FOR SHARE
+    `;
+    if (devices.length !== 1) {
+      throw new DirectChatError("NOT_FOUND", "Device was not found");
+    }
+    if (devices[0]?.revokedAt) {
+      throw new DirectChatError("DEVICE_REVOKED", "This device was revoked");
+    }
   }
 
   private async findExactReplay(
@@ -872,6 +1045,7 @@ export class DirectChatService {
     if (
       existing.kind !== input.kind ||
       existing.contentCommitmentB64 !== input.contentCommitmentB64 ||
+      existing.reactionTargetTagB64 !== (input.reactionTargetTagB64 ?? null) ||
       existing.interactionEpoch !== input.interactionEpoch ||
       !sameReplayEnvelopes(
         existing.envelopes,
@@ -1064,6 +1238,7 @@ export class DirectChatService {
     );
     return {
       ...summary,
+      lastMessageSequence: conversation.lastMessageSequence.toString(),
       members: conversation.members.map((member) =>
         requireParticipant(profiles, member.userId),
       ),
@@ -1086,6 +1261,7 @@ export class DirectChatService {
       WHERE
         message."conversationId" = ${conversationId}
         AND message."senderUserId" <> ${actorUserId}
+        AND message."kind" <> 'REACTION'
         AND (
           member."lastReadMessageSequence" IS NULL
           OR message."sequence" > member."lastReadMessageSequence"
@@ -1145,10 +1321,8 @@ const conversationInclude = {
     },
   },
   messages: {
-    orderBy: [
-      { createdAt: "desc" as const },
-      { id: "desc" as const },
-    ],
+    where: { kind: { not: "REACTION" } },
+    orderBy: [{ sequence: "desc" as const }],
     take: 50,
   },
 } satisfies Prisma.DirectConversationInclude;
@@ -1185,6 +1359,8 @@ function toMessageView(
     senderDeviceId: string;
     clientMessageId: string;
     contentCommitmentB64: string | null;
+    reactionTargetTagB64: string | null;
+    sequence: bigint;
     kind: string;
     interactionEpoch: number;
     createdAt: Date;
@@ -1213,8 +1389,10 @@ function toMessageView(
     senderDeviceId: row.senderDeviceId,
     clientMessageId: row.clientMessageId,
     contentCommitmentB64: row.contentCommitmentB64,
+    reactionTargetTagB64: row.reactionTargetTagB64,
     kind: isKind(row.kind) ? row.kind : "HUMAN",
     interactionEpoch: row.interactionEpoch,
+    sequence: row.sequence.toString(),
     createdAt: row.createdAt.toISOString(),
     envelope: envelope ? toEnvelopeView(envelope) : null,
     mentions,
@@ -1251,6 +1429,7 @@ function toEnvelopeView(envelope: {
 function isKind(value: string | undefined): value is DirectMessageView["kind"] {
   return (
     value === "HUMAN" ||
+    value === "REACTION" ||
     value === "OPERATOR_INVOKE" ||
     value === "OPERATOR_RESPONSE" ||
     value === "OPERATOR_ACTION"
@@ -1261,24 +1440,27 @@ function isMentionKind(value: string): value is MessageMentionView["kind"] {
   return value === "USER" || value === "SYSTEM_AGENT" || value === "AI_AUTO" || value === "AI_MODEL";
 }
 
-function encodeCursor(at: Date, id: string): string {
-  return Buffer.from(`${at.toISOString()}|${id}`, "utf8").toString("base64url");
+/** Causally ordered, opaque and strictly canonical Direct pagination cursor. */
+function encodeCursor(sequence: bigint): string {
+  return Buffer.from(`s1:${sequence.toString()}`, "utf8").toString("base64url");
 }
 
-function decodeCursor(cursor: string | undefined): { at: Date; id: string } | null {
-  if (!cursor) {
-    return null;
+function decodeCursor(cursor: string | undefined): bigint | null {
+  if (cursor === undefined) return null;
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(cursor)) {
+    throw new DirectChatError("VALIDATION_ERROR", "Invalid Direct message cursor");
   }
-  try {
-    const raw = Buffer.from(cursor, "base64url").toString("utf8");
-    const [iso, id] = raw.split("|");
-    if (!iso || !id) {
-      return null;
-    }
-    return { at: new Date(iso), id };
-  } catch {
-    return null;
+  const bytes = Buffer.from(cursor, "base64url");
+  const raw = bytes.toString("utf8");
+  const match = /^s1:([1-9][0-9]{0,18})$/.exec(raw);
+  if (!match || Buffer.from(raw, "utf8").toString("base64url") !== cursor) {
+    throw new DirectChatError("VALIDATION_ERROR", "Invalid Direct message cursor");
   }
+  const sequence = BigInt(match[1] ?? "0");
+  if (sequence > 9223372036854775807n) {
+    throw new DirectChatError("VALIDATION_ERROR", "Invalid Direct message cursor");
+  }
+  return sequence;
 }
 
 function sameReplayEnvelopes(

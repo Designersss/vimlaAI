@@ -469,4 +469,106 @@ test.describe("Direct Chat cross-browser coordination", () => {
     }
   });
 
+  test("converges authenticated E2EE reactions across devices and reload without ghost unread", async ({ browser, request }) => {
+    test.setTimeout(180_000);
+    const password = "correct-horse-battery";
+    const aliceEmail = uniqueEmail("e2e-reaction-alice");
+    const bobEmail = uniqueEmail("e2e-reaction-bob");
+    const bobHandle = uniqueHandle("reactionpeer");
+    const aliceContext = await browser.newContext();
+    const bobContext = await browser.newContext();
+    let bobSecondaryContext: Awaited<ReturnType<typeof browser.newContext>> | null = null;
+    try {
+      const alicePage = await aliceContext.newPage();
+      const bobPage = await bobContext.newPage();
+      await signUp(alicePage, { name: "Alice Reaction", email: aliceEmail, password });
+      await verifyEmail(alicePage, request, aliceEmail);
+      await purchasePro(alicePage);
+      await signUp(bobPage, { name: "Bob Reaction", email: bobEmail, password, handle: bobHandle });
+      await verifyEmail(bobPage, request, bobEmail);
+      await purchasePro(bobPage);
+
+      await alicePage.goto("/app");
+      await alicePage.getByRole("button", { name: /новый личный чат|new direct chat/i }).click();
+      await alicePage.getByPlaceholder("@handle").fill(`@${bobHandle}`);
+      const person = alicePage.getByTestId("people-search-results")
+        .getByRole("button").filter({ hasText: `@${bobHandle}` });
+      await expect(person).toBeVisible({ timeout: 20_000 });
+      await person.click();
+      await alicePage.getByRole("button", { name: /начать чат|start chat/i }).click();
+      await expect(alicePage.getByTestId("direct-chat-shell")).toBeVisible({ timeout: 20_000 });
+      const url = alicePage.url();
+
+      await bobPage.goto(url);
+      await expect(bobPage.getByTestId("direct-chat-shell")).toBeVisible({ timeout: 20_000 });
+      bobSecondaryContext = await browser.newContext({ storageState: await bobContext.storageState() });
+      const bobSecondary = await bobSecondaryContext.newPage();
+      await bobSecondary.goto(url);
+      await expect(bobSecondary.getByTestId("direct-chat-shell")).toBeVisible({ timeout: 20_000 });
+
+      const source = "E2EE reaction requires source-authenticated HUMAN v2 identity";
+      await alicePage.getByPlaceholder(/сообщение этому человеку|message this person/i).fill(source);
+      await alicePage.getByTestId("chat-composer-send").click();
+      for (const page of [alicePage, bobPage, bobSecondary]) {
+        const row = page.getByTestId("direct-message-row").filter({ hasText: source });
+        await expect(row).toBeVisible({ timeout: 20_000 });
+        await expect(row.getByTestId("direct-message-reaction-action"))
+          .toBeVisible({ timeout: 20_000 });
+      }
+
+      const bobSource = bobPage.getByTestId("direct-message-row").filter({ hasText: source });
+      await bobSource.getByTestId("direct-message-reaction-action").click();
+      await bobSource.getByTestId("direct-message-reaction-emoji")
+        .filter({ hasText: "👍" }).click();
+
+      for (const page of [alicePage, bobPage, bobSecondary]) {
+        const row = page.getByTestId("direct-message-row").filter({ hasText: source });
+        await expect(row.getByTestId("direct-message-reaction-chip"))
+          .toContainText("👍 1", { timeout: 20_000 });
+        await expect(page.getByTestId("direct-message-row")).toHaveCount(1);
+        await expect(page.getByTestId("direct-message-undecryptable")).toHaveCount(0);
+      }
+
+      // A full browser reload must reconstruct the same encrypted state;
+      // sharing cookies does not share the independent device's ratchet.
+      await bobSecondary.reload();
+      await expect(bobSecondary.getByTestId("direct-chat-shell")).toBeVisible({ timeout: 20_000 });
+      await expect(bobSecondary.getByTestId("direct-message-row")
+        .filter({ hasText: source })
+        .getByTestId("direct-message-reaction-chip"))
+        .toContainText("👍 1", { timeout: 20_000 });
+
+      const secondarySource = bobSecondary.getByTestId("direct-message-row").filter({ hasText: source });
+      await secondarySource.getByTestId("direct-message-reaction-chip").click();
+      for (const page of [alicePage, bobPage, bobSecondary]) {
+        const row = page.getByTestId("direct-message-row").filter({ hasText: source });
+        await expect(row.getByTestId("direct-message-reaction-chip"))
+          .toHaveCount(0, { timeout: 20_000 });
+        await expect(row.getByTestId("direct-message-reaction-action"))
+          .toBeVisible({ timeout: 20_000 });
+      }
+
+      // A different actor has a separate reaction state for this source.
+      const aliceSource = alicePage.getByTestId("direct-message-row").filter({ hasText: source });
+      await aliceSource.getByTestId("direct-message-reaction-action").click();
+      await aliceSource.getByTestId("direct-message-reaction-emoji")
+        .filter({ hasText: "❤️" }).click();
+      for (const page of [alicePage, bobPage, bobSecondary]) {
+        await expect(page.getByTestId("direct-message-row")
+          .filter({ hasText: source })
+          .getByTestId("direct-message-reaction-chip"))
+          .toContainText("❤️ 1", { timeout: 20_000 });
+      }
+      await alicePage.reload();
+      await expect(alicePage.getByTestId("direct-message-row")
+        .filter({ hasText: source })
+        .getByTestId("direct-message-reaction-chip"))
+        .toContainText("❤️ 1", { timeout: 20_000 });
+    } finally {
+      await bobSecondaryContext?.close();
+      await aliceContext.close();
+      await bobContext.close();
+    }
+  });
+
 });

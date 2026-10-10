@@ -18,6 +18,7 @@ import {
   initRatchetInitiator,
   initRatchetResponder,
   serializeDirectRoutingMentions,
+  serializeDirectReactionTargetTag,
   utf8,
   x3dhInitiate,
   x3dhRespond,
@@ -86,6 +87,532 @@ describe("direct chats API", () => {
     if (app) {
       await app.close();
     }
+  });
+
+  it("stores signed opaque reactions without changing unread, visible latest or inbox activity", async () => {
+    const alice = await readyUser(app, "dc-reaction-alice", "Alice");
+    const bob = await readyUser(app, "dc-reaction-bob", "Bob");
+    const aliceDevice = await registerHarness(app, alice);
+    const bobDevice = await registerHarness(app, bob);
+    const chat = await createChat(app, alice.cookies, bob.handle);
+    const human = await sendPlain(
+      app, alice, aliceDevice, chat.id, "HUMAN", "The only visible message",
+    );
+    expect(human.statusCode).toBe(201);
+    const humanMessage = human.json() as { id: string; sequence: string };
+    expect(BigInt(humanMessage.sequence)).toBeGreaterThan(0n);
+    const db = app.get(PrismaService).client;
+    const beforeConversation = await db.directConversation.findUniqueOrThrow({
+      where: { id: chat.id },
+    });
+    const beforeSurface = await db.communicationSurface.findFirstOrThrow({
+      where: { directConversationId: chat.id },
+    });
+    const bobChatBefore = await app.inject({
+      method: "GET", url: `/v1/direct-chats/${chat.id}`,
+      headers: { origin }, cookies: bob.cookies,
+    });
+    expect(bobChatBefore.statusCode).toBe(200);
+    expect((bobChatBefore.json() as DirectConversationView).unreadCount).toBe(1);
+
+    const chatDetail = await app.inject({
+      method: "GET", url: `/v1/direct-chats/${chat.id}`,
+      headers: { origin }, cookies: alice.cookies,
+    });
+    const view = chatDetail.json() as DirectConversationView;
+    const tag = bytesToB64(new Uint8Array(32).fill(0x3d));
+    const reactionId = randomUUID();
+    const ciphertext = JSON.stringify({
+      type: "reaction", version: 1, action: "add", emoji: "👍",
+      target: { clientMessageId: humanMessage.id },
+    });
+    // Server never parses ciphertext: this fixture proves only signature
+    // coverage, authenticated routing, authorization and DB projections.
+    const envelopes = [];
+    for (const recipient of view.devices) {
+      envelopes.push(await encryptTo(
+        app, alice, aliceDevice, recipient, chat.id, "REACTION",
+        ciphertext, [], view.interactionEpoch, reactionId, tag,
+      ));
+    }
+    const payload = {
+      clientMessageId: reactionId,
+      contentCommitmentB64: testCommitmentForClientId(reactionId),
+      reactionTargetTagB64: tag,
+      senderDeviceId: aliceDevice.deviceId,
+      interactionEpoch: view.interactionEpoch,
+      kind: "REACTION",
+      mentions: [],
+      envelopes,
+    };
+    const send = await app.inject({
+      method: "POST", url: `/v1/direct-chats/${chat.id}/messages`,
+      headers: jsonHeaders(), cookies: alice.cookies, payload,
+    });
+    expect(send.statusCode).toBe(201);
+    const event = send.json() as {
+      id: string; kind: string; sequence: string;
+      reactionTargetTagB64: string;
+    };
+    expect(event.kind).toBe("REACTION");
+    expect(event.reactionTargetTagB64).toBe(tag);
+    expect(BigInt(event.sequence)).toBeGreaterThan(BigInt(humanMessage.sequence));
+    const replay = await app.inject({
+      method: "POST", url: `/v1/direct-chats/${chat.id}/messages`,
+      headers: jsonHeaders(), cookies: alice.cookies, payload,
+    });
+    expect(replay.statusCode).toBe(201);
+    expect((replay.json() as { id: string }).id).toBe(event.id);
+
+    const [afterConversation, afterSurface] = await Promise.all([
+      db.directConversation.findUniqueOrThrow({ where: { id: chat.id } }),
+      db.communicationSurface.findFirstOrThrow({
+        where: { directConversationId: chat.id },
+      }),
+    ]);
+    expect(afterConversation.lastMessageAt).toEqual(beforeConversation.lastMessageAt);
+    expect(afterSurface.lastActivityAt).toEqual(beforeSurface.lastActivityAt);
+    expect(afterConversation.lastMessageSequence).toBe(BigInt(event.sequence));
+
+    const bobChatAfter = await app.inject({
+      method: "GET", url: `/v1/direct-chats/${chat.id}`,
+      headers: { origin }, cookies: bob.cookies,
+    });
+    expect(bobChatAfter.statusCode).toBe(200);
+    const afterDetail = bobChatAfter.json() as DirectConversationView;
+    expect(afterDetail.unreadCount).toBe(1);
+    expect(afterDetail.lastKind).toBe("HUMAN");
+    expect(afterDetail.lastMessageSequence).toBe(event.sequence);
+
+    const inbox = await app.inject({
+      method: "GET", url: "/v1/inbox?kind=DIRECT",
+      headers: { origin }, cookies: bob.cookies,
+    });
+    expect(inbox.statusCode).toBe(200);
+    const inboxItem = (inbox.json() as {
+      items: Array<{ domainId: string; unreadCount: number; preview: { messageId?: string } }>;
+    }).items.find((item) => item.domainId === chat.id);
+    expect(inboxItem).toMatchObject({
+      unreadCount: 1, preview: { messageId: humanMessage.id },
+    });
+
+    const readReactionOnly = await app.inject({
+      method: "POST", url: `/v1/direct-chats/${chat.id}/read`,
+      headers: jsonHeaders(), cookies: bob.cookies,
+      payload: { seenMessageIds: [event.id] },
+    });
+    expect(readReactionOnly.statusCode).toBe(200);
+    expect((readReactionOnly.json() as DirectConversationView).unreadCount).toBe(1);
+    const readHuman = await app.inject({
+      method: "POST", url: `/v1/direct-chats/${chat.id}/read`,
+      headers: jsonHeaders(), cookies: bob.cookies,
+      payload: { seenMessageIds: [humanMessage.id] },
+    });
+    expect((readHuman.json() as DirectConversationView).unreadCount).toBe(0);
+
+    const tampered = await app.inject({
+      method: "POST", url: `/v1/direct-chats/${chat.id}/messages`,
+      headers: jsonHeaders(), cookies: alice.cookies,
+      payload: {
+        ...payload,
+        reactionTargetTagB64: bytesToB64(new Uint8Array(32).fill(0x77)),
+      },
+    });
+    expect(tampered.statusCode).toBe(400);
+
+    const signedForAnotherEventId = randomUUID();
+    const freshEnvelopes = [];
+    for (const recipient of view.devices) {
+      freshEnvelopes.push(await encryptTo(
+        app, alice, aliceDevice, recipient, chat.id, "REACTION",
+        ciphertext, [], view.interactionEpoch, signedForAnotherEventId, tag,
+      ));
+    }
+    const changedSignedRouting = await app.inject({
+      method: "POST", url: `/v1/direct-chats/${chat.id}/messages`,
+      headers: jsonHeaders(), cookies: alice.cookies,
+      payload: {
+        ...payload, clientMessageId: signedForAnotherEventId,
+        contentCommitmentB64: testCommitmentForClientId(signedForAnotherEventId),
+        reactionTargetTagB64: bytesToB64(new Uint8Array(32).fill(0x17)),
+        envelopes: freshEnvelopes,
+      },
+    });
+    expect(changedSignedRouting.statusCode).toBe(400);
+    expect(changedSignedRouting.body).toContain("Envelope signature is invalid");
+
+    const missingTag = await app.inject({
+      method: "POST", url: `/v1/direct-chats/${chat.id}/messages`,
+      headers: jsonHeaders(), cookies: alice.cookies,
+      payload: { ...payload, clientMessageId: randomUUID(), reactionTargetTagB64: null },
+    });
+    expect(missingTag.statusCode).toBe(400);
+
+    // Metadata-only index lookup: two signed ciphertexts with the same
+    // tag must paginate deterministically without disclosing emoji/action.
+    const secondId = randomUUID();
+    const secondEnvelopes = [];
+    for (const recipient of view.devices) {
+      secondEnvelopes.push(await encryptTo(
+        app, alice, aliceDevice, recipient, chat.id, "REACTION",
+        ciphertext, [], view.interactionEpoch, secondId, tag,
+      ));
+    }
+    const secondSend = await app.inject({
+      method: "POST", url: `/v1/direct-chats/${chat.id}/messages`,
+      headers: jsonHeaders(), cookies: alice.cookies,
+      payload: { ...payload, clientMessageId: secondId,
+        contentCommitmentB64: testCommitmentForClientId(secondId),
+        envelopes: secondEnvelopes },
+    });
+    expect(secondSend.statusCode).toBe(201);
+    const secondEvent = secondSend.json() as { id: string };
+    const requestIndex = (cookies: Record<string, string>, payload: Record<string, unknown>) =>
+      app.inject({
+        method: "POST", url: `/v1/direct-chats/${chat.id}/reactions`,
+        headers: jsonHeaders(), cookies, payload,
+      });
+    const lookupBody = {
+      deviceId: aliceDevice.deviceId, targetTagB64: tag,
+      limit: 1,
+    };
+    const firstLookup = await requestIndex(alice.cookies, lookupBody);
+    expect(firstLookup.statusCode).toBe(200);
+    const firstPage = firstLookup.json() as {
+      items: Array<{ id: string; kind: string; envelope: unknown }>;
+      nextCursor: string | null;
+    };
+    expect(firstPage.items).toHaveLength(1);
+    expect(firstPage.items[0]).toMatchObject({ id: secondEvent.id, kind: "REACTION" });
+    expect(firstPage.items[0]?.envelope).not.toBeNull();
+    expect(firstPage.nextCursor).toBeTruthy();
+    const nextLookup = await requestIndex(alice.cookies, {
+      ...lookupBody, cursor: firstPage.nextCursor,
+    });
+    expect(nextLookup.statusCode).toBe(200);
+    const nextPage = nextLookup.json() as {
+      items: Array<{ id: string }>; nextCursor: string | null;
+    };
+    expect(nextPage.items.map((item) => item.id)).toEqual([event.id]);
+    expect(nextPage.nextCursor).toBeNull();
+    expect(firstLookup.body).not.toContain('"action":"add"');
+    expect(firstLookup.body).not.toContain('"emoji"');
+    const foreignTag = bytesToB64(new Uint8Array(32).fill(0x65));
+    const empty = await requestIndex(alice.cookies, {
+      ...lookupBody, targetTagB64: foreignTag,
+    });
+    expect(empty.statusCode).toBe(200);
+    expect((empty.json() as { items: unknown[] }).items).toEqual([]);
+    for (const invalidBody of [
+      { ...lookupBody, cursor: "invalid" },
+      { ...lookupBody, cursor: firstPage.nextCursor, extra: 1 },
+      // An exact original sequence is forbidden: it would link the HMAC tag
+      // to its source HUMAN in server-visible request metadata.
+      { ...lookupBody, afterSequence: humanMessage.sequence },
+      { ...lookupBody, limit: 51 },
+    ]) {
+      const invalid = await requestIndex(alice.cookies, invalidBody);
+      expect(invalid.statusCode).toBe(400);
+    }
+    const foreignDevice = await requestIndex(alice.cookies, {
+      ...lookupBody, deviceId: bobDevice.deviceId,
+    });
+    expect(foreignDevice.statusCode).toBe(404);
+    const outsider = await readyUser(app, "dc-reaction-index-outsider", "Outside");
+    const outsiderRead = await requestIndex(outsider.cookies, lookupBody);
+    expect(outsiderRead.statusCode).toBe(404);
+    const revoked = await app.inject({
+      method: "POST", url: `/v1/direct-chats/devices/${bobDevice.deviceId}/revoke`,
+      // This action has no JSON request body. Advertising application/json
+      // for an empty Fastify POST is a malformed request (HTTP 400), not
+      // evidence that revocation or index authorization is broken.
+      headers: { origin }, cookies: bob.cookies,
+    });
+    expect(revoked.statusCode).toBe(200);
+    const revokedRead = await requestIndex(bob.cookies, {
+      ...lookupBody, deviceId: bobDevice.deviceId,
+    });
+    expect(revokedRead.statusCode).toBe(403);
+    expect(errorCode(revokedRead)).toBe("direct_chat_device_revoked");
+
+    // MSG-03 revoke-vs-send: previously committed ciphertext is not an
+    // authorization token. Even the exact same idempotency key, envelope,
+    // content commitment and AD5 tag must not disclose a replay response
+    // after its sender device has been revoked.
+    const revokeSender = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/devices/${aliceDevice.deviceId}/revoke`,
+      headers: { origin },
+      cookies: alice.cookies,
+    });
+    expect(revokeSender.statusCode).toBe(200);
+    const revokedReplay = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/${chat.id}/messages`,
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload,
+    });
+    expect(revokedReplay.statusCode).toBe(403);
+    expect(errorCode(revokedReplay)).toBe("direct_chat_device_revoked");
+
+    // A new signed reaction from the same revoked sender must likewise
+    // fail. Do not mistake a rejected replay for a general send guard.
+    const afterRevokeId = randomUUID();
+    const afterRevokeEnvelopes = [];
+    for (const recipient of view.devices) {
+      afterRevokeEnvelopes.push(await encryptTo(
+        app, alice, aliceDevice, recipient, chat.id, "REACTION",
+        ciphertext, [], view.interactionEpoch, afterRevokeId, tag,
+      ));
+    }
+    const revokedNewSend = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/${chat.id}/messages`,
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: {
+        ...payload,
+        clientMessageId: afterRevokeId,
+        contentCommitmentB64: testCommitmentForClientId(afterRevokeId),
+        envelopes: afterRevokeEnvelopes,
+      },
+    });
+    expect(revokedNewSend.statusCode).toBe(403);
+    expect(errorCode(revokedNewSend)).toBe("direct_chat_device_revoked");
+
+    const idempotentLookup = await app.inject({
+      method: "GET",
+      url: `/v1/direct-chats/${chat.id}/messages/lookup?senderDeviceId=${aliceDevice.deviceId}&clientMessageId=${reactionId}`,
+      headers: { origin },
+      cookies: alice.cookies,
+    });
+    expect(idempotentLookup.statusCode).toBe(403);
+    expect(errorCode(idempotentLookup)).toBe("direct_chat_device_revoked");
+  });
+
+  it("rejects a signed reaction when recipient revocation wins before its durable insert", async () => {
+    const alice = await readyUser(app, "dc-reaction-recipient-race-alice", "Alice");
+    const bob = await readyUser(app, "dc-reaction-recipient-race-bob", "Bob");
+    const aliceDevice = await registerHarness(app, alice);
+    const bobDevice = await registerHarness(app, bob);
+    const chat = await createChat(app, alice.cookies, bob.handle);
+    const reactionId = randomUUID();
+    const tag = bytesToB64(new Uint8Array(32).fill(0x4f));
+    const envelopes = [];
+    for (const recipient of chat.devices) {
+      envelopes.push(await encryptTo(
+        app, alice, aliceDevice, recipient, chat.id, "REACTION",
+        "signed encrypted control with a concurrently revoked recipient",
+        [], chat.interactionEpoch, reactionId, tag,
+      ));
+    }
+    const payload = {
+      clientMessageId: reactionId,
+      contentCommitmentB64: testCommitmentForClientId(reactionId),
+      reactionTargetTagB64: tag,
+      senderDeviceId: aliceDevice.deviceId,
+      interactionEpoch: chat.interactionEpoch,
+      kind: "REACTION",
+      mentions: [],
+      envelopes,
+    };
+    const db = app.get(PrismaService).client;
+    let releasePair!: () => void;
+    let pairLocked!: () => void;
+    const released = new Promise<void>((resolve) => { releasePair = resolve; });
+    const acquired = new Promise<void>((resolve) => { pairLocked = resolve; });
+    // Hold the same transactional trust lock as Direct sends so the revoke
+    // can win while the already-signed send is in flight. Device revocation
+    // itself must NOT need this lock (and cannot be blocked by peer trust).
+    const pairGate = db.$transaction(async (tx) => {
+      expect(await lockTrustUserPair(tx, alice.id, bob.id)).toBe(true);
+      pairLocked();
+      await released;
+    });
+    await acquired;
+    let responseStatus: number | null = null;
+    try {
+      let sendSettled = false;
+      const pendingSend = app.inject({
+        method: "POST",
+        url: `/v1/direct-chats/${chat.id}/messages`,
+        headers: jsonHeaders(),
+        cookies: alice.cookies,
+        payload,
+      }).then((result) => {
+        sendSettled = true;
+        return result;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 35));
+      expect(sendSettled).toBe(false);
+
+      const revoke = await app.inject({
+        method: "POST",
+        url: `/v1/direct-chats/devices/${bobDevice.deviceId}/revoke`,
+        headers: { origin },
+        cookies: bob.cookies,
+      });
+      expect(revoke.statusCode).toBe(200);
+      // The transaction may reject from preflight if revocation races
+      // earlier, or from the locked device-set recheck after trust unlock.
+      releasePair();
+      await pairGate;
+      const response = await pendingSend;
+      responseStatus = response.statusCode;
+      expect([400, 409]).toContain(responseStatus);
+    } finally {
+      releasePair();
+      await pairGate;
+    }
+    expect(responseStatus).not.toBeNull();
+    expect(await db.directMessage.count({
+      where: { conversationId: chat.id, clientMessageId: reactionId },
+    })).toBe(0);
+  });
+
+  it("rejects an in-flight signed reaction if a new recipient device joins before insert", async () => {
+    const alice = await readyUser(app, "dc-reaction-enrol-race-alice", "Alice");
+    const bob = await readyUser(app, "dc-reaction-enrol-race-bob", "Bob");
+    const aliceDevice = await registerHarness(app, alice);
+    await registerHarness(app, bob);
+    const chat = await createChat(app, alice.cookies, bob.handle);
+    const reactionId = randomUUID();
+    const tag = bytesToB64(new Uint8Array(32).fill(0x51));
+    const envelopes = [];
+    for (const recipient of chat.devices) {
+      envelopes.push(await encryptTo(
+        app, alice, aliceDevice, recipient, chat.id, "REACTION",
+        "signed encrypted control with newly enrolled recipient device",
+        [], chat.interactionEpoch, reactionId, tag,
+      ));
+    }
+    const payload = {
+      clientMessageId: reactionId,
+      contentCommitmentB64: testCommitmentForClientId(reactionId),
+      reactionTargetTagB64: tag,
+      senderDeviceId: aliceDevice.deviceId,
+      interactionEpoch: chat.interactionEpoch,
+      kind: "REACTION",
+      mentions: [],
+      envelopes,
+    };
+    const db = app.get(PrismaService).client;
+    let unlock!: () => void;
+    let signalLocked!: () => void;
+    const release = new Promise<void>((resolve) => { unlock = resolve; });
+    const locked = new Promise<void>((resolve) => { signalLocked = resolve; });
+    const pairGate = db.$transaction(async (tx) => {
+      expect(await lockTrustUserPair(tx, alice.id, bob.id)).toBe(true);
+      signalLocked();
+      await release;
+    });
+    await locked;
+    let sendStatus: number | null = null;
+    try {
+      let settled = false;
+      const pendingSend = app.inject({
+        method: "POST",
+        url: `/v1/direct-chats/${chat.id}/messages`,
+        headers: jsonHeaders(),
+        cookies: alice.cookies,
+        payload,
+      }).then((result) => {
+        settled = true;
+        return result;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 35));
+      expect(settled).toBe(false);
+
+      // Registration commits without acquiring this conversation's trust
+      // pair lock. The sender must detect the newly inserted active
+      // recipient device after the queued send is allowed to proceed.
+      const newBobDevice = await registerHarness(app, bob);
+      expect(newBobDevice.deviceId).toBeTruthy();
+      unlock();
+      await pairGate;
+      const response = await pendingSend;
+      sendStatus = response.statusCode;
+      expect([400, 409]).toContain(sendStatus);
+    } finally {
+      unlock();
+      await pairGate;
+    }
+    expect(sendStatus).not.toBeNull();
+    expect(await db.directMessage.count({
+      where: { conversationId: chat.id, clientMessageId: reactionId },
+    })).toBe(0);
+  });
+
+  it("pages encrypted Direct events in authoritative sequence despite reordered createdAt", async () => {
+    const alice = await readyUser(app, "direct-sequence-page-alice", "Alice");
+    const bob = await readyUser(app, "direct-sequence-page-bob", "Bob");
+    const sender = await registerHarness(app, alice);
+    await registerHarness(app, bob);
+    const chat = await createChat(app, alice.cookies, bob.handle);
+    const sent: Array<{ id: string; sequence: string }> = [];
+    for (const text of ["causal first", "causal second", "causal third"]) {
+      const response = await sendPlain(app, alice, sender, chat.id, "HUMAN", text);
+      expect(response.statusCode).toBe(201);
+      sent.push(response.json() as { id: string; sequence: string });
+    }
+    const first = sent[0];
+    const second = sent[1];
+    const third = sent[2];
+    if (!first || !second || !third) throw new Error("Missing causal messages");
+    expect(BigInt(first.sequence)).toBeLessThan(BigInt(second.sequence));
+    expect(BigInt(second.sequence)).toBeLessThan(BigInt(third.sequence));
+
+    const db = app.get(PrismaService).client;
+    // A newer transaction can start with an earlier timestamp and acquire
+    // the sequence lock later. Make that adversarial timestamp ordering
+    // deterministic rather than depending on clock timing in CI.
+    await db.directMessage.update({
+      where: { id: first.id }, data: { createdAt: new Date("2099-01-01T00:00:00.000Z") },
+    });
+    await db.directMessage.update({
+      where: { id: third.id }, data: { createdAt: new Date("2000-01-01T00:00:00.000Z") },
+    });
+    const received: string[] = [];
+    let cursor: string | null = null;
+    for (let index = 0; index < 3; index += 1) {
+      const response = await app.inject({
+        method: "GET",
+        url: `/v1/direct-chats/${chat.id}/messages?deviceId=${sender.deviceId}&limit=1${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
+        headers: { origin }, cookies: alice.cookies,
+      });
+      expect(response.statusCode).toBe(200);
+      const page = response.json() as {
+        items: Array<{ id: string; sequence: string }>;
+        nextCursor: string | null;
+      };
+      expect(page.items).toHaveLength(1);
+      const item = page.items[0];
+      if (!item) throw new Error("Empty Direct page");
+      received.push(item.id);
+      cursor = page.nextCursor;
+      if (index < 2) expect(cursor).toBeTruthy();
+      else expect(cursor).toBeNull();
+    }
+    expect(received).toEqual([third.id, second.id, first.id]);
+    expect(new Set(received).size).toBe(3);
+    // Both the Direct summary and unified inbox must choose the highest
+    // visible sequence, not the arbitrary createdAt winner.
+    const overview = await app.inject({
+      method: "GET", url: "/v1/inbox?kind=DIRECT",
+      headers: { origin }, cookies: alice.cookies,
+    });
+    expect(overview.statusCode).toBe(200);
+    const latest = (overview.json() as {
+      items: Array<{ domainId: string; preview: { messageId?: string } }>;
+    }).items.find((item) => item.domainId === chat.id);
+    expect(latest?.preview.messageId).toBe(third.id);
+    const invalid = await app.inject({
+      method: "GET",
+      url: `/v1/direct-chats/${chat.id}/messages?deviceId=${sender.deviceId}&cursor=invalid`,
+      headers: { origin }, cookies: alice.cookies,
+    });
+    expect(invalid.statusCode).toBe(400);
   });
 
   it("fails closed when Direct Chats are disabled", async () => {
@@ -334,6 +861,346 @@ describe("direct chats API", () => {
     } finally {
       await isolated.close();
     }
+  });
+
+  it("bounds crypto-device mutations separately from sustained Direct sends", async () => {
+    const config = loadApiConfig({
+      ...process.env,
+      DIRECT_CHATS_ENABLED: "true",
+      DIRECT_CHATS_MUTATION_LIMIT_PER_MINUTE: "2",
+    });
+    const isolated = await createVimlaApiApp(config, { quiet: true });
+    await isolated.init();
+    await isolated.getHttpAdapter().getInstance().ready();
+    try {
+      const alice = await readyUser(isolated, "dc-device-limit-alice", "Alice");
+      const bob = await readyUser(isolated, "dc-device-limit-bob", "Bob");
+      await registerHarness(isolated, alice); // Device budget 1 of 2.
+      await registerHarness(isolated, bob);
+      const chat = await createChat(isolated, alice.cookies, bob.handle);
+      const mutate = () => isolated.inject({
+        method: "PATCH",
+        url: `/v1/direct-chats/${chat.id}/privacy`,
+        headers: jsonHeaders(),
+        cookies: alice.cookies,
+        payload: {
+          shareOwnHistoryWithVimla: true,
+          includePeerHistoryWhenInvoking: false,
+        },
+      });
+      expect((await mutate()).statusCode).toBe(200); // Main budget 2 of 2.
+      expect((await mutate()).statusCode).toBe(429);
+
+      // Existing message activity must not prevent new-device enrollment.
+      await registerHarness(isolated, alice); // Device budget 2 of 2.
+      const limitedDevice = await isolated.inject({
+        method: "POST",
+        url: "/v1/direct-chats/devices",
+        headers: jsonHeaders(),
+        cookies: alice.cookies,
+        payload: {},
+      });
+      // Rate limiting precedes payload validation, including malformed input.
+      expect(limitedDevice.statusCode).toBe(429);
+    } finally {
+      await isolated.close();
+    }
+  });
+
+  it("publishes atomic X3DH rotations and serializes prekey claims with device revocation", async () => {
+    const alice = await readyUser(app, "dc-prekey-roster-alice", "Alice");
+    const bob = await readyUser(app, "dc-prekey-roster-bob", "Bob");
+    const device = await registerHarness(app, bob);
+    await createChat(app, alice.cookies, bob.handle);
+    const newSigned = generateSignedPreKey(device.identity, 2);
+    const newOtk = generateOneTimePreKey(2);
+    const rotatePayload = {
+      signedPrekeyId: newSigned.keyId,
+      signedPrekeyPublic: bytesToB64(newSigned.publicKey),
+      signedPrekeySignature: bytesToB64(newSigned.signature),
+      oneTimePrekeys: [
+        { keyId: newOtk.keyId, publicKey: bytesToB64(newOtk.publicKey) },
+      ],
+    };
+    const db = app.get(PrismaService).client;
+    let releaseRoster!: () => void;
+    let notifyLocked!: () => void;
+    const held = new Promise<void>((resolve) => { notifyLocked = resolve; });
+    const release = new Promise<void>((resolve) => { releaseRoster = resolve; });
+    // Force a real race: rotation MUST acquire Bob's exclusive roster
+    // advisory lock before updating either signed prekey or unused OTKs.
+    const gate = db.$transaction(async (tx) => {
+      await tx.$queryRaw<Array<{ locked: number }>>`
+        WITH "device_roster_gate" AS (
+          SELECT pg_advisory_xact_lock(
+            hashtextextended(${`vimla:direct:device-roster:v1:${bob.id}`}, 0)
+          )
+        )
+        SELECT 1::int AS "locked" FROM "device_roster_gate"
+      `;
+      notifyLocked();
+      await release;
+    });
+    await held;
+    let rotateStatus: number | null = null;
+    try {
+      let settled = false;
+      const rotate = app.inject({
+        method: "POST",
+        url: `/v1/direct-chats/devices/${device.deviceId}/rotate`,
+        headers: jsonHeaders(),
+        cookies: bob.cookies,
+        payload: rotatePayload,
+      }).then((response) => {
+        settled = true;
+        return response;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 35));
+      expect(settled).toBe(false);
+      releaseRoster();
+      await gate;
+      const response = await rotate;
+      rotateStatus = response.statusCode;
+    } finally {
+      releaseRoster();
+      await gate;
+    }
+    expect(rotateStatus).toBe(200);
+    const claim = () => app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/users/${bob.id}/prekeys`,
+      headers: jsonHeaders(),
+      payload: {},
+      cookies: alice.cookies,
+    });
+    // The claim is also a snapshot reader of Bob's device roster.
+    // Pin the exclusive roster lock while starting the claim and prove
+    // it cannot read/consume a half-mutated X3DH bundle.
+    let releaseClaimGate!: () => void;
+    let claimGateLocked!: () => void;
+    const claimGateRelease = new Promise<void>((resolve) => { releaseClaimGate = resolve; });
+    const claimGateAcquired = new Promise<void>((resolve) => { claimGateLocked = resolve; });
+    const claimGate = db.$transaction(async (tx) => {
+      await tx.$queryRaw<Array<{ locked: number }>>`
+        WITH "device_roster_gate" AS (
+          SELECT pg_advisory_xact_lock(
+            hashtextextended(${`vimla:direct:device-roster:v1:${bob.id}`}, 0)
+          )
+        )
+        SELECT 1::int AS "locked" FROM "device_roster_gate"
+      `;
+      claimGateLocked();
+      await claimGateRelease;
+    });
+    await claimGateAcquired;
+    let advertised: Awaited<ReturnType<typeof claim>> | null = null;
+    try {
+      let claimSettled = false;
+      const pendingClaim = claim().then((response) => {
+        claimSettled = true;
+        return response;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 35));
+      expect(claimSettled).toBe(false);
+      releaseClaimGate();
+      await claimGate;
+      advertised = await pendingClaim;
+    } finally {
+      releaseClaimGate();
+      await claimGate;
+    }
+    if (!advertised) throw new Error("Missing X3DH claim response");
+    expect(advertised.statusCode).toBe(200);
+    expect(advertised.json().bundles).toEqual([
+      expect.objectContaining({
+        deviceId: device.deviceId,
+        signedPrekeyId: 2,
+        signedPrekeyPublic: rotatePayload.signedPrekeyPublic,
+        oneTimePrekeyId: 2,
+        oneTimePrekeyPublic: rotatePayload.oneTimePrekeys[0]?.publicKey,
+      }),
+    ]);
+    // Losing the response to a completed rotation must not publish a
+    // previously consumed OTK again. Same signed key + same OTK material
+    // is the only permitted retry after its claim.
+    const exactRotationRetry = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/devices/${device.deviceId}/rotate`,
+      headers: jsonHeaders(),
+      cookies: bob.cookies,
+      payload: rotatePayload,
+    });
+    expect(exactRotationRetry.statusCode).toBe(200);
+    const consumedAfterRetry = await db.directOneTimePrekey.findUniqueOrThrow({
+      where: { deviceId_keyId: { deviceId: device.deviceId, keyId: 2 } },
+    });
+    expect(consumedAfterRetry.consumedAt).not.toBeNull();
+
+    const oldUnusedKeys = await db.directOneTimePrekey.count({
+      where: { deviceId: device.deviceId, keyId: 1 },
+    });
+    expect(oldUnusedKeys).toBe(0);
+
+    // OTK #2 has now been consumed. A new PUBLIC key under that same
+    // device/keyId must not be silently dropped by skipDuplicates while
+    // the signed prekey advances to a misleading new state.
+    const reboundOtk = generateOneTimePreKey(2);
+    const thirdSigned = generateSignedPreKey(device.identity, 3);
+    const reboundPayload = {
+      signedPrekeyId: thirdSigned.keyId,
+      signedPrekeyPublic: bytesToB64(thirdSigned.publicKey),
+      signedPrekeySignature: bytesToB64(thirdSigned.signature),
+      oneTimePrekeys: [
+        { keyId: 2, publicKey: bytesToB64(reboundOtk.publicKey) },
+      ],
+    };
+    const reboundRotation = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/devices/${device.deviceId}/rotate`,
+      headers: jsonHeaders(),
+      cookies: bob.cookies,
+      payload: reboundPayload,
+    });
+    expect(reboundRotation.statusCode).toBe(400);
+
+    // Registration of an already-known identity must enforce the same
+    // lifetime key-id binding even if the signed prekey is otherwise valid.
+    const reboundRegistration = await app.inject({
+      method: "POST",
+      url: "/v1/direct-chats/devices",
+      headers: jsonHeaders(),
+      cookies: bob.cookies,
+      payload: {
+        deviceId: device.deviceId,
+        identityEd25519Public: bytesToB64(device.identity.ed25519Public),
+        identityX25519Public: bytesToB64(device.identity.x25519Public),
+        ...reboundPayload,
+      },
+    });
+    expect(reboundRegistration.statusCode).toBe(400);
+
+    // Same consumed OTK material is only acceptable on a retry of
+    // signed-key v2; it cannot be silently reused with signed-key v3.
+    const reissueConsumed = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/devices/${device.deviceId}/rotate`,
+      headers: jsonHeaders(),
+      cookies: bob.cookies,
+      payload: {
+        ...rotatePayload,
+        signedPrekeyId: thirdSigned.keyId,
+        signedPrekeyPublic: bytesToB64(thirdSigned.publicKey),
+        signedPrekeySignature: bytesToB64(thirdSigned.signature),
+      },
+    });
+    expect(reissueConsumed.statusCode).toBe(400);
+
+    const duplicateKeys = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/devices/${device.deviceId}/rotate`,
+      headers: jsonHeaders(),
+      cookies: bob.cookies,
+      payload: {
+        ...reboundPayload,
+        oneTimePrekeys: [
+          ...rotatePayload.oneTimePrekeys,
+          ...rotatePayload.oneTimePrekeys,
+        ],
+      },
+    });
+    expect(duplicateKeys.statusCode).toBe(400);
+    const afterRejectedUpdates = await db.userCryptoDevice.findUniqueOrThrow({
+      where: { id: device.deviceId },
+    });
+    expect(afterRejectedUpdates.signedPrekeyId).toBe(2);
+    const consumedKey = await db.directOneTimePrekey.findUniqueOrThrow({
+      where: { deviceId_keyId: { deviceId: device.deviceId, keyId: 2 } },
+    });
+    expect(consumedKey.publicKey).toBe(
+      rotatePayload.oneTimePrekeys[0]?.publicKey,
+    );
+    expect(consumedKey.consumedAt).not.toBeNull();
+
+    const revoked = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/devices/${device.deviceId}/revoke`,
+      headers: { origin },
+      cookies: bob.cookies,
+    });
+    expect(revoked.statusCode).toBe(200);
+    const afterRevoke = await claim();
+    expect(afterRevoke.statusCode).toBe(200);
+    expect(afterRevoke.json().bundles).toEqual([]);
+    const revokedRotate = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/devices/${device.deviceId}/rotate`,
+      headers: jsonHeaders(),
+      cookies: bob.cookies,
+      payload: rotatePayload,
+    });
+    expect(revokedRotate.statusCode).toBe(403);
+    expect(errorCode(revokedRotate)).toBe("direct_chat_device_revoked");
+  });
+
+  it("rejects signed-prekey rollback and same-version key substitution after an accepted rotation", async () => {
+    const owner = await readyUser(app, "dc-signed-prekey-monotonic", "Device owner");
+    const device = await registerHarness(app, owner);
+    const signed2 = generateSignedPreKey(device.identity, 2);
+    const otk2 = generateOneTimePreKey(2);
+    const validRotation = {
+      signedPrekeyId: signed2.keyId,
+      signedPrekeyPublic: bytesToB64(signed2.publicKey),
+      signedPrekeySignature: bytesToB64(signed2.signature),
+      oneTimePrekeys: [
+        { keyId: otk2.keyId, publicKey: bytesToB64(otk2.publicKey) },
+      ],
+    };
+    const rotate = (payload: typeof validRotation) => app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/devices/${device.deviceId}/rotate`,
+      headers: jsonHeaders(),
+      cookies: owner.cookies,
+      payload,
+    });
+    expect((await rotate(validRotation)).statusCode).toBe(200);
+    const staleRotation = await rotate({
+      ...validRotation,
+      signedPrekeyId: device.signed.keyId,
+      signedPrekeyPublic: bytesToB64(device.signed.publicKey),
+      signedPrekeySignature: bytesToB64(device.signed.signature),
+    });
+    expect(staleRotation.statusCode).toBe(400);
+
+    const sameIdOtherSigned = generateSignedPreKey(device.identity, 2);
+    const reboundSignedKey = await rotate({
+      ...validRotation,
+      signedPrekeyId: sameIdOtherSigned.keyId,
+      signedPrekeyPublic: bytesToB64(sameIdOtherSigned.publicKey),
+      signedPrekeySignature: bytesToB64(sameIdOtherSigned.signature),
+    });
+    expect(reboundSignedKey.statusCode).toBe(400);
+
+    const staleRegistration = await app.inject({
+      method: "POST",
+      url: "/v1/direct-chats/devices",
+      headers: jsonHeaders(),
+      cookies: owner.cookies,
+      payload: {
+        deviceId: device.deviceId,
+        identityEd25519Public: bytesToB64(device.identity.ed25519Public),
+        identityX25519Public: bytesToB64(device.identity.x25519Public),
+        signedPrekeyId: device.signed.keyId,
+        signedPrekeyPublic: bytesToB64(device.signed.publicKey),
+        signedPrekeySignature: bytesToB64(device.signed.signature),
+        oneTimePrekeys: validRotation.oneTimePrekeys,
+      },
+    });
+    expect(staleRegistration.statusCode).toBe(400);
+    const persisted = await app.get(PrismaService).client.userCryptoDevice.findUniqueOrThrow({
+      where: { id: device.deviceId },
+    });
+    expect(persisted.signedPrekeyId).toBe(2);
+    expect(persisted.signedPrekeyPublic).toBe(validRotation.signedPrekeyPublic);
   });
 
   it("claims an OTK once across distinct concurrent initiators", async () => {
@@ -3530,11 +4397,12 @@ async function encryptTo(
   senderDevice: Harness,
   recipient: { id: string; userId: string },
   conversationId: string,
-  kind: "HUMAN" | "OPERATOR_INVOKE" | "OPERATOR_RESPONSE" | "OPERATOR_ACTION",
+  kind: "HUMAN" | "REACTION" | "OPERATOR_INVOKE" | "OPERATOR_RESPONSE" | "OPERATOR_ACTION",
   plaintext: string,
   mentions: MessageMentionInput[] = [],
   interactionEpoch = 0,
   clientMessageId = randomUUID(),
+  reactionTargetTagB64?: string,
 ): Promise<WireEnvelope & { recipientDeviceId: string }> {
   const ratchetKey = `${recipient.id}:${interactionEpoch}`;
   let state = senderDevice.ratchets.get(ratchetKey) ?? null;
@@ -3563,7 +4431,9 @@ async function encryptTo(
     state = initRatchetInitiator(initiated.sharedKey, initiated.remoteRatchetPublic);
     x3dhInit = initiated.initHeader;
   }
-  const routingContext = mentions.length > 0 ? serializeDirectRoutingMentions(mentions) : undefined;
+  const routingContext = kind === "REACTION"
+    ? serializeDirectReactionTargetTag(reactionTargetTagB64 ?? "")
+    : mentions.length > 0 ? serializeDirectRoutingMentions(mentions) : undefined;
   const envelope = encryptEnvelope({
     identity: senderDevice.identity,
     state,
@@ -3573,7 +4443,8 @@ async function encryptTo(
       senderUserId: sender.id,
       senderDeviceId: senderDevice.deviceId,
       clientMessageId,
-      contentCommitmentB64: kind === "HUMAN" ? testCommitmentForClientId(clientMessageId) : null,
+      contentCommitmentB64: kind === "HUMAN" || kind === "REACTION"
+        ? testCommitmentForClientId(clientMessageId) : null,
       recipientDeviceId: recipient.id,
       kind,
       interactionEpoch,

@@ -837,7 +837,41 @@ describe("ExternalAiInvocationExecutor", () => {
       where: { slug: "gpt-5-6-luna" },
       select: { id: true, contextWindowTokens: true },
     });
-    const contextWindowTokens = 6_200;
+    const purpose = "Fit this answer inside the remaining context window";
+    const target = {
+      kind: "AI_MODEL" as const,
+      modelSlug: "gpt-5-6-luna",
+      agentId: null,
+    };
+
+    // Calibrate with the real provider-message estimator, not a guessed
+    // absolute context size. A 6200-token test window can already fit the
+    // full preferred 2048 output as prompts/estimators change, turning
+    // the intended shrink assertion into a false negative.
+    const baseline = await seedInvocation(prisma, {
+      targetKind: "AI_MODEL",
+      targetModelSlug: "gpt-5-6-luna",
+      purpose,
+      fund: true,
+    });
+    const baselineResult = await createExecutor(
+      prisma, new MockAiProvider(),
+    ).execute(executionInput(baseline, target));
+    expect(baselineResult).toEqual({ status: "COMPLETED", outcome: "PASS" });
+    const baselineRequest = await prisma.aiRequest.findUniqueOrThrow({
+      where: {
+        userId_clientRequestId: {
+          userId: baseline.userId,
+          clientRequestId: orchestrationAiClientRequestId(baseline.invocationId),
+        },
+      },
+    });
+    expect(baselineRequest.maxOutputTokens).toBe(2_048);
+
+    // Reuse the exact same invocation purpose and shape. This caps the
+    // available output near 1200 tokens while keeping the configured
+    // minimum useful output (768) achievable.
+    const contextWindowTokens = baselineRequest.estimatedInputTokens + 1_200;
     await prisma.aiModel.update({
       where: { id: model.id },
       data: { contextWindowTokens },
@@ -847,18 +881,14 @@ describe("ExternalAiInvocationExecutor", () => {
       const seeded = await seedInvocation(prisma, {
         targetKind: "AI_MODEL",
         targetModelSlug: "gpt-5-6-luna",
-        purpose: "Fit this answer inside the remaining context window",
+        purpose,
         fund: true,
       });
       const provider = new MockAiProvider();
       const executor = createExecutor(prisma, provider);
 
       const result = await executor.execute(
-        executionInput(seeded, {
-          kind: "AI_MODEL",
-          modelSlug: "gpt-5-6-luna",
-          agentId: null,
-        }),
+        executionInput(seeded, target),
       );
 
       expect(result).toEqual({ status: "COMPLETED", outcome: "PASS" });

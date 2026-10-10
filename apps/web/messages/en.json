@@ -258,7 +258,10 @@
     "cancelReply": "Cancel reply",
     "replyReferenceMissing": "The original message is no longer available. Cancel this reply or load earlier messages.",
     "replyCannotInvoke": "Cancel this reply before invoking @Vimla.",
-    "replyToYou": "Reply to your message"
+    "replyToYou": "Reply to your message",
+    "react": "React",
+    "reactionAdd": "React with {emoji}",
+    "reactionRemove": "Remove {emoji} reaction"
   },
   "operator": {
     "title": "@Vimla",

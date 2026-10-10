@@ -12,6 +12,7 @@ import type {
   MentionSuggestionsResponse,
   MessageMentionInput,
   OperatorRunView,
+  UpdateDirectChatPrivacy,
 } from "@vimla/contracts";
 import {
   Alert,
@@ -67,6 +68,7 @@ import {
   PendingOperatorInvocationGoneError,
   cancelPendingSendsForTrust,
   loadConversationPlaintexts,
+  loadPlaintext,
   loadPendingSends,
   type StoredOperatorIntent,
   type StoredOperatorOutputDraft,
@@ -78,9 +80,21 @@ import {
   pageUnlocksHistoryBootstrap,
   prepareDirectChatContext,
   shouldContinueDeepHistoryBootstrap,
+  assertDirectHistoryCatchupBudget,
+  inspectDirectHistoryGap,
   directReplyReference,
   createDirectHumanMessage,
+  createDirectReaction,
+  advanceDirectHistoryHead,
+  reconcileDirectHistoryHead,
+  applyDirectPrivacyAcknowledgement,
+  mergeDirectMessageReplicaRows,
+  hasConflictingDirectMessageReplicas,
+  cachedDirectPlaintextMatchesMessage,
+  DIRECT_REACTION_EMOJIS,
   resolveDirectReplySource,
+  type DirectReactionEmoji,
+  type DirectReactionState,
   type DirectReplyReference,
 } from "@vimla/client-core";
 import {
@@ -107,12 +121,14 @@ import { useChatSyncHub, useChatWorkspace, usePrepareChatDevice } from "../../ch
 import { ChatConversationHeader } from "../../chat/components/ChatWorkspace/ChatConversationHeader";
 import { ChatDetailStatus } from "../../chat/components/ChatWorkspace/ChatDetailStatus";
 import styles from "./DirectChatWorkspace.module.scss";
+import { projectDirectReactions, type DirectReactionsProjection } from "../services/reaction-projection";
 import { TRUST_CANCELLED_GC_POLL_INTERVAL_MS } from "../services/trust-cancelled-gc";
 
 interface DecryptedRow {
   message: DirectMessageView;
   payload: DirectPlaintextPayload | null;
   needsBootstrap: boolean;
+  integrityConflict?: boolean;
 }
 
 const OPERATOR_RECOVERY_REQUEST_TIMEOUT_MS = 20_000;
@@ -176,13 +192,7 @@ function upsertComposerMention(current: ComposerMention[], mention: ComposerMent
 }
 
 function mergeDecryptedRows(current: DecryptedRow[], incoming: DecryptedRow[]): DecryptedRow[] {
-  const byId = new Map(current.map((row) => [row.message.id, row]));
-  for (const row of incoming) byId.set(row.message.id, row);
-  return [...byId.values()].sort(
-    (left, right) =>
-      new Date(left.message.createdAt).getTime() - new Date(right.message.createdAt).getTime() ||
-      left.message.id.localeCompare(right.message.id),
-  );
+  return mergeDirectMessageReplicaRows(current, incoming);
 }
 
 export function DirectChatWorkspace({ conversationId }: { conversationId: string }): ReactElement {
@@ -212,6 +222,41 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
     },
     [],
   );
+  const [reactionSnapshot, setReactionSnapshot] = useState<{
+    conversationId: string;
+    rows: DecryptedRow[];
+    headSequence: string;
+    projection: DirectReactionsProjection;
+  } | null>(null);
+  const reactionProjection = reactionSnapshot?.conversationId === conversationId &&
+    reactionSnapshot.rows === rows &&
+    reactionSnapshot.headSequence === conversation?.lastMessageSequence
+      ? reactionSnapshot.projection : null;
+  const reactionLocksRef = useRef(new Set<string>());
+  const [reactionBusyMessageId, setReactionBusyMessageId] = useState<string | null>(null);
+
+  const reactionHeadSequence = conversation?.lastMessageSequence ?? null;
+  useEffect(() => {
+    let cancelled = false;
+    if (reactionHeadSequence === null) return;
+    if (rows.some((row) => row.integrityConflict)) {
+      // A previous snapshot cannot match this new row-array identity;
+      // reactionProjection is already null. Avoid synchronous setState in
+      // the effect: no derived state may be published for poisoned history.
+      return;
+    }
+    void projectDirectReactions(rows.map((row) => ({
+      message: row.message,
+      payload: row.payload?.type === "human" ? row.payload : null,
+    })), reactionHeadSequence).then((projection) => {
+      if (!cancelled) setReactionSnapshot({ conversationId, rows, headSequence: reactionHeadSequence, projection });
+    }).catch(() => {
+      // Lost/revoked local keys and corrupt caches are not reaction proof.
+      if (!cancelled) setReactionSnapshot(null);
+    });
+    return () => { cancelled = true; };
+  }, [conversationId, rows, reactionHeadSequence]);
+
   const [draft, setDraft] = useState("");
   const draftRef = useRef("");
   // A staged send only owns the exact composer revision it began with.
@@ -313,7 +358,8 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
           : null,
       );
       if (delivery.latest) {
-        setConversation(delivery.latest);
+        const latest = delivery.latest;
+        setConversation((current) => reconcileDirectHistoryHead(current, latest));
       }
       if (delivery.rows.length > 0) {
         updateRows((current) =>
@@ -325,7 +371,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         workspace.requestInboxRefresh();
       }
     },
-    [updateRows, workspace],
+    [setPendingRun, updateRows, workspace],
   );
 
   useEffect(() => {
@@ -361,7 +407,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         );
         if (cancelled) return;
         setUserId(currentUser.id);
-        setConversation(detail);
+        setConversation((current) => reconcileDirectHistoryHead(current, detail));
         try {
           const preference =
             await fetchSurfacePreference(detail.surfaceId);
@@ -378,7 +424,9 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
           }
         }
         const visibleRows = [...page.decrypted].reverse();
-        updateRows(visibleRows);
+        // Even the initial page can contain adversarial duplicate server IDs.
+        // Never bypass the same fail-closed conflict check used by realtime.
+        updateRows(mergeDecryptedRows([], visibleRows));
         setNextCursor(page.nextCursor);
         setBoot("ready");
 
@@ -580,15 +628,27 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
       const detail =
         await fetchDirectConversation(conversationId);
       const device = await ensureLocalDevice();
-      const decrypted =
-        await fetchDecryptedGap(
-          detail,
-          device.deviceId,
-          rowsRef.current,
-          requiredMessageIds,
-        );
+      const knownRows = rowsRef.current;
+      // A newly opened/cleared local surface must not download and decrypt
+      // an entire lifetime of messages on its first realtime notification.
+      // Reuse the same bounded recent page + bounded X3DH bootstrap path
+      // as initial navigation, preserving an older-history cursor.
+      const fresh = knownRows.length === 0
+        ? await fetchLatestDecryptedPage(detail, device.deviceId)
+        : null;
+      const decrypted = fresh
+        ? [...fresh.decrypted].reverse()
+        : await fetchDecryptedGap(
+            detail,
+            device.deviceId,
+            knownRows,
+            requiredMessageIds,
+          );
       if (cancelled) return;
-      setConversation(detail);
+      if (fresh && rowsRef.current.length === 0) {
+        setNextCursor(fresh.nextCursor);
+      }
+      setConversation((current) => reconcileDirectHistoryHead(current, detail));
       if (decrypted.length > 0) {
         updateRows((current) =>
           mergeDecryptedRows(
@@ -822,6 +882,82 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
     }
   }
 
+  async function updatePrivacyPreference(change: UpdateDirectChatPrivacy): Promise<void> {
+    if (!conversation) return;
+    try {
+      const updated = await updateDirectChatPrivacy(conversation.id, change);
+      // An HTTP response may predate an independently committed encrypted
+      // reaction. Never roll back the authoritative E2EE event high-water.
+      setConversation((current) => applyDirectPrivacyAcknowledgement(current, updated, change));
+    } catch (caught: unknown) {
+      if (caught instanceof AuthRequiredError) {
+        router.replace("/sign-in");
+        return;
+      }
+      setError(caught instanceof DirectChatsApiError ? caught.code : "internal_error");
+    }
+  }
+
+  async function onReact(row: DecryptedRow, emoji: DirectReactionEmoji): Promise<void> {
+    if (!conversation || !userId || blockedByMe || sending || operatorBusy ||
+        sendingLockRef.current || row.payload?.type !== "human" ||
+        !reactionProjection?.eligibleMessageIds.has(row.message.id) ||
+        reactionProjection.unavailableMessageIds.has(row.message.id)) return;
+    const lockId = row.message.id;
+    if (reactionLocksRef.current.has(lockId)) return;
+    reactionLocksRef.current.add(lockId);
+    setReactionBusyMessageId(lockId);
+    try {
+      const original = await loadPlaintext(row.message.id);
+      if (!original || !cachedDirectPlaintextMatchesMessage(original, {
+        messageId: row.message.id,
+        conversationId: row.message.conversationId,
+        senderUserId: row.message.senderUserId,
+        clientMessageId: row.message.clientMessageId,
+        contentCommitmentB64: row.message.contentCommitmentB64,
+        reactionTargetTagB64: row.message.reactionTargetTagB64,
+        senderDeviceId: row.message.senderDeviceId,
+        interactionEpoch: row.message.interactionEpoch,
+        kind: row.message.kind,
+        createdAt: row.message.createdAt,
+      })) throw new Error("Original Direct message is not authenticated");
+
+      const isActive = reactionProjection.states.some((state) =>
+        state.active &&
+        state.reactorUserId === userId &&
+        state.emoji === emoji &&
+        state.target.clientMessageId === row.message.clientMessageId &&
+        state.target.contentCommitmentB64 === row.message.contentCommitmentB64 &&
+        state.target.senderUserId === row.message.senderUserId &&
+        state.target.senderDeviceId === row.message.senderDeviceId,
+      );
+      const prepared = createDirectReaction(
+        isActive ? "remove" : "add",
+        emoji, { message: row.message, payload: row.payload },
+        original.text, conversationId,
+      );
+      const device = await ensureLocalDevice();
+      const pending = await loadPendingSends(conversationId, device.deviceId);
+      // A lost response may have committed. Don't emit a fresh opposite
+      // toggle while an earlier event for this target is unresolved.
+      if (pending.some((candidate) => candidate.kind === "REACTION" &&
+          candidate.reactionTargetTagB64 === prepared.targetTagB64)) {
+        setError("conflict");
+        return;
+      }
+      await postEncrypted("REACTION", prepared.plaintext, [], {
+        clientMessageId: prepared.clientMessageId,
+        contentCommitmentB64: prepared.contentCommitmentB64,
+        reactionTargetTagB64: prepared.targetTagB64,
+      });
+    } catch (caught: unknown) {
+      setError(caught instanceof DirectChatsApiError ? caught.code : "internal_error");
+    } finally {
+      reactionLocksRef.current.delete(lockId);
+      setReactionBusyMessageId((current) => current === lockId ? null : current);
+    }
+  }
+
   async function onSend(): Promise<void> {
     const text = draftRef.current;
     if (sendingLockRef.current || sending || operatorBusy || !text.trim() || !conversation || !userId) return;
@@ -927,6 +1063,7 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
     options: {
       clientMessageId?: string;
       contentCommitmentB64?: string | null;
+      reactionTargetTagB64?: string | null;
       operatorIntent?: StoredOperatorIntent;
       onDurablyStaged?: () => void;
     } = {},
@@ -942,7 +1079,19 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         mentions,
         ...options,
       });
-      setConversation(result.latest);
+      // The detail was fetched before this send committed; replacing the
+      // current detail would roll the authoritative head backwards and
+      // temporarily hide freshly committed E2EE reactions. Keep existing
+      // membership/privacy metadata and acknowledge the DB-assigned sequence.
+      setConversation((current) => {
+        const base = current?.id === conversationId ? current : result.latest;
+        return {
+          ...base,
+          lastMessageSequence: advanceDirectHistoryHead(
+            base.lastMessageSequence, result.message.sequence,
+          ),
+        };
+      });
       updateRows((current) =>
         mergeDecryptedRows(current, [
           {
@@ -1201,6 +1350,22 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
         device.deviceId,
         nextCursor,
       );
+      if (hasConflictingDirectMessageReplicas(
+        page.items, rowsRef.current.map((row) => row.message),
+      )) {
+        // Manual pagination must honor the same pre-ratchet guarantee as
+        // realtime catch-up: don't decrypt a relabelled known server ID.
+        updateRows((current) => mergeDecryptedRows(current,
+          page.items.map((message) => ({
+            message,
+            payload: null,
+            needsBootstrap: false,
+            integrityConflict: true,
+          })),
+        ));
+        setError("internal_error");
+        return;
+      }
       const missingSenderDeviceIds = new Set(
         rows
           .filter((row) => row.needsBootstrap)
@@ -1219,9 +1384,9 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
             ...rows.map((row) => row.message),
           ],
         );
-        updateRows(
-          mergeDecryptedRows([], decrypted),
-        );
+        // A ratchet bootstrap may recover previously undecryptable records,
+        // but must NEVER erase an earlier cross-page equivocation sentinel.
+        updateRows((current) => mergeDecryptedRows(current, decrypted));
       } else {
         const decrypted = await decryptPage(
           conversation,
@@ -1313,14 +1478,14 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
             label={t("direct.shareOwn")}
             checked={conversation.privacy.shareOwnHistoryWithVimla}
             onChange={(event) => {
-              void updateDirectChatPrivacy(conversation.id, { shareOwnHistoryWithVimla: event.currentTarget.checked }).then(setConversation);
+              void updatePrivacyPreference({ shareOwnHistoryWithVimla: event.currentTarget.checked });
             }}
           />
           <Switch
             label={t("direct.includePeer")}
             checked={conversation.privacy.includePeerHistoryWhenInvoking}
             onChange={(event) => {
-              void updateDirectChatPrivacy(conversation.id, { includePeerHistoryWhenInvoking: event.currentTarget.checked }).then(setConversation);
+              void updatePrivacyPreference({ includePeerHistoryWhenInvoking: event.currentTarget.checked });
             }}
           />
           <Text tone="caption">
@@ -1342,8 +1507,8 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
               {tx(t, apiErrorMessageKey(visibleError))}
             </Alert>
           ) : null}
-          {rows.length === 0 ? <EmptyState title={t("direct.empty")} /> : null}
-          {rows.map((row) => (
+          {rows.every((row) => row.message.kind === "REACTION") ? <EmptyState title={t("direct.empty")} /> : null}
+          {rows.filter((row) => row.message.kind !== "REACTION").map((row) => (
             <DirectRow
               key={row.message.id}
               row={row}
@@ -1358,6 +1523,20 @@ export function DirectChatWorkspace({ conversationId }: { conversationId: string
                   : undefined
               }
               selfUserId={userId ?? ""}
+              reactionStates={reactionProjection?.states.filter((state) =>
+                state.target.clientMessageId === row.message.clientMessageId &&
+                state.target.contentCommitmentB64 === row.message.contentCommitmentB64 &&
+                state.target.senderUserId === row.message.senderUserId &&
+                state.target.senderDeviceId === row.message.senderDeviceId,
+              ) ?? []}
+              reactionBusy={reactionBusyMessageId === row.message.id}
+              onReact={
+                !blockedByMe && !sending && !operatorBusy &&
+                reactionProjection?.eligibleMessageIds.has(row.message.id) &&
+                !reactionProjection.unavailableMessageIds.has(row.message.id)
+                  ? (emoji) => void onReact(row, emoji)
+                  : undefined
+              }
             />
           ))}
           {pendingRun ? (
@@ -1540,6 +1719,7 @@ async function sendEncryptedDirectMessage(input: {
   mentions?: MessageMentionInput[];
   clientMessageId?: string;
   contentCommitmentB64?: string | null;
+  reactionTargetTagB64?: string | null;
   operatorIntent?: StoredOperatorIntent;
   operatorOutput?: StoredOperatorOutputLink;
   recoverPending?: boolean;
@@ -1593,6 +1773,7 @@ async function sendEncryptedDirectMessage(input: {
     clientMessageId:
       input.clientMessageId ?? crypto.randomUUID(),
     contentCommitmentB64: input.contentCommitmentB64 ?? null,
+    reactionTargetTagB64: input.reactionTargetTagB64 ?? null,
     localDevice: device,
     kind: input.kind,
     plaintext: input.plaintext,
@@ -2082,107 +2263,89 @@ async function fetchDecryptedGap(
   requiredMessageIds: readonly string[] = [],
 ): Promise<DecryptedRow[]> {
   if (currentRows.length === 0) {
-    const all: DirectMessageView[] = [];
-    let cursor: string | undefined;
-    while (true) {
-      const page = await fetchDirectMessages(
-        detail.id,
-        deviceId,
-        cursor,
-      );
-      all.push(...page.items);
-      if (!page.nextCursor) {
-        break;
-      }
-      cursor = page.nextCursor;
-    }
-    return (
-      await decryptPage(detail, all)
-    ).reverse();
+    throw new Error("Initial Direct sync must use bounded head/bootstrap paging");
+  }
+  if (currentRows.some((row) => row.integrityConflict)) {
+    throw new Error("Conflicted Direct history must be rebuilt before ratchet replay");
   }
 
-  const knownIds = new Set(
-    currentRows.map((row) => row.message.id),
-  );
+  const knownIds = new Set(currentRows.map((row) => row.message.id));
   const requiredUnknownIds = new Set(
-    requiredMessageIds.filter(
-      (messageId) => !knownIds.has(messageId),
-    ),
+    requiredMessageIds.filter((messageId) => !knownIds.has(messageId)),
   );
-  const targetDriven = requiredMessageIds.length > 0;
-  if (targetDriven && requiredUnknownIds.size === 0) {
-    return [];
-  }
+  const requestedUnknownIds = [...requiredUnknownIds];
+  // Even a duplicate hint for a known row can accompany missed newer
+  // events. Always replay head-to-known, never skip the range entirely.
+  const targetDriven = requestedUnknownIds.length > 0;
 
-  const incoming: DirectMessageView[] = [];
+  // Preserve ALL raw server rows until a complete closed interval has been
+  // checked. In particular, a delayed hint can be older than the first
+  // known message, requiring a second anchor below the hinted event.
+  const fetchedMessages: DirectMessageView[] = [];
+  const observedReplicas = currentRows.map((row) => row.message);
+  const seenKnownSequences: bigint[] = [];
+  let oldestRequiredSequence: bigint | null = null;
   let cursor: string | undefined;
+  let fetchedPages = 0;
 
   while (true) {
-    const page = await fetchDirectMessages(
-      detail.id,
-      deviceId,
-      cursor,
-    );
-
-    if (targetDriven) {
-      let oldestRequiredIndex = -1;
-      page.items.forEach((message, index) => {
-        if (requiredUnknownIds.delete(message.id)) {
-          oldestRequiredIndex = index;
-        }
-      });
-
-      const upperBound =
-        requiredUnknownIds.size === 0 &&
-        oldestRequiredIndex >= 0
-          ? oldestRequiredIndex + 1
-          : page.items.length;
-      incoming.push(
-        ...page.items
-          .slice(0, upperBound)
-          .filter(
-            (message) => !knownIds.has(message.id),
-          ),
-      );
-      if (requiredUnknownIds.size === 0) {
-        break;
+    // This page budget bounds metadata work; no partially fetched window
+    // may enter decryptPage or advance an X3DH/Double Ratchet state.
+    assertDirectHistoryCatchupBudget(fetchedPages);
+    fetchedPages += 1;
+    const page = await fetchDirectMessages(detail.id, deviceId, cursor);
+    if (hasConflictingDirectMessageReplicas(page.items, observedReplicas)) {
+      // Preserve fail-closed poisoning for a server ID that changed its
+      // immutable signed/ciphertext identity across pages or known rows.
+      return page.items.map((message) => ({
+        message,
+        payload: null,
+        needsBootstrap: false,
+        integrityConflict: true,
+      }));
+    }
+    observedReplicas.push(...page.items);
+    fetchedMessages.push(...page.items);
+    for (const message of page.items) {
+      if (knownIds.has(message.id)) {
+        seenKnownSequences.push(BigInt(message.sequence));
       }
-    } else {
-      let oldestKnownIndex = -1;
-      page.items.forEach((message, index) => {
-        if (knownIds.has(message.id)) {
-          oldestKnownIndex = index;
+      if (requiredUnknownIds.delete(message.id)) {
+        const sequence = BigInt(message.sequence);
+        if (oldestRequiredSequence === null || sequence < oldestRequiredSequence) {
+          oldestRequiredSequence = sequence;
         }
-      });
-      if (oldestKnownIndex >= 0) {
-        incoming.push(
-          ...page.items
-            .slice(0, oldestKnownIndex)
-            .filter(
-              (message) => !knownIds.has(message.id),
-            ),
-        );
-        break;
       }
-      incoming.push(
-        ...page.items.filter(
-          (message) => !knownIds.has(message.id),
-        ),
-      );
     }
 
-    if (!page.nextCursor) {
-      break;
-    }
+    const requiredOldest = oldestRequiredSequence;
+    const reachedSafeAnchor = targetDriven
+      ? requiredUnknownIds.size === 0 &&
+        requiredOldest !== null &&
+        seenKnownSequences.some((sequence) => sequence <= requiredOldest)
+      : seenKnownSequences.length > 0;
+    if (reachedSafeAnchor || page.nextCursor === null) break;
     cursor = page.nextCursor;
   }
 
-  if (incoming.length === 0) {
-    return [];
-  }
-  return (
-    await decryptPage(detail, incoming)
-  ).reverse();
+  // Validate immutable ID/sequence metadata before any Double Ratchet
+  // operation. Missing earlier events and stale API snapshots are normal
+  // offline/realtime races: the ratchet supports skipped keys. Preserve
+  // ordinary signed HUMAN messages, while the reaction projector separately
+  // refuses counts from noncontiguous history.
+  const inspection = inspectDirectHistoryGap({
+    conversationId: detail.id,
+    advertisedHeadSequence: detail.lastMessageSequence,
+    fetchedMessages,
+    knownMessages: currentRows.map((row) => row.message),
+    requiredMessageIds: requestedUnknownIds,
+  });
+  const incoming = fetchedMessages.filter((message) =>
+    !knownIds.has(message.id) &&
+    (!inspection.complete || BigInt(message.sequence) > inspection.anchor),
+  );
+  if (incoming.length === 0) return [];
+  return (await decryptPage(detail, incoming)).reverse();
 }
 
 async function fetchLatestDecryptedPage(
@@ -2234,6 +2397,23 @@ async function fetchLatestDecryptedPage(
       deviceId,
       pageCursor,
     );
+    // The latest page was already opened to discover missing X3DH senders.
+    // A subsequently fetched bootstrap page must not change the identity
+    // of any previously accepted server ID or claim an existing conversation
+    // sequence under a different ID. Check every previous page before a
+    // second ratchet pass; quarantine ALL initially visible rows on conflict
+    // instead of letting a valid first-page cache mask an equivocated chain.
+    if (hasConflictingDirectMessageReplicas(older.items, allItems)) {
+      return {
+        decrypted: first.items.map((message) => ({
+          message,
+          payload: null,
+          needsBootstrap: false,
+          integrityConflict: true,
+        })),
+        nextCursor: first.nextCursor,
+      };
+    }
     allItems.push(...older.items);
     for (const message of older.items) {
       if (
@@ -2272,18 +2452,31 @@ async function fetchLatestDecryptedPage(
 }
 
 async function decryptPage(detail: DirectConversationView, items: DirectMessageView[]): Promise<DecryptedRow[]> {
+  // Security preflight is deliberately before any cache lookup, X3DH or
+  // Double Ratchet decryption. A conflicting server ID is a corrupt causal
+  // page; never let such a page advance locally stored cryptographic state.
+  // Poison the entire returned page so downstream history/reactions fail
+  // closed regardless of the order in which the server sent its replicas.
+  if (hasConflictingDirectMessageReplicas(items)) {
+    return items.map((message) => ({
+      message,
+      payload: null,
+      needsBootstrap: false,
+      integrityConflict: true,
+    }));
+  }
   const identityByDevice = new Map(
     detail.devices.map((device) => [
       device.id,
       device.identityEd25519Public,
     ]),
   );
-  const byId = new Map<string, DecryptedRow>();
-  const chronological = [...items].sort(
-    (left, right) =>
-      new Date(left.createdAt).getTime() -
-        new Date(right.createdAt).getTime() ||
-      left.id.localeCompare(right.id),
+  // Keep every server-provided replica until the integrity-aware merge.
+  // Keying by message.id here would erase same-page equivocation evidence.
+  const byMessage = new Map<DirectMessageView, DecryptedRow>();
+  const chronological = [...items].sort((left, right) =>
+    BigInt(left.sequence) < BigInt(right.sequence) ? -1 :
+    BigInt(left.sequence) > BigInt(right.sequence) ? 1 : 0,
   );
   for (const message of chronological) {
     const initIdentity =
@@ -2304,7 +2497,7 @@ async function decryptPage(detail: DirectConversationView, items: DirectMessageV
         ? { senderIdentityEd25519Public: senderPublic }
         : {}),
     });
-    byId.set(message.id, {
+    byMessage.set(message, {
       message,
       payload: result.payload,
       needsBootstrap: result.needsBootstrap,
@@ -2312,7 +2505,7 @@ async function decryptPage(detail: DirectConversationView, items: DirectMessageV
   }
   return items.map(
     (message) =>
-      byId.get(message.id) ?? {
+      byMessage.get(message) ?? {
         message,
         payload: null,
         needsBootstrap: false,
@@ -2351,6 +2544,9 @@ function DirectRow({
   onReply,
   sourceRow,
   selfUserId,
+  reactionStates,
+  reactionBusy,
+  onReact,
 }: {
   row: DecryptedRow;
   self: boolean;
@@ -2360,8 +2556,12 @@ function DirectRow({
   onReply?: (source: DecryptedRow) => void;
   sourceRow?: DecryptedRow;
   selfUserId: string;
+  reactionStates: readonly DirectReactionState[];
+  reactionBusy: boolean;
+  onReact?: (emoji: DirectReactionEmoji) => void;
 }): ReactElement {
   const t = useTranslations();
+  const [reactionPickerOpen, setReactionPickerOpen] = useState(false);
   const label = self ? youLabel : peerName;
   if (!row.payload) {
     return <article className={styles.undecryptable} data-testid="direct-message-undecryptable"><Text tone="caption">{t("direct.undecryptable")}</Text></article>;
@@ -2423,16 +2623,71 @@ function DirectRow({
             ) : null}
           </AssistantMessage>
         )}
-        {row.message.kind === "HUMAN" && onReply ? (
+        {row.message.kind === "HUMAN" ? (
           <div className={styles.replyActions}>
-            <Button
-              variant="ghost"
-              size="sm"
-              data-testid="direct-message-reply-action"
-              onClick={() => onReply(row)}
-            >
-              {t("direct.reply")}
-            </Button>
+            {onReply ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                data-testid="direct-message-reply-action"
+                onClick={() => onReply(row)}
+              >
+                {t("direct.reply")}
+              </Button>
+            ) : null}
+            {DIRECT_REACTION_EMOJIS.map((emoji) => {
+              const active = reactionStates.filter((state) =>
+                state.emoji === emoji && state.active
+              );
+              if (active.length === 0) return null;
+              const mine = active.some((state) => state.reactorUserId === selfUserId);
+              return (
+                <Button
+                  key={emoji}
+                  variant="ghost"
+                  size="sm"
+                  disabled={!onReact || reactionBusy}
+                  aria-pressed={mine}
+                  aria-label={t(mine ? "direct.reactionRemove" : "direct.reactionAdd", { emoji })}
+                  data-testid="direct-message-reaction-chip"
+                  onClick={() => onReact?.(emoji)}
+                >
+                  {emoji} {active.length}
+                </Button>
+              );
+            })}
+            {onReact ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={reactionBusy}
+                aria-expanded={reactionPickerOpen}
+                data-testid="direct-message-reaction-action"
+                onClick={() => setReactionPickerOpen((current) => !current)}
+              >
+                {t("direct.react")}
+              </Button>
+            ) : null}
+            {reactionPickerOpen && onReact ? (
+              <div role="group" aria-label={t("direct.react")}>
+                {DIRECT_REACTION_EMOJIS.map((emoji) => (
+                  <Button
+                    key={emoji}
+                    variant="ghost"
+                    size="sm"
+                    disabled={reactionBusy}
+                    aria-label={t("direct.reactionAdd", { emoji })}
+                    data-testid="direct-message-reaction-emoji"
+                    onClick={() => {
+                      setReactionPickerOpen(false);
+                      onReact(emoji);
+                    }}
+                  >
+                    {emoji}
+                  </Button>
+                ))}
+              </div>
+            ) : null}
           </div>
         ) : null}
       </div>

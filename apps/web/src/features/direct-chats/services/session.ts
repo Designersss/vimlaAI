@@ -10,6 +10,7 @@ import {
   initRatchetInitiator,
   initRatchetResponder,
   serializeDirectRoutingMentions,
+  serializeDirectReactionTargetTag,
   serializeRatchet,
   utf8,
   x3dhInitiate,
@@ -72,6 +73,7 @@ import {
   RatchetLockLostError,
   directHumanClientMessageId,
   directHumanContentCommitment,
+  decodeDirectReaction,
   cachedDirectPlaintextMatchesMessage,
   RatchetStateConflictError,
 } from "@vimla/client-core";
@@ -216,6 +218,7 @@ export async function encryptForDevices(input: {
   peerUserId?: string;
   clientMessageId: string;
   contentCommitmentB64: string | null;
+  reactionTargetTagB64?: string | null;
   localDevice: StoredDeviceMaterial;
   kind: DirectMessageKind;
   plaintext: string;
@@ -235,8 +238,15 @@ export async function encryptForDevices(input: {
   ) {
     throw new Error("Direct HUMAN content identity mismatch");
   }
-  if (input.kind !== "HUMAN" && input.contentCommitmentB64 !== null) {
-    throw new Error("Unexpected content commitment");
+  if (input.kind === "REACTION") {
+    if (!input.contentCommitmentB64 || !input.reactionTargetTagB64 ||
+        (input.mentions?.length ?? 0) > 0 ||
+        !decodeDirectReaction(input.plaintext, input.clientMessageId, input.contentCommitmentB64)) {
+      throw new Error("Invalid Direct reaction E2EE commitment/routing");
+    }
+  } else if (input.reactionTargetTagB64 != null ||
+      (input.kind !== "HUMAN" && input.contentCommitmentB64 !== null)) {
+    throw new Error("Unexpected E2EE content commitment or reaction routing");
   }
   const material = input.localDevice;
   const identity = identityFromMaterial(material);
@@ -256,8 +266,9 @@ export async function encryptForDevices(input: {
     string,
     ReturnType<typeof fetchPrekeyBundles>
   >();
-  const routingContext =
-    input.mentions && input.mentions.length > 0
+  const routingContext = input.kind === "REACTION"
+    ? serializeDirectReactionTargetTag(input.reactionTargetTagB64 ?? "")
+    : input.mentions && input.mentions.length > 0
       ? serializeDirectRoutingMentions(input.mentions)
       : undefined;
 
@@ -346,6 +357,7 @@ export async function encryptForDevices(input: {
       conversationId: input.conversationId,
       clientMessageId: input.clientMessageId,
       contentCommitmentB64: input.contentCommitmentB64,
+      reactionTargetTagB64: input.reactionTargetTagB64 ?? null,
       senderUserId: input.senderUserId,
       senderDeviceId: material.deviceId,
       interactionEpoch: input.interactionEpoch,
@@ -388,6 +400,7 @@ export async function encryptForDevices(input: {
           senderUserId: input.senderUserId,
           senderDeviceId: material.deviceId,
           contentCommitmentB64: input.contentCommitmentB64,
+          reactionTargetTagB64: input.reactionTargetTagB64 ?? null,
           interactionEpoch: input.interactionEpoch,
           kind: input.kind,
           plaintext: input.plaintext,
@@ -599,6 +612,7 @@ export async function recoverPendingSends(input: {
               clientMessageId:
                 row.clientMessageId,
               contentCommitmentB64: row.contentCommitmentB64,
+              reactionTargetTagB64: row.reactionTargetTagB64 ?? null,
               localDevice: input.localDevice,
               kind: row.kind,
               plaintext: row.plaintext,
@@ -822,6 +836,7 @@ export async function sendPendingDirectMessage(
       {
         clientMessageId: row.clientMessageId,
         contentCommitmentB64: row.contentCommitmentB64,
+        reactionTargetTagB64: row.reactionTargetTagB64 ?? null,
         senderDeviceId: row.senderDeviceId,
         interactionEpoch: row.interactionEpoch,
         kind: row.kind,
@@ -912,6 +927,7 @@ export async function decryptMessageWithStatus(input: {
       senderUserId: input.message.senderUserId,
       clientMessageId: input.message.clientMessageId,
       contentCommitmentB64: input.message.contentCommitmentB64,
+      reactionTargetTagB64: input.message.reactionTargetTagB64,
       senderDeviceId: input.message.senderDeviceId,
       interactionEpoch: input.message.interactionEpoch,
       kind: input.message.kind,
@@ -991,6 +1007,7 @@ export async function decryptMessageWithStatus(input: {
             senderUserId: input.message.senderUserId,
             clientMessageId: input.message.clientMessageId,
             contentCommitmentB64: input.message.contentCommitmentB64,
+            reactionTargetTagB64: input.message.reactionTargetTagB64,
             senderDeviceId: input.message.senderDeviceId,
             interactionEpoch: input.message.interactionEpoch,
             kind: input.message.kind,
@@ -1053,11 +1070,10 @@ export async function decryptMessageWithStatus(input: {
           };
         }
 
-        const routingContext =
-          input.message.mentions.length > 0
-            ? serializeDirectRoutingMentions(
-                input.message.mentions,
-              )
+        const routingContext = input.message.kind === "REACTION"
+          ? serializeDirectReactionTargetTag(input.message.reactionTargetTagB64 ?? "")
+          : input.message.mentions.length > 0
+            ? serializeDirectRoutingMentions(input.message.mentions)
             : undefined;
         const opened = decryptEnvelope({
           senderIdentityEd25519Public: b64ToBytes(
@@ -1087,6 +1103,7 @@ export async function decryptMessageWithStatus(input: {
           senderUserId: input.message.senderUserId,
           clientMessageId: input.message.clientMessageId,
           contentCommitmentB64: input.message.contentCommitmentB64,
+          reactionTargetTagB64: input.message.reactionTargetTagB64,
           senderDeviceId: input.message.senderDeviceId,
           interactionEpoch: input.message.interactionEpoch,
           createdAt: input.message.createdAt,
@@ -1208,6 +1225,7 @@ function pendingSendMatchesCommittedMessage(
     pending.conversationId !== message.conversationId ||
     pending.clientMessageId !== message.clientMessageId ||
     pending.contentCommitmentB64 !== message.contentCommitmentB64 ||
+    (pending.reactionTargetTagB64 ?? null) !== message.reactionTargetTagB64 ||
     pending.senderUserId !== message.senderUserId ||
     pending.senderDeviceId !== message.senderDeviceId ||
     pending.interactionEpoch !== message.interactionEpoch ||
@@ -1242,6 +1260,7 @@ function pendingSendMatchesInput(
     senderUserId: string;
     senderDeviceId: string;
     contentCommitmentB64: string | null;
+    reactionTargetTagB64?: string | null;
     interactionEpoch: number;
     kind: DirectMessageKind;
     plaintext: string;
@@ -1255,6 +1274,7 @@ function pendingSendMatchesInput(
     pending.senderUserId === input.senderUserId &&
     pending.senderDeviceId === input.senderDeviceId &&
     pending.contentCommitmentB64 === input.contentCommitmentB64 &&
+    (pending.reactionTargetTagB64 ?? null) === (input.reactionTargetTagB64 ?? null) &&
     pending.interactionEpoch === input.interactionEpoch &&
     pending.kind === input.kind &&
     pending.plaintext === input.plaintext &&

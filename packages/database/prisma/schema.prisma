@@ -1193,6 +1193,7 @@ model DirectMessage {
   senderDevice   UserCryptoDevice   @relation(fields: [senderDeviceId], references: [id], onDelete: Restrict)
   clientMessageId String
   contentCommitmentB64 String?
+  reactionTargetTagB64 String?
   kind           String
   interactionEpoch Int              @default(0)
   sequence       BigInt             @default(0)
@@ -1204,6 +1205,7 @@ model DirectMessage {
   @@unique([conversationId, sequence])
   @@index([conversationId, createdAt, id])
   @@index([senderDeviceId, createdAt])
+  @@index([conversationId, reactionTargetTagB64, sequence])
   @@map("direct_message")
 }
 

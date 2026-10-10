@@ -13,6 +13,23 @@ const original = {
 };
 
 describe("cached Direct plaintext provenance", () => {
+  it("pins an authenticated target tag for decrypted REACTION events", () => {
+    const tagged = { ...original, kind: "REACTION",
+      contentCommitmentB64: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+      reactionTargetTagB64: "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=",
+    };
+    expect(cachedDirectPlaintextMatchesMessage(tagged, tagged)).toBe(true);
+    expect(cachedDirectPlaintextMatchesMessage(
+      { ...tagged, reactionTargetTagB64: undefined }, tagged,
+    )).toBe(false);
+    expect(cachedDirectPlaintextMatchesMessage(
+      { ...tagged, reactionTargetTagB64: null }, tagged,
+    )).toBe(false);
+    expect(cachedDirectPlaintextMatchesMessage(
+      tagged, { ...tagged, reactionTargetTagB64: "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC=" },
+    )).toBe(false);
+  });
+
   it("accepts only an exact immutable server message identity", () => {
     expect(cachedDirectPlaintextMatchesMessage(original, { ...original })).toBe(true);
     for (const difference of [
