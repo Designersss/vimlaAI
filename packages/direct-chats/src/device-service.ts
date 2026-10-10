@@ -120,18 +120,47 @@ export class DeviceService {
   }
 
   async rotate(actor: ActorContext, deviceId: string, input: RotatePrekeys): Promise<CryptoDeviceView> {
-    const device = await this.requireOwnActiveDevice(actor.userId, deviceId);
-    assertSignedPrekey(device.identityEd25519Public, input.signedPrekeyId, input.signedPrekeyPublic, input.signedPrekeySignature);
-    const updated = await this.db.userCryptoDevice.update({
-      where: { id: device.id },
-      data: {
-        signedPrekeyId: input.signedPrekeyId,
-        signedPrekeyPublic: input.signedPrekeyPublic,
-        signedPrekeySignature: input.signedPrekeySignature,
-      },
+    return this.db.$transaction(async (tx) => {
+      // Both signed prekey and unused OTKs form ONE published X3DH bundle.
+      // No reader may observe half a rotation, and a revoked device must
+      // not rotate after passing an earlier out-of-transaction status check.
+      await lockDirectDeviceRoster(tx, [actor.userId], "exclusive");
+      const device = await tx.userCryptoDevice.findFirst({
+        where: { id: deviceId, userId: actor.userId },
+      });
+      if (!device) {
+        throw new DirectChatError("NOT_FOUND", "Device was not found");
+      }
+      if (device.revokedAt) {
+        throw new DirectChatError("DEVICE_REVOKED", "This device was revoked");
+      }
+      assertSignedPrekey(
+        device.identityEd25519Public,
+        input.signedPrekeyId,
+        input.signedPrekeyPublic,
+        input.signedPrekeySignature,
+      );
+      const updated = await tx.userCryptoDevice.update({
+        where: { id: device.id },
+        data: {
+          signedPrekeyId: input.signedPrekeyId,
+          signedPrekeyPublic: input.signedPrekeyPublic,
+          signedPrekeySignature: input.signedPrekeySignature,
+        },
+      });
+      await tx.directOneTimePrekey.deleteMany({
+        where: { deviceId: device.id, consumedAt: null },
+      });
+      await tx.directOneTimePrekey.createMany({
+        data: input.oneTimePrekeys.map((key) => ({
+          deviceId: device.id,
+          keyId: key.keyId,
+          publicKey: key.publicKey,
+        })),
+        skipDuplicates: true,
+      });
+      return toDeviceView(updated);
     });
-    await this.replaceUnusedPrekeys(device.id, input.oneTimePrekeys);
-    return toDeviceView(updated);
   }
 
   async listMine(actor: ActorContext): Promise<CryptoDeviceView[]> {
@@ -181,19 +210,6 @@ export class DeviceService {
     return device;
   }
 
-  private async replaceUnusedPrekeys(
-    deviceId: string,
-    keys: ReadonlyArray<{ keyId: number; publicKey: string }>,
-  ): Promise<void> {
-    await this.db.directOneTimePrekey.deleteMany({ where: { deviceId, consumedAt: null } });
-    if (keys.length === 0) {
-      return;
-    }
-    await this.db.directOneTimePrekey.createMany({
-      data: keys.map((key) => ({ deviceId, keyId: key.keyId, publicKey: key.publicKey })),
-      skipDuplicates: true,
-    });
-  }
 }
 
 export function toDeviceView(row: {
