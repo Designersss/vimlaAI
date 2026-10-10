@@ -65,6 +65,12 @@ export class DeviceService {
       }
 
       assertUniqueOneTimePrekeyIds(input.oneTimePrekeys);
+      if (existing) {
+        assertSignedPrekeyVersion(
+          existing,
+          input,
+        );
+      }
       if (!existing) {
         return tx.userCryptoDevice.create({
           data: {
@@ -146,6 +152,7 @@ export class DeviceService {
         input.signedPrekeyPublic,
         input.signedPrekeySignature,
       );
+      assertSignedPrekeyVersion(device, input);
       await assertSafeOneTimePrekeyReplacement(
         tx,
         device.id,
@@ -230,6 +237,33 @@ export class DeviceService {
  * the same ID would silently disappear under createMany(skipDuplicates)
  * and leave the sender believing its new prekey was published.
  */
+function assertSignedPrekeyVersion(
+  current: {
+    signedPrekeyId: number;
+    signedPrekeyPublic: string;
+    signedPrekeySignature: string;
+  },
+  proposed: {
+    signedPrekeyId: number;
+    signedPrekeyPublic: string;
+    signedPrekeySignature: string;
+  },
+): void {
+  // The same device identity must never go back to an older signed key
+  // version on stale enrolment retries or across concurrent rotations.
+  // An equal ID is an idempotent retry ONLY if its signed public material
+  // is also byte-for-byte the originally stored key.
+  if (proposed.signedPrekeyId < current.signedPrekeyId ||
+      (proposed.signedPrekeyId === current.signedPrekeyId &&
+        (proposed.signedPrekeyPublic !== current.signedPrekeyPublic ||
+          proposed.signedPrekeySignature !== current.signedPrekeySignature))) {
+    throw new DirectChatError(
+      "TAMPERED",
+      "Signed prekey version is stale or rebound",
+    );
+  }
+}
+
 function assertUniqueOneTimePrekeyIds(
   keys: ReadonlyArray<{ keyId: number; publicKey: string }>,
 ): void {
