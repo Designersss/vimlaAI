@@ -100,6 +100,7 @@ export class DeviceService {
         tx,
         existing.id,
         input.oneTimePrekeys,
+        existing.signedPrekeyId === input.signedPrekeyId,
       );
       const updated = await tx.userCryptoDevice.update({
         where: { id: existing.id },
@@ -157,6 +158,7 @@ export class DeviceService {
         tx,
         device.id,
         input.oneTimePrekeys,
+        device.signedPrekeyId === input.signedPrekeyId,
       );
       const updated = await tx.userCryptoDevice.update({
         where: { id: device.id },
@@ -236,6 +238,8 @@ export class DeviceService {
  * retry of a consumed OTK is harmless, but a DIFFERENT public key with
  * the same ID would silently disappear under createMany(skipDuplicates)
  * and leave the sender believing its new prekey was published.
+ * Retried consumed IDs are accepted ONLY under the same signed-prekey
+ * version and identical OTK public key, never as part of a fresh rotation.
  */
 function assertSignedPrekeyVersion(
   current: {
@@ -283,6 +287,7 @@ async function assertSafeOneTimePrekeyReplacement(
   tx: Prisma.TransactionClient,
   deviceId: string,
   keys: ReadonlyArray<{ keyId: number; publicKey: string }>,
+  exactSignedKeyRetry: boolean,
 ): Promise<void> {
   assertUniqueOneTimePrekeyIds(keys);
   const previouslyConsumed = await tx.directOneTimePrekey.findMany({
@@ -298,10 +303,11 @@ async function assertSafeOneTimePrekeyReplacement(
   );
   for (const key of keys) {
     const previous = consumedPublicById.get(key.keyId);
-    if (previous !== undefined && previous !== key.publicKey) {
+    if (previous !== undefined &&
+        (previous !== key.publicKey || !exactSignedKeyRetry)) {
       throw new DirectChatError(
         "TAMPERED",
-        "One-time prekey id is already bound to another key",
+        "Consumed one-time prekey id cannot be rebound or reissued",
       );
     }
   }
