@@ -64,6 +64,7 @@ export class DeviceService {
         );
       }
 
+      assertUniqueOneTimePrekeyIds(input.oneTimePrekeys);
       if (!existing) {
         return tx.userCryptoDevice.create({
           data: {
@@ -89,6 +90,11 @@ export class DeviceService {
         });
       }
 
+      await assertSafeOneTimePrekeyReplacement(
+        tx,
+        existing.id,
+        input.oneTimePrekeys,
+      );
       const updated = await tx.userCryptoDevice.update({
         where: { id: existing.id },
         data: {
@@ -139,6 +145,11 @@ export class DeviceService {
         input.signedPrekeyId,
         input.signedPrekeyPublic,
         input.signedPrekeySignature,
+      );
+      await assertSafeOneTimePrekeyReplacement(
+        tx,
+        device.id,
+        input.oneTimePrekeys,
       );
       const updated = await tx.userCryptoDevice.update({
         where: { id: device.id },
@@ -210,6 +221,56 @@ export class DeviceService {
     return device;
   }
 
+}
+
+/**
+ * OTK key IDs belong to a device's entire lifetime, not just the current
+ * published batch. Retained consumed rows are replay tombstones. An exact
+ * retry of a consumed OTK is harmless, but a DIFFERENT public key with
+ * the same ID would silently disappear under createMany(skipDuplicates)
+ * and leave the sender believing its new prekey was published.
+ */
+function assertUniqueOneTimePrekeyIds(
+  keys: ReadonlyArray<{ keyId: number; publicKey: string }>,
+): void {
+  const ids = new Set<number>();
+  for (const key of keys) {
+    if (ids.has(key.keyId)) {
+      throw new DirectChatError(
+        "VALIDATION_ERROR",
+        "One-time prekey ids must be unique",
+      );
+    }
+    ids.add(key.keyId);
+  }
+}
+
+async function assertSafeOneTimePrekeyReplacement(
+  tx: Prisma.TransactionClient,
+  deviceId: string,
+  keys: ReadonlyArray<{ keyId: number; publicKey: string }>,
+): Promise<void> {
+  assertUniqueOneTimePrekeyIds(keys);
+  const previouslyConsumed = await tx.directOneTimePrekey.findMany({
+    where: {
+      deviceId,
+      consumedAt: { not: null },
+      keyId: { in: keys.map((key) => key.keyId) },
+    },
+    select: { keyId: true, publicKey: true },
+  });
+  const consumedPublicById = new Map(
+    previouslyConsumed.map((key) => [key.keyId, key.publicKey]),
+  );
+  for (const key of keys) {
+    const previous = consumedPublicById.get(key.keyId);
+    if (previous !== undefined && previous !== key.publicKey) {
+      throw new DirectChatError(
+        "TAMPERED",
+        "One-time prekey id is already bound to another key",
+      );
+    }
+  }
 }
 
 export function toDeviceView(row: {
