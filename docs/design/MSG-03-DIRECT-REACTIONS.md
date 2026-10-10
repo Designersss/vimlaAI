@@ -419,6 +419,30 @@ wait for it, then verifies the newly advertised bundle, old unconsumed
 OTK deletion and rejection of subsequent rotation or key claims for a
 revoked device.
 
+A subsequent exact-green CI #38045887407 adversarial audit found one
+more X3DH key-lifecycle issue: `createMany(skipDuplicates: true)`
+could silently ignore a reused, already-consumed one-time prekey ID.
+Without a guard, the sender might believe a newly provided OTK was
+advertised, while the existing consumed tombstone prevented its
+publication. Registration and rotation now reject duplicate OTK IDs
+inside a request and reject any previously consumed OTK ID rebound to
+different public key bytes. Consumed OTK IDs are permitted only as
+**identical idempotent retries of the current signed-prekey version**;
+they are never reissued, and a fresh signed-prekey rotation cannot
+reuse a consumed OTK even with the same public key. The device's signed
+prekey ID must advance monotonically: earlier versions and same-ID
+key-material substitutions are rejected in both re-enrolment and
+rotation. These validations are inside the existing roster-serialized
+DB transaction before any key mutation, so failed attempts do not
+partially publish signed key/OTK state. Integration regressions cover
+exact retry after OTK claim, replay downgrade, same-ID signing-key
+substitution, consumed OTK rebinding/reissue and duplicate batches.
+
+The remaining assumption is that a device identity uses monotonically
+increasing signed-prekey IDs, while a new crypto identity is registered
+under a **new device ID**; there is no pre-production compatibility
+requirement for reusing a key ID with different public key material.
+
 This hardening does not repair missing historical Double Ratchet
 state or allow an already downloaded X3DH bundle to be retroactively
 withdrawn. Offline peers must still handle changed device identity
