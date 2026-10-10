@@ -930,10 +930,13 @@ describe("direct chats API", () => {
     // Force a real race: rotation MUST acquire Bob's exclusive roster
     // advisory lock before updating either signed prekey or unused OTKs.
     const gate = db.$transaction(async (tx) => {
-      await tx.$queryRaw`
-        SELECT pg_advisory_xact_lock(
-          hashtextextended(${`vimla:direct:device-roster:v1:${bob.id}`}, 0)
+      await tx.$queryRaw<Array<{ locked: number }>>`
+        WITH "device_roster_gate" AS (
+          SELECT pg_advisory_xact_lock(
+            hashtextextended(${`vimla:direct:device-roster:v1:${bob.id}`}, 0)
+          )
         )
+        SELECT 1::int AS "locked" FROM "device_roster_gate"
       `;
       notifyLocked();
       await release;
@@ -978,10 +981,13 @@ describe("direct chats API", () => {
     const claimGateRelease = new Promise<void>((resolve) => { releaseClaimGate = resolve; });
     const claimGateAcquired = new Promise<void>((resolve) => { claimGateLocked = resolve; });
     const claimGate = db.$transaction(async (tx) => {
-      await tx.$queryRaw`
-        SELECT pg_advisory_xact_lock(
-          hashtextextended(${`vimla:direct:device-roster:v1:${bob.id}`}, 0)
+      await tx.$queryRaw<Array<{ locked: number }>>`
+        WITH "device_roster_gate" AS (
+          SELECT pg_advisory_xact_lock(
+            hashtextextended(${`vimla:direct:device-roster:v1:${bob.id}`}, 0)
+          )
         )
+        SELECT 1::int AS "locked" FROM "device_roster_gate"
       `;
       claimGateLocked();
       await claimGateRelease;
