@@ -1020,6 +1020,22 @@ describe("direct chats API", () => {
         oneTimePrekeyPublic: rotatePayload.oneTimePrekeys[0]?.publicKey,
       }),
     ]);
+    // Losing the response to a completed rotation must not publish a
+    // previously consumed OTK again. Same signed key + same OTK material
+    // is the only permitted retry after its claim.
+    const exactRotationRetry = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/devices/${device.deviceId}/rotate`,
+      headers: jsonHeaders(),
+      cookies: bob.cookies,
+      payload: rotatePayload,
+    });
+    expect(exactRotationRetry.statusCode).toBe(200);
+    const consumedAfterRetry = await db.directOneTimePrekey.findUniqueOrThrow({
+      where: { deviceId_keyId: { deviceId: device.deviceId, keyId: 2 } },
+    });
+    expect(consumedAfterRetry.consumedAt).not.toBeNull();
+
     const oldUnusedKeys = await db.directOneTimePrekey.count({
       where: { deviceId: device.deviceId, keyId: 1 },
     });
@@ -1063,6 +1079,54 @@ describe("direct chats API", () => {
     });
     expect(reboundRegistration.statusCode).toBe(400);
 
+    const staleSignedKey = await app.inject({
+      method: "POST",
+      url: "/v1/direct-chats/devices",
+      headers: jsonHeaders(),
+      cookies: bob.cookies,
+      payload: {
+        deviceId: device.deviceId,
+        identityEd25519Public: bytesToB64(device.identity.ed25519Public),
+        identityX25519Public: bytesToB64(device.identity.x25519Public),
+        signedPrekeyId: device.signed.keyId,
+        signedPrekeyPublic: bytesToB64(device.signed.publicKey),
+        signedPrekeySignature: bytesToB64(device.signed.signature),
+        oneTimePrekeys: rotatePayload.oneTimePrekeys,
+      },
+    });
+    expect(staleSignedKey.statusCode).toBe(400);
+
+    const sameIdOtherSigned = generateSignedPreKey(device.identity, 2);
+    const reboundSignedKey = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/devices/${device.deviceId}/rotate`,
+      headers: jsonHeaders(),
+      cookies: bob.cookies,
+      payload: {
+        ...rotatePayload,
+        signedPrekeyId: sameIdOtherSigned.keyId,
+        signedPrekeyPublic: bytesToB64(sameIdOtherSigned.publicKey),
+        signedPrekeySignature: bytesToB64(sameIdOtherSigned.signature),
+      },
+    });
+    expect(reboundSignedKey.statusCode).toBe(400);
+
+    // Same consumed OTK material is only acceptable on a retry of
+    // signed-key v2; it cannot be silently reused with signed-key v3.
+    const reissueConsumed = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/devices/${device.deviceId}/rotate`,
+      headers: jsonHeaders(),
+      cookies: bob.cookies,
+      payload: {
+        ...rotatePayload,
+        signedPrekeyId: thirdSigned.keyId,
+        signedPrekeyPublic: bytesToB64(thirdSigned.publicKey),
+        signedPrekeySignature: bytesToB64(thirdSigned.signature),
+      },
+    });
+    expect(reissueConsumed.statusCode).toBe(400);
+
     const duplicateKeys = await app.inject({
       method: "POST",
       url: `/v1/direct-chats/devices/${device.deviceId}/rotate`,
@@ -1071,8 +1135,8 @@ describe("direct chats API", () => {
       payload: {
         ...reboundPayload,
         oneTimePrekeys: [
-          rotatePayload.oneTimePrekeys[0],
-          rotatePayload.oneTimePrekeys[0],
+          ...rotatePayload.oneTimePrekeys,
+          ...rotatePayload.oneTimePrekeys,
         ],
       },
     });
