@@ -1079,38 +1079,6 @@ describe("direct chats API", () => {
     });
     expect(reboundRegistration.statusCode).toBe(400);
 
-    const staleSignedKey = await app.inject({
-      method: "POST",
-      url: "/v1/direct-chats/devices",
-      headers: jsonHeaders(),
-      cookies: bob.cookies,
-      payload: {
-        deviceId: device.deviceId,
-        identityEd25519Public: bytesToB64(device.identity.ed25519Public),
-        identityX25519Public: bytesToB64(device.identity.x25519Public),
-        signedPrekeyId: device.signed.keyId,
-        signedPrekeyPublic: bytesToB64(device.signed.publicKey),
-        signedPrekeySignature: bytesToB64(device.signed.signature),
-        oneTimePrekeys: rotatePayload.oneTimePrekeys,
-      },
-    });
-    expect(staleSignedKey.statusCode).toBe(400);
-
-    const sameIdOtherSigned = generateSignedPreKey(device.identity, 2);
-    const reboundSignedKey = await app.inject({
-      method: "POST",
-      url: `/v1/direct-chats/devices/${device.deviceId}/rotate`,
-      headers: jsonHeaders(),
-      cookies: bob.cookies,
-      payload: {
-        ...rotatePayload,
-        signedPrekeyId: sameIdOtherSigned.keyId,
-        signedPrekeyPublic: bytesToB64(sameIdOtherSigned.publicKey),
-        signedPrekeySignature: bytesToB64(sameIdOtherSigned.signature),
-      },
-    });
-    expect(reboundSignedKey.statusCode).toBe(400);
-
     // Same consumed OTK material is only acceptable on a retry of
     // signed-key v2; it cannot be silently reused with signed-key v3.
     const reissueConsumed = await app.inject({
@@ -1172,6 +1140,67 @@ describe("direct chats API", () => {
     });
     expect(revokedRotate.statusCode).toBe(403);
     expect(errorCode(revokedRotate)).toBe("direct_chat_device_revoked");
+  });
+
+  it("rejects signed-prekey rollback and same-version key substitution after an accepted rotation", async () => {
+    const owner = await readyUser(app, "dc-signed-prekey-monotonic", "Device owner");
+    const device = await registerHarness(app, owner);
+    const signed2 = generateSignedPreKey(device.identity, 2);
+    const otk2 = generateOneTimePreKey(2);
+    const validRotation = {
+      signedPrekeyId: signed2.keyId,
+      signedPrekeyPublic: bytesToB64(signed2.publicKey),
+      signedPrekeySignature: bytesToB64(signed2.signature),
+      oneTimePrekeys: [
+        { keyId: otk2.keyId, publicKey: bytesToB64(otk2.publicKey) },
+      ],
+    };
+    const rotate = (payload: typeof validRotation) => app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/devices/${device.deviceId}/rotate`,
+      headers: jsonHeaders(),
+      cookies: owner.cookies,
+      payload,
+    });
+    expect((await rotate(validRotation)).statusCode).toBe(200);
+    const staleRotation = await rotate({
+      ...validRotation,
+      signedPrekeyId: device.signed.keyId,
+      signedPrekeyPublic: bytesToB64(device.signed.publicKey),
+      signedPrekeySignature: bytesToB64(device.signed.signature),
+    });
+    expect(staleRotation.statusCode).toBe(400);
+
+    const sameIdOtherSigned = generateSignedPreKey(device.identity, 2);
+    const reboundSignedKey = await rotate({
+      ...validRotation,
+      signedPrekeyId: sameIdOtherSigned.keyId,
+      signedPrekeyPublic: bytesToB64(sameIdOtherSigned.publicKey),
+      signedPrekeySignature: bytesToB64(sameIdOtherSigned.signature),
+    });
+    expect(reboundSignedKey.statusCode).toBe(400);
+
+    const staleRegistration = await app.inject({
+      method: "POST",
+      url: "/v1/direct-chats/devices",
+      headers: jsonHeaders(),
+      cookies: owner.cookies,
+      payload: {
+        deviceId: device.deviceId,
+        identityEd25519Public: bytesToB64(device.identity.ed25519Public),
+        identityX25519Public: bytesToB64(device.identity.x25519Public),
+        signedPrekeyId: device.signed.keyId,
+        signedPrekeyPublic: bytesToB64(device.signed.publicKey),
+        signedPrekeySignature: bytesToB64(device.signed.signature),
+        oneTimePrekeys: validRotation.oneTimePrekeys,
+      },
+    });
+    expect(staleRegistration.statusCode).toBe(400);
+    const persisted = await app.get(PrismaService).client.userCryptoDevice.findUniqueOrThrow({
+      where: { id: device.deviceId },
+    });
+    expect(persisted.signedPrekeyId).toBe(2);
+    expect(persisted.signedPrekeyPublic).toBe(validRotation.signedPrekeyPublic);
   });
 
   it("claims an OTK once across distinct concurrent initiators", async () => {
