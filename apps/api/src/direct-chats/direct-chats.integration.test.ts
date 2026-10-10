@@ -1024,6 +1024,71 @@ describe("direct chats API", () => {
       where: { deviceId: device.deviceId, keyId: 1 },
     });
     expect(oldUnusedKeys).toBe(0);
+
+    // OTK #2 has now been consumed. A new PUBLIC key under that same
+    // device/keyId must not be silently dropped by skipDuplicates while
+    // the signed prekey advances to a misleading new state.
+    const reboundOtk = generateOneTimePreKey(2);
+    const thirdSigned = generateSignedPreKey(device.identity, 3);
+    const reboundPayload = {
+      signedPrekeyId: thirdSigned.keyId,
+      signedPrekeyPublic: bytesToB64(thirdSigned.publicKey),
+      signedPrekeySignature: bytesToB64(thirdSigned.signature),
+      oneTimePrekeys: [
+        { keyId: 2, publicKey: bytesToB64(reboundOtk.publicKey) },
+      ],
+    };
+    const reboundRotation = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/devices/${device.deviceId}/rotate`,
+      headers: jsonHeaders(),
+      cookies: bob.cookies,
+      payload: reboundPayload,
+    });
+    expect(reboundRotation.statusCode).toBe(400);
+
+    // Registration of an already-known identity must enforce the same
+    // lifetime key-id binding even if the signed prekey is otherwise valid.
+    const reboundRegistration = await app.inject({
+      method: "POST",
+      url: "/v1/direct-chats/devices",
+      headers: jsonHeaders(),
+      cookies: bob.cookies,
+      payload: {
+        deviceId: device.deviceId,
+        identityEd25519Public: bytesToB64(device.identity.ed25519Public),
+        identityX25519Public: bytesToB64(device.identity.x25519Public),
+        ...reboundPayload,
+      },
+    });
+    expect(reboundRegistration.statusCode).toBe(400);
+
+    const duplicateKeys = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/devices/${device.deviceId}/rotate`,
+      headers: jsonHeaders(),
+      cookies: bob.cookies,
+      payload: {
+        ...reboundPayload,
+        oneTimePrekeys: [
+          rotatePayload.oneTimePrekeys[0],
+          rotatePayload.oneTimePrekeys[0],
+        ],
+      },
+    });
+    expect(duplicateKeys.statusCode).toBe(400);
+    const afterRejectedUpdates = await db.userCryptoDevice.findUniqueOrThrow({
+      where: { id: device.deviceId },
+    });
+    expect(afterRejectedUpdates.signedPrekeyId).toBe(2);
+    const consumedKey = await db.directOneTimePrekey.findUniqueOrThrow({
+      where: { deviceId_keyId: { deviceId: device.deviceId, keyId: 2 } },
+    });
+    expect(consumedKey.publicKey).toBe(
+      rotatePayload.oneTimePrekeys[0]?.publicKey,
+    );
+    expect(consumedKey.consumedAt).not.toBeNull();
+
     const revoked = await app.inject({
       method: "POST",
       url: `/v1/direct-chats/devices/${device.deviceId}/revoke`,
