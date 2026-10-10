@@ -390,6 +390,39 @@ alternate device-registration paths and the full multi-device/outbox
 retry matrix remain part of the independent production readiness audit. None of these measures provides
 historical Double Ratchet recovery or a safe reaction compaction proof.
 
+### X3DH prekey bundle and device-key rotation atomicity (October 10)
+
+Follow-up security review found that the Direct prekey-claim transaction
+was not acquiring the per-recipient roster lock used by device revoke,
+registration and message fan-out. It could therefore choose an active
+device and its signed prekey while a concurrent transaction revoked the
+device. The claim path now acquires the recipient's **shared advisory
+roster lock** after the trust-pair access gate and before reading X3DH
+device bundles/consuming a one-time prekey. Distinct concurrent claims
+remain permitted; their OTK selection stays serialized by the existing
+`FOR UPDATE SKIP LOCKED` semantics.
+
+The device `rotate` operation previously updated the signed prekey
+and then deleted/replaced unused OTKs using separate DB operations.
+Now it takes an **exclusive per-owner roster lock** and performs
+active-device revalidation, signed-prekey verification, signed-key
+update and unused-OTK replacement in **one database transaction**.
+This keeps prekey discovery from observing a partially rotated bundle,
+prevents a revoke from slipping in after rotate's initial authority
+check, and rolls the whole operation back on DB failure. Already
+consumed OTK records are deliberately retained for historical
+idempotency; unused OTKs are replaced.
+
+A PostgreSQL integration regression blocks the owner roster with a
+real advisory lock, proves rotation waits for the lock, then verifies
+the newly advertised bundle, old unconsumed OTK deletion and rejection
+of subsequent rotation or key claims for a revoked device.
+
+This hardening does not repair missing historical Double Ratchet
+state or allow an already downloaded X3DH bundle to be retroactively
+withdrawn. Offline peers must still handle changed device identity
+and unavailable historical chain state.
+
 ### Bounded indexed ciphertext discovery (implemented; not a history proof)
 
 `POST /v1/direct-chats/:id/reactions` is an actor-scoped **read-only**
