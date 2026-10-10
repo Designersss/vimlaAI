@@ -414,9 +414,10 @@ consumed OTK records are deliberately retained for historical
 idempotency; unused OTKs are replaced.
 
 A PostgreSQL integration regression blocks the owner roster with a
-real advisory lock, proves rotation waits for the lock, then verifies
-the newly advertised bundle, old unconsumed OTK deletion and rejection
-of subsequent rotation or key claims for a revoked device.
+real advisory lock and proves **both rotation and prekey discovery**
+wait for it, then verifies the newly advertised bundle, old unconsumed
+OTK deletion and rejection of subsequent rotation or key claims for a
+revoked device.
 
 This hardening does not repair missing historical Double Ratchet
 state or allow an already downloaded X3DH bundle to be retroactively
