@@ -970,7 +970,40 @@ describe("direct chats API", () => {
       payload: {},
       cookies: alice.cookies,
     });
-    const advertised = await claim();
+    // The claim is also a snapshot reader of Bob's device roster.
+    // Pin the exclusive roster lock while starting the claim and prove
+    // it cannot read/consume a half-mutated X3DH bundle.
+    let releaseClaimGate!: () => void;
+    let claimGateLocked!: () => void;
+    const claimGateRelease = new Promise<void>((resolve) => { releaseClaimGate = resolve; });
+    const claimGateAcquired = new Promise<void>((resolve) => { claimGateLocked = resolve; });
+    const claimGate = db.$transaction(async (tx) => {
+      await tx.$queryRaw`
+        SELECT pg_advisory_xact_lock(
+          hashtextextended(${`vimla:direct:device-roster:v1:${bob.id}`}, 0)
+        )
+      `;
+      claimGateLocked();
+      await claimGateRelease;
+    });
+    await claimGateAcquired;
+    let advertised: Awaited<ReturnType<typeof claim>> | null = null;
+    try {
+      let claimSettled = false;
+      const pendingClaim = claim().then((response) => {
+        claimSettled = true;
+        return response;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 35));
+      expect(claimSettled).toBe(false);
+      releaseClaimGate();
+      await claimGate;
+      advertised = await pendingClaim;
+    } finally {
+      releaseClaimGate();
+      await claimGate;
+    }
+    if (!advertised) throw new Error("Missing X3DH claim response");
     expect(advertised.statusCode).toBe(200);
     expect(advertised.json().bundles).toEqual([
       expect.objectContaining({
