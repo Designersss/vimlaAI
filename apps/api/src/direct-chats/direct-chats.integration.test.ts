@@ -907,6 +907,105 @@ describe("direct chats API", () => {
     }
   });
 
+  it("publishes atomic X3DH rotations and serializes prekey claims with device revocation", async () => {
+    const alice = await readyUser(app, "dc-prekey-roster-alice", "Alice");
+    const bob = await readyUser(app, "dc-prekey-roster-bob", "Bob");
+    const device = await registerHarness(app, bob);
+    await createChat(app, alice.cookies, bob.handle);
+    const newSigned = generateSignedPreKey(device.identity, 2);
+    const newOtk = generateOneTimePreKey(2);
+    const rotatePayload = {
+      signedPrekeyId: newSigned.keyId,
+      signedPrekeyPublic: bytesToB64(newSigned.publicKey),
+      signedPrekeySignature: bytesToB64(newSigned.signature),
+      oneTimePrekeys: [
+        { keyId: newOtk.keyId, publicKey: bytesToB64(newOtk.publicKey) },
+      ],
+    };
+    const db = app.get(PrismaService).client;
+    let releaseRoster!: () => void;
+    let notifyLocked!: () => void;
+    const held = new Promise<void>((resolve) => { notifyLocked = resolve; });
+    const release = new Promise<void>((resolve) => { releaseRoster = resolve; });
+    // Force a real race: rotation MUST acquire Bob's exclusive roster
+    // advisory lock before updating either signed prekey or unused OTKs.
+    const gate = db.$transaction(async (tx) => {
+      await tx.$queryRaw`
+        SELECT pg_advisory_xact_lock(
+          hashtextextended(${`vimla:direct:device-roster:v1:${bob.id}`}, 0)
+        )
+      `;
+      notifyLocked();
+      await release;
+    });
+    await held;
+    let rotateStatus: number | null = null;
+    try {
+      let settled = false;
+      const rotate = app.inject({
+        method: "POST",
+        url: `/v1/direct-chats/devices/${device.deviceId}/rotate`,
+        headers: jsonHeaders(),
+        cookies: bob.cookies,
+        payload: rotatePayload,
+      }).then((response) => {
+        settled = true;
+        return response;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 35));
+      expect(settled).toBe(false);
+      releaseRoster();
+      await gate;
+      const response = await rotate;
+      rotateStatus = response.statusCode;
+    } finally {
+      releaseRoster();
+      await gate;
+    }
+    expect(rotateStatus).toBe(200);
+    const claim = () => app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/users/${bob.id}/prekeys`,
+      headers: jsonHeaders(),
+      payload: {},
+      cookies: alice.cookies,
+    });
+    const advertised = await claim();
+    expect(advertised.statusCode).toBe(200);
+    expect(advertised.json().bundles).toEqual([
+      expect.objectContaining({
+        deviceId: device.deviceId,
+        signedPrekeyId: 2,
+        signedPrekeyPublic: rotatePayload.signedPrekeyPublic,
+        oneTimePrekeyId: 2,
+        oneTimePrekeyPublic: rotatePayload.oneTimePrekeys[0]?.publicKey,
+      }),
+    ]);
+    const oldUnusedKeys = await db.directOneTimePrekey.count({
+      where: { deviceId: device.deviceId, keyId: 1 },
+    });
+    expect(oldUnusedKeys).toBe(0);
+    const revoked = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/devices/${device.deviceId}/revoke`,
+      headers: { origin },
+      cookies: bob.cookies,
+    });
+    expect(revoked.statusCode).toBe(200);
+    const afterRevoke = await claim();
+    expect(afterRevoke.statusCode).toBe(200);
+    expect(afterRevoke.json().bundles).toEqual([]);
+    const revokedRotate = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/devices/${device.deviceId}/rotate`,
+      headers: jsonHeaders(),
+      cookies: bob.cookies,
+      payload: rotatePayload,
+    });
+    expect(revokedRotate.statusCode).toBe(403);
+    expect(errorCode(revokedRotate)).toBe("direct_chat_device_revoked");
+  });
+
   it("claims an OTK once across distinct concurrent initiators", async () => {
     const recipient = await readyUser(app, "dc-otk-atomic-recipient", "Recipient");
     const alice = await readyUser(app, "dc-otk-atomic-alice", "Alice");
