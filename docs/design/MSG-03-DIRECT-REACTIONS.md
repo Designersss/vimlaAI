@@ -390,6 +390,36 @@ alternate device-registration paths and the full multi-device/outbox
 retry matrix remain part of the independent production readiness audit. None of these measures provides
 historical Double Ratchet recovery or a safe reaction compaction proof.
 
+### X3DH optional one-time-prekey consistency (October 12)
+
+An independent E2EE code review identified an existing crypto-library
+footgun at the boundary between the server's device-scoped prekey
+bundle and an encrypted envelope's X3DH initiation header. The
+initiator previously derived four-DH when a public OTK was present,
+regardless of whether its `oneTimePrekeyId` was present. A partial
+or corrupted bundle could therefore result in a handshake header
+that **cannot identify the required recipient secret key**. The
+responder likewise silently derived three-DH if the referenced
+one-time secret was unavailable, even when the signed initiation
+header required four-DH.
+
+The portable `@vimla/e2ee` X3DH layer now rejects inconsistent
+optional-OTK presence: a published OTK must have both a valid positive
+safe-integer ID and a public key, and a received initiation header
+requiring an OTK must be matched with a local secret (and vice versa).
+Missing/mismatched recipient key material fails closed **before HKDF
+and ratchet initialization**, rather than deriving a wrong handshake
+variant. Valid no-OTK three-DH and complete-OTK four-DH handshakes
+are unchanged. Unit regressions compare initiator/responder shared
+secrets for both modes and reject each missing or inconsistent
+OTK variant. This detects structural key-material mismatch only;
+an incorrect secret bound to an otherwise valid ID still fails at
+authenticated envelope decryption and cannot be silently accepted.
+
+This is a handshake availability/integrity guard, not a recovery
+path for lost historical Double Ratchet chains; the historical
+reconstruction and safe compaction gates remain open.
+
 ### Send-preflight sender-device revocation ordering (October 12)
 
 The send-preflight endpoint returns the interaction epoch only after
