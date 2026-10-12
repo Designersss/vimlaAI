@@ -419,30 +419,20 @@ export class DirectChatService {
         );
       }
 
-      const device = await tx.userCryptoDevice.findFirst({
-        where: {
-          id: senderDeviceId,
-          userId: actor.userId,
-        },
-        select: { revokedAt: true },
-      });
-      if (!device) {
-        throw new DirectChatError(
-          "NOT_FOUND",
-          "Device was not found",
-        );
-      }
-      if (device.revokedAt) {
-        throw new DirectChatError(
-          "DEVICE_REVOKED",
-          "This device was revoked",
-        );
-      }
-
       const usersExist = await lockTrustUserPair(
         tx,
         actor.userId,
         peerUserId,
+      );
+
+      // A revoked sender device must not receive a successful preflight
+      // while this transaction waits on peer trust state. Authorize the
+      // device *after* the trust-pair lock and hold its row SHARE lock
+      // until the epoch read and response have been decided.
+      await this.requireLockedActiveDevice(
+        tx,
+        actor.userId,
+        senderDeviceId,
       );
       const allowed =
         usersExist &&
