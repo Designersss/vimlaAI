@@ -441,7 +441,14 @@ A PostgreSQL integration regression blocks the owner roster with a
 real advisory lock and proves **both rotation and prekey discovery**
 wait for it, then verifies the newly advertised bundle, old unconsumed
 OTK deletion and rejection of subsequent rotation or key claims for a
-revoked device.
+revoked device. A separate adversarial regression holds the **shared**
+recipient roster lock that a committed Direct send uses, starts
+new-device enrolment, proves enrolment cannot INSERT or finish until
+the shared snapshot transaction commits, and then verifies the new
+recipient appears in the next conversation device roster. This
+covers both race directions: device registration wins before a send
+(the older signed fan-out fails closed) and send snapshot wins before
+device registration (the new device is enrolled afterward).
 
 A subsequent exact-green CI #38045887407 adversarial audit found one
 more X3DH key-lifecycle issue: `createMany(skipDuplicates: true)`
