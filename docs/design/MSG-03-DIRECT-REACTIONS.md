@@ -390,6 +390,37 @@ alternate device-registration paths and the full multi-device/outbox
 retry matrix remain part of the independent production readiness audit. None of these measures provides
 historical Double Ratchet recovery or a safe reaction compaction proof.
 
+### Independent X3DH sender-identity preflight (October 12 follow-up)
+
+The honest API rejects an X3DH initiation whose Ed25519 or X25519
+identity differs from its registered sender device. Historic replay
+must enforce the same invariant independently at the receiving client:
+validly signed X3DH init bytes can otherwise assert contradictory
+X25519 identities while the peer directory supplies a different
+registered device. Simply checking the Ed25519 signature is not
+sufficient to prove the X25519 identity used in key agreement.
+
+The conversation-scoped historical sender directory now carries BOTH
+public identities, never private keys. The portable client-core
+preflight compares each envelope's non-null X3DH initialization
+Ed25519 **and** X25519 fields against the corresponding active or
+historical sender directory record. Web runs the check over the ENTIRE
+fetched page before any X3DH/Double Ratchet/cached-plaintext access
+and quarantines the page on mismatch, rather than allowing earlier
+rows to advance the ratchet before discovering a contradiction.
+Unknown devices are never learned from an envelope's self-advertised
+key; they remain unavailable for decryption until the authenticated
+conversation directory supplies an identity. Historical revoked
+devices stay forbidden as future send recipients.
+
+Portable adversarial regression checks both mismatch types for active
+and revoked senders, including a contradiction in a later page row;
+an API integration regression verifies that the historical X25519
+public key remains available after revocation. This protects against
+signed transcript self-contradiction but does NOT provide a trusted
+directory against a malicious Vimla server. Peer verification and
+key transparency are still owned by #54.
+
 ### Revoked historical sender signature verification (October 12)
 
 A follow-up security/product audit found a Direct cold-cache replay failure:
@@ -407,8 +438,9 @@ The conversation-detail contract now exposes two **disjoint** sets:
 - `devices`: active participant devices eligible for **new** signed
   Direct envelopes and X3DH delivery, unchanged in meaning;
 - `historicalSenderIdentities`: minimal
-  `(deviceId, identityEd25519Public)` records for revoked devices that
-  have already **authored ciphertext inside this exact conversation**.
+  `(deviceId, identityEd25519Public, identityX25519Public)` records
+  for revoked devices that have already **authored ciphertext inside
+  this exact conversation**.
   The API uses a grouped PostgreSQL sender-device lookup,
   backed by a `(conversationId, senderDeviceId)` index, rather than
   transmitting the encrypted event log. Active/historical classification
