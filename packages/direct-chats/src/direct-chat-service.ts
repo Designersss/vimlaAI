@@ -1219,7 +1219,7 @@ export class DirectChatService {
         "Direct Chat was not found",
       );
     }
-    const [unreadCount, profiles, blockedByMe] =
+    const [unreadCount, profiles, blockedByMe, historicalSenderIds] =
       await Promise.all([
         this.readUnreadCount(
           actorUserId,
@@ -1234,6 +1234,18 @@ export class DirectChatService {
           actorUserId,
           peer.userId,
         ),
+        // Keep revoked device signing keys available only when that device
+        // actually authored ciphertext in THIS conversation. Merely being
+        // registered to a participant does not expose a historical device.
+        // PostgreSQL groups sender IDs instead of returning every event in
+        // potentially years-long encrypted histories.
+        this.db.directMessage.groupBy({
+          by: ["senderDeviceId"],
+          where: {
+            conversationId: conversation.id,
+            senderDevice: { revokedAt: { not: null } },
+          },
+        }),
       ]);
     const summary = this.toSummary(
       conversation,
@@ -1245,6 +1257,18 @@ export class DirectChatService {
     const devices = conversation.members.flatMap((member) =>
       member.user.cryptoDevices.filter((device) => device.revokedAt === null).map(toDeviceView),
     );
+    const historicalSenderSet = new Set(
+      historicalSenderIds.map((entry) => entry.senderDeviceId),
+    );
+    const historicalSenderIdentities = conversation.members.flatMap((member) =>
+      member.user.cryptoDevices
+        .filter((device) =>
+          device.revokedAt !== null && historicalSenderSet.has(device.id))
+        .map((device) => ({
+          deviceId: device.id,
+          identityEd25519Public: device.identityEd25519Public,
+        })),
+    );
     return {
       ...summary,
       lastMessageSequence: conversation.lastMessageSequence.toString(),
@@ -1252,6 +1276,7 @@ export class DirectChatService {
         requireParticipant(profiles, member.userId),
       ),
       devices,
+      historicalSenderIdentities,
     };
   }
 
