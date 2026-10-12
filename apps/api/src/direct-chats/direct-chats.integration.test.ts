@@ -781,6 +781,63 @@ describe("direct chats API", () => {
     expect(afterRevoke.statusCode).toBe(403);
   });
 
+  it("does not return a successful send preflight when sender revocation wins during peer-trust wait", async () => {
+    const alice = await readyUser(app, "dc-preflight-revoke-race-alice", "Alice");
+    const bob = await readyUser(app, "dc-preflight-revoke-race-bob", "Bob");
+    const device = await registerHarness(app, alice);
+    await registerHarness(app, bob);
+    const chat = await createChat(app, alice.cookies, bob.handle);
+    const db = app.get(PrismaService).client;
+    let unlock!: () => void;
+    let notifyLocked!: () => void;
+    const released = new Promise<void>((resolve) => { unlock = resolve; });
+    const acquired = new Promise<void>((resolve) => { notifyLocked = resolve; });
+
+    // Force the preflight to wait for peer trust while device revocation
+    // commits. Preflight must authorize the device only AFTER this wait,
+    // not rely on a stale active-device read from before it.
+    const pairGate = db.$transaction(async (tx) => {
+      expect(await lockTrustUserPair(tx, alice.id, bob.id)).toBe(true);
+      notifyLocked();
+      await released;
+    });
+    await acquired;
+    let preflightStatus: number | null = null;
+    try {
+      let settled = false;
+      const pendingPreflight = app.inject({
+        method: "POST",
+        url: `/v1/direct-chats/${chat.id}/send-preflight`,
+        headers: jsonHeaders(),
+        cookies: alice.cookies,
+        payload: { senderDeviceId: device.deviceId },
+      }).then((response) => {
+        settled = true;
+        return response;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 35));
+      expect(settled).toBe(false);
+
+      const revoke = await app.inject({
+        method: "POST",
+        url: `/v1/direct-chats/devices/${device.deviceId}/revoke`,
+        headers: { origin },
+        cookies: alice.cookies,
+      });
+      expect(revoke.statusCode).toBe(200);
+
+      unlock();
+      await pairGate;
+      const response = await pendingPreflight;
+      preflightStatus = response.statusCode;
+      expect(errorCode(response)).toBe("direct_chat_device_revoked");
+    } finally {
+      unlock();
+      await pairGate;
+    }
+    expect(preflightStatus).toBe(403);
+  });
+
   it("rate-limits send preflight independently from Direct Chat mutations", async () => {
     const config = loadApiConfig({
       ...process.env,
