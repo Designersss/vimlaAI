@@ -285,7 +285,15 @@ export const directConversationViewSchema = directConversationSummarySchema.exte
   // Includes encrypted reaction control events, not just visible chat messages.
   lastMessageSequence: directHistorySequenceSchema,
   members: z.array(directParticipantSchema),
+  // Only active devices are eligible for a new encrypted send/fan-out.
   devices: z.array(cryptoDeviceViewSchema),
+  // Historical sender signing keys survive device revocation for recipient
+  // verification of ciphertext already committed in THIS conversation.
+  // Never use these entries for X3DH prekey discovery or new delivery.
+  historicalSenderIdentities: z.array(z.object({
+    deviceId: z.string().uuid(),
+    identityEd25519Public: z.string().min(16).max(128),
+  }).strict()),
 });
 export type DirectConversationView = z.infer<typeof directConversationViewSchema>;
 
