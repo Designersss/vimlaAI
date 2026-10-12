@@ -42,6 +42,9 @@ export function decodeDirectPlaintext(
   expectedClientMessageId?: string,
   expectedContentCommitmentB64?: string | null,
 ): DirectPlaintextPayload | null {
+  // REACTION is a control envelope, never fallback text or AI/inbox content.
+  // A separate verifier must authenticate its full commitment and source.
+  if (kind === "REACTION") return null;
   if (kind === "HUMAN") {
     return decodeDirectHumanPayload(text, expectedClientMessageId, expectedContentCommitmentB64);
   }
@@ -84,6 +87,7 @@ export function directPlaintextPreview(
 ): string | null {
   // This helper also feeds AI-consent history and the unified inbox.
   // A HUMAN whose actual signed ID is unknown must not become preview text.
+  if (kind === "REACTION") return null;
   if (kind === "HUMAN" && (!expectedClientMessageId || !expectedContentCommitmentB64)) return null;
   const payload = decodeDirectPlaintext(
     kind, text, expectedClientMessageId, expectedContentCommitmentB64,

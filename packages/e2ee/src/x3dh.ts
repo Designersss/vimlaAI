@@ -19,6 +19,15 @@ export interface X3dhInitiation {
 }
 
 export function x3dhInitiate(local: IdentityKeyPair, remote: PublicPreKeyBundle): X3dhInitiation {
+  // An OTK is either an atomic (id, public key) pair or completely absent.
+  // Without this check a malformed API bundle could derive 4DH while
+  // transmitting a null OTK id (or vice versa), leaving a session that
+  // its recipient can never reconstruct.
+  if ((remote.oneTimePrekeyId === null) !== (remote.oneTimePrekeyPublic === null) ||
+      (remote.oneTimePrekeyId !== null &&
+        (!Number.isSafeInteger(remote.oneTimePrekeyId) || remote.oneTimePrekeyId < 1))) {
+    throw new Error("Inconsistent X3DH one-time prekey bundle");
+  }
   const remoteIdentityEd = decodePublicKey(remote.identityEd25519Public);
   const remoteIdentityX = decodePublicKey(remote.identityX25519Public);
   const remoteSigned = decodePublicKey(remote.signedPrekeyPublic);
@@ -32,7 +41,7 @@ export function x3dhInitiate(local: IdentityKeyPair, remote: PublicPreKeyBundle)
   const dh2 = dh(ephemeral.secretKey, remoteIdentityX);
   const dh3 = dh(ephemeral.secretKey, remoteSigned);
   const parts = [dh1, dh2, dh3];
-  if (remote.oneTimePrekeyPublic) {
+  if (remote.oneTimePrekeyPublic !== null) {
     parts.push(dh(ephemeral.secretKey, decodePublicKey(remote.oneTimePrekeyPublic)));
   }
 
@@ -56,6 +65,14 @@ export function x3dhRespond(
   oneTimeSecret: Uint8Array | null,
   init: X3dhInitHeader,
 ): { sharedKey: Uint8Array; associatedData: Uint8Array } {
+  // A sender-authenticated X3DH init header commits to whether an OTK
+  // participated in the KDF. Never silently derive the other handshake
+  // variant when local key material has been lost or misidentified.
+  if ((init.oneTimePrekeyId === null) !== (oneTimeSecret === null) ||
+      (init.oneTimePrekeyId !== null &&
+        (!Number.isSafeInteger(init.oneTimePrekeyId) || init.oneTimePrekeyId < 1))) {
+    throw new Error("X3DH one-time prekey does not match init header");
+  }
   const remoteIdentityEd = decodePublicKey(init.identityEd25519Public);
   const remoteIdentityX = decodePublicKey(init.identityX25519Public);
   const ephemeral = decodePublicKey(init.ephemeralPublic);

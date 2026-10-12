@@ -5,7 +5,18 @@ export {
   type DirectChatPlaintextRecord,
   type PreparedDirectChatContext,
 } from "./direct-chat-context.js";
+export { advanceDirectHistoryHead, reconcileDirectHistoryHead, applyDirectPrivacyAcknowledgement } from "./direct-chat-history-head.js";
 export {
+  directSenderVerificationKeys,
+  hasConflictingDirectX3dhSenderIdentity,
+  type DirectSenderIdentity,
+} from "./direct-chat-sender-identities.js";
+export { directMessageReplicaFingerprint, sameDirectMessageReplica, hasConflictingDirectMessageReplicas, mergeDirectMessageReplicaRows, type DirectMessageReplicaRow } from "./direct-chat-message-replica.js";
+export { validateDirectReactionLookupPage } from "./direct-chat-reaction-history-lookup.js";
+export {
+  DIRECT_HISTORY_CATCHUP_MAX_PAGES,
+  assertDirectHistoryCatchupBudget,
+  inspectDirectHistoryGap,
   DEEP_HISTORY_BOOTSTRAP_MAX_PAGES,
   pageUnlocksHistoryBootstrap,
   shouldContinueDeepHistoryBootstrap,
@@ -63,3 +74,29 @@ export {
   createDirectHumanMessage,
   type HumanPayload,
 } from "./direct-chat-human-payload.js";
+
+export {
+  DIRECT_REACTION_EMOJIS,
+  isDirectReactionEmoji,
+  directReactionTargetTag,
+  createDirectReaction,
+  decodeDirectReaction,
+  resolveDirectReactionSource,
+  verifyDirectReaction,
+  type DirectReactionEmoji,
+  type DirectReactionAction,
+  type DirectReactionPayload,
+  type PreparedDirectReaction,
+  type SignedDirectReactionMetadata,
+  type VerifiedDirectReaction,
+} from "./direct-chat-reactions.js";
+export {
+  reduceVerifiedDirectReactions,
+  type DirectReactionState,
+} from "./direct-chat-reaction-state.js";
+export {
+  projectVerifiedDirectReactions,
+  type CachedDirectReactionPlaintext,
+  type ReactionProjectionRow,
+  type DirectReactionsProjection,
+} from "./direct-chat-reaction-projection.js";

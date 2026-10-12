@@ -5,6 +5,7 @@ import {
   directMessageViewSchema,
   lookupOwnDirectMessageResponseSchema,
   directMessagesResponseSchema,
+  directReactionEventsResponseSchema,
   directMessageSendPreflightSchema,
   prepareDirectMessageSendSchema,
   prekeyBundlesResponseSchema,
@@ -13,6 +14,7 @@ import {
   type DirectConversationView,
   type DirectMessageView,
   type DirectMessagesResponse,
+  type DirectReactionEventsResponse,
   type LookupOwnDirectMessageResponse,
   type DirectMessageSendPreflight,
   type MarkDirectChatRead,
@@ -127,6 +129,31 @@ export function createDirectChatsClient(
           init: signalInit(options.signal),
           parse: (payload) =>
             directMessagesResponseSchema.parse(payload),
+          errorFactory,
+        },
+      );
+    },
+
+    fetchDirectReactionEvents(
+      id: string,
+      deviceId: string,
+      targetTagB64: string,
+      cursor?: string,
+      options: DirectChatRequestOptions = {},
+    ): Promise<DirectReactionEventsResponse> {
+      // Read-only POST keeps source-linking opaque tags out of URLs,
+      // browser history and routine request-path access logs.
+      const body = {
+        deviceId, targetTagB64,
+        ...(cursor ? { cursor } : {}),
+        limit: 30,
+      };
+      return transport.request(
+        `/v1/direct-chats/${encodeURIComponent(id)}/reactions`,
+        {
+          init: jsonRequestInit("POST", body, options.signal),
+          parse: (payload) =>
+            directReactionEventsResponseSchema.parse(payload),
           errorFactory,
         },
       );

@@ -2,6 +2,7 @@ import type { CryptoDeviceView, PrekeyBundle, RegisterCryptoDevice, RotatePrekey
 import type { Prisma } from "@vimla/database";
 import { b64ToBytes, verifySignedPreKey } from "@vimla/e2ee";
 import { DirectChatError } from "./errors.js";
+import { lockDirectDeviceRoster } from "./device-roster-lock.js";
 import type { ActorContext, DbClient } from "./types.js";
 
 export class DeviceService {
@@ -29,6 +30,10 @@ export class DeviceService {
         SELECT 1::int AS "locked"
         FROM "device_registration_lock"
       `;
+
+      // Enrolment must serialize with Direct message fan-out. A newly
+      // inserted device has no row for a sender transaction to lock.
+      await lockDirectDeviceRoster(tx, [actor.userId], "exclusive");
 
       const existing =
         await tx.userCryptoDevice.findUnique({
@@ -59,6 +64,13 @@ export class DeviceService {
         );
       }
 
+      assertUniqueOneTimePrekeyIds(input.oneTimePrekeys);
+      if (existing) {
+        assertSignedPrekeyVersion(
+          existing,
+          input,
+        );
+      }
       if (!existing) {
         return tx.userCryptoDevice.create({
           data: {
@@ -84,6 +96,12 @@ export class DeviceService {
         });
       }
 
+      await assertSafeOneTimePrekeyReplacement(
+        tx,
+        existing.id,
+        input.oneTimePrekeys,
+        existing.signedPrekeyId === input.signedPrekeyId,
+      );
       const updated = await tx.userCryptoDevice.update({
         where: { id: existing.id },
         data: {
@@ -115,18 +133,54 @@ export class DeviceService {
   }
 
   async rotate(actor: ActorContext, deviceId: string, input: RotatePrekeys): Promise<CryptoDeviceView> {
-    const device = await this.requireOwnActiveDevice(actor.userId, deviceId);
-    assertSignedPrekey(device.identityEd25519Public, input.signedPrekeyId, input.signedPrekeyPublic, input.signedPrekeySignature);
-    const updated = await this.db.userCryptoDevice.update({
-      where: { id: device.id },
-      data: {
-        signedPrekeyId: input.signedPrekeyId,
-        signedPrekeyPublic: input.signedPrekeyPublic,
-        signedPrekeySignature: input.signedPrekeySignature,
-      },
+    return this.db.$transaction(async (tx) => {
+      // Both signed prekey and unused OTKs form ONE published X3DH bundle.
+      // No reader may observe half a rotation, and a revoked device must
+      // not rotate after passing an earlier out-of-transaction status check.
+      await lockDirectDeviceRoster(tx, [actor.userId], "exclusive");
+      const device = await tx.userCryptoDevice.findFirst({
+        where: { id: deviceId, userId: actor.userId },
+      });
+      if (!device) {
+        throw new DirectChatError("NOT_FOUND", "Device was not found");
+      }
+      if (device.revokedAt) {
+        throw new DirectChatError("DEVICE_REVOKED", "This device was revoked");
+      }
+      assertSignedPrekey(
+        device.identityEd25519Public,
+        input.signedPrekeyId,
+        input.signedPrekeyPublic,
+        input.signedPrekeySignature,
+      );
+      assertSignedPrekeyVersion(device, input);
+      await assertSafeOneTimePrekeyReplacement(
+        tx,
+        device.id,
+        input.oneTimePrekeys,
+        device.signedPrekeyId === input.signedPrekeyId,
+      );
+      const updated = await tx.userCryptoDevice.update({
+        where: { id: device.id },
+        data: {
+          signedPrekeyId: input.signedPrekeyId,
+          signedPrekeyPublic: input.signedPrekeyPublic,
+          signedPrekeySignature: input.signedPrekeySignature,
+        },
+      });
+      await tx.directOneTimePrekey.deleteMany({
+        where: { deviceId: device.id, consumedAt: null },
+      });
+      await tx.directOneTimePrekey.createMany({
+        data: input.oneTimePrekeys.map((key) => ({
+          deviceId: device.id,
+          keyId: key.keyId,
+          publicKey: key.publicKey,
+        })),
+        skipDuplicates: true,
+      });
+      return toDeviceView(updated);
     });
-    await this.replaceUnusedPrekeys(device.id, input.oneTimePrekeys);
-    return toDeviceView(updated);
   }
 
   async listMine(actor: ActorContext): Promise<CryptoDeviceView[]> {
@@ -138,15 +192,26 @@ export class DeviceService {
   }
 
   async revoke(actor: ActorContext, deviceId: string): Promise<CryptoDeviceView> {
-    const device = await this.requireOwnDevice(actor.userId, deviceId);
-    if (device.revokedAt) {
-      return toDeviceView(device);
-    }
-    const updated = await this.db.userCryptoDevice.update({
-      where: { id: device.id },
-      data: { revokedAt: new Date() },
+    return this.db.$transaction(async (tx) => {
+      // Use the same roster lock as enrolment and Direct message inserts.
+      // This prevents an externally observed device-set mutation from
+      // splitting a signed multi-recipient send transaction.
+      await lockDirectDeviceRoster(tx, [actor.userId], "exclusive");
+      const device = await tx.userCryptoDevice.findFirst({
+        where: { id: deviceId, userId: actor.userId },
+      });
+      if (!device) {
+        throw new DirectChatError("NOT_FOUND", "Device was not found");
+      }
+      if (device.revokedAt) {
+        return toDeviceView(device);
+      }
+      const updated = await tx.userCryptoDevice.update({
+        where: { id: device.id },
+        data: { revokedAt: new Date() },
+      });
+      return toDeviceView(updated);
     });
-    return toDeviceView(updated);
   }
 
   async requireOwnActiveDevice(userId: string, deviceId: string) {
@@ -165,18 +230,86 @@ export class DeviceService {
     return device;
   }
 
-  private async replaceUnusedPrekeys(
-    deviceId: string,
-    keys: ReadonlyArray<{ keyId: number; publicKey: string }>,
-  ): Promise<void> {
-    await this.db.directOneTimePrekey.deleteMany({ where: { deviceId, consumedAt: null } });
-    if (keys.length === 0) {
-      return;
+}
+
+/**
+ * OTK key IDs belong to a device's entire lifetime, not just the current
+ * published batch. Retained consumed rows are replay tombstones. An exact
+ * retry of a consumed OTK is harmless, but a DIFFERENT public key with
+ * the same ID would silently disappear under createMany(skipDuplicates)
+ * and leave the sender believing its new prekey was published.
+ * Retried consumed IDs are accepted ONLY under the same signed-prekey
+ * version and identical OTK public key, never as part of a fresh rotation.
+ */
+function assertSignedPrekeyVersion(
+  current: {
+    signedPrekeyId: number;
+    signedPrekeyPublic: string;
+    signedPrekeySignature: string;
+  },
+  proposed: {
+    signedPrekeyId: number;
+    signedPrekeyPublic: string;
+    signedPrekeySignature: string;
+  },
+): void {
+  // The same device identity must never go back to an older signed key
+  // version on stale enrolment retries or across concurrent rotations.
+  // An equal ID is an idempotent retry ONLY if its signed public material
+  // is also byte-for-byte the originally stored key.
+  if (proposed.signedPrekeyId < current.signedPrekeyId ||
+      (proposed.signedPrekeyId === current.signedPrekeyId &&
+        (proposed.signedPrekeyPublic !== current.signedPrekeyPublic ||
+          proposed.signedPrekeySignature !== current.signedPrekeySignature))) {
+    throw new DirectChatError(
+      "TAMPERED",
+      "Signed prekey version is stale or rebound",
+    );
+  }
+}
+
+function assertUniqueOneTimePrekeyIds(
+  keys: ReadonlyArray<{ keyId: number; publicKey: string }>,
+): void {
+  const ids = new Set<number>();
+  for (const key of keys) {
+    if (ids.has(key.keyId)) {
+      throw new DirectChatError(
+        "VALIDATION_ERROR",
+        "One-time prekey ids must be unique",
+      );
     }
-    await this.db.directOneTimePrekey.createMany({
-      data: keys.map((key) => ({ deviceId, keyId: key.keyId, publicKey: key.publicKey })),
-      skipDuplicates: true,
-    });
+    ids.add(key.keyId);
+  }
+}
+
+async function assertSafeOneTimePrekeyReplacement(
+  tx: Prisma.TransactionClient,
+  deviceId: string,
+  keys: ReadonlyArray<{ keyId: number; publicKey: string }>,
+  exactSignedKeyRetry: boolean,
+): Promise<void> {
+  assertUniqueOneTimePrekeyIds(keys);
+  const previouslyConsumed = await tx.directOneTimePrekey.findMany({
+    where: {
+      deviceId,
+      consumedAt: { not: null },
+      keyId: { in: keys.map((key) => key.keyId) },
+    },
+    select: { keyId: true, publicKey: true },
+  });
+  const consumedPublicById = new Map(
+    previouslyConsumed.map((key) => [key.keyId, key.publicKey]),
+  );
+  for (const key of keys) {
+    const previous = consumedPublicById.get(key.keyId);
+    if (previous !== undefined &&
+        (previous !== key.publicKey || !exactSignedKeyRetry)) {
+      throw new DirectChatError(
+        "TAMPERED",
+        "Consumed one-time prekey id cannot be rebound or reissued",
+      );
+    }
   }
 }
 

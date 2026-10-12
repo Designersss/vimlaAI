@@ -28,8 +28,13 @@ export class DirectChatsRateLimitGuard implements CanActivate {
     const lookup =
       request.method === "GET" &&
       request.routeOptions.url?.endsWith("/messages/lookup") === true;
+    // An indexed opaque-tag query is still a metadata probe. Never exempt
+    // repeated tag guesses from per-user limits merely because it is GET.
+    const reactionHistory =
+      request.method === "POST" &&
+      request.routeOptions.url?.endsWith("/:id/reactions") === true;
     if (
-      (request.method === "GET" && !lookup) ||
+      (request.method === "GET" && !lookup && !reactionHistory) ||
       request.method === "HEAD" ||
       request.method === "OPTIONS"
     ) {
@@ -47,6 +52,12 @@ export class DirectChatsRateLimitGuard implements CanActivate {
     const claimingPrekeys =
       request.method === "POST" &&
       request.routeOptions.url === "/v1/direct-chats/users/:userId/prekeys";
+    // Enrollment/revocation is a security-sensitive lifecycle operation,
+    // not another chat send/read. Keep a *smaller, independent* device budget
+    // so normal messaging activity cannot strand a newly enrolled device.
+    // Both paths remain Redis-backed, bounded, and actor-scoped.
+    const deviceMutation =
+      request.routeOptions.url?.startsWith("/v1/direct-chats/devices") === true;
     const allowed = await this.hit(
       claimingPrekeys
         ? `ratelimit:direct-chats:prekeys:user:${userId}`
@@ -54,10 +65,18 @@ export class DirectChatsRateLimitGuard implements CanActivate {
           ? `ratelimit:direct-chats:preflight:user:${userId}`
           : lookup
             ? `ratelimit:direct-chats:lookup:user:${userId}`
-            : `ratelimit:direct-chats:user:${userId}`,
-      claimingPrekeys || preflight || lookup
-        ? this.config.directChatsPreflightLimitPerMinute
-        : this.config.directChatsMutationLimitPerMinute,
+            : reactionHistory
+              ? `ratelimit:direct-chats:reactions-history:user:${userId}`
+              : deviceMutation
+              ? `ratelimit:direct-chats:device-mutation:user:${userId}`
+              : `ratelimit:direct-chats:user:${userId}`,
+      reactionHistory
+        ? Math.min(30, this.config.directChatsPreflightLimitPerMinute)
+        : claimingPrekeys || preflight || lookup
+          ? this.config.directChatsPreflightLimitPerMinute
+          : deviceMutation
+          ? Math.min(10, this.config.directChatsMutationLimitPerMinute)
+          : this.config.directChatsMutationLimitPerMinute,
     );
     if (!allowed) {
       throw new HttpException(

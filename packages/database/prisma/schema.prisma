@@ -1193,6 +1193,7 @@ model DirectMessage {
   senderDevice   UserCryptoDevice   @relation(fields: [senderDeviceId], references: [id], onDelete: Restrict)
   clientMessageId String
   contentCommitmentB64 String?
+  reactionTargetTagB64 String?
   kind           String
   interactionEpoch Int              @default(0)
   sequence       BigInt             @default(0)
@@ -1203,7 +1204,11 @@ model DirectMessage {
   @@unique([conversationId, senderUserId, clientMessageId])
   @@unique([conversationId, sequence])
   @@index([conversationId, createdAt, id])
+  // Bounded grouped lookup of revoked historical signing devices for one
+  // Direct conversation, without streaming the full encrypted event log.
+  @@index([conversationId, senderDeviceId])
   @@index([senderDeviceId, createdAt])
+  @@index([conversationId, reactionTargetTagB64, sequence])
   @@map("direct_message")
 }
 

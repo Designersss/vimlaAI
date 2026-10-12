@@ -70,10 +70,8 @@ const surfaceInclude = {
     include: {
       members: true,
       messages: {
-        orderBy: [
-          { createdAt: "desc" as const },
-          { id: "desc" as const },
-        ],
+        where: { kind: { not: "REACTION" } },
+        orderBy: [{ sequence: "desc" as const }],
         take: 1,
       },
     },
@@ -618,6 +616,7 @@ export class InboxService {
         WHERE
           message."conversationId" IN (${Prisma.join(conversationIds)})
           AND message."senderUserId" <> ${userId}
+          AND message."kind" <> 'REACTION'
           AND (
             member."lastReadMessageSequence" IS NULL
             OR message."sequence" > member."lastReadMessageSequence"

@@ -47,6 +47,11 @@ const e2eEnv: Record<string, string> = {
   OPERATOR_ENABLED: "true",
   NEXT_PUBLIC_VIMLA_OPERATOR: "true",
   DIRECT_CHATS_ENABLED: "true",
+  // Cross-browser E2E drives dozens of successful sends/read receipts in
+  // under a minute to exercise ratchet/realtime/lease races. Keep that load
+  // suite separate from the strict production anti-abuse policy; real Redis
+  // rate-limit isolation and 429 enforcement remain covered by API integration.
+  DIRECT_CHATS_MUTATION_LIMIT_PER_MINUTE: "240",
   NEXT_PUBLIC_VIMLA_DIRECT_CHATS: "true",
   PROJECTS_ENABLED: "true",
   NEXT_PUBLIC_VIMLA_PROJECTS: "true",

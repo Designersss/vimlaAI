@@ -10,6 +10,7 @@ export interface CachedDirectPlaintextProvenance {
   senderUserId: string;
   clientMessageId?: string;
   contentCommitmentB64?: string | null;
+  reactionTargetTagB64?: string | null;
   senderDeviceId?: string;
   interactionEpoch?: number;
   kind: string;
@@ -27,6 +28,9 @@ export function cachedDirectPlaintextMatchesMessage(
     typeof cached.clientMessageId === "string" &&
     cached.clientMessageId === expected.clientMessageId &&
     cached.contentCommitmentB64 === expected.contentCommitmentB64 &&
+    (expected.kind !== "REACTION" ||
+      (typeof cached.reactionTargetTagB64 === "string" &&
+        cached.reactionTargetTagB64 === expected.reactionTargetTagB64)) &&
     typeof cached.senderDeviceId === "string" &&
     cached.senderDeviceId === expected.senderDeviceId &&
     typeof cached.interactionEpoch === "number" &&

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   createDirectConversationSchema,
+  directConversationViewSchema,
+  directMessageViewSchema,
   directParticipantSchema,
   markDirectChatReadSchema,
   operatorContextBundleSchema,
@@ -9,6 +11,23 @@ import {
 } from "./direct-chats.js";
 
 describe("direct chat contracts", () => {
+  it("bounds every server-supplied bigint sequence before client BigInt parsing", () => {
+    const messageSequence = directMessageViewSchema.shape.sequence;
+    const conversationHead = directConversationViewSchema.shape.lastMessageSequence;
+    const valid = ["1", "9007199254740993", "9223372036854775807"];
+    const invalid = ["", "00", "01", "-1", "9223372036854775808", "9".repeat(80)];
+    for (const value of valid) {
+      expect(messageSequence.safeParse(value).success).toBe(true);
+      expect(conversationHead.safeParse(value).success).toBe(true);
+    }
+    expect(conversationHead.safeParse("0").success).toBe(true);
+    expect(messageSequence.safeParse("0").success).toBe(false);
+    for (const value of invalid) {
+      expect(messageSequence.safeParse(value).success).toBe(false);
+      expect(conversationHead.safeParse(value).success).toBe(false);
+    }
+  });
+
   it("rejects plaintext, email addressing and extra authority on send", () => {
     expect(
       sendDirectMessageSchema.safeParse({

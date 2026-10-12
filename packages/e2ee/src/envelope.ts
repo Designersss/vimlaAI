@@ -11,6 +11,7 @@ import type { X3dhInitHeader } from "./x3dh.js";
 
 export const DIRECT_MESSAGE_KINDS = [
   "HUMAN",
+  "REACTION",
   "OPERATOR_INVOKE",
   "OPERATOR_RESPONSE",
   "OPERATOR_ACTION",
@@ -83,6 +84,24 @@ export function buildAssociatedData(input: EnvelopeAssociatedData): Uint8Array {
       input.routingContext ?? null,
     ]),
   );
+}
+
+/** A reaction lookup hint is metadata, not source authority. Sign it through
+ * the existing AD5 routing-context slot without changing prior HUMAN wires. */
+export function serializeDirectReactionTargetTag(tagB64: string): string {
+  if (!/^[A-Za-z0-9+/]{43}=$/.test(tagB64)) {
+    throw new Error("Invalid opaque Direct reaction target tag");
+  }
+  let bytes: Uint8Array;
+  try {
+    bytes = b64ToBytes(tagB64);
+  } catch {
+    throw new Error("Invalid opaque Direct reaction target tag");
+  }
+  if (bytes.length !== 32 || bytesToB64(bytes) !== tagB64) {
+    throw new Error("Noncanonical opaque Direct reaction target tag");
+  }
+  return JSON.stringify(["VimlaReactionRoutingV1", tagB64]);
 }
 
 export function encryptEnvelope(input: {

@@ -18,6 +18,8 @@ import {
   directConversationViewSchema,
   directMessageViewSchema,
   directMessagesResponseSchema,
+  directReactionEventsResponseSchema,
+  listDirectReactionEventsQuerySchema,
   directMessageSendPreflightSchema,
   listDirectMessagesQuerySchema,
   lookupOwnDirectMessageQuerySchema,
@@ -34,6 +36,7 @@ import {
   type DirectConversationView,
   type DirectMessageView,
   type DirectMessagesResponse,
+  type DirectReactionEventsResponse,
   type LookupOwnDirectMessageResponse,
   type DirectMessageSendPreflight,
   type PrekeyBundlesResponse,
@@ -218,6 +221,29 @@ export class DirectChatsController {
         ? { status: "COMMITTED", message }
         : { status: "ABSENT" },
     );
+  }
+
+  // POST is read-only here: opaque source-correlating tags must never be
+  // copied into URL paths, proxy access logs or browser navigation history.
+  @Post(":id/reactions")
+  @HttpCode(200)
+  async reactionEvents(
+    @AuthUser() user: AuthenticatedUser,
+    @Param("id") id: string,
+    @Body() query: unknown,
+  ): Promise<DirectReactionEventsResponse> {
+    this.directChats.assertEnabled();
+    const parsed = parseRequest(
+      listDirectReactionEventsQuerySchema,
+      query,
+      "Invalid Direct reaction history query",
+    );
+    const result = await this.directChats.chats.listReactionEvents(
+      this.directChats.actor(user),
+      id,
+      parsed,
+    );
+    return directReactionEventsResponseSchema.parse(result);
   }
 
   @Get(":id/messages")

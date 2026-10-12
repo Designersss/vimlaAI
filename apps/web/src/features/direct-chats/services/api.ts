@@ -5,6 +5,7 @@ import type {
   DirectMessageSendPreflight,
   DirectMessageView,
   DirectMessagesResponse,
+  DirectReactionEventsResponse,
   LookupOwnDirectMessageResponse,
   MarkDirectChatRead,
   PrepareDirectMessageSend,
@@ -14,6 +15,7 @@ import type {
   UpdateDirectChatPrivacy,
 } from "@vimla/contracts";
 import { DirectChatsApiError } from "@vimla/client-api";
+import { validateDirectReactionLookupPage } from "@vimla/client-core";
 import { createWebClientApi } from "../../../shared/api/client";
 import { clearLocalE2eeData } from "./crypto-store";
 import { markLocalDeviceRevoked } from "./revocation-state";
@@ -96,6 +98,31 @@ export async function fetchDirectMessages(
       cursor,
       { signal: timeoutSignal() },
     );
+  } catch (error: unknown) {
+    return wipeAfterCurrentDeviceRevocation(error);
+  }
+}
+
+/**
+ * Opaque indexed E2EE lookup only. Callers must NOT treat the returned
+ * ciphertext or tag matches as proof of a decryptable/complete reaction state.
+ */
+export async function fetchDirectReactionEvents(
+  id: string,
+  deviceId: string,
+  targetTagB64: string,
+  sourceSequence: string,
+  cursor?: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<DirectReactionEventsResponse> {
+  try {
+    const page = await createWebClientApi(fetchImpl).directChats.fetchDirectReactionEvents(
+      id, deviceId, targetTagB64, cursor,
+      { signal: timeoutSignal() },
+    );
+    return validateDirectReactionLookupPage(page, {
+      conversationId: id, deviceId, targetTagB64, sourceSequence, limit: 30,
+    });
   } catch (error: unknown) {
     return wipeAfterCurrentDeviceRevocation(error);
   }
