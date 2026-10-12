@@ -41,8 +41,8 @@ export function x3dhInitiate(local: IdentityKeyPair, remote: PublicPreKeyBundle)
   const dh2 = dh(ephemeral.secretKey, remoteIdentityX);
   const dh3 = dh(ephemeral.secretKey, remoteSigned);
   const parts = [dh1, dh2, dh3];
-  if (remote.oneTimePrekeyId !== null) {
-    parts.push(dh(ephemeral.secretKey, decodePublicKey(remote.oneTimePrekeyPublic!)));
+  if (remote.oneTimePrekeyPublic !== null) {
+    parts.push(dh(ephemeral.secretKey, decodePublicKey(remote.oneTimePrekeyPublic)));
   }
 
   return {
