@@ -471,6 +471,74 @@ describe("direct chats API", () => {
     })).toBe(0);
   });
 
+  it("blocks new-device enrolment behind an in-flight Direct roster snapshot", async () => {
+    const alice = await readyUser(app, "dc-roster-shared-alice", "Alice");
+    const bob = await readyUser(app, "dc-roster-shared-bob", "Bob");
+    await registerHarness(app, alice);
+    const existingBobDevice = await registerHarness(app, bob);
+    const chat = await createChat(app, alice.cookies, bob.handle);
+    const db = app.get(PrismaService).client;
+    let releaseRoster!: () => void;
+    let notifyLocked!: () => void;
+    const released = new Promise<void>((resolve) => { releaseRoster = resolve; });
+    const acquired = new Promise<void>((resolve) => { notifyLocked = resolve; });
+
+    // An encrypted Direct sender holds this SHARED roster lock until
+    // its immutable event and every recipient envelope are committed.
+    // Enrolment needs the corresponding EXCLUSIVE lock before INSERT.
+    // The new device must not join an already-signed recipient snapshot.
+    const sendSnapshotGate = db.$transaction(async (tx) => {
+      await tx.$queryRaw<Array<{ locked: number }>>`
+        WITH "active_roster_snapshot" AS (
+          SELECT pg_advisory_xact_lock_shared(
+            hashtextextended(${`vimla:direct:device-roster:v1:${bob.id}`}, 0)
+          )
+        )
+        SELECT 1::int AS "locked" FROM "active_roster_snapshot"
+      `;
+      notifyLocked();
+      await released;
+    });
+    await acquired;
+    let newBobDevice: Harness | null = null;
+    try {
+      let registered = false;
+      const pendingRegistration = registerHarness(app, bob).then((device) => {
+        registered = true;
+        return device;
+      });
+      await new Promise((resolve) => setTimeout(resolve, 35));
+      expect(registered).toBe(false);
+      expect(await db.userCryptoDevice.count({
+        where: { userId: bob.id, revokedAt: null },
+      })).toBe(1);
+
+      releaseRoster();
+      await sendSnapshotGate;
+      newBobDevice = await pendingRegistration;
+    } finally {
+      releaseRoster();
+      await sendSnapshotGate;
+    }
+    if (!newBobDevice) throw new Error("Missing newly registered recipient device");
+
+    const detail = await app.inject({
+      method: "GET",
+      url: `/v1/direct-chats/${chat.id}`,
+      headers: { origin },
+      cookies: alice.cookies,
+    });
+    expect(detail.statusCode).toBe(200);
+    const deviceIds = new Set(
+      (detail.json() as DirectConversationView).devices.map((device) => device.id),
+    );
+    expect(deviceIds.has(existingBobDevice.deviceId)).toBe(true);
+    expect(deviceIds.has(newBobDevice.deviceId)).toBe(true);
+    expect(await db.userCryptoDevice.count({
+      where: { userId: bob.id, revokedAt: null },
+    })).toBe(2);
+  });
+
   it("rejects an in-flight signed reaction if a new recipient device joins before insert", async () => {
     const alice = await readyUser(app, "dc-reaction-enrol-race-alice", "Alice");
     const bob = await readyUser(app, "dc-reaction-enrol-race-bob", "Bob");
