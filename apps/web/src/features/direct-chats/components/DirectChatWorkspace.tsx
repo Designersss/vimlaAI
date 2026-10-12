@@ -84,6 +84,7 @@ import {
   inspectDirectHistoryGap,
   directReplyReference,
   directSenderVerificationKeys,
+  hasConflictingDirectX3dhSenderIdentity,
   createDirectHumanMessage,
   createDirectReaction,
   advanceDirectHistoryHead,
@@ -2470,6 +2471,18 @@ async function decryptPage(detail: DirectConversationView, items: DirectMessageV
   // sender device is revoked. Revoked sender keys are provided separately
   // from ACTIVE delivery devices by the authoritative Direct directory.
   const identityByDevice = directSenderVerificationKeys(detail);
+  // Validate ALL signed X3DH identity claims against the same authoritative
+  // key directory BEFORE decrypting ANY envelope or advancing a ratchet.
+  // A self-signed but directory-contradictory init may not bootstrap an
+  // alternative session, including from a historically revoked sender.
+  if (hasConflictingDirectX3dhSenderIdentity(items, identityByDevice)) {
+    return items.map((message) => ({
+      message,
+      payload: null,
+      needsBootstrap: false,
+      integrityConflict: true,
+    }));
+  }
   // Keep every server-provided replica until the integrity-aware merge.
   // Keying by message.id here would erase same-page equivocation evidence.
   const byMessage = new Map<DirectMessageView, DecryptedRow>();
@@ -2482,13 +2495,13 @@ async function decryptPage(detail: DirectConversationView, items: DirectMessageV
     // identity as the signing-key authority for that same envelope.
     // A malicious server could otherwise substitute an entire signed
     // ciphertext/key pair before device key transparency is implemented.
-    const senderPublic =
+    const senderIdentity =
       identityByDevice.get(message.senderDeviceId);
     const result = await decryptMessageWithStatus({
       conversationId: detail.id,
       message,
-      ...(senderPublic
-        ? { senderIdentityEd25519Public: senderPublic }
+      ...(senderIdentity
+        ? { senderIdentityEd25519Public: senderIdentity.identityEd25519Public }
         : {}),
     });
     byMessage.set(message, {
