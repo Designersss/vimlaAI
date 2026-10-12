@@ -409,8 +409,11 @@ The conversation-detail contract now exposes two **disjoint** sets:
 - `historicalSenderIdentities`: minimal
   `(deviceId, identityEd25519Public)` records for revoked devices that
   have already **authored ciphertext inside this exact conversation**.
-  The API uses a grouped PostgreSQL sender-device lookup rather than
-  scanning or transmitting the encrypted event log. Other revoked
+  The API uses a grouped PostgreSQL sender-device lookup,
+  backed by a `(conversationId, senderDeviceId)` index, rather than
+  transmitting the encrypted event log. Active/historical classification
+  uses the SAME loaded device roster snapshot, avoiding contradictory
+  entries if revocation occurs between DB reads. Other revoked
   participant devices, including never-used devices, are omitted.
   This does not expose historical private keys.
 
