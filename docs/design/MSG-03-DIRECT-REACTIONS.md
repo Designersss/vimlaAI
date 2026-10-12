@@ -390,6 +390,55 @@ alternate device-registration paths and the full multi-device/outbox
 retry matrix remain part of the independent production readiness audit. None of these measures provides
 historical Double Ratchet recovery or a safe reaction compaction proof.
 
+### Revoked historical sender signature verification (October 12)
+
+A follow-up security/product audit found a Direct cold-cache replay failure:
+the conversation detail exposed only the **active** crypto-device
+roster, and Web's encrypted history reader could not verify older
+sender signatures when that sender device had since been revoked.
+Before this change, Web also accepted a historic encrypted envelope's
+self-asserted X3DH init `identityEd25519Public` as its own verification
+authority. This is unsound under an untrusted server: an attacker could
+replace an envelope and its self-asserted signing key together and have
+the substituted signature validate.
+
+The conversation-detail contract now exposes two **disjoint** sets:
+
+- `devices`: active participant devices eligible for **new** signed
+  Direct envelopes and X3DH delivery, unchanged in meaning;
+- `historicalSenderIdentities`: minimal
+  `(deviceId, identityEd25519Public)` records for revoked devices that
+  have already **authored ciphertext inside this exact conversation**.
+  The API uses a grouped PostgreSQL sender-device lookup rather than
+  scanning or transmitting the encrypted event log. Other revoked
+  participant devices, including never-used devices, are omitted.
+  This does not expose historical private keys.
+
+The platform-neutral `@vimla/client-core` directory resolver rejects
+duplicate, contradictory or incorrectly revoked-as-active entries.
+Web uses this same directory for signature verification throughout
+historical pages, **never** the encrypted message's own X3DH init
+identity as a trust root. The encrypted payload, per-device sender
+signature, immutable original event metadata and ratchet AD5 remain
+subject to their preexisting checks; no plaintext or decryption keys
+are stored on the server. A real PostgreSQL regression creates an
+old signed HUMAN message, revokes both its actual sender device and
+another never-used device, verifies the old ciphertext from an active
+recipient, asserts only the used revoked sender identity is exposed
+in that chat, checks that an unrelated conversation learns no such
+history, and verifies the revoked actor's ciphertext reads still
+return `DEVICE_REVOKED`. Portable tests cover directory conflicts.
+
+An honest authoritative API now retains the public verification
+identity needed for cold-history replay; **this alone does not
+reconstruct an erased Double Ratchet message key**. Malicious-server
+identity substitution and directory history equivocation remain
+release-security questions under #54: key transparency, peer key
+pinning and user-verification events must be reviewed separately.
+Historical public sender keys are verification data, **not**
+permission for a revoked device to read old or new ciphertext or to
+receive future envelopes.
+
 ### Signed X3DH initialization / registered sender identity binding (October 12)
 
 A sender's per-device Ed25519 signature authenticates its X3DH
