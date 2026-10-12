@@ -390,6 +390,30 @@ alternate device-registration paths and the full multi-device/outbox
 retry matrix remain part of the independent production readiness audit. None of these measures provides
 historical Double Ratchet recovery or a safe reaction compaction proof.
 
+### Send-preflight sender-device revocation ordering (October 12)
+
+The send-preflight endpoint returns the interaction epoch only after
+the trust pair is admitted. Earlier, it checked sender-device status
+*before* acquiring the peer trust-pair advisory lock, allowing a
+concurrent device revocation to commit while the request waited; the
+preflight could then report HTTP 200 from a stale active-device read.
+Message insertion itself was already protected and would reject a
+revoked sender, but that was an inconsistent and misleading preflight
+authorization.
+
+Preflight now acquires the trust-pair lock **first**, then takes the
+sender device row `FOR SHARE` and verifies that it is active before
+checking the trust policy and reading the interaction epoch. The
+share lock remains held until the preflight transaction finishes.
+If revocation commits first, the request fails with
+`DEVICE_REVOKED`; if the preflight locks the device first, revocation
+waits until the authorized preflight returns. A PostgreSQL integration
+regression forces revocation to win while preflight waits on the
+trust-pair lock. This guarantees an internally consistent
+preflight decision, not that a successful preflight authorizes
+a later message irrespective of intervening device changes; the
+send transaction still revalidates devices, roster and trust state.
+
 ### X3DH prekey bundle and device-key rotation atomicity (October 10)
 
 Follow-up security review found that the Direct prekey-claim transaction
