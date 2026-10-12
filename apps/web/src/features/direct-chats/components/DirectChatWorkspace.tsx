@@ -83,6 +83,7 @@ import {
   assertDirectHistoryCatchupBudget,
   inspectDirectHistoryGap,
   directReplyReference,
+  directSenderVerificationKeys,
   createDirectHumanMessage,
   createDirectReaction,
   advanceDirectHistoryHead,
@@ -2465,12 +2466,10 @@ async function decryptPage(detail: DirectConversationView, items: DirectMessageV
       integrityConflict: true,
     }));
   }
-  const identityByDevice = new Map(
-    detail.devices.map((device) => [
-      device.id,
-      device.identityEd25519Public,
-    ]),
-  );
+  // Historical signed ciphertext remains verifiable after its original
+  // sender device is revoked. Revoked sender keys are provided separately
+  // from ACTIVE delivery devices by the authoritative Direct directory.
+  const identityByDevice = directSenderVerificationKeys(detail);
   // Keep every server-provided replica until the integrity-aware merge.
   // Keying by message.id here would erase same-page equivocation evidence.
   const byMessage = new Map<DirectMessageView, DecryptedRow>();
@@ -2479,15 +2478,10 @@ async function decryptPage(detail: DirectConversationView, items: DirectMessageV
     BigInt(left.sequence) > BigInt(right.sequence) ? 1 : 0,
   );
   for (const message of chronological) {
-    const initIdentity =
-      message.envelope?.x3dhInit
-        ?.identityEd25519Public;
-    if (initIdentity) {
-      identityByDevice.set(
-        message.senderDeviceId,
-        initIdentity,
-      );
-    }
+    // Never adopt the X3DH initiation header's own claimed Ed25519
+    // identity as the signing-key authority for that same envelope.
+    // A malicious server could otherwise substitute an entire signed
+    // ciphertext/key pair before device key transparency is implemented.
     const senderPublic =
       identityByDevice.get(message.senderDeviceId);
     const result = await decryptMessageWithStatus({
