@@ -2497,6 +2497,105 @@ describe("direct chats API", () => {
 
   });
 
+  it("retains only conversation-scoped revoked sender signing keys for historical E2EE verification", async () => {
+    const alice = await readyUser(app, "dc-historical-signer-alice", "Alice");
+    const bob = await readyUser(app, "dc-historical-signer-bob", "Bob");
+    const charlie = await readyUser(app, "dc-historical-signer-charlie", "Charlie");
+    const aliceSender = await registerHarness(app, alice);
+    const aliceNeverSent = await registerHarness(app, alice);
+    const bobDevice = await registerHarness(app, bob);
+    await registerHarness(app, charlie);
+    const ab = await createChat(app, alice.cookies, bob.handle);
+    const ac = await createChat(app, alice.cookies, charlie.handle);
+
+    const clientMessageId = randomUUID();
+    const envelopes = [];
+    for (const recipient of ab.devices) {
+      envelopes.push(await encryptTo(
+        app, alice, aliceSender, recipient, ab.id, "HUMAN",
+        "historical signed message remains verifiable after revoke",
+        [], ab.interactionEpoch, clientMessageId,
+      ));
+    }
+    const sent = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/${ab.id}/messages`,
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: {
+        kind: "HUMAN",
+        clientMessageId,
+        contentCommitmentB64: testCommitmentForClientId(clientMessageId),
+        senderDeviceId: aliceSender.deviceId,
+        interactionEpoch: ab.interactionEpoch,
+        envelopes,
+        mentions: [],
+      },
+    });
+    expect(sent.statusCode).toBe(201);
+
+    for (const deviceId of [aliceSender.deviceId, aliceNeverSent.deviceId]) {
+      const revoked = await app.inject({
+        method: "POST",
+        url: `/v1/direct-chats/devices/${deviceId}/revoke`,
+        headers: { origin },
+        cookies: alice.cookies,
+      });
+      expect(revoked.statusCode).toBe(200);
+    }
+    const readDetail = async (id: string) => {
+      const res = await app.inject({
+        method: "GET",
+        url: `/v1/direct-chats/${id}`,
+        headers: { origin },
+        cookies: bob.cookies,
+      });
+      expect(res.statusCode).toBe(200);
+      return res.json() as DirectConversationView;
+    };
+    const afterRevocation = await readDetail(ab.id);
+    const activeIds = afterRevocation.devices.map((device) => device.id);
+    expect(activeIds).toContain(bobDevice.deviceId);
+    expect(activeIds).not.toContain(aliceSender.deviceId);
+    expect(activeIds).not.toContain(aliceNeverSent.deviceId);
+    expect(afterRevocation.historicalSenderIdentities).toEqual([
+      {
+        deviceId: aliceSender.deviceId,
+        identityEd25519Public: bytesToB64(aliceSender.identity.ed25519Public),
+      },
+    ]);
+
+    const history = await listMessages(app, bob, bobDevice.deviceId, ab.id);
+    const old = history.items.find((item) => item.id === sent.json().id);
+    expect(old?.envelope).toBeTruthy();
+    if (!old?.envelope) throw new Error("Original ciphertext missing");
+    expect(decryptFor(
+      bobDevice, aliceSender, ab.id, alice.id, "HUMAN",
+      old.envelope, clientMessageId,
+    )).toBe("historical signed message remains verifiable after revoke");
+
+    // The unsent revoked device must not be included merely because it
+    // belonged to Alice. Nor may Alice's old signing key leak through
+    // an unrelated Direct chat where it has never authored a message.
+    const otherDetail = await app.inject({
+      method: "GET",
+      url: `/v1/direct-chats/${ac.id}`,
+      headers: { origin },
+      cookies: charlie.cookies,
+    });
+    expect(otherDetail.statusCode).toBe(200);
+    expect((otherDetail.json() as DirectConversationView).historicalSenderIdentities).toEqual([]);
+
+    const revokedHistory = await app.inject({
+      method: "GET",
+      url: `/v1/direct-chats/${ab.id}/messages?deviceId=${aliceSender.deviceId}`,
+      headers: { origin },
+      cookies: alice.cookies,
+    });
+    expect(revokedHistory.statusCode).toBe(403);
+    expect(errorCode(revokedHistory)).toBe("direct_chat_device_revoked");
+  });
+
   it("returns DEVICE_REVOKED for message access through a revoked local device", async () => {
     const alice = await readyUser(
       app,
