@@ -1204,6 +1204,9 @@ model DirectMessage {
   @@unique([conversationId, senderUserId, clientMessageId])
   @@unique([conversationId, sequence])
   @@index([conversationId, createdAt, id])
+  // Bounded grouped lookup of revoked historical signing devices for one
+  // Direct conversation, without streaming the full encrypted event log.
+  @@index([conversationId, senderDeviceId])
   @@index([senderDeviceId, createdAt])
   @@index([conversationId, reactionTargetTagB64, sequence])
   @@map("direct_message")
