@@ -9,6 +9,8 @@ import {
 } from "vitest";
 import type { NestFastifyApplication } from "@nestjs/platform-fastify";
 import {
+  b64ToBytes,
+  buildAssociatedData,
   bytesToB64,
   decryptEnvelope,
   encryptEnvelope,
@@ -19,7 +21,10 @@ import {
   initRatchetResponder,
   serializeDirectRoutingMentions,
   serializeDirectReactionTargetTag,
+  signDirectMessage,
+  signaturePayload,
   utf8,
+  verifyDirectMessage,
   x3dhInitiate,
   x3dhRespond,
   type IdentityKeyPair,
@@ -537,6 +542,117 @@ describe("direct chats API", () => {
     expect(await db.userCryptoDevice.count({
       where: { userId: bob.id, revokedAt: null },
     })).toBe(2);
+  });
+
+  it("rejects sender-signed X3DH headers whose device identity contradicts the registered keys", async () => {
+    const alice = await readyUser(app, "dc-x3dh-identity-binding-alice", "Alice");
+    const bob = await readyUser(app, "dc-x3dh-identity-binding-bob", "Bob");
+    const aliceDevice = await registerHarness(app, alice);
+    const bobDevice = await registerHarness(app, bob);
+    const chat = await createChat(app, alice.cookies, bob.handle);
+    const clientMessageId = randomUUID();
+    const contentCommitmentB64 = testCommitmentForClientId(clientMessageId);
+    const envelopes = [];
+    for (const recipient of chat.devices) {
+      envelopes.push(await encryptTo(
+        app, alice, aliceDevice, recipient, chat.id, "HUMAN",
+        "A valid signed message with a matching X3DH sender identity",
+        [], chat.interactionEpoch, clientMessageId,
+      ));
+    }
+    const recipientIndex = envelopes.findIndex(
+      (envelope) => envelope.recipientDeviceId === bobDevice.deviceId,
+    );
+    const targetEnvelope = envelopes[recipientIndex];
+    if (!targetEnvelope?.x3dhInit) {
+      throw new Error("Missing recipient X3DH initialization");
+    }
+    const replacementIdentity = generateIdentity();
+    const otherKeys = {
+      identityEd25519Public: bytesToB64(replacementIdentity.ed25519Public),
+      identityX25519Public: bytesToB64(replacementIdentity.x25519Public),
+    };
+
+    for (const keyName of ["identityEd25519Public", "identityX25519Public"] as const) {
+      // Forge a DIFFERENT identity in X3DH's init transcript, then sign
+      // the entire modified envelope with Alice's legitimate Ed25519 key.
+      // This is NOT a bad-signature test: the resulting signature verifies,
+      // but the X3DH identity no longer belongs to the registered device.
+      const modifiedInit = {
+        ...targetEnvelope.x3dhInit,
+        [keyName]: otherKeys[keyName],
+      };
+      const associated = buildAssociatedData({
+        conversationId: chat.id,
+        senderUserId: alice.id,
+        senderDeviceId: aliceDevice.deviceId,
+        clientMessageId,
+        contentCommitmentB64,
+        recipientDeviceId: bobDevice.deviceId,
+        kind: "HUMAN",
+        interactionEpoch: chat.interactionEpoch,
+      });
+      const payload = signaturePayload(
+        b64ToBytes(targetEnvelope.headerB64),
+        b64ToBytes(targetEnvelope.ciphertextB64),
+        associated,
+        modifiedInit,
+      );
+      const signature = signDirectMessage(
+        aliceDevice.identity.ed25519Secret,
+        payload,
+      );
+      expect(verifyDirectMessage(
+        aliceDevice.identity.ed25519Public,
+        payload,
+        signature,
+      )).toBe(true);
+
+      const modifiedEnvelopes = [...envelopes];
+      modifiedEnvelopes[recipientIndex] = {
+        ...targetEnvelope,
+        x3dhInit: modifiedInit,
+        senderSignatureB64: bytesToB64(signature),
+      };
+      const rejected = await app.inject({
+        method: "POST",
+        url: `/v1/direct-chats/${chat.id}/messages`,
+        headers: jsonHeaders(),
+        cookies: alice.cookies,
+        payload: {
+          clientMessageId,
+          contentCommitmentB64,
+          senderDeviceId: aliceDevice.deviceId,
+          interactionEpoch: chat.interactionEpoch,
+          kind: "HUMAN",
+          mentions: [],
+          envelopes: modifiedEnvelopes,
+        },
+      });
+      expect(rejected.statusCode).toBe(400);
+      expect(await app.get(PrismaService).client.directMessage.count({
+        where: { conversationId: chat.id, clientMessageId },
+      })).toBe(0);
+    }
+
+    // The original immutable envelopes were valid all along; only their
+    // authenticated device identity had been contradicted above.
+    const accepted = await app.inject({
+      method: "POST",
+      url: `/v1/direct-chats/${chat.id}/messages`,
+      headers: jsonHeaders(),
+      cookies: alice.cookies,
+      payload: {
+        clientMessageId,
+        contentCommitmentB64,
+        senderDeviceId: aliceDevice.deviceId,
+        interactionEpoch: chat.interactionEpoch,
+        kind: "HUMAN",
+        mentions: [],
+        envelopes,
+      },
+    });
+    expect(accepted.statusCode).toBe(201);
   });
 
   it("rejects an in-flight signed reaction if a new recipient device joins before insert", async () => {
