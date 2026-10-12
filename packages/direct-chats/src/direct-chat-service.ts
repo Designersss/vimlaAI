@@ -1234,17 +1234,15 @@ export class DirectChatService {
           actorUserId,
           peer.userId,
         ),
-        // Keep revoked device signing keys available only when that device
-        // actually authored ciphertext in THIS conversation. Merely being
-        // registered to a participant does not expose a historical device.
-        // PostgreSQL groups sender IDs instead of returning every event in
-        // potentially years-long encrypted histories.
+        // Group signed event owners within THIS conversation without
+        // downloading the event log. Derive ACTIVE vs historical-only
+        // identities from the same loaded device roster snapshot below.
+        // Re-reading revokedAt here could create contradictory active and
+        // revoked records if a device is revoked between these two DB
+        // reads, falsely poisoning an otherwise authentic history page.
         this.db.directMessage.groupBy({
           by: ["senderDeviceId"],
-          where: {
-            conversationId: conversation.id,
-            senderDevice: { revokedAt: { not: null } },
-          },
+          where: { conversationId: conversation.id },
         }),
       ]);
     const summary = this.toSummary(
