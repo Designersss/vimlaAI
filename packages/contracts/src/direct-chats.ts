@@ -293,6 +293,7 @@ export const directConversationViewSchema = directConversationSummarySchema.exte
   historicalSenderIdentities: z.array(z.object({
     deviceId: z.string().uuid(),
     identityEd25519Public: z.string().min(16).max(128),
+    identityX25519Public: z.string().min(16).max(128),
   }).strict()),
 });
 export type DirectConversationView = z.infer<typeof directConversationViewSchema>;
