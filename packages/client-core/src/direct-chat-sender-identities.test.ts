@@ -21,7 +21,7 @@ function device(id: string, revoked = false): CryptoDeviceView {
 
 function message(
   sender: CryptoDeviceView,
-  initOverride: Partial<NonNullable<DirectMessageView["envelope"]>["x3dhInit"]> = {},
+  initOverride: Partial<NonNullable<NonNullable<DirectMessageView["envelope"]>["x3dhInit"]>> = {},
 ): DirectMessageView {
   const init = {
     identityEd25519Public: sender.identityEd25519Public,
