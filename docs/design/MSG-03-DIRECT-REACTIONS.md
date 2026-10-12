@@ -390,6 +390,38 @@ alternate device-registration paths and the full multi-device/outbox
 retry matrix remain part of the independent production readiness audit. None of these measures provides
 historical Double Ratchet recovery or a safe reaction compaction proof.
 
+### Signed X3DH initialization / registered sender identity binding (October 12)
+
+A sender's per-device Ed25519 signature authenticates its X3DH
+initiation header as *sender-chosen bytes*, but it does not by itself
+prove that the header's `identityEd25519Public` and
+`identityX25519Public` match the device keys already registered in
+the authoritative Direct directory. Previously, the server checked
+the envelope signature and the claimed `senderDeviceId` but did not
+cross-check either identity field in a non-null X3DH initialization.
+A sender capable of signing ciphertext could therefore publish a
+contradictory long-lived X25519 identity under the same registered
+device ID, making peer sessions disagree about which device key
+was used for the X3DH transcript.
+
+For **new** encrypted messages, the server now requires both
+initialization identity fields to equal the stored registered
+sender-device keys before durable insertion. This applies to all
+Direct envelope kinds, including encrypted reaction controls, with
+no new plaintext metadata or wire changes. A real PostgreSQL
+integration regression creates valid envelopes, substitutes first
+the X25519 and then the Ed25519 identity in the init header, **re-signs
+each substituted header with the legitimate sender Ed25519 private
+key**, proves the signature is valid, and requires the server to
+reject both attempts without a message row. The original signed
+envelopes continue to pass.
+
+This closes an honest-server directory/handshake consistency gap,
+**not** malicious-server key-substitution or key-transparency threats.
+The client currently obtains sender device keys from the server;
+separate peer-identity verification, transparency, and cross-device
+pinning remain in security track #54.
+
 ### X3DH optional one-time-prekey consistency (October 12)
 
 An independent E2EE code review identified an existing crypto-library
