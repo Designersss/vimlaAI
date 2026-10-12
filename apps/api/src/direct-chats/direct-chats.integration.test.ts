@@ -2562,6 +2562,7 @@ describe("direct chats API", () => {
       {
         deviceId: aliceSender.deviceId,
         identityEd25519Public: bytesToB64(aliceSender.identity.ed25519Public),
+        identityX25519Public: bytesToB64(aliceSender.identity.x25519Public),
       },
     ]);
 
