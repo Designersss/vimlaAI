@@ -1265,6 +1265,7 @@ export class DirectChatService {
         .map((device) => ({
           deviceId: device.id,
           identityEd25519Public: device.identityEd25519Public,
+          identityX25519Public: device.identityX25519Public,
         })),
     );
     return {
