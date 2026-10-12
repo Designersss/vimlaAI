@@ -1087,7 +1087,11 @@ export class DirectChatService {
 
   private assertEnvelope(
     envelope: WireEnvelopeDto,
-    senderDevice: { id: string; identityEd25519Public: string },
+    senderDevice: {
+      id: string;
+      identityEd25519Public: string;
+      identityX25519Public: string;
+    },
     devicesById: Map<string, { id: string; revokedAt: Date | null }>,
     ad: {
       conversationId: string;
@@ -1102,6 +1106,21 @@ export class DirectChatService {
   ): void {
     if (envelope.ciphertextB64.length > this.options.maxCiphertextBytes) {
       throw new DirectChatError("VALIDATION_ERROR", "Ciphertext is too large");
+    }
+    // The X3DH header is covered by the sender's Ed25519 envelope
+    // signature, but the signature alone does not establish that the
+    // header's long-lived X25519 identity belongs to that registered
+    // sender device. Prevent a signed yet contradictory key directory
+    // transcript from entering the durable per-device ratchet stream.
+    if (envelope.x3dhInit &&
+        (envelope.x3dhInit.identityEd25519Public !==
+          senderDevice.identityEd25519Public ||
+         envelope.x3dhInit.identityX25519Public !==
+          senderDevice.identityX25519Public)) {
+      throw new DirectChatError(
+        "TAMPERED",
+        "X3DH sender identity does not match the registered device",
+      );
     }
     const recipient = devicesById.get(envelope.recipientDeviceId);
     if (!recipient || recipient.revokedAt) {
