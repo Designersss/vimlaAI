@@ -6,7 +6,11 @@ export {
   type PreparedDirectChatContext,
 } from "./direct-chat-context.js";
 export { advanceDirectHistoryHead, reconcileDirectHistoryHead, applyDirectPrivacyAcknowledgement } from "./direct-chat-history-head.js";
-export { directSenderVerificationKeys } from "./direct-chat-sender-identities.js";
+export {
+  directSenderVerificationKeys,
+  hasConflictingDirectX3dhSenderIdentity,
+  type DirectSenderIdentity,
+} from "./direct-chat-sender-identities.js";
 export { directMessageReplicaFingerprint, sameDirectMessageReplica, hasConflictingDirectMessageReplicas, mergeDirectMessageReplicaRows, type DirectMessageReplicaRow } from "./direct-chat-message-replica.js";
 export { validateDirectReactionLookupPage } from "./direct-chat-reaction-history-lookup.js";
 export {
